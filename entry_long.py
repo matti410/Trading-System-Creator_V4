@@ -8,12 +8,20 @@ booleana della stessa lunghezza: True dove il trigger scatta.
 Tutte le funzioni restituiscono EVENTI (una sola barra True per
 occorrenza), non stati.
 
-`aggiungi_trigger_long(df)` in fondo al file chiama tutte le funzioni
-e restituisce il df con una colonna in più per ciascun trigger.
+Due funzioni d'uso, in fondo al file:
+
+  aggiungi_trigger_long(df)   calcola tutti i trigger e li aggiunge come
+                               colonne al df (usalo quando ti servono le
+                               colonne, es. per ispezionarle a mano).
+
+  registra_trigger_long()     registra tutte le funzioni nel motore
+                               (engine.registry), cosi' run_event_study
+                               le trova da solo. Va chiamata prima di
+                               run_event_study.
 
 Per aggiungere un nuovo trigger:
 1. scrivere una nuova funzione `entry_*(df) -> pd.Series`
-2. aggiungerla al dizionario dentro `aggiungi_trigger_long`
+2. aggiungerla al dizionario `TRIGGER_LONG` qui sotto
 """
 import pandas as pd
 import talib
@@ -239,46 +247,68 @@ def entry_belt_hold_confirmed(df: pd.DataFrame) -> pd.Series:
 
 
 # =========================================================================
+# Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
+# un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
+# =========================================================================
+TRIGGER_LONG = {
+    "E1_RSI_CROSS_OVERSOLD": entry_rsi_cross_oversold,
+    "E2_ZLEMA_CROSS_UP": entry_zlema_cross_up,
+    "E3_LONG_INTRABAR_WEAKNESS_FADE": entry_long_intrabar_weakness_fade,
+    "E4_EMA_CROSS_UP": entry_ema_cross_up,
+    "E5_QUICK_PULLBACK": entry_quick_pullback,
+    "E6_BACK_IN_STYLE": entry_back_in_style,
+    "E7_BIG_TAIL_BARS": entry_big_tail_bars,
+    "E8_CLOSING_PATTERN_ONLY": entry_closing_pattern_only,
+    "E9_CLOSING_PATTERN_ONLY_II": entry_closing_pattern_only_ii,
+    "E10_HAMMER": entry_hammer,
+    "E11_INVERTED_HAMMER": entry_inverted_hammer,
+    "E11_INVERTED_HAMMER_CONFIRMED": entry_inverted_hammer_confirmed,
+    "E12_ENGULFING": entry_engulfing,
+    "E12_ENGULFING_CONFIRMED": entry_engulfing_confirmed,
+    "E13_HARAMI": entry_harami,
+    "E13_HARAMI_CONFIRMED": entry_harami_confirmed,
+    "E14_HARAMI_CROSS": entry_harami_cross,
+    "E14_HARAMI_CROSS_CONFIRMED": entry_harami_cross_confirmed,
+    "E15_PIERCING": entry_piercing,
+    "E16_MORNING_STAR": entry_morning_star,
+    "E17_THREE_INSIDE": entry_three_inside,
+    "E18_THREE_OUTSIDE": entry_three_outside,
+    "E19_THREE_WHITE_SOLDIERS": entry_three_white_soldiers,
+    "E20_MARUBOZU": entry_marubozu,
+    "E21_BELT_HOLD": entry_belt_hold,
+    "E21_BELT_HOLD_CONFIRMED": entry_belt_hold_confirmed,
+}
+
+
 def aggiungi_trigger_long(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calcola tutti i trigger long e li aggiunge come colonne al df.
     Non modifica il df originale: ne restituisce una copia.
-
-    Per aggiungere un nuovo trigger: scrivere la funzione qui sopra e
-    aggiungere una riga al dizionario `trigger` qui sotto.
     """
     df = df.copy()
-
-    trigger = {
-        "E1_RSI_CROSS_OVERSOLD": entry_rsi_cross_oversold(df),
-        "E2_ZLEMA_CROSS_UP": entry_zlema_cross_up(df),
-        "E3_LONG_INTRABAR_WEAKNESS_FADE": entry_long_intrabar_weakness_fade(df),
-        "E4_EMA_CROSS_UP": entry_ema_cross_up(df),
-        "E5_QUICK_PULLBACK": entry_quick_pullback(df),
-        "E6_BACK_IN_STYLE": entry_back_in_style(df),
-        "E7_BIG_TAIL_BARS": entry_big_tail_bars(df),
-        "E8_CLOSING_PATTERN_ONLY": entry_closing_pattern_only(df),
-        "E9_CLOSING_PATTERN_ONLY_II": entry_closing_pattern_only_ii(df),
-        "E10_HAMMER": entry_hammer(df),
-        "E11_INVERTED_HAMMER": entry_inverted_hammer(df),
-        "E11_INVERTED_HAMMER_CONFIRMED": entry_inverted_hammer_confirmed(df),
-        "E12_ENGULFING": entry_engulfing(df),
-        "E12_ENGULFING_CONFIRMED": entry_engulfing_confirmed(df),
-        "E13_HARAMI": entry_harami(df),
-        "E13_HARAMI_CONFIRMED": entry_harami_confirmed(df),
-        "E14_HARAMI_CROSS": entry_harami_cross(df),
-        "E14_HARAMI_CROSS_CONFIRMED": entry_harami_cross_confirmed(df),
-        "E15_PIERCING": entry_piercing(df),
-        "E16_MORNING_STAR": entry_morning_star(df),
-        "E17_THREE_INSIDE": entry_three_inside(df),
-        "E18_THREE_OUTSIDE": entry_three_outside(df),
-        "E19_THREE_WHITE_SOLDIERS": entry_three_white_soldiers(df),
-        "E20_MARUBOZU": entry_marubozu(df),
-        "E21_BELT_HOLD": entry_belt_hold(df),
-        "E21_BELT_HOLD_CONFIRMED": entry_belt_hold_confirmed(df),
-    }
-
-    for nome_colonna, serie in trigger.items():
-        df[nome_colonna] = serie
-
+    for nome_colonna, funzione in TRIGGER_LONG.items():
+        df[nome_colonna] = funzione(df)
     return df
+
+
+def registra_trigger_long():
+    """
+    Registra tutti i trigger long nel motore (engine.registry), cosi'
+    run_event_study (e il resto del framework) li trova da solo.
+
+    Va chiamata una volta prima di run_event_study. E' sicura da
+    richiamare piu' volte nella stessa sessione: i nomi gia' registrati
+    vengono saltati con un avviso, non sollevano errore.
+    """
+    from engine.registry import register_entry, list_entries
+
+    gia_presenti = set(list_entries())
+    nuovi = 0
+    for nome, funzione in TRIGGER_LONG.items():
+        if nome in gia_presenti:
+            print(f"[registra_trigger_long] '{nome}' gia' registrata, salto.")
+            continue
+        register_entry(nome, direction=1)(funzione)
+        nuovi += 1
+    print(f"[registra_trigger_long] {nuovi} entry long registrate "
+          f"({len(TRIGGER_LONG) - nuovi} gia' presenti).")

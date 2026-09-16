@@ -8,12 +8,20 @@ booleana della stessa lunghezza: True dove il trigger scatta.
 Tutte le funzioni restituiscono EVENTI (una sola barra True per
 occorrenza), non stati.
 
-`aggiungi_trigger_short(df)` in fondo al file chiama tutte le funzioni
-e restituisce il df con una colonna in più per ciascun trigger.
+Due funzioni d'uso, in fondo al file:
+
+  aggiungi_trigger_short(df)   calcola tutti i trigger e li aggiunge come
+                                colonne al df (usalo quando ti servono le
+                                colonne, es. per ispezionarle a mano).
+
+  registra_trigger_short()     registra tutte le funzioni nel motore
+                                (engine.registry), cosi' run_event_study
+                                le trova da solo. Va chiamata prima di
+                                run_event_study.
 
 Per aggiungere un nuovo trigger:
 1. scrivere una nuova funzione `entry_*(df) -> pd.Series`
-2. aggiungerla al dizionario dentro `aggiungi_trigger_short`
+2. aggiungerla al dizionario `TRIGGER_SHORT` qui sotto
 """
 import pandas as pd
 import talib
@@ -223,46 +231,68 @@ def entry_short_belt_hold_confirmed(df: pd.DataFrame) -> pd.Series:
 
 
 # =========================================================================
+# Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
+# un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
+# =========================================================================
+TRIGGER_SHORT = {
+    "E1_SHORT_RSI_CROSS_OVERBOUGHT": entry_short_rsi_cross_overbought,
+    "E2_SHORT_ZLEMA_CROSS_DOWN": entry_short_zlema_cross_down,
+    "E3_SHORT_INTRABAR_STRENGTH_FADE": entry_short_intrabar_strength_fade,
+    "E4_SHORT_EMA_CROSS_DOWN": entry_short_ema_cross_down,
+    "E5_SHORT_QUICK_PULLBACK": entry_short_quick_pullback,
+    "E6_SHORT_BACK_IN_STYLE": entry_short_back_in_style,
+    "E7_SHORT_BIG_TAIL_BARS": entry_short_big_tail_bars,
+    "E8_SHORT_CLOSING_PATTERN_ONLY": entry_short_closing_pattern_only,
+    "E9_SHORT_CLOSING_PATTERN_ONLY_II": entry_short_closing_pattern_only_ii,
+    "E10_SHORT_HANGING_MAN": entry_short_hanging_man,
+    "E11_SHORT_SHOOTING_STAR": entry_short_shooting_star,
+    "E11_SHORT_SHOOTING_STAR_CONFIRMED": entry_short_shooting_star_confirmed,
+    "E12_SHORT_ENGULFING": entry_short_engulfing,
+    "E12_SHORT_ENGULFING_CONFIRMED": entry_short_engulfing_confirmed,
+    "E13_SHORT_HARAMI": entry_short_harami,
+    "E13_SHORT_HARAMI_CONFIRMED": entry_short_harami_confirmed,
+    "E14_SHORT_HARAMI_CROSS": entry_short_harami_cross,
+    "E14_SHORT_HARAMI_CROSS_CONFIRMED": entry_short_harami_cross_confirmed,
+    "E15_SHORT_DARK_CLOUD_COVER": entry_short_dark_cloud_cover,
+    "E16_SHORT_EVENING_STAR": entry_short_evening_star,
+    "E17_SHORT_THREE_INSIDE": entry_short_three_inside,
+    "E18_SHORT_THREE_OUTSIDE": entry_short_three_outside,
+    "E19_SHORT_THREE_BLACK_CROWS": entry_short_three_black_crows,
+    "E20_SHORT_MARUBOZU": entry_short_marubozu,
+    "E21_SHORT_BELT_HOLD": entry_short_belt_hold,
+    "E21_SHORT_BELT_HOLD_CONFIRMED": entry_short_belt_hold_confirmed,
+}
+
+
 def aggiungi_trigger_short(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calcola tutti i trigger short e li aggiunge come colonne al df.
     Non modifica il df originale: ne restituisce una copia.
-
-    Per aggiungere un nuovo trigger: scrivere la funzione qui sopra e
-    aggiungere una riga al dizionario `trigger` qui sotto.
     """
     df = df.copy()
-
-    trigger = {
-        "E1_SHORT_RSI_CROSS_OVERBOUGHT": entry_short_rsi_cross_overbought(df),
-        "E2_SHORT_ZLEMA_CROSS_DOWN": entry_short_zlema_cross_down(df),
-        "E3_SHORT_INTRABAR_STRENGTH_FADE": entry_short_intrabar_strength_fade(df),
-        "E4_SHORT_EMA_CROSS_DOWN": entry_short_ema_cross_down(df),
-        "E5_SHORT_QUICK_PULLBACK": entry_short_quick_pullback(df),
-        "E6_SHORT_BACK_IN_STYLE": entry_short_back_in_style(df),
-        "E7_SHORT_BIG_TAIL_BARS": entry_short_big_tail_bars(df),
-        "E8_SHORT_CLOSING_PATTERN_ONLY": entry_short_closing_pattern_only(df),
-        "E9_SHORT_CLOSING_PATTERN_ONLY_II": entry_short_closing_pattern_only_ii(df),
-        "E10_SHORT_HANGING_MAN": entry_short_hanging_man(df),
-        "E11_SHORT_SHOOTING_STAR": entry_short_shooting_star(df),
-        "E11_SHORT_SHOOTING_STAR_CONFIRMED": entry_short_shooting_star_confirmed(df),
-        "E12_SHORT_ENGULFING": entry_short_engulfing(df),
-        "E12_SHORT_ENGULFING_CONFIRMED": entry_short_engulfing_confirmed(df),
-        "E13_SHORT_HARAMI": entry_short_harami(df),
-        "E13_SHORT_HARAMI_CONFIRMED": entry_short_harami_confirmed(df),
-        "E14_SHORT_HARAMI_CROSS": entry_short_harami_cross(df),
-        "E14_SHORT_HARAMI_CROSS_CONFIRMED": entry_short_harami_cross_confirmed(df),
-        "E15_SHORT_DARK_CLOUD_COVER": entry_short_dark_cloud_cover(df),
-        "E16_SHORT_EVENING_STAR": entry_short_evening_star(df),
-        "E17_SHORT_THREE_INSIDE": entry_short_three_inside(df),
-        "E18_SHORT_THREE_OUTSIDE": entry_short_three_outside(df),
-        "E19_SHORT_THREE_BLACK_CROWS": entry_short_three_black_crows(df),
-        "E20_SHORT_MARUBOZU": entry_short_marubozu(df),
-        "E21_SHORT_BELT_HOLD": entry_short_belt_hold(df),
-        "E21_SHORT_BELT_HOLD_CONFIRMED": entry_short_belt_hold_confirmed(df),
-    }
-
-    for nome_colonna, serie in trigger.items():
-        df[nome_colonna] = serie
-
+    for nome_colonna, funzione in TRIGGER_SHORT.items():
+        df[nome_colonna] = funzione(df)
     return df
+
+
+def registra_trigger_short():
+    """
+    Registra tutti i trigger short nel motore (engine.registry), cosi'
+    run_event_study (e il resto del framework) li trova da solo.
+
+    Va chiamata una volta prima di run_event_study. E' sicura da
+    richiamare piu' volte nella stessa sessione: i nomi gia' registrati
+    vengono saltati con un avviso, non sollevano errore.
+    """
+    from engine.registry import register_entry, list_entries
+
+    gia_presenti = set(list_entries())
+    nuovi = 0
+    for nome, funzione in TRIGGER_SHORT.items():
+        if nome in gia_presenti:
+            print(f"[registra_trigger_short] '{nome}' gia' registrata, salto.")
+            continue
+        register_entry(nome, direction=-1)(funzione)
+        nuovi += 1
+    print(f"[registra_trigger_short] {nuovi} entry short registrate "
+          f"({len(TRIGGER_SHORT) - nuovi} gia' presenti).")
