@@ -284,7 +284,7 @@ def registra_trigger_short():
     richiamare piu' volte nella stessa sessione: i nomi gia' registrati
     vengono saltati con un avviso, non sollevano errore.
     """
-    from registry import register_entry, list_entries
+    from engine.registry import register_entry, list_entries
 
     gia_presenti = set(list_entries())
     nuovi = 0
