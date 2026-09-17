@@ -24,7 +24,8 @@ per ogni barra si misura quanto sarebbe andato in rosso/verde un trade
 aperto li' e tenuto n barre; lo stop/target del trade che si apre ora e'
 il percentile richiesto di quelle escursioni sulle ultime `finestra`
 occorrenze CONCLUSE, lette con un ritardo di n + lag barre per evitare
-di guardare nel futuro.
+di guardare nel futuro. Dal 17/9/2026 sono disattivate per default
+(perc_sl=0, perc_tp=0): restano disponibili, ma non si attivano da sole.
 
 COME SI APPLICA DENTRO backtesting.py
 --------------------------------------
@@ -44,6 +45,34 @@ corrente con `trade.entry_bar`. La chiusura viene richiesta un barra
 PRIMA del traguardo (soglia = n_barre - 1), perche' anche la chiusura,
 come ogni ordine di mercato, si riempie alla barra successiva: cosi'
 `exit_bar - entry_bar` risulta esattamente n_barre, non n_barre + 1.
+Resta il paracadute finale anche quando e' attiva una regola di uscita:
+se la regola non scatta mai, il trade chiude comunque qui.
+
+L'USCITA A REGOLA — SOLO COPPIE SPECULARI (aggiunta 17/9/2026, ristretta
+a coppie lo stesso giorno — MODIFICA NON ADDITIVA dichiarata, stesso file
+gia' modificato una volta per lo stop/target adattivo)
+--------------------------------------------------------------------
+Non due nomi indipendenti per lato: UNA sola etichetta `pair`, presa da
+engine.registry.list_exit_pairs() — una condizione long e una short
+registrate con lo stesso `pair` (es. "RSI_EXTREME" -> X1_RSI_OVERBOUGHT
+lato long, X1_SHORT_RSI_OVERSOLD lato short). Impedisce strutturalmente
+di accoppiare per errore una regola long con una short di un'idea
+diversa (RSI long con MACD short, per dire).
+
+Perche' solo coppie: in questo passo le ENTRY sono gia' state scelte e
+restano fisse — l'unica dimensione che si sta esplorando e' l'uscita.
+Un cartesiano libero fra exit long ed exit short moltiplicherebbe le
+combinazioni provate senza un motivo economico (perche' mai una regola
+long dovrebbe uscire su un segnale MACD mentre lo short esce su RSI?),
+aumentando solo il rischio di trovare un vincitore per puro overfitting
+sull'In-Sample — che poi crolla in Out-of-Sample. Restringere a coppie
+riduce i gradi di liberta' inutili qui; non sostituisce la verifica vera
+(due_meta, poi l'Out-of-Sample), che va comunque fatta a valle.
+
+`exit_rule_pairs` accetta un'etichetta, una lista di etichette, o None
+(nessuna regola: solo stop/target se attivi e tetto a tempo) — non e'
+ancora una griglia annidata con le entry, e' un parametro della griglia
+al pari di n_barre.
 
 SEGNALI SCARTATI A INIZIO/FINE SERIE
 --------------------------------------
@@ -51,8 +80,11 @@ Dove la soglia non e' ancora calcolabile (avvio della serie, finestra non
 piena) il segnale di ingresso viene disattivato PRIMA di passare i dati a
 backtesting.py — stessa filosofia di exit_search.py: un segnale che non
 puo' avere uno stop/target viene ignorato, non tradato senza protezione.
+Le regole di uscita non hanno questo problema (non dipendono da una
+finestra mobile) e non vengono filtrate.
 
-Modulo ADDITIVO: usa registry.py in sola lettura, non modifica nulla.
+Modulo ADDITIVO rispetto a registry.py: lo usa in sola lettura, non lo
+modifica.
 """
 from __future__ import annotations
 
@@ -63,7 +95,7 @@ import numpy as np
 import pandas as pd
 from backtesting import Backtest, Strategy
 
-from .registry import get_entry, get_entry_direction
+from .registry import get_entry, get_entry_direction, get_exit, list_exit_pairs
 from .event_study import deduci_pip
 
 
@@ -116,11 +148,16 @@ def soglie_adattive(df, n, finestra=500, perc_sl=90.0, perc_tp=90.0,
 class _StrategiaGenerica(Strategy):
     """
     Legge quale colonna del df usare per il lato long e per il lato short
-    da `long_col`/`short_col` (nomi di colonna, o None), impostati a ogni
-    chiamata con bt.run(long_col=..., short_col=..., n_barre=...).
+    da `long_col`/`short_col` (nomi di colonna, o None), e quale colonna
+    tiene la regola di uscita per ciascun lato da
+    `exit_rule_long_col`/`exit_rule_short_col` (nomi di colonna, o None) —
+    impostati a ogni chiamata con bt.run(...). Le due colonne di uscita
+    appartengono sempre alla STESSA coppia speculare (vedi run_exit_search_bt).
     """
     long_col = None
     short_col = None
+    exit_rule_long_col = None
+    exit_rule_short_col = None
     n_barre = 32
 
     def init(self):
@@ -148,6 +185,12 @@ class _StrategiaGenerica(Strategy):
                     if not np.isnan(frac_tp):
                         trade.tp = trade.entry_price * (1 - frac_tp)
 
+            # regola di uscita: chiude PRIMA del tetto a tempo se scatta
+            col_regola = self.exit_rule_long_col if trade.is_long else self.exit_rule_short_col
+            if col_regola is not None and bool(getattr(self.data, col_regola)[-1]):
+                self.position.close()
+                return
+
             # chiusura richiesta una barra prima del traguardo: anche lei
             # si riempie alla barra successiva (vedi docstring del modulo)
             if barra_corrente - trade.entry_bar >= self.n_barre - 1:
@@ -174,8 +217,9 @@ def run_exit_search_bt(
     entry_cols_long=None,
     entry_cols_short=None,
     n_barre=32,
-    perc_sl=90.0,
-    perc_tp=70.0,
+    exit_rule_pairs=None,
+    perc_sl=0.0,
+    perc_tp=0.0,
     finestra=500,
     lag=1,
     spread=0.0,
@@ -187,9 +231,10 @@ def run_exit_search_bt(
     verbose=True,
 ):
     """
-    Cerca, per una griglia di trigger long/short, la combinazione
-    migliore con uscita a tempo esatta (n_barre) + stop/target adattivi,
-    usando backtesting.py.
+    Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
+    al passo precedente) e una griglia di coppie di uscita a regola,
+    la combinazione migliore con uscita a tempo esatta (n_barre) +
+    stop/target adattivi (se attivi), usando backtesting.py.
 
     entry_cols_long / entry_cols_short
         Liste di nomi di condizioni registrate. Un elemento puo' essere
@@ -197,19 +242,30 @@ def run_exit_search_bt(
         combinazione"): utile per confrontare, nella stessa tabella, un
         sistema bidirezionale con la sua versione solo long o solo short.
         L'intero parametro puo' anche essere None: equivale a [None].
-        Si eseguono tanti backtest quante le combinazioni del prodotto
-        cartesiano fra le due liste, scartando (None, None) — nessun
-        ingresso, nessun trade, riga priva di senso.
+        Le combinazioni (None, None) — nessun ingresso — sono scartate a
+        prescindere dalla coppia di uscita scelta.
 
     n_barre
         UN SOLO orizzonte di uscita forzata (a differenza di
         exit_search.py, qui non e' una lista: e' il primo passo di una
-        griglia sulle entry, non ancora sugli orizzonti).
+        griglia sulle entry, non ancora sugli orizzonti). Resta il
+        paracadute finale anche quando una coppia di uscita e' attiva.
+
+    exit_rule_pairs
+        Un'etichetta `pair` (str), una lista di etichette, o None. Ogni
+        etichetta viene risolta con engine.registry.list_exit_pairs() in
+        UNA condizione Exit long + UNA Exit short registrate con lo
+        stesso `pair` — mai un lato scelto indipendentemente dall'altro
+        (vedi il docstring del modulo per il perche'). None nella lista
+        equivale a "nessuna regola di uscita" per quella riga. Etichette
+        non trovate fra le coppie disponibili sollevano ValueError con
+        l'elenco di quelle valide.
 
     perc_sl / perc_tp
-        Percentili delle escursioni per stop e target adattivi. 0 o None
-        disattiva quella soglia (il trade resta protetto solo dall'altra
-        e/o dalla scadenza a tempo).
+        Percentili delle escursioni per stop e target adattivi. Default
+        0 (disattivati): la protezione, se la vuoi, va accesa a mano. 0 o
+        None disattiva quella soglia (il trade resta protetto solo
+        dall'altra, dalla regola di uscita e/o dalla scadenza a tempo).
 
     spread / commission
         Come in backtesting.py: spread applicato una volta all'ingresso,
@@ -242,17 +298,30 @@ def run_exit_search_bt(
 
     long_list = normalizza(entry_cols_long)
     short_list = normalizza(entry_cols_short)
+    pair_list = normalizza(exit_rule_pairs)
 
-    combinazioni = [(l, s) for l, s in product(long_list, short_list)
-                    if not (l is None and s is None)]
-    if not combinazioni:
+    # --- risoluzione delle coppie di uscita ------------------------------
+    pairs_disponibili = {p: (el, es) for p, el, es in list_exit_pairs()}
+    pair_richieste = {p for p in pair_list if p is not None}
+    mancanti = pair_richieste - set(pairs_disponibili)
+    if mancanti:
+        raise ValueError(
+            f"Coppia/e di uscita non trovata/e: {sorted(mancanti)}. "
+            f"Disponibili: {sorted(pairs_disponibili)}."
+        )
+
+    combinazioni_entry = [(l, s) for l, s in product(long_list, short_list)
+                          if not (l is None and s is None)]
+    if not combinazioni_entry:
         raise ValueError(
             "Nessuna combinazione valida: entry_cols_long ed entry_cols_short "
             "non possono essere entrambi None (o liste di soli None)."
         )
-    scartate = len(long_list) * len(short_list) - len(combinazioni)
+    combinazioni = [(l, s, p) for (l, s), p in product(combinazioni_entry, pair_list)]
+
+    scartate = len(long_list) * len(short_list) * len(pair_list) - len(combinazioni)
     if verbose and scartate:
-        print(f"{scartate} combinazione/i (None, None) scartata/e: nessun ingresso.")
+        print(f"{scartate} combinazione/i (None, None, *) scartata/e: nessun ingresso.")
 
     if verbose:
         for nome in long_list:
@@ -304,6 +373,17 @@ def run_exit_search_bt(
         dettaglio = ", ".join(f"{k}: {v}" for k, v in ignorati.items() if v)
         print(f"segnali ignorati per soglia non calcolabile — {dettaglio}")
 
+    # colonne delle coppie di uscita: una volta per pair unica, nessun
+    # filtro di validita' (non dipendono da una finestra mobile)
+    pair_cols = {None: (None, None)}
+    for pair in {p for p in pair_list if p is not None}:
+        nome_long, nome_short = pairs_disponibili[pair]
+        col_long = f"__exit_long__{pair}"
+        col_short = f"__exit_short__{pair}"
+        df_bt[col_long] = get_exit(nome_long)(df).astype(bool).to_numpy()
+        df_bt[col_short] = get_exit(nome_short)(df).astype(bool).to_numpy()
+        pair_cols[pair] = (col_long, col_short)
+
     # --- backtest, una sola costruzione, riusata per ogni combinazione --
     bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
                  commission=commission, margin=margin, exclusive_orders=True)
@@ -313,9 +393,10 @@ def run_exit_search_bt(
 
     righe = []
     trades_per_combo = {}
-    for l, s in combinazioni:
+    for l, s, pair in combinazioni:
         long_col = f"__long__{l}" if l is not None else None
         short_col = f"__short__{s}" if s is not None else None
+        exit_rule_long_col, exit_rule_short_col = pair_cols[pair]
         # L'eventuale trade ancora aperto sull'ultima barra della serie
         # viene escluso dai risultati (default di backtesting.py,
         # finalize_trades=False): non si e' mai concluso secondo le
@@ -325,11 +406,13 @@ def run_exit_search_bt(
         # e' previsto, testando molte combinazioni capita spesso.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            stats = bt.run(long_col=long_col, short_col=short_col, n_barre=n_barre)
+            stats = bt.run(long_col=long_col, short_col=short_col, n_barre=n_barre,
+                           exit_rule_long_col=exit_rule_long_col,
+                           exit_rule_short_col=exit_rule_short_col)
 
         trades = stats["_trades"]
         n_t = len(trades)
-        etichetta = f"L={l or '—'} · S={s or '—'}"
+        etichetta = f"L={l or '—'} · S={s or '—'} | X={pair or '—'}"
 
         if n_t:
             segno = np.where(trades["Size"] > 0, 1, -1)
@@ -347,6 +430,7 @@ def run_exit_search_bt(
             "combinazione": etichetta,
             "entry_long": l,
             "entry_short": s,
+            "exit_rule_pair": pair,
             "trades": n_t,
             "pnl_pct": float(stats["Return [%]"]),
             "sharpe": float(stats["Sharpe Ratio"]),
@@ -366,6 +450,7 @@ def run_exit_search_bt(
 
     if verbose:
         print(f"{len(combinazioni)} combinazioni · n_barre={n_barre} · "
+              f"coppie di uscita: {[p or '—' for p in pair_list]} · "
               f"stop adattivo {perc_sl}°/{perc_tp}° pct (finestra {finestra}) · "
               f"spread {spread:.5f} · commission {commission:.5f} · margin {margin}")
 
