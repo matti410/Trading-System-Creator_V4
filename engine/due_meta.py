@@ -177,7 +177,7 @@ def due_meta(df_is, fs, etichette,
     fs1 = run_filter_search_bt(metà1_df, **kwargs)
     fs2 = run_filter_search_bt(metà2_df, **kwargs)
 
-    cols = ["filtro", "filtro_long", "filtro_short", "trades", "sharpe",
+    cols = ["filtro", "filtro_long", "filtro_short", "trades", "pnl_pct", "sharpe",
             "guadagno_sharpe", "guadagno_avg_trade", "pochi_trade"]
     r1 = fs1.risultati[cols].copy()
     r2 = fs2.risultati[cols].copy()
@@ -205,6 +205,8 @@ def due_meta(df_is, fs, etichette,
                 print(f"  sharpe assoluto   metà1={riga['sharpe_metà1']:.3f}"
                       f"   metà2={riga['sharpe_metà2']:.3f}"
                       + ("   <-- cambia segno tra le due metà" if cambia_segno else ""))
+                print(f"  pnl_pct           metà1={riga['pnl_pct_metà1']:.3f}"
+                      f"   metà2={riga['pnl_pct_metà2']:.3f}")
                 if riga["filtro"] != BASELINE:
                     print(f"  guadagno_sharpe   metà1={riga['guadagno_sharpe_metà1']:.3f}"
                           f"   metà2={riga['guadagno_sharpe_metà2']:.3f}")
@@ -215,12 +217,14 @@ def due_meta(df_is, fs, etichette,
 
     colonne_finali = ["filtro", "filtro_long", "filtro_short",
                        "trades_metà1", "trades_metà2",
+                       "pnl_pct_metà1", "pnl_pct_metà2",
                        "sharpe_metà1", "sharpe_metà2",
                        "guadagno_sharpe_metà1", "guadagno_sharpe_metà2",
                        "guadagno_avg_trade_metà1", "guadagno_avg_trade_metà2",
                        "pochi_trade_metà1", "pochi_trade_metà2", "verdetto"]
     tabella = m[colonne_finali].copy()
-    colonne_float = ["sharpe_metà1", "sharpe_metà2",
+    colonne_float = ["pnl_pct_metà1", "pnl_pct_metà2",
+                      "sharpe_metà1", "sharpe_metà2",
                       "guadagno_sharpe_metà1", "guadagno_sharpe_metà2",
                       "guadagno_avg_trade_metà1", "guadagno_avg_trade_metà2"]
     tabella[colonne_float] = tabella[colonne_float].round(3)
