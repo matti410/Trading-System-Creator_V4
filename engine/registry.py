@@ -41,6 +41,7 @@ _ENTRY_DIRECTION: Dict[str, int] = {}
 # Direzione dei filtri: +1 long, -1 short, 0 neutro. Chi non la dichiara
 # resta 0, quindi il comportamento preesistente non cambia.
 _FILTER_DIRECTION: Dict[str, int] = {}
+_FILTER_PAIR: Dict[str, str] = {}
 _EXIT_DIRECTION: Dict[str, int] = {}
 _EXIT_PAIR: Dict[str, str] = {}
 
@@ -101,7 +102,7 @@ def register_exit(name: str, direction: int, pair: str | None = None):
     return decorator
 
 
-def register_filter(name: str, direction: int = 0):
+def register_filter(name: str, direction: int = 0, pair: str | None = None):
     """
     Decorator: registra una condizione di Filter. Si applica sempre in AND
     sull'entry.
@@ -118,14 +119,32 @@ def register_filter(name: str, direction: int = 0):
     Serve alla grid search dei filtri: su un sistema solo long si provano
     i neutri più quelli +1, e non si spreca il campione su filtri che per
     costruzione lavorano contro l'ingresso.
+
+    `pair` (opzionale) è un'etichetta comune usata per dire "questo filtro
+    +1 e questo -1 sono la stessa idea nelle due direzioni" — stessa
+    funzione di `pair` in `register_exit`. Due filtri, uno direction=1 e
+    uno direction=-1, con lo STESSO `pair`, vengono raccolti
+    automaticamente in un'unica riga da `list_filter_pairs()` (e dalla
+    grid search dei filtri, che applica il membro +1 al lato long e il -1
+    al lato short nella stessa riga, invece di due righe separate). Un
+    filtro neutro (direction=0) con `pair` non ha senso — non c'è un verso
+    da accoppiare — e solleva `ValueError`. Senza `pair`, il filtro resta
+    testato da solo sul proprio lato: comportamento invariato.
     """
     _validate_filter_direction(direction)
+    if pair is not None and direction == 0:
+        raise ValueError(
+            "Un filtro neutro (direction=0) non può avere un pair: "
+            "pair serve solo ad accoppiare due direzioni opposte."
+        )
 
     def decorator(func: ConditionFunc) -> ConditionFunc:
         if name in _FILTER_REGISTRY:
             raise ValueError(f"Filter '{name}' è già registrata. Usa un nome univoco.")
         _FILTER_REGISTRY[name] = func
         _FILTER_DIRECTION[name] = direction
+        if pair is not None:
+            _FILTER_PAIR[name] = pair
         func.condition_name = name
         return func
     return decorator
@@ -164,6 +183,37 @@ def get_filter_direction(name: str) -> int:
     """+1 long, -1 short, 0 neutro. 0 anche per i filtri che non l'hanno
     dichiarata, che e' il comportamento storico."""
     return _FILTER_DIRECTION.get(name, 0)
+
+
+def get_filter_pair(name: str) -> str | None:
+    return _FILTER_PAIR.get(name)
+
+
+def list_filter_pairs() -> list[tuple[str, str, str]]:
+    """
+    Scopre automaticamente le coppie di filtri valide: due filtri (uno
+    direction=1, uno direction=-1) registrati con lo stesso `pair`.
+    Ritorna una lista di tuple (pair_label, nome_filtro_up, nome_filtro_down).
+    Un'etichetta `pair` usata su più di un filtro +1 o più di un -1
+    (ambigua) viene scartata con un avviso stampato, non solleva errore —
+    stesso comportamento di `list_exit_pairs()`.
+    """
+    by_pair: Dict[str, Dict[int, list[str]]] = {}
+    for name, pair in _FILTER_PAIR.items():
+        direction = _FILTER_DIRECTION[name]
+        by_pair.setdefault(pair, {1: [], -1: []})[direction].append(name)
+
+    pairs = []
+    for pair, sides in sorted(by_pair.items()):
+        ups, downs = sides[1], sides[-1]
+        if len(ups) == 1 and len(downs) == 1:
+            pairs.append((pair, ups[0], downs[0]))
+        else:
+            print(
+                f"[list_filter_pairs] etichetta '{pair}' ignorata: serve esattamente "
+                f"1 filtro +1 + 1 filtro -1 con questo pair (trovati {len(ups)} up, {len(downs)} down)."
+            )
+    return pairs
 
 
 def get_bidirectional_entry(name: str) -> ConditionFunc:
@@ -257,9 +307,14 @@ def clear_registry() -> None:
     nome vecchio, non più presente in _EXIT_DIRECTION dopo il reset) che
     faceva esplodere list_exit_pairs() con un KeyError al primo utilizzo
     successivo — quindi Pass 1 in modalità long_and_short.
+
+    Stesso motivo per _FILTER_PAIR.clear() (aggiunta 18/9/2026 insieme al
+    parametro `pair` di register_filter): senza, lo stesso bug si
+    ripresenterebbe identico su list_filter_pairs().
     """
     _ENTRY_REGISTRY.clear()
     _FILTER_DIRECTION.clear()
+    _FILTER_PAIR.clear()
     _EXIT_REGISTRY.clear()
     _FILTER_REGISTRY.clear()
     _BIDIR_ENTRY_REGISTRY.clear()

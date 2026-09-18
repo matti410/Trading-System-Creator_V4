@@ -21,21 +21,36 @@ Pipeline Trend Following (vedi ROADMAP_RICERCA.md, Passo 5):
     direction == +1  si applica in AND SOLO sul lato long
     direction == -1  si applica in AND SOLO sul lato short
 
-Un filtro +1/-1 il cui lato non e' attivo in questo setup (es. direction=-1
-ma entry_short=None) viene saltato con un avviso: non ha nessun ingresso a
-cui applicarsi.
+COPPIE DI FILTRI (`get_filter_pair` / `list_filter_pairs`, 18/9/2026)
+------------------------------------------------------------------------
+Due filtri con lo stesso `pair` (uno +1, uno -1 — es. F12_EXTENDED_UP /
+F13_EXTENDED_DOWN) NON producono due righe indipendenti: sono la stessa
+idea ("il sistema richiede estensione coerente con la propria direzione")
+e vengono raccolte in UNA riga, che applica il membro +1 al lato long e il
+membro -1 al lato short, nella stessa riga — stessa logica gia' in uso per
+`exit_rule_pairs`. Una coppia entra in gioco solo se ENTRAMBI i suoi membri
+sono nella lista `filtri` passata alla funzione: se ne chiedi solo uno, resta
+un filtro singolo (comportamento standalone, sotto).
 
-Quando un filtro direzionale si applica a un solo lato, l'ALTRO lato (se
-presente) resta con il proprio ingresso non filtrato DA QUESTO filtro: la
-riga confronta "questo lato con il filtro, il resto del sistema invariato"
-contro la baseline, non "questo lato da solo" — altrimenti il confronto
-del guadagno (Difesa A, Passo 5) non sarebbe a parita' di condizioni.
+Filtri senza `pair` (neutri, o direzionali senza uno speculare dichiarato)
+restano righe singole, come prima di questa aggiunta.
+
+TRIGGER A UN SOLO LATO (solo entry_long o solo entry_short)
+---------------------------------------------------------------
+Se il setup ha un solo lato attivo, una coppia si riduce al solo membro
+compatibile con quel lato — l'altro membro non ha nessun ingresso a cui
+applicarsi, esattamente come un filtro standalone il cui lato non e'
+attivo. In questo caso la riga NON si etichetta con il nome della coppia
+(implicherebbe che entrambe le direzioni sono state messe alla prova): si
+etichetta con il nome del singolo membro davvero testato. Nessun errore,
+nessuna riga inventata per il lato assente.
 
 UN FILTRO ALLA VOLTA
 ---------------------
-Ogni riga applica UN SOLO filtro (mai una combinazione di piu' filtri
-insieme). La prima riga e' sempre la BASELINE (nessun filtro): il setup
-congelato cosi' com'e', per il confronto.
+Ogni riga applica UNA sola idea (un filtro singolo, o una coppia trattata
+come un'unica idea) — mai la combinazione di due idee diverse insieme. La
+prima riga e' sempre la BASELINE (nessun filtro): il setup congelato cosi'
+com'e', per il confronto.
 
 due_meta NON E' QUI
 ---------------------
@@ -52,7 +67,8 @@ import numpy as np
 import pandas as pd
 from backtesting import Backtest
 
-from .registry import get_entry, get_exit, get_filter, get_filter_direction, list_exit_pairs
+from .registry import (get_entry, get_exit, get_filter, get_filter_direction,
+                        list_exit_pairs, list_filter_pairs)
 from .event_study import deduci_pip
 from .exit_search_bt import soglie_adattive, _StrategiaGenerica
 
@@ -79,9 +95,9 @@ def run_filter_search_bt(
     verbose=True,
 ):
     """
-    Testa una lista di filtri, uno alla volta, in AND sull'entry (o sulle
-    entry) gia' scelte — con uscita e orizzonte anch'essi gia' scelti e
-    congelati. Confronta ogni filtro con la riga di baseline (nessun
+    Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
+    sulle entry) gia' scelte — con uscita e orizzonte anch'essi gia'
+    scelti e congelati. Confronta ogni riga con la baseline (nessun
     filtro) sulla colonna `guadagno_sharpe`.
 
     entry_long / entry_short
@@ -89,17 +105,19 @@ def run_filter_search_bt(
         due deve essere specificato.
 
     exit_rule_pair
-        Una sola etichetta `pair` (o None per nessuna regola di uscita).
-        Risolta con engine.registry.list_exit_pairs().
+        Una sola etichetta `pair` di uscita (o None). Risolta con
+        engine.registry.list_exit_pairs().
 
     n_barre
         Tetto a tempo, esatto per costruzione. Uguale per baseline e per
-        ogni filtro (l'uscita resta congelata, non si ricerca qui).
+        ogni riga (l'uscita resta congelata, non si ricerca qui).
 
     filtri
-        Lista di nomi di filtri registrati (get_filter_direction decide su
-        quale lato ciascuno si applica — vedi il docstring del modulo).
-        Un filtro il cui lato non e' attivo viene saltato.
+        Lista di nomi di filtri registrati. Due filtri con lo stesso
+        `pair` (get_filter_pair) diventano una riga sola (vedi il
+        docstring del modulo); tutti gli altri restano righe singole, con
+        get_filter_direction a decidere il lato. Un filtro il cui lato non
+        e' attivo viene saltato.
 
     perc_sl / perc_tp, spread, commission, margin, min_trades
         Stesso significato di run_exit_search_bt.
@@ -121,13 +139,13 @@ def run_filter_search_bt(
     # --- risoluzione dell'unica coppia di uscita --------------------------
     exit_long_nome = exit_short_nome = None
     if exit_rule_pair is not None:
-        pairs_disponibili = {p: (el, es) for p, el, es in list_exit_pairs()}
-        if exit_rule_pair not in pairs_disponibili:
+        pairs_uscita = {p: (el, es) for p, el, es in list_exit_pairs()}
+        if exit_rule_pair not in pairs_uscita:
             raise ValueError(
                 f"Coppia di uscita non trovata: {exit_rule_pair!r}. "
-                f"Disponibili: {sorted(pairs_disponibili)}."
+                f"Disponibili: {sorted(pairs_uscita)}."
             )
-        exit_long_nome, exit_short_nome = pairs_disponibili[exit_rule_pair]
+        exit_long_nome, exit_short_nome = pairs_uscita[exit_rule_pair]
 
     # --- soglie adattive, una volta sola (n_barre unico in questo step) --
     usa_sl = perc_sl not in (None, 0)
@@ -152,17 +170,37 @@ def run_filter_search_bt(
     base_long = (grezzo_long & ok_long_al_segnale) if grezzo_long is not None else None
     base_short = (grezzo_short & ok_short_al_segnale) if grezzo_short is not None else None
 
-    # --- quali righe si fanno: baseline + un filtro alla volta -----------
-    righe_piano = [(None, 0)]  # baseline
+    # --- piano delle righe: baseline + coppie complete + filtri singoli --
+    # ogni riga: (etichetta, filtro_da_applicare_al_long_o_None,
+    #             filtro_da_applicare_allo_short_o_None)
+    richiesti = set(filtri)
+    usati = set()
+    piano = [(BASELINE, None, None)]
+
+    for pair_label, nome_up, nome_down in list_filter_pairs():
+        if nome_up not in richiesti or nome_down not in richiesti:
+            continue  # coppia non richiesta per intero: i due membri restano standalone
+        usati.add(nome_up)
+        usati.add(nome_down)
+        f_long = nome_up if base_long is not None else None
+        f_short = nome_down if base_short is not None else None
+        # entry_long o entry_short is None e' l'unico modo per cui
+        # entrambi risulterebbero None, ma allora la funzione avrebbe gia'
+        # sollevato ValueError sopra: qui almeno uno dei due c'e' sempre.
+        etichetta = pair_label if (f_long is not None and f_short is not None) else (f_long or f_short)
+        piano.append((etichetta, f_long, f_short))
+
     saltati = []
     for nome in filtri:
+        if nome in usati:
+            continue
         direction = get_filter_direction(nome)
         applica_long = base_long is not None and direction in (0, 1)
         applica_short = base_short is not None and direction in (0, -1)
         if not applica_long and not applica_short:
             saltati.append(nome)
             continue
-        righe_piano.append((nome, direction))
+        piano.append((nome, nome if applica_long else None, nome if applica_short else None))
 
     if verbose and saltati:
         print(f"{len(saltati)} filtro/i saltato/i (nessun lato attivo per "
@@ -181,22 +219,22 @@ def run_filter_search_bt(
     if exit_short_nome is not None:
         df_bt["__exit_short__"] = get_exit(exit_short_nome)(df).astype(bool).to_numpy()
 
-    piano_colonne = []  # (nome, direction, col_long, col_short)
-    for nome, direction in righe_piano:
+    piano_colonne = []  # (etichetta, filtro_long, filtro_short, col_long, col_short)
+    for etichetta, filtro_long, filtro_short in piano:
         col_long = col_short = None
         if base_long is not None:
             m = base_long
-            if nome is not None and direction in (0, 1):
-                m = m & get_filter(nome)(df).astype(bool)
-            col_long = f"__long_f__{nome}"
+            if filtro_long is not None:
+                m = m & get_filter(filtro_long)(df).astype(bool)
+            col_long = f"__long_f__{etichetta}"
             df_bt[col_long] = m.to_numpy()
         if base_short is not None:
             m = base_short
-            if nome is not None and direction in (0, -1):
-                m = m & get_filter(nome)(df).astype(bool)
-            col_short = f"__short_f__{nome}"
+            if filtro_short is not None:
+                m = m & get_filter(filtro_short)(df).astype(bool)
+            col_short = f"__short_f__{etichetta}"
             df_bt[col_short] = m.to_numpy()
-        piano_colonne.append((nome, direction, col_long, col_short))
+        piano_colonne.append((etichetta, filtro_long, filtro_short, col_long, col_short))
 
     # --- backtest, una sola costruzione, riusata per ogni riga ------------
     bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
@@ -207,7 +245,7 @@ def run_filter_search_bt(
 
     righe = []
     trades_per_filtro = {}
-    for nome, direction, col_long, col_short in piano_colonne:
+    for etichetta, filtro_long, filtro_short, col_long, col_short in piano_colonne:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             stats = bt.run(
@@ -218,7 +256,6 @@ def run_filter_search_bt(
 
         trades = stats["_trades"]
         n_t = len(trades)
-        etichetta = nome if nome is not None else BASELINE
 
         if n_t:
             segno = np.where(trades["Size"] > 0, 1, -1)
@@ -234,7 +271,8 @@ def run_filter_search_bt(
 
         righe.append({
             "filtro": etichetta,
-            "direction": direction,
+            "filtro_long": filtro_long or "—",
+            "filtro_short": filtro_short or "—",
             "trades": n_t,
             "pnl_pct": float(stats["Return [%]"]),
             "sharpe": float(stats["Sharpe Ratio"]),
@@ -257,7 +295,7 @@ def run_filter_search_bt(
 
     if verbose:
         print(f"{len(piano_colonne)} righe (baseline + {len(piano_colonne) - 1} "
-              f"filtri) · n_barre={n_barre} · exit_rule_pair={exit_rule_pair or '—'} "
+              f"filtri/coppie) · n_barre={n_barre} · exit_rule_pair={exit_rule_pair or '—'} "
               f"· stop adattivo {perc_sl}°/{perc_tp}° pct (finestra {finestra}) · "
               f"spread {spread:.5f} · commission {commission:.5f} · margin {margin}")
 
@@ -285,19 +323,20 @@ class FilterSearchBT:
 
     def top(self, n=10, solo_valide=True, includi_baseline=True):
         """
-        Le migliori righe per `guadagno_sharpe` (il filtro che aggiunge di
-        piu' rispetto alla baseline, non il valore assoluto piu' alto —
-        Difesa A, Passo 5). `solo_valide` toglie le righe con pochi trade
-        (la baseline non viene mai tolta da questo filtro).
+        Le migliori righe per `guadagno_sharpe` (quanto la riga aggiunge
+        rispetto alla baseline, non il valore assoluto — Difesa A, Passo
+        5). `solo_valide` toglie le righe con pochi trade (la baseline non
+        viene mai tolta da questo filtro).
         """
         r = self.risultati
         if solo_valide:
             r = r[(~r["pochi_trade"]) | (r["filtro"] == BASELINE)]
         if not includi_baseline:
             r = r[r["filtro"] != BASELINE]
-        colonne = ["filtro", "direction", "trades", "sharpe", "guadagno_sharpe",
-                   "avg_trade", "guadagno_avg_trade", "max_dd_pct",
-                   "win_rate_pct", "profit_factor", "durata_media", "durata_max"]
+        colonne = ["filtro", "filtro_long", "filtro_short", "trades", "sharpe",
+                   "guadagno_sharpe", "avg_trade", "guadagno_avg_trade",
+                   "max_dd_pct", "win_rate_pct", "profit_factor",
+                   "durata_media", "durata_max"]
         return r.sort_values("guadagno_sharpe", ascending=False).head(n)[colonne].round(3)
 
     def trades(self, filtro=None):
