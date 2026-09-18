@@ -333,8 +333,8 @@ class FilterSearchBT:
             r = r[(~r["pochi_trade"]) | (r["filtro"] == BASELINE)]
         if not includi_baseline:
             r = r[r["filtro"] != BASELINE]
-        colonne = ["filtro", "filtro_long", "filtro_short", "trades", "sharpe",
-                   "guadagno_sharpe", "avg_trade", "guadagno_avg_trade",
+        colonne = ["filtro", "filtro_long", "filtro_short", "trades", "pnl_pct",
+                   "sharpe", "guadagno_sharpe", "avg_trade", "guadagno_avg_trade",
                    "max_dd_pct", "win_rate_pct", "profit_factor",
                    "durata_media", "durata_max"]
         return r.sort_values("guadagno_sharpe", ascending=False).head(n)[colonne].round(3)
