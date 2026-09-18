@@ -24,6 +24,13 @@ definizione — la registrazione avviene tramite `registra_filtri_vwap()`,
 chiamata a mano nel notebook. Stesso pattern di `registra_filtri()` in
 `filter_conditions.py`, tenuta come bridge separato perché il file stesso
 resta separato (vedi sopra).
+
+Sulle coppie (`pair`, aggiunte 18/9/2026): stessa logica descritta in
+`filter_conditions.py` — VWAP_PRICE_ABOVE/BELOW_FAIR_VALUE e
+VWAP_PREVIOUS_SESSION_CLOSED_ABOVE/BELOW sono ciascuna una singola idea a
+due facce, raccolte in un'unica riga dalla grid search. Le regole per
+aggiungere filtri VWAP nuovi sono le stesse quattro di `filter_conditions.py`
+— non ripetute qui per non tenere due copie della stessa regola.
 """
 import pandas as pd
 from engine.vwap_ops import regression_trend_fit, vwap_gap
@@ -92,13 +99,13 @@ def vwap_previous_session_closed_below(df: pd.DataFrame) -> pd.Series:
     return pd.Series(date_groups, index=df.index).map(position_shifted).fillna(False).astype(bool)
 
 
-# nome -> (funzione, direction)
+# nome -> (funzione, direction, pair)
 FILTRI_VWAP = {
-    "VWAP_PRICE_ABOVE_FAIR_VALUE":         (vwap_price_above_fair_value, 1),
-    "VWAP_GAP_WIDENING":                   (vwap_gap_widening, 0),
-    "VWAP_PREVIOUS_SESSION_CLOSED_ABOVE":  (vwap_previous_session_closed_above, 1),
-    "VWAP_PRICE_BELOW_FAIR_VALUE":         (vwap_price_below_fair_value, -1),
-    "VWAP_PREVIOUS_SESSION_CLOSED_BELOW":  (vwap_previous_session_closed_below, -1),
+    "VWAP_PRICE_ABOVE_FAIR_VALUE":         (vwap_price_above_fair_value, 1, "VWAP_FAIR_VALUE"),
+    "VWAP_GAP_WIDENING":                   (vwap_gap_widening, 0, None),
+    "VWAP_PREVIOUS_SESSION_CLOSED_ABOVE":  (vwap_previous_session_closed_above, 1, "VWAP_SESSION_CLOSE"),
+    "VWAP_PRICE_BELOW_FAIR_VALUE":         (vwap_price_below_fair_value, -1, "VWAP_FAIR_VALUE"),
+    "VWAP_PREVIOUS_SESSION_CLOSED_BELOW":  (vwap_previous_session_closed_below, -1, "VWAP_SESSION_CLOSE"),
 }
 
 
@@ -108,11 +115,11 @@ def registra_filtri_vwap():
 
     gia_presenti = set(list_filters())
     nuovi = 0
-    for nome, (funzione, direction) in FILTRI_VWAP.items():
+    for nome, (funzione, direction, pair) in FILTRI_VWAP.items():
         if nome in gia_presenti:
             print(f"[registra_filtri_vwap] '{nome}' gia' registrato, salto.")
             continue
-        register_filter(nome, direction=direction)(funzione)
+        register_filter(nome, direction=direction, pair=pair)(funzione)
         nuovi += 1
     print(f"[registra_filtri_vwap] {nuovi} filtri registrati "
           f"({len(FILTRI_VWAP) - nuovi} gia' presenti).")

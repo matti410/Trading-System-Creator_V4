@@ -45,6 +45,55 @@ pipeline Mean Reverting, quando riparte, la usa rovesciata (filtro
 opposto all'entry) — vedi `ROADMAP_RICERCA.md`, Passo 5.
 
 
+COPPIE DI FILTRI (`pair`) — AGGIUNTA 18/9/2026
+------------------------------------------------
+Un filtro come F12_EXTENDED_UP/F13_EXTENDED_DOWN e' una singola idea
+("il prezzo e' esteso rispetto alla media") che ha due facce, una per
+direzione. Testarli come due righe indipendenti nella grid search (F12 sul
+solo long, F13 sul solo short, ciascuna a se') e' due esperimenti diversi
+("l'estensione aiuta il long da sola?", "aiuta lo short da sola?"), non lo
+stesso esperimento di un sistema che richiede l'estensione coerente su
+entrambe le gambe. Per questo le coppie dichiarate qui sotto vengono
+raccolte in un'UNICA riga dalla grid search (vedi
+`engine.filter_search_bt`): il membro +1 va sul lato long, il -1 sul lato
+short, nella stessa riga — stessa logica gia' in uso per `exit_rule_pairs`.
+
+COME REGISTRARE UN FILTRO NUOVO (leggi questo prima di aggiungerne uno):
+
+1. NEUTRO/SIMMETRICO PER NATURA (misura una magnitudine, non ha verso —
+   volatilita', volume, coerenza) -> `direction=0`, NESSUN `pair`. Si
+   applica sempre a entrambi i lati attivi, come oggi.
+
+2. DIREZIONALE CON UNO SPECULARE NATURALE -> scrivi le due funzioni
+   insieme, stesso `pair`, direction opposte: la versione "su" con
+   `direction=1, pair="ETICHETTA"`, la versione "giu'" con
+   `direction=-1, pair="ETICHETTA"`. La grid search le trova da sola e le
+   testa in un'unica riga.
+
+3. DIREZIONALE SENZA SPECULARE (idea a senso unico, o lo speculare non e'
+   ancora stato scritto) -> `direction=±1`, SENZA `pair`. Resta testato da
+   solo sul proprio unico lato compatibile — comportamento invariato,
+   nessun obbligo di scrivere sempre una coppia.
+
+4. Se in futuro scrivi lo speculare mancante di un filtro del punto 3
+   (diventa punto 2): aggiungi `pair="ETICHETTA"` a ENTRAMBE le
+   registrazioni — quella nuova e quella vecchia, va editata anche lei.
+   Da quel momento vengono raccolte insieme automaticamente, nessun'altra
+   modifica al motore.
+
+GUARDIA EREDITATA da `list_exit_pairs()`: se un'etichetta `pair` finisce
+condivisa da piu' di un filtro +1 o piu' di un -1 (ambiguo), quella coppia
+viene scartata con un avviso stampato, non un errore — i suoi membri, se
+richiesti singolarmente, tornano al comportamento standalone del punto 3.
+
+SE IL TRIGGER DI INGRESSO E' A UN SOLO LATO (solo long o solo short): la
+grid search applica solo il membro della coppia compatibile con quel lato
+e etichetta la riga col nome del singolo filtro, non con l'etichetta della
+coppia — la coppia come unita' unica ha senso solo quando entrambi i lati
+del trigger sono davvero attivi. Nessun errore, nessuna riga inventata per
+il lato assente.
+
+
 PROVENIENZA E SCARTI
 --------------------
 I filtri da F10 in poi derivano dai "101 Formulaic Alphas" (Kakushadze,
@@ -460,35 +509,36 @@ def filter_low_near_range_bottom(
     return ts_rank(df["Low"], window) < threshold
 
 
-# nome -> (funzione, direction)
+# nome -> (funzione, direction, pair)
 FILTRI = {
-    "F1_ADX_ABOVE":              (filter_adx_above, 0),
-    "F2_ATR_ABOVE":              (filter_atr_above, 0),
-    "F3_VOLUME_ABOVE_AVG":       (filter_volume_above_avg, 0),
-    "F5_TALL_CANDLE":            (filter_tall_candle, 0),
-    "F6_VOLUME_ABOVE_AVG_50":    (filter_volume_above_avg_50, 0),
-    "F7_VOLUME_CLIMAX":          (filter_volume_climax, 0),
-    "F14_LOW_DRIFT_REGIME":      (filter_low_drift_regime, 0),
-    "F15_SHORT_TERM_CONSISTENCY": (filter_short_term_consistency, 0),
-    "F4_MACD_ABOVE_SIGNAL":      (filter_macd_above_signal, 1),
-    "F4_MACD_BELOW_SIGNAL":      (filter_macd_below_signal, -1),
-    "F8_UPTREND_CONTEXT":        (filter_uptrend_context, 1),
-    "F9_DOWNTREND_CONTEXT":      (filter_downtrend_context, -1),
-    "F10_TREND_CONVICTION_UP":   (filter_trend_conviction_up, 1),
-    "F11_TREND_CONVICTION_DOWN": (filter_trend_conviction_down, -1),
-    "F12_EXTENDED_UP":           (filter_extended_up, 1),
-    "F13_EXTENDED_DOWN":         (filter_extended_down, -1),
-    "F16_PRICE_ABOVE_VWAP":      (filter_price_above_vwap, 1),
-    "F17_PRICE_BELOW_VWAP":      (filter_price_below_vwap, -1),
-    "F18_HIGH_NEAR_RANGE_TOP":   (filter_high_near_range_top, 1),
-    "F19_LOW_NEAR_RANGE_BOTTOM": (filter_low_near_range_bottom, -1),
+    "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
+    "F2_ATR_ABOVE":              (filter_atr_above, 0, None),
+    "F3_VOLUME_ABOVE_AVG":       (filter_volume_above_avg, 0, None),
+    "F5_TALL_CANDLE":            (filter_tall_candle, 0, None),
+    "F6_VOLUME_ABOVE_AVG_50":    (filter_volume_above_avg_50, 0, None),
+    "F7_VOLUME_CLIMAX":          (filter_volume_climax, 0, None),
+    "F14_LOW_DRIFT_REGIME":      (filter_low_drift_regime, 0, None),
+    "F15_SHORT_TERM_CONSISTENCY": (filter_short_term_consistency, 0, None),
+    "F4_MACD_ABOVE_SIGNAL":      (filter_macd_above_signal, 1, "MACD_SIGNAL"),
+    "F4_MACD_BELOW_SIGNAL":      (filter_macd_below_signal, -1, "MACD_SIGNAL"),
+    "F8_UPTREND_CONTEXT":        (filter_uptrend_context, 1, "TREND_CONTEXT"),
+    "F9_DOWNTREND_CONTEXT":      (filter_downtrend_context, -1, "TREND_CONTEXT"),
+    "F10_TREND_CONVICTION_UP":   (filter_trend_conviction_up, 1, "TREND_CONVICTION"),
+    "F11_TREND_CONVICTION_DOWN": (filter_trend_conviction_down, -1, "TREND_CONVICTION"),
+    "F12_EXTENDED_UP":           (filter_extended_up, 1, "EXTENDED_FROM_MEAN"),
+    "F13_EXTENDED_DOWN":         (filter_extended_down, -1, "EXTENDED_FROM_MEAN"),
+    "F16_PRICE_ABOVE_VWAP":      (filter_price_above_vwap, 1, "VWAP_POSITION"),
+    "F17_PRICE_BELOW_VWAP":      (filter_price_below_vwap, -1, "VWAP_POSITION"),
+    "F18_HIGH_NEAR_RANGE_TOP":   (filter_high_near_range_top, 1, "RANGE_POSITION"),
+    "F19_LOW_NEAR_RANGE_BOTTOM": (filter_low_near_range_bottom, -1, "RANGE_POSITION"),
 }
 
 
 def registra_filtri():
     """
     Registra tutti i filtri di questo file nel motore (engine.registry),
-    cosi' filter_search_bt li trova da sola tramite get_filter(nome).
+    cosi' filter_search_bt li trova da sola tramite get_filter(nome), e le
+    8 coppie tramite list_filter_pairs().
 
     Va chiamata una volta prima di usare i filtri. E' sicura da richiamare
     piu' volte nella stessa sessione: i nomi gia' registrati vengono
@@ -498,11 +548,11 @@ def registra_filtri():
 
     gia_presenti = set(list_filters())
     nuovi = 0
-    for nome, (funzione, direction) in FILTRI.items():
+    for nome, (funzione, direction, pair) in FILTRI.items():
         if nome in gia_presenti:
             print(f"[registra_filtri] '{nome}' gia' registrato, salto.")
             continue
-        register_filter(nome, direction=direction)(funzione)
+        register_filter(nome, direction=direction, pair=pair)(funzione)
         nuovi += 1
     print(f"[registra_filtri] {nuovi} filtri registrati "
           f"({len(FILTRI) - nuovi} gia' presenti).")
