@@ -97,6 +97,7 @@ from backtesting import Backtest, Strategy
 
 from .registry import get_entry, get_entry_direction, get_exit, list_exit_pairs
 from .event_study import deduci_pip
+from .metriche import metriche_per_trade
 
 
 # ========================================================================
@@ -411,20 +412,12 @@ def run_exit_search_bt(
                            exit_rule_short_col=exit_rule_short_col)
 
         trades = stats["_trades"]
-        n_t = len(trades)
         etichetta = f"L={l or '—'} · S={s or '—'} | X={pair or '—'}"
 
-        if n_t:
-            segno = np.where(trades["Size"] > 0, 1, -1)
-            pips = (trades["ExitPrice"] - trades["EntryPrice"]) / pip_size * segno
-            avg_trade = float(pips.mean())
-            durate = (trades["ExitBar"] - trades["EntryBar"]).to_numpy()
-            durata_media = float(durate.mean())
-            durata_max = int(durate.max())
-        else:
-            avg_trade = np.nan
-            durata_media = np.nan
-            durata_max = 0
+        # avg_trade (lordo, invariato), avg_trade_netto e costo_pips: il
+        # calcolo sta in engine/metriche.py, unico per i due motori.
+        m = metriche_per_trade(trades, pip_size, commission)
+        n_t = m["n_trades"]
 
         righe.append({
             "combinazione": etichetta,
@@ -437,9 +430,11 @@ def run_exit_search_bt(
             "max_dd_pct": float(stats["Max. Drawdown [%]"]),
             "win_rate_pct": float(stats["Win Rate [%]"]),
             "profit_factor": float(stats["Profit Factor"]),
-            "avg_trade": avg_trade,
-            "durata_media": durata_media,
-            "durata_max": durata_max,
+            "avg_trade": m["avg_trade"],
+            "avg_trade_netto": m["avg_trade_netto"],
+            "costo_pips": m["costo_pips"],
+            "durata_media": m["durata_media"],
+            "durata_max": m["durata_max"],
             "pochi_trade": n_t < min_trades,
         })
         trades_per_combo[etichetta] = trades
@@ -488,8 +483,11 @@ class ExitSearchBT:
         r = self.risultati
         if solo_valide:
             r = r[~r["pochi_trade"]]
+        # avg_trade_netto accanto al lordo: e' quello da confrontare con
+        # zero. costo_pips resta solo in .risultati (e' quasi costante fra
+        # le righe, in tabella sarebbe rumore).
         colonne = ["combinazione", "trades", "pnl_pct", "sharpe", "max_dd_pct",
-                   "win_rate_pct", "profit_factor", "avg_trade",
+                   "win_rate_pct", "profit_factor", "avg_trade", "avg_trade_netto",
                    "durata_media", "durata_max"]
         return r.sort_values(per, ascending=False).head(n)[colonne].round(3)
 

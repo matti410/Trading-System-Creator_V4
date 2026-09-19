@@ -71,6 +71,7 @@ from .registry import (get_entry, get_exit, get_filter, get_filter_direction,
                         list_exit_pairs, list_filter_pairs)
 from .event_study import deduci_pip
 from .exit_search_bt import soglie_adattive, _StrategiaGenerica
+from .metriche import metriche_per_trade
 
 BASELINE = "— baseline —"
 
@@ -255,19 +256,10 @@ def run_filter_search_bt(
             )
 
         trades = stats["_trades"]
-        n_t = len(trades)
 
-        if n_t:
-            segno = np.where(trades["Size"] > 0, 1, -1)
-            pips = (trades["ExitPrice"] - trades["EntryPrice"]) / pip_size * segno
-            avg_trade = float(pips.mean())
-            durate = (trades["ExitBar"] - trades["EntryBar"]).to_numpy()
-            durata_media = float(durate.mean())
-            durata_max = int(durate.max())
-        else:
-            avg_trade = np.nan
-            durata_media = np.nan
-            durata_max = 0
+        # stesso calcolo di exit_search_bt: engine/metriche.py, un posto solo.
+        m = metriche_per_trade(trades, pip_size, commission)
+        n_t = m["n_trades"]
 
         righe.append({
             "filtro": etichetta,
@@ -279,9 +271,11 @@ def run_filter_search_bt(
             "max_dd_pct": float(stats["Max. Drawdown [%]"]),
             "win_rate_pct": float(stats["Win Rate [%]"]),
             "profit_factor": float(stats["Profit Factor"]),
-            "avg_trade": avg_trade,
-            "durata_media": durata_media,
-            "durata_max": durata_max,
+            "avg_trade": m["avg_trade"],
+            "avg_trade_netto": m["avg_trade_netto"],
+            "costo_pips": m["costo_pips"],
+            "durata_media": m["durata_media"],
+            "durata_max": m["durata_max"],
             "pochi_trade": n_t < min_trades,
         })
         trades_per_filtro[etichetta] = trades
@@ -333,10 +327,15 @@ class FilterSearchBT:
             r = r[(~r["pochi_trade"]) | (r["filtro"] == BASELINE)]
         if not includi_baseline:
             r = r[r["filtro"] != BASELINE]
+        # avg_trade_netto accanto al lordo: e' quello da confrontare con
+        # zero. guadagno_avg_trade resta sui LORDI — il costo e' quasi
+        # identico fra baseline e riga filtrata, quindi la differenza e' la
+        # stessa e una colonna in piu' sarebbe rumore. costo_pips resta
+        # solo in .risultati.
         colonne = ["filtro", "filtro_long", "filtro_short", "trades", "pnl_pct",
-                   "sharpe", "guadagno_sharpe", "avg_trade", "guadagno_avg_trade",
-                   "max_dd_pct", "win_rate_pct", "profit_factor",
-                   "durata_media", "durata_max"]
+                   "sharpe", "guadagno_sharpe", "avg_trade", "avg_trade_netto",
+                   "guadagno_avg_trade", "max_dd_pct", "win_rate_pct",
+                   "profit_factor", "durata_media", "durata_max"]
         return r.sort_values("guadagno_sharpe", ascending=False).head(n)[colonne].round(3)
 
     def trades(self, filtro=None):
