@@ -71,7 +71,9 @@ from .registry import (get_entry, get_exit, get_filter, get_filter_direction,
                         list_exit_pairs, list_filter_pairs)
 from .event_study import deduci_pip
 from .exit_search_bt import soglie_adattive, _StrategiaGenerica
-from .metriche import metriche_per_trade
+from .metriche import metriche_per_trade, pips_per_trade
+from .giudizio import (RIFERIMENTO, p_ev_negativo, soglia_rumore, t_stat,
+                       tenuti_scartati, verdetto)
 
 BASELINE = "— baseline —"
 
@@ -92,6 +94,11 @@ def run_filter_search_bt(
     cash=10_000.0,
     margin=1.0,
     min_trades=30,
+    min_trades_giudizio=100,
+    p_max=5.0,
+    alpha=0.05,
+    n_boot=10_000,
+    seed=0,
     close_col="Close", open_col="Open", high_col="High", low_col="Low",
     verbose=True,
 ):
@@ -122,6 +129,19 @@ def run_filter_search_bt(
 
     perc_sl / perc_tp, spread, commission, margin, min_trades
         Stesso significato di run_exit_search_bt.
+
+    min_trades_giudizio, p_max, alpha
+        Soglie del verdetto (vedi engine/giudizio.py). `min_trades_giudizio`
+        separa CAMPIONE CORTO da DA VALUTARE — default 100, la regola gia'
+        scritta in ROADMAP_RICERCA.md, Passo 5 ("sotto il centinaio di
+        trigger filtrati ci si ferma"). `p_max` e' la soglia su P(EV<0),
+        default 5% (Lezione 9). `alpha` e' il rischio di famiglia della
+        soglia sui test multipli. Tutte parametriche: se cambi idea su una
+        soglia la passi qui, non riscrivi il modulo.
+
+    n_boot, seed
+        Ricampionamenti del bootstrap di P(EV<0), e seme per renderlo
+        riproducibile.
 
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
@@ -220,22 +240,37 @@ def run_filter_search_bt(
     if exit_short_nome is not None:
         df_bt["__exit_short__"] = get_exit(exit_short_nome)(df).astype(bool).to_numpy()
 
-    piano_colonne = []  # (etichetta, filtro_long, filtro_short, col_long, col_short)
+    # Le maschere GREZZE dei filtri (non quelle gia' messe in AND con
+    # l'entry) servono dopo, per partizionare i trade della baseline in
+    # tenuti/scartati — vedi engine/giudizio.py. Si calcolano una volta
+    # sola qui, insieme alle colonne.
+    piano_colonne = []  # (etichetta, f_long, f_short, col_long, col_short, m_long, m_short)
+    cache_maschere = {}
+
+    def maschera(nome):
+        if nome not in cache_maschere:
+            cache_maschere[nome] = get_filter(nome)(df).astype(bool).to_numpy()
+        return cache_maschere[nome]
+
     for etichetta, filtro_long, filtro_short in piano:
         col_long = col_short = None
+        m_long = m_short = None
         if base_long is not None:
             m = base_long
             if filtro_long is not None:
-                m = m & get_filter(filtro_long)(df).astype(bool)
+                m_long = maschera(filtro_long)
+                m = m & pd.Series(m_long, index=df.index)
             col_long = f"__long_f__{etichetta}"
             df_bt[col_long] = m.to_numpy()
         if base_short is not None:
             m = base_short
             if filtro_short is not None:
-                m = m & get_filter(filtro_short)(df).astype(bool)
+                m_short = maschera(filtro_short)
+                m = m & pd.Series(m_short, index=df.index)
             col_short = f"__short_f__{etichetta}"
             df_bt[col_short] = m.to_numpy()
-        piano_colonne.append((etichetta, filtro_long, filtro_short, col_long, col_short))
+        piano_colonne.append((etichetta, filtro_long, filtro_short,
+                              col_long, col_short, m_long, m_short))
 
     # --- backtest, una sola costruzione, riusata per ogni riga ------------
     bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
@@ -246,7 +281,9 @@ def run_filter_search_bt(
 
     righe = []
     trades_per_filtro = {}
-    for etichetta, filtro_long, filtro_short, col_long, col_short in piano_colonne:
+    maschere_per_filtro = {}
+    for (etichetta, filtro_long, filtro_short, col_long, col_short,
+         m_long, m_short) in piano_colonne:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             stats = bt.run(
@@ -261,6 +298,17 @@ def run_filter_search_bt(
         m = metriche_per_trade(trades, pip_size, commission)
         n_t = m["n_trades"]
 
+        # il sistema filtrato realizzato guadagna? (t e P(EV<0) sui suoi
+        # pips netti). Domanda distinta da "il filtro aggiunge qualcosa",
+        # che si misura piu' sotto su tenuti vs scartati.
+        if n_t:
+            _, netti = pips_per_trade(trades, pip_size, commission)
+            netti = netti.to_numpy()
+            t_riga = t_stat(netti)
+            p_riga = p_ev_negativo(netti, n_boot=n_boot, seed=seed)
+        else:
+            t_riga = p_riga = np.nan
+
         righe.append({
             "filtro": etichetta,
             "filtro_long": filtro_long or "—",
@@ -274,36 +322,98 @@ def run_filter_search_bt(
             "avg_trade": m["avg_trade"],
             "avg_trade_netto": m["avg_trade_netto"],
             "costo_pips": m["costo_pips"],
+            "t_stat": t_riga,
+            "p_ev_neg": p_riga,
             "durata_media": m["durata_media"],
             "durata_max": m["durata_max"],
             "pochi_trade": n_t < min_trades,
         })
         trades_per_filtro[etichetta] = trades
+        maschere_per_filtro[etichetta] = (m_long, m_short)
 
     risultati = pd.DataFrame(righe)
     base_row = risultati.loc[risultati["filtro"] == BASELINE].iloc[0]
     risultati["guadagno_sharpe"] = risultati["sharpe"] - base_row["sharpe"]
     risultati["guadagno_avg_trade"] = risultati["avg_trade"] - base_row["avg_trade"]
-    risultati = (risultati.sort_values("guadagno_sharpe", ascending=False)
+
+    # --- il confronto che decide: tenuti vs scartati dentro la baseline --
+    # I trade filtrati NON sono un sottoinsieme della baseline (scartare un
+    # trade libera il posto e ne abilita altri, prima bloccati da una
+    # posizione aperta). Vedi engine/giudizio.py per il perche' questo
+    # rende illecito ogni test appaiato.
+    base_trades = trades_per_filtro[BASELINE]
+    if len(base_trades):
+        _, base_netti = pips_per_trade(base_trades, pip_size, commission)
+        base_netti = base_netti.to_numpy()
+        base_chiavi = set(zip(base_trades["EntryBar"].to_numpy(),
+                              np.sign(base_trades["Size"].to_numpy())))
+    else:
+        base_netti, base_chiavi = np.array([]), set()
+
+    k = max(1, len(piano_colonne) - 1)          # quante prove, baseline esclusa
+    soglia = soglia_rumore(k, alpha=alpha)
+
+    extra = []
+    for _, r in risultati.iterrows():
+        et = r["filtro"]
+        if et == BASELINE:
+            extra.append({"n_tenuti": np.nan, "n_scartati": np.nan,
+                          "guadagno_pips": np.nan, "t_guadagno": np.nan,
+                          "trade_nuovi": np.nan, "oltre_rumore": False,
+                          "esito": RIFERIMENTO, "motivo": ""})
+            continue
+        m_long, m_short = maschere_per_filtro[et]
+        ts = tenuti_scartati(base_trades, base_netti, m_long, m_short)
+
+        fs_trades = trades_per_filtro[et]
+        nuovi = (len(fs_trades) - len(
+            set(zip(fs_trades["EntryBar"].to_numpy(),
+                    np.sign(fs_trades["Size"].to_numpy()))) & base_chiavi)
+        ) if len(fs_trades) else 0
+
+        v = verdetto(ev=r["avg_trade_netto"], p_neg=r["p_ev_neg"],
+                     n_trades=int(r["trades"]), t=ts["t_guadagno"],
+                     soglia_t=soglia, guadagno=ts["guadagno_pips"],
+                     p_max=p_max, min_trades=min_trades_giudizio)
+        extra.append({
+            "n_tenuti": ts["n_tenuti"], "n_scartati": ts["n_scartati"],
+            "guadagno_pips": ts["guadagno_pips"], "t_guadagno": ts["t_guadagno"],
+            "trade_nuovi": int(nuovi),
+            "oltre_rumore": bool(np.isfinite(ts["t_guadagno"])
+                                 and abs(ts["t_guadagno"]) > soglia),
+            "esito": v["esito"], "motivo": v["motivo"],
+        })
+
+    risultati = pd.concat([risultati.reset_index(drop=True),
+                           pd.DataFrame(extra)], axis=1)
+    # la colonna che decide e' t_guadagno, non piu' guadagno_sharpe
+    # (che resta in .risultati come riferimento).
+    risultati = (risultati.sort_values("t_guadagno", ascending=False,
+                                       na_position="last")
                 .reset_index(drop=True))
 
     if verbose:
-        print(f"{len(piano_colonne)} righe (baseline + {len(piano_colonne) - 1} "
+        print(f"{len(piano_colonne)} righe (baseline + {k} "
               f"filtri/coppie) · n_barre={n_barre} · exit_rule_pair={exit_rule_pair or '—'} "
               f"· stop adattivo {perc_sl}°/{perc_tp}° pct (finestra {finestra}) · "
               f"spread {spread:.5f} · commission {commission:.5f} · margin {margin}")
+        print(f"soglia di rumore per {k} prove (Sidak, famiglia {alpha:.0%}): "
+              f"|t_guadagno| > {soglia:.2f}  —  conta solo le prove di questa "
+              "chiamata, e' un pavimento")
 
     return FilterSearchBT(risultati=risultati, trades_per_filtro=trades_per_filtro,
                           entry_long=entry_long, entry_short=entry_short,
                           exit_rule_pair=exit_rule_pair, n_barre=n_barre,
-                          min_trades=min_trades)
+                          min_trades=min_trades, soglia_rumore=soglia,
+                          pip_size=pip_size, commission=commission)
 
 
 class FilterSearchBT:
     """Risultato di run_filter_search_bt. Vedi .risultati, .top(), .trades()."""
 
     def __init__(self, risultati, trades_per_filtro, entry_long, entry_short,
-                 exit_rule_pair, n_barre, min_trades):
+                 exit_rule_pair, n_barre, min_trades, soglia_rumore=None,
+                 pip_size=None, commission=None):
         self.risultati = risultati
         self._trades_per_filtro = trades_per_filtro
         self.entry_long = entry_long
@@ -311,6 +421,9 @@ class FilterSearchBT:
         self.exit_rule_pair = exit_rule_pair
         self.n_barre = n_barre
         self.min_trades = min_trades
+        self.soglia_rumore = soglia_rumore
+        self.pip_size = pip_size
+        self.commission = commission
 
     def __repr__(self):
         return f"<FilterSearchBT: {len(self.risultati)} righe (baseline + filtri)>"
@@ -327,16 +440,24 @@ class FilterSearchBT:
             r = r[(~r["pochi_trade"]) | (r["filtro"] == BASELINE)]
         if not includi_baseline:
             r = r[r["filtro"] != BASELINE]
-        # avg_trade_netto accanto al lordo: e' quello da confrontare con
-        # zero. guadagno_avg_trade resta sui LORDI — il costo e' quasi
-        # identico fra baseline e riga filtrata, quindi la differenza e' la
-        # stessa e una colonna in piu' sarebbe rumore. costo_pips resta
-        # solo in .risultati.
-        colonne = ["filtro", "filtro_long", "filtro_short", "trades", "pnl_pct",
-                   "sharpe", "guadagno_sharpe", "avg_trade", "avg_trade_netto",
-                   "guadagno_avg_trade", "max_dd_pct", "win_rate_pct",
-                   "profit_factor", "durata_media", "durata_max"]
-        return r.sort_values("guadagno_sharpe", ascending=False).head(n)[colonne].round(3)
+        # Tabella stretta e leggibile: la decisione sta in t_guadagno e
+        # esito. Tutto il resto (sharpe, guadagno_sharpe, costo_pips,
+        # max_dd_pct, durate, filtro_long/short) resta in .risultati.
+        colonne = ["filtro", "trades", "avg_trade_netto", "t_stat", "p_ev_neg",
+                   "guadagno_pips", "t_guadagno", "oltre_rumore",
+                   "esito", "motivo"]
+        return (r.sort_values("t_guadagno", ascending=False, na_position="last")
+                .head(n)[colonne].round(3))
+
+    def scheda(self, filtro=None, **kwargs):
+        """
+        La scheda KPI completa di una riga (default: la baseline).
+        Vedi engine.giudizio.scheda_strategia.
+        """
+        from .giudizio import scheda_strategia
+        nome = BASELINE if filtro is None else filtro
+        return scheda_strategia(self.trades(nome), self.pip_size,
+                                self.commission or 0.0, **kwargs)
 
     def trades(self, filtro=None):
         """Trade grezzi (DataFrame nativo di backtesting.py) di un filtro (o della baseline)."""

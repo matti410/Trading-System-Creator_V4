@@ -9,10 +9,52 @@ COSA VERIFICA
 Non "il sistema e' profittevole in entrambe le meta'" (lo confonderebbe
 una baseline gia' positiva da sola per conto suo — vedi V3,
 `due_meta_controllato`, dove `coerente = (sharpe_1>0) & (sharpe_2>0)`
-guarda lo sharpe assoluto). Qui si verifica se il `guadagno_sharpe` —
-quanto un filtro/coppia aggiunge SOPRA la baseline dello stesso periodo,
-Difesa A del Passo 5 — regge sia sulla prima sia sulla seconda meta'
-dell'In-Sample congelato.
+guarda lo sharpe assoluto). Qui si verifica se il GUADAGNO di un
+filtro/coppia SOPRA la baseline dello stesso periodo (Difesa A del Passo
+5) regge sia sulla prima sia sulla seconda meta' dell'In-Sample congelato.
+
+SU QUALE GRANDEZZA — IL CAMBIO DEL 20/9/2026
+----------------------------------------------
+Il verdetto guardava `guadagno_sharpe`. Ora guarda `guadagno_pips`, cioe'
+la differenza fra i pips netti medi dei trade TENUTI e di quelli SCARTATI
+dal filtro (engine/giudizio.py). Non e' una rifinitura: cambia i verdetti
+gia' dati.
+
+Misurato su EURUSD M15, F14_LOW_DRIFT_REGIME nella seconda meta':
+
+    guadagno_sharpe  +0.011   -> positivo, quindi "regge"
+    guadagno_pips    -0.419   -> NEGATIVO: in quella meta' il filtro
+                                 PEGGIORAVA il sistema
+
+Lo Sharpe di equity lo nascondeva, perche' e' una metrica di calendario e
+non di trade (vedi engine/giudizio.py). Con la grandezza giusta la regola
+"positivo in entrambe le meta'" — che era gia' quella di prima — boccia
+F14 da sola: non serviva una soglia nuova, serviva il metro giusto.
+
+`guadagno_sharpe` resta in tabella come riferimento, non decide piu'.
+
+LA REGOLA (opzione A, decisa il 20/9/2026)
+--------------------------------------------
+Due condizioni, su due campioni diversi e per due ragioni diverse:
+
+  1. STABILITA' — `guadagno_pips` positivo in ENTRAMBE le meta'. E' la
+     domanda propria di questo modulo: il vantaggio c'e' da tutte e due
+     le parti del periodo, o e' concentrato in una sola?
+
+  2. SIGNIFICATIVITA' — `t_guadagno` sopra `soglia_rumore` sull'INTERO
+     In-Sample (letti entrambi da `fs`, non ricalcolati qui).
+
+Perche' la significativita' si giudica sull'intero e non sulle meta': con
+~250 trade per meta' il rumore campionario da solo produce oscillazioni
+enormi. Misurato sugli stessi dati, VWAP_SESSION_CLOSE va da +0.682 a
++3.912 pips fra le due meta' — quasi sei volte — con t di 0.39 e 2.16,
+cioe' due numeri che non dicono niente. Le meta' servono a scoprire un
+CAMBIO DI SEGNO o un vantaggio tutto da una parte; per misurare con
+precisione serve il campione intero.
+
+Per la stessa ragione NON c'e' una terza soglia sul rapporto fra le due
+meta': sarebbe un grado di liberta' in piu' tarato su un numero senza
+ancora, e le meta' non hanno la precisione per sostenerlo.
 
 COME
 ----
@@ -101,15 +143,37 @@ def _filtri_da_etichette(fs, etichette):
     return filtri
 
 
-def _verdetto(riga):
+def _verdetto(riga, t_intero=None, soglia=None):
+    """
+    Opzione A (vedi il docstring del modulo): stabilita' sulle due meta'
+    con `guadagno_pips`, significativita' sull'intero In-Sample con
+    `t_guadagno` contro `soglia_rumore`.
+
+    Ritorna (verdetto, motivo). `motivo` nomina la PRIMA condizione
+    fallita — l'informazione utile e' dove guardare.
+    """
     if riga["filtro"] == BASELINE:
-        return "baseline"
-    g1 = riga["guadagno_sharpe_metà1"]
-    g2 = riga["guadagno_sharpe_metà2"]
-    pochi = bool(riga["pochi_trade_metà1"]) or bool(riga["pochi_trade_metà2"])
-    if g1 > 0 and g2 > 0:
-        return "giudizio sospeso" if pochi else "regge"
-    return "non regge"
+        return "baseline", ""
+
+    g1 = riga["guadagno_pips_metà1"]
+    g2 = riga["guadagno_pips_metà2"]
+
+    if not (pd.notna(g1) and pd.notna(g2)):
+        return "non regge", "guadagno non calcolabile in una delle due metà"
+    if g1 <= 0 or g2 <= 0:
+        debole = "metà1" if g1 <= g2 else "metà2"
+        return "non regge", f"guadagno {min(g1, g2):+.3f} pips <= 0 in {debole}"
+
+    # significativita' sull'INTERO In-Sample, letta da fs
+    if t_intero is not None and soglia is not None and pd.notna(t_intero):
+        if abs(t_intero) < soglia:
+            return "non regge", f"|t| {abs(t_intero):.2f} < soglia rumore {soglia:.2f} (In-Sample intero)"
+        if t_intero < 0:
+            return "non regge", f"t {t_intero:.2f} oltre soglia ma NEGATIVO"
+
+    if bool(riga["pochi_trade_metà1"]) or bool(riga["pochi_trade_metà2"]):
+        return "giudizio sospeso", "poche osservazioni in almeno una metà"
+    return "regge", ""
 
 
 class DueMeta:
@@ -178,7 +242,8 @@ def due_meta(df_is, fs, etichette,
     fs2 = run_filter_search_bt(metà2_df, **kwargs)
 
     cols = ["filtro", "filtro_long", "filtro_short", "trades", "pnl_pct", "sharpe",
-            "guadagno_sharpe", "guadagno_avg_trade", "pochi_trade"]
+            "guadagno_pips", "t_guadagno", "guadagno_sharpe", "guadagno_avg_trade",
+            "pochi_trade"]
     r1 = fs1.risultati[cols].copy()
     r2 = fs2.risultati[cols].copy()
     if not includi_baseline:
@@ -187,8 +252,20 @@ def due_meta(df_is, fs, etichette,
 
     m = r1.merge(r2, on=["filtro", "filtro_long", "filtro_short"],
                  suffixes=("_metà1", "_metà2"))
-    m["verdetto"] = m.apply(_verdetto, axis=1)
-    m = m.sort_values("guadagno_sharpe_metà2", ascending=False).reset_index(drop=True)
+
+    # t_guadagno e soglia dell'INTERO In-Sample, letti da fs: non si
+    # ricalcolano qui, cosi' il numero e' lo stesso che fs.top() mostra.
+    t_intero = (fs.risultati.set_index("filtro")["t_guadagno"].to_dict()
+                if "t_guadagno" in fs.risultati.columns else {})
+    soglia = getattr(fs, "soglia_rumore", None)
+
+    esiti = m.apply(lambda r: _verdetto(r, t_intero.get(r["filtro"]), soglia),
+                    axis=1)
+    m["verdetto"] = [e[0] for e in esiti]
+    m["motivo"] = [e[1] for e in esiti]
+    m["t_guadagno_intero"] = m["filtro"].map(t_intero)
+    m = m.sort_values("guadagno_pips_metà2", ascending=False,
+                      na_position="last").reset_index(drop=True)
 
     if verbose:
         for _, riga in m.iterrows():
@@ -208,22 +285,37 @@ def due_meta(df_is, fs, etichette,
                 print(f"  pnl_pct           metà1={riga['pnl_pct_metà1']:.3f}"
                       f"   metà2={riga['pnl_pct_metà2']:.3f}")
                 if riga["filtro"] != BASELINE:
-                    print(f"  guadagno_sharpe   metà1={riga['guadagno_sharpe_metà1']:.3f}"
-                          f"   metà2={riga['guadagno_sharpe_metà2']:.3f}")
+                    print(f"  guadagno_pips     metà1={riga['guadagno_pips_metà1']:+.3f}"
+                          f"   metà2={riga['guadagno_pips_metà2']:+.3f}   <-- decide")
+                    print(f"  guadagno_sharpe   metà1={riga['guadagno_sharpe_metà1']:+.3f}"
+                          f"   metà2={riga['guadagno_sharpe_metà2']:+.3f}   (riferimento)")
+                    if pd.notna(riga.get("t_guadagno_intero")):
+                        s = f" / soglia {soglia:.2f}" if soglia else ""
+                        print(f"  t In-Sample intero {riga['t_guadagno_intero']:+.2f}{s}")
                 pochi_flag = "   <-- pochi_trade" if (riga["pochi_trade_metà1"] or riga["pochi_trade_metà2"]) else ""
                 print(f"  trade             metà1={riga['trades_metà1']}"
                       f"   metà2={riga['trades_metà2']}{pochi_flag}")
+                if riga.get("motivo"):
+                    print(f"  motivo            {riga['motivo']}")
                 print(bordo)
 
+    # guadagno_pips per primo: e' la colonna che decide. guadagno_sharpe
+    # resta piu' a destra come riferimento.
     colonne_finali = ["filtro", "filtro_long", "filtro_short",
                        "trades_metà1", "trades_metà2",
+                       "guadagno_pips_metà1", "guadagno_pips_metà2",
+                       "t_guadagno_metà1", "t_guadagno_metà2",
+                       "t_guadagno_intero",
                        "pnl_pct_metà1", "pnl_pct_metà2",
                        "sharpe_metà1", "sharpe_metà2",
                        "guadagno_sharpe_metà1", "guadagno_sharpe_metà2",
                        "guadagno_avg_trade_metà1", "guadagno_avg_trade_metà2",
-                       "pochi_trade_metà1", "pochi_trade_metà2", "verdetto"]
+                       "pochi_trade_metà1", "pochi_trade_metà2",
+                       "verdetto", "motivo"]
     tabella = m[colonne_finali].copy()
-    colonne_float = ["pnl_pct_metà1", "pnl_pct_metà2",
+    colonne_float = ["guadagno_pips_metà1", "guadagno_pips_metà2",
+                      "t_guadagno_metà1", "t_guadagno_metà2", "t_guadagno_intero",
+                      "pnl_pct_metà1", "pnl_pct_metà2",
                       "sharpe_metà1", "sharpe_metà2",
                       "guadagno_sharpe_metà1", "guadagno_sharpe_metà2",
                       "guadagno_avg_trade_metà1", "guadagno_avg_trade_metà2"]
