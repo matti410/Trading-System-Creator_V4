@@ -22,18 +22,27 @@ NY = "America/New_York"
 
 # Ipotesi sulla regola del server. Ogni funzione prende un DatetimeIndex naive
 # in ora server e restituisce lo stesso indice convertito in UTC.
+#
+# `ambiguous` conta solo per i simboli che trattano 24/7 (cripto): a novembre
+# il server, seguendo il DST USA, ripete un'ora di orologio e produce timestamp
+# duplicati. "infer" li risolve sfruttando l'ordine della sequenza; "NaT" li
+# scarta. Sul forex il mercato e' chiuso in quel momento e il caso non si pone.
 HYPOTHESES = {
-    "A_US_DST (NY+7h)": lambda idx: (
+    "A_US_DST (NY+7h)": lambda idx, ambiguous="NaT": (
         (idx - pd.Timedelta(hours=7))
-        .tz_localize(NY, ambiguous="NaT", nonexistent="NaT")
+        .tz_localize(NY, ambiguous=ambiguous, nonexistent="NaT")
         .tz_convert("UTC")
     ),
-    "B_EU_DST (Europe/Athens)": lambda idx: (
-        idx.tz_localize("Europe/Athens", ambiguous="NaT", nonexistent="NaT")
+    "B_EU_DST (Europe/Athens)": lambda idx, ambiguous="NaT": (
+        idx.tz_localize("Europe/Athens", ambiguous=ambiguous, nonexistent="NaT")
         .tz_convert("UTC")
     ),
-    "C_fisso GMT+2": lambda idx: (idx - pd.Timedelta(hours=2)).tz_localize("UTC"),
-    "D_fisso GMT+3": lambda idx: (idx - pd.Timedelta(hours=3)).tz_localize("UTC"),
+    "C_fisso GMT+2": lambda idx, ambiguous="NaT": (
+        (idx - pd.Timedelta(hours=2)).tz_localize("UTC")
+    ),
+    "D_fisso GMT+3": lambda idx, ambiguous="NaT": (
+        (idx - pd.Timedelta(hours=3)).tz_localize("UTC")
+    ),
 }
 
 
@@ -158,20 +167,66 @@ def diagnose_broker_offset(df, gap_hours=6, drop_edges=True, verbose=True,
     return summary, detail
 
 
-def to_utc_index(df, rule="A_US_DST (NY+7h)"):
+def to_utc_index(df, rule="A_US_DST (NY+7h)", on_dst_gap="raise", verbose=True):
     """Converte l'indice naive in ora server verso UTC, secondo la regola scelta.
 
-    Non modifica il df originale: ne restituisce una copia con indice tz-aware UTC.
-    Da usare SOLO dopo che diagnose_broker_offset ha confermato la regola.
+    Non modifica il df originale: ne restituisce una copia con indice tz-aware UTC,
+    ordinato. Da usare SOLO dopo che diagnose_broker_offset ha confermato la regola.
+
+    Parametri
+    ---------
+    on_dst_gap : cosa fare con le barre che cadono nei cambi d'ora e non hanno
+        un istante reale a cui corrispondere. Due categorie, entrambe
+        indeterminate:
+
+        - novembre: l'ora torna indietro e si ripete. MT5 conserva una sola
+          barra per etichetta, quindi non e' piu' ricostruibile a quale delle
+          due passate appartenga. Sistematico: 12 barre M5 l'anno.
+        - marzo: l'ora salta in avanti. Alcune barre restano etichettate a
+          un'ora che nel fuso di borsa non esiste. Irregolare, artefatto del
+          feed del broker.
+
+        "raise" (default) solleva un errore invece di perdere dati in silenzio.
+        "drop" le scarta e riporta quante ne ha tolte e quando.
+
+        Sui simboli forex non serve: in quei momenti il mercato e' chiuso.
+
+    verbose : stampa il riepilogo dello scarto quando on_dst_gap="drop".
     """
     if rule not in HYPOTHESES:
         raise ValueError(f"Regola sconosciuta: {rule}. Scegli fra {list(HYPOTHESES)}")
-    out = df.copy()
-    out.index = HYPOTHESES[rule](pd.DatetimeIndex(df.index))
-    n_bad = out.index.isna().sum()
-    if n_bad:
+    if on_dst_gap not in ("raise", "drop"):
+        raise ValueError(f"on_dst_gap dev'essere 'raise' o 'drop', non {on_dst_gap!r}")
+
+    idx = pd.DatetimeIndex(df.index)
+    if idx.tz is not None:
         raise ValueError(
-            f"{n_bad} timestamp non convertibili (ora inesistente o ambigua "
-            "nel cambio DST). Vanno ispezionati prima di procedere."
+            "L'indice e' gia' tz-aware. Se l'etichetta e' spuria, toglila prima "
+            "con df.index = df.index.tz_localize(None)."
         )
-    return out
+
+    new_idx = HYPOTHESES[rule](idx, "NaT")
+    bad = new_idx.isna()
+    n_bad = int(bad.sum())
+
+    if n_bad and on_dst_gap == "raise":
+        persi = idx[bad]
+        raise ValueError(
+            f"{n_bad} barre cadono nei cambi d'ora e non hanno un istante reale "
+            f"a cui corrispondere (primi casi: {list(persi[:3])}).\n"
+            "Sono indeterminate: l'informazione non e' recuperabile dai dati.\n"
+            "Per scartarle in modo tracciato usa on_dst_gap='drop'."
+        )
+
+    if n_bad and verbose:
+        persi = idx[bad]
+        per_mese = persi.to_series().groupby([persi.year, persi.month]).size()
+        print(f"to_utc_index: scartate {n_bad} barre su {len(idx)} "
+              f"({n_bad / len(idx):.4%}) nei cambi d'ora.")
+        print("  novembre = ora ripetuta, marzo = ora inesistente")
+        for (anno, mese), n in per_mese.items():
+            print(f"    {anno}-{mese:02d}: {n}")
+
+    out = df[~bad].copy()
+    out.index = new_idx[~bad]
+    return out.sort_index()
