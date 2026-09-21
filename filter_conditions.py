@@ -155,15 +155,50 @@ def filter_adx_above(df: pd.DataFrame, threshold: float = 20.0) -> pd.Series:
     return df["adx"] > threshold
 
 
-def filter_atr_above(df: pd.DataFrame, window: int = 500,
-                     percentile: float = 0.5) -> pd.Series:
+def filter_low_volatility(df: pd.DataFrame, window: int = 500,
+                          percentile: float = 0.35) -> pd.Series:
     """
-    Volatilita' sopra la propria norma recente.
+    Volatilita' BASSA
 
-    La versione precedente aveva `threshold = 0.0`: l'ATR e' positivo per
-    definizione, quindi il filtro era vero SEMPRE e non filtrava niente.
-    Nella tabella dei risultati sarebbe comparso come "filtro che non
-    cambia nulla" - affermazione vera, ma per il motivo sbagliato.
+    Una soglia fissa in unita' di prezzo non e' trasferibile: il valore
+    giusto per EURUSD non lo e' per XAUUSD, e non lo e' nemmeno per EURUSD
+    fra due regimi di volatilita' diversi. Si usa il percentile rolling
+    dell'ATR sulla propria storia recente, cosi' il filtro si auto-adatta
+    a strumento, timeframe e regime - stessa scelta fatta in
+    F14_LOW_DRIFT_REGIME per lo stesso motivo.
+
+    window=500 su M15 sono circa 5 giorni di contrattazione.
+    percentile=0.5 seleziona la meta' piu' volatile; alza a 0.7 per essere
+    piu' severo.
+    """
+    soglia = df["atr"].rolling(int(window)).quantile(percentile)
+    return df["atr"] <= soglia
+
+
+def filter_mid_volatility(df: pd.DataFrame, window: int = 500,
+                          percentile: float = 0.75) -> pd.Series:
+    """
+    Volatilita' MEDIA
+
+    Una soglia fissa in unita' di prezzo non e' trasferibile: il valore
+    giusto per EURUSD non lo e' per XAUUSD, e non lo e' nemmeno per EURUSD
+    fra due regimi di volatilita' diversi. Si usa il percentile rolling
+    dell'ATR sulla propria storia recente, cosi' il filtro si auto-adatta
+    a strumento, timeframe e regime - stessa scelta fatta in
+    F14_LOW_DRIFT_REGIME per lo stesso motivo.
+
+    window=500 su M15 sono circa 5 giorni di contrattazione.
+    percentile=0.5 seleziona la meta' piu' volatile; alza a 0.7 per essere
+    piu' severo.
+    """
+    soglia = df["atr"].rolling(int(window)).quantile(percentile)
+    return df["atr"] <= soglia
+
+
+def filter_high_volatility(df: pd.DataFrame, window: int = 500,
+                          percentile: float = 0.75) -> pd.Series:
+    """
+    Volatilita' ALTA
 
     Una soglia fissa in unita' di prezzo non e' trasferibile: il valore
     giusto per EURUSD non lo e' per XAUUSD, e non lo e' nemmeno per EURUSD
@@ -512,7 +547,9 @@ def filter_low_near_range_bottom(
 # nome -> (funzione, direction, pair)
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
-    "F2_ATR_ABOVE":              (filter_atr_above, 0, None),
+    "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
+    "F2_MID_VOLATILITY":         (filter_mid_volatility, 0, None),
+    "F2_HIGH_VOLATILITY":        (filter_high_volatility, 0, None),
     "F3_VOLUME_ABOVE_AVG":       (filter_volume_above_avg, 0, None),
     "F5_TALL_CANDLE":            (filter_tall_candle, 0, None),
     "F6_VOLUME_ABOVE_AVG_50":    (filter_volume_above_avg_50, 0, None),
