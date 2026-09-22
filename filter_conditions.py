@@ -144,6 +144,8 @@ import numpy as np
 import pandas as pd
 
 from engine.alpha_ops import delta, ts_rank, ts_sum
+from engine.livelli import al_ultima_apertura, quarantena_cached, range_finestra
+from engine.sessioni import in_sessione
 
 
 # ======================================================================
@@ -545,6 +547,117 @@ def filter_low_near_range_bottom(
 
 
 # nome -> (funzione, direction, pair)
+# =========================================================================
+# FILTRI DI TEMPO  (F20-F22, aggiunti 22/9/2026)
+#
+# Usano le primitive di engine/sessioni.py: sessioni definite in ora LOCALE
+# di borsa, con il DST gestito da pandas. Un filtro orario scritto in ora
+# server sbaglia di un'ora nelle ~4 settimane l'anno in cui il DST
+# americano ed europeo sono sfasati: non genera errori, falsa il backtest
+# in silenzio.
+#
+# Tutti escludono le barre in quarantena (finestra del rollover, dove i
+# prezzi bid sono deformati dall'allargamento dello spread).
+# =========================================================================
+
+
+def _quarantena(df: pd.DataFrame) -> pd.DataFrame:
+    return quarantena_cached(df)
+
+
+# --- F20: dentro quale sessione siamo ------------------------------------
+# direction=0: stare dentro una sessione non dice niente su rialzo o
+# ribasso. E' la regola "direction=0 solo se usa davvero la sola magnitudo"
+# applicata correttamente.
+
+def filter_session_asia(df: pd.DataFrame) -> pd.Series:
+    """Dentro la sessione di Tokyo (09:00-18:00 ora di Tokyo)."""
+    return in_sessione(df, "TOKYO", quarantena=_quarantena(df))
+
+
+def filter_session_europe(df: pd.DataFrame) -> pd.Series:
+    """Dentro la sessione di Londra (08:00-17:00 ora di Londra)."""
+    return in_sessione(df, "LONDRA", quarantena=_quarantena(df))
+
+
+def filter_session_us(df: pd.DataFrame) -> pd.Series:
+    """Dentro la sessione di New York (08:00-17:00 ora di New York)."""
+    return in_sessione(df, "NEW_YORK", quarantena=_quarantena(df))
+
+
+def filter_session_overlap(df: pd.DataFrame) -> pd.Series:
+    """
+    Londra e New York aperte insieme: le ore di massima liquidita'.
+
+    E' un AND fra due stati, non un OR fra rami opposti: la regola 3 dei
+    filtri e' rispettata.
+    """
+    q = _quarantena(df)
+    return in_sessione(df, "LONDRA", quarantena=q) & in_sessione(df, "NEW_YORK", quarantena=q)
+
+
+# --- F21: la variazione notturna -----------------------------------------
+# Coppia direzionale: la notte in salita e' contesto rialzista.
+
+def _variazione_notturna(df: pd.DataFrame) -> pd.Series:
+    """
+    Quanto si e' mosso il prezzo mentre gli americani non c'erano: dalla
+    chiusura PULITA della sessione americana precedente all'apertura di
+    quella corrente.
+
+    Sul forex non e' un "gap": il mercato ha trattato, c'erano Londra e
+    l'Asia. E' il rendimento overnight, e misura cosa e' successo fuori
+    dall'orario americano.
+
+    La chiusura e' quella dell'ultima barra non in quarantena, cioe' le
+    16:30 di New York e non le 16:45.
+
+    Il valore viene fotografato all'apertura americana e resta fermo fino
+    all'apertura successiva (24 ore). Cosi' vale anche durante l'Asia e
+    l'Europa del giorno dopo, e il filtro non finisce per fare anche da
+    filtro di sessione — che renderebbe il risultato non interpretabile,
+    perche' mescolerebbe due effetti senza poterli separare.
+    """
+    sessione_usa = range_finestra(df, "NEW_YORK", "ROLLOVER")
+    chiusura = al_ultima_apertura(df, "NEW_YORK", sessione_usa["ultimo_close"])
+    apertura = al_ultima_apertura(df, "NEW_YORK", df["Open"])
+    return apertura / chiusura - 1.0
+
+
+def filter_overnight_up(df: pd.DataFrame) -> pd.Series:
+    """La notte ha portato il prezzo in su -> contesto rialzista."""
+    return (_variazione_notturna(df) > 0) & ~_quarantena(df)["totale"]
+
+
+def filter_overnight_down(df: pd.DataFrame) -> pd.Series:
+    """La notte ha portato il prezzo in giu' -> contesto ribassista."""
+    return (_variazione_notturna(df) < 0) & ~_quarantena(df)["totale"]
+
+
+# --- F22: distanza dal rollover ------------------------------------------
+
+ORE_DAL_ROLLOVER = 4.0
+
+
+def filter_far_from_rollover(df: pd.DataFrame) -> pd.Series:
+    """
+    Mancano almeno 4 ore al rollover delle 17:00 di New York.
+
+    Serve a non aprire posizioni destinate a morire dentro la finestra
+    dello spread largo, dove si paga anche lo swap.
+
+    Le 4 ore sono un PARAMETRO, e va dichiarato. Non e' stato ottimizzato:
+    viene dai picchi osservati nell'event study, fra la barra 15 e la 30,
+    cioe' fra 4 e 8 ore. Scelta fatta a priori una volta sola, mai provata
+    in varianti.
+    """
+    locale = df.index.tz_convert("America/New_York")
+    minuti = locale.hour * 60 + locale.minute
+    mancanti = (17 * 60 - minuti) % 1440
+    vicino = pd.Series(mancanti >= ORE_DAL_ROLLOVER * 60, index=df.index)
+    return vicino & ~_quarantena(df)["totale"]
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -568,6 +681,13 @@ FILTRI = {
     "F17_PRICE_BELOW_VWAP":      (filter_price_below_vwap, -1, "VWAP_POSITION"),
     "F18_HIGH_NEAR_RANGE_TOP":   (filter_high_near_range_top, 1, "RANGE_POSITION"),
     "F19_LOW_NEAR_RANGE_BOTTOM": (filter_low_near_range_bottom, -1, "RANGE_POSITION"),
+    "F20_SESSION_ASIA":          (filter_session_asia, 0, None),
+    "F20_SESSION_EUROPE":        (filter_session_europe, 0, None),
+    "F20_SESSION_US":            (filter_session_us, 0, None),
+    "F20_SESSION_OVERLAP":       (filter_session_overlap, 0, None),
+    "F22_FAR_FROM_ROLLOVER":     (filter_far_from_rollover, 0, None),
+    "F21_OVERNIGHT_UP":          (filter_overnight_up, 1, "OVERNIGHT_RETURN"),
+    "F21_OVERNIGHT_DOWN":        (filter_overnight_down, -1, "OVERNIGHT_RETURN"),
 }
 
 
