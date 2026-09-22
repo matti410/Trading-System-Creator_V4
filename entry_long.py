@@ -35,6 +35,8 @@ from helpers import (
     _confermato,
     _conferma_rialzista,
 )
+from engine.livelli import primo_del_giorno, quarantena_cached, range_finestra
+from engine.sessioni import in_sessione
 
 
 # ------------------------------------------------------------- E1 --------
@@ -247,6 +249,51 @@ def entry_belt_hold_confirmed(df: pd.DataFrame) -> pd.Series:
 
 
 # =========================================================================
+# TEMPO + PREZZO
+# Il tempo definisce un livello, il prezzo decide quando lo rompe.
+#
+# I livelli arrivano da engine/livelli.py, che garantisce due cose:
+#  - nessun lookahead: il livello alla barra i viene da una finestra chiusa
+#    PRIMA di i (verificato per forza bruta nei test);
+#  - le barre in quarantena (finestra del rollover, dove i prezzi bid sono
+#    deformati dall'allargamento dello spread) non entrano nel calcolo di
+#    massimi e minimi.
+#
+# Nessun buffer e nessuna soglia: la rottura e' Close > massimo, punto.
+# Ogni parametro in piu' sarebbe una prova in piu' nel conteggio dei test
+# multipli.
+# =========================================================================
+
+
+def entry_asian_range_breakout(df: pd.DataFrame) -> pd.Series:
+    """
+    La chiusura esce sopra il massimo del range asiatico -> long.
+
+    Il range va dall'apertura di Tokyo all'apertura di Londra. Il trigger
+    puo' scattare dall'apertura di Londra alla chiusura di New York, una
+    volta sola al giorno (la prima rottura).
+    """
+    livelli = range_finestra(df, "TOKYO", "LONDRA")
+    finestra = in_sessione(df, "LONDRA") | in_sessione(df, "NEW_YORK")
+    rottura = (df["Close"] > livelli["massimo"]) & livelli["pronto"] & finestra
+    pulita = ~quarantena_cached(df)["totale"]
+    return primo_del_giorno(rottura & pulita, df)
+
+
+def entry_prev_day_high_breakout(df: pd.DataFrame) -> pd.Series:
+    """
+    La chiusura esce sopra il massimo della giornata FX precedente -> long.
+
+    La giornata e' ancorata al rollover delle 17:00 di New York, non a
+    mezzanotte. Il trigger vale per tutta la giornata, una volta sola.
+    """
+    livelli = range_finestra(df, "ROLLOVER")
+    rottura = (df["Close"] > livelli["massimo"]) & livelli["pronto"]
+    pulita = ~quarantena_cached(df)["totale"]
+    return primo_del_giorno(rottura & pulita, df)
+
+
+# =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
 # =========================================================================
@@ -277,6 +324,8 @@ TRIGGER_LONG = {
     "E20_MARUBOZU": entry_marubozu,
     "E21_BELT_HOLD": entry_belt_hold,
     "E21_BELT_HOLD_CONFIRMED": entry_belt_hold_confirmed,
+    "E22_ASIAN_RANGE_BREAKOUT": entry_asian_range_breakout,
+    "E23_PREV_DAY_HIGH_BREAKOUT": entry_prev_day_high_breakout,
 }
 
 

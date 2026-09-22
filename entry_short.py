@@ -35,6 +35,8 @@ from helpers import (
     _confermato,
     _conferma_ribassista,
 )
+from engine.livelli import primo_del_giorno, quarantena_cached, range_finestra
+from engine.sessioni import in_sessione
 
 
 # ------------------------------------------------------------- E1 --------
@@ -231,6 +233,40 @@ def entry_short_belt_hold_confirmed(df: pd.DataFrame) -> pd.Series:
 
 
 # =========================================================================
+# TEMPO + PREZZO
+# Speculari delle omonime long in entry_long.py. Stesse garanzie: nessun
+# lookahead, quarantena esclusa dal calcolo dei livelli, nessun parametro.
+# =========================================================================
+
+
+def entry_short_asian_range_breakdown(df: pd.DataFrame) -> pd.Series:
+    """
+    La chiusura esce sotto il minimo del range asiatico -> short.
+
+    Range dall'apertura di Tokyo all'apertura di Londra; trigger
+    dall'apertura di Londra alla chiusura di New York, una volta al giorno.
+    """
+    livelli = range_finestra(df, "TOKYO", "LONDRA")
+    finestra = in_sessione(df, "LONDRA") | in_sessione(df, "NEW_YORK")
+    rottura = (df["Close"] < livelli["minimo"]) & livelli["pronto"] & finestra
+    pulita = ~quarantena_cached(df)["totale"]
+    return primo_del_giorno(rottura & pulita, df)
+
+
+def entry_short_prev_day_low_breakdown(df: pd.DataFrame) -> pd.Series:
+    """
+    La chiusura esce sotto il minimo della giornata FX precedente -> short.
+
+    Giornata ancorata al rollover delle 17:00 di New York. Trigger valido
+    per tutta la giornata, una volta sola.
+    """
+    livelli = range_finestra(df, "ROLLOVER")
+    rottura = (df["Close"] < livelli["minimo"]) & livelli["pronto"]
+    pulita = ~quarantena_cached(df)["totale"]
+    return primo_del_giorno(rottura & pulita, df)
+
+
+# =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
 # =========================================================================
@@ -261,6 +297,8 @@ TRIGGER_SHORT = {
     "E20_SHORT_MARUBOZU": entry_short_marubozu,
     "E21_SHORT_BELT_HOLD": entry_short_belt_hold,
     "E21_SHORT_BELT_HOLD_CONFIRMED": entry_short_belt_hold_confirmed,
+    "E22_SHORT_ASIAN_RANGE_BREAKDOWN": entry_short_asian_range_breakdown,
+    "E23_SHORT_PREV_DAY_LOW_BREAKDOWN": entry_short_prev_day_low_breakdown,
 }
 
 
