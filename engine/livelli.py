@@ -259,6 +259,26 @@ def range_finestra(
 
 
 # ------------------------------------------------------------- utilita' ----
+def al_ultima_apertura(df: pd.DataFrame, sessione: str, serie: pd.Series) -> pd.Series:
+    """
+    Il valore di `serie` letto sull'ULTIMA barra di apertura della sessione,
+    e portato avanti fino all'apertura successiva.
+
+    Serve a "fotografare" una grandezza al momento dell'apertura e tenerla
+    ferma per tutto il ciclo. Senza questo, una grandezza che si aggiorna da
+    sola cambia significato a meta' giornata: la variazione notturna
+    calcolata alle 03:00 di New York userebbe la chiusura americana
+    sbagliata e diventerebbe il rendimento intraday del giorno prima, con
+    il segno rovesciato. Nessun errore, numero senza senso.
+
+    Non c'e' lookahead: si legge solo su barre gia' passate.
+    """
+    aperture = barre_da_apertura(df, sessione).values  # confini: niente quarantena
+    fotografia = pd.Series(np.nan, index=df.index)
+    fotografia[aperture] = pd.Series(serie).reindex(df.index).values[aperture]
+    return fotografia.ffill()
+
+
 def primo_del_giorno(mask: pd.Series, df: pd.DataFrame) -> pd.Series:
     """
     Tiene solo la PRIMA barra vera di ogni giornata FX.
