@@ -195,6 +195,18 @@ def range_finestra(
         # per ogni apertura, la prima chiusura successiva
         j = np.searchsorted(i_fine, i_start, side="right")
         valide = j < len(i_fine)
+        # FIX (24/9/2026): le barre di una finestra ancora APERTA (la sua
+        # chiusura non c'e' ancora nello storico) non appartengono a nessuna
+        # finestra. Senza questa riga, quando lo storico finiva dentro una
+        # finestra aperta, le sue barre venivano assegnate alla finestra
+        # PRECEDENTE, gia' chiusa: il livello di ieri conteneva i prezzi di
+        # oggi. Sullo storico intero toccava solo l'ultima giornata; nel live,
+        # dove lo storico finisce sempre sulla barra corrente, era la
+        # situazione normale. Trovato da engine/collaudo_catalogo.py
+        # (verifica_lookahead per troncamento) su E22 e F21.
+        dentro = dentro & np.where(
+            ultimo_start >= 0, valide[np.clip(ultimo_start, 0, None)], False
+        )
         chiusure = i_fine[j[valide]]
         i_start = i_start[valide]
         ultimo_start = np.searchsorted(i_start, posizioni, side="right") - 1
