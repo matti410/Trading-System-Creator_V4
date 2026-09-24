@@ -182,6 +182,40 @@ def esegui() -> int:
     ok_dir = all(get_filter_direction(n) == FILTRI[n][1] for n in NUOVI)
     check("11. direction registrate come dichiarate", ok_dir)
 
+    # --- 12. F21 il lunedi' usa la chiusura del VENERDI' (24/9/2026) ----
+    # La chiusura attesa, calcolata a mano: l'ultima barra fra le 08:00 e le
+    # 16:30 di New York del giorno di borsa precedente. Prima della
+    # correzione di range_finestra il lunedi' usava quella di giovedi'.
+    from engine.sessioni import barre_da_apertura
+
+    svuota_cache()
+    aperture = barre_da_apertura(df, "NEW_YORK").values
+    apertura_usa = df["Open"].values[aperture]
+    chiusura_usata = apertura_usa / (_variazione_notturna(df).values[aperture] + 1.0)
+    m_ny = ny.hour * 60 + ny.minute
+    in_orario = (m_ny >= 8 * 60) & (m_ny <= 16 * 60 + 30) & (ny.dayofweek < 5)
+    chiusure_giorno = (
+        pd.Series(df["Close"].values[in_orario], index=ny[in_orario])
+        .groupby(ny[in_orario].date).last()
+    )
+    giorni_borsa = np.array(sorted(chiusure_giorno.index))
+    precedente = np.searchsorted(giorni_borsa, ny[aperture].date) - 1
+    attesa = np.where(
+        precedente >= 0,
+        chiusure_giorno.reindex(giorni_borsa[np.clip(precedente, 0, None)]).values,
+        np.nan,
+    )
+    confrontabili = ~np.isnan(attesa) & ~np.isnan(chiusura_usata)
+    sbagliate = confrontabili & ~np.isclose(attesa, chiusura_usata)
+    lunedi = ny[aperture].dayofweek == 0
+    check(
+        "12. F21 usa la chiusura americana del giorno di borsa precedente (lunedi' -> venerdi')",
+        int(sbagliate.sum()) == 0 and int((confrontabili & lunedi).sum()) > 40,
+        f"{int(sbagliate.sum())} sbagliate su {int(confrontabili.sum())} aperture, "
+        f"di cui {int((confrontabili & lunedi).sum())} di lunedi'",
+    )
+    svuota_cache()
+
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
     print(f"RISULTATO: {ok}/{tot} test superati")
