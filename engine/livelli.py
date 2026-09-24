@@ -45,6 +45,11 @@ from engine.sessioni import barre_da_apertura
 _CACHE_Q: dict[tuple, pd.DataFrame] = {}
 _CACHE_R: dict[tuple, pd.DataFrame] = {}
 
+# Oltre questo distacco fra due barre consecutive il mercato e' in PAUSA
+# (weekend, festivo, buco nello storico). Stesso valore del default di
+# `soglia_interruzione_min` in engine/quarantena.py.
+PAUSA_MINUTI = 60
+
 
 def _chiave(idx: pd.DatetimeIndex) -> tuple:
     return (len(idx), idx[0], idx[-1])
@@ -130,8 +135,10 @@ def range_finestra(
     inizio : nome di sessione del catalogo (`engine.sessioni.SESSIONI`). La
         finestra parte dalla sua barra di apertura.
     fine : nome di sessione dove la finestra si chiude, ESCLUSA la sua barra.
+        Se prima della fine arriva una pausa di mercato (weekend, festivo,
+        buco di piu' di PAUSA_MINUTI), la finestra si chiude li'.
         `None` significa "fino alla prossima occorrenza di `inizio`", cioe'
-        una finestra che copre l'intero ciclo.
+        una finestra che copre l'intero ciclo (qui la pausa NON chiude).
     quarantena : il DataFrame di `quarantena()`, una Series, o None per
         calcolarla da sola (con cache).
 
@@ -186,31 +193,47 @@ def range_finestra(
         i_fine = np.flatnonzero(barre_da_apertura(df, fine).values)
         if len(i_fine) == 0:
             raise ValueError(f"Nessuna apertura di '{fine}' trovata.")
-        ultimo_fine = np.searchsorted(i_fine, posizioni, side="right") - 1
-        # dentro se l'ultima chiusura vista e' PRIMA dell'ultima apertura
-        dentro = (ultimo_start >= 0) & (
-            (ultimo_fine < 0)
-            | (i_fine[np.clip(ultimo_fine, 0, None)] < i_start[np.clip(ultimo_start, 0, None)])
-        )
-        # per ogni apertura, la prima chiusura successiva
-        j = np.searchsorted(i_fine, i_start, side="right")
-        valide = j < len(i_fine)
-        # FIX (24/9/2026): le barre di una finestra ancora APERTA (la sua
-        # chiusura non c'e' ancora nello storico) non appartengono a nessuna
-        # finestra. Senza questa riga, quando lo storico finiva dentro una
-        # finestra aperta, le sue barre venivano assegnate alla finestra
-        # PRECEDENTE, gia' chiusa: il livello di ieri conteneva i prezzi di
-        # oggi. Sullo storico intero toccava solo l'ultima giornata; nel live,
-        # dove lo storico finisce sempre sulla barra corrente, era la
-        # situazione normale. Trovato da engine/collaudo_catalogo.py
-        # (verifica_lookahead per troncamento) su E22 e F21.
-        dentro = dentro & np.where(
-            ultimo_start >= 0, valide[np.clip(ultimo_start, 0, None)], False
-        )
-        chiusure = i_fine[j[valide]]
+
+        # Una finestra si chiude alla sua FINE oppure alla prima PAUSA di
+        # mercato, se viene prima.
+        #
+        # FIX (24/9/2026, pomeriggio): senza la pausa, una finestra la cui
+        # fine cade a mercato chiuso restava aperta fino alla fine successiva.
+        # Caso reale: NEW_YORK->ROLLOVER del venerdi', che non trova il
+        # rollover delle 17:00 (il mercato e' gia' chiuso) e si allungava fino
+        # al rollover di LUNEDI'. Il lunedi' F21 usava cosi' la chiusura di
+        # giovedi' (345 lunedi' su 346 su EURUSD).
+        #
+        # La pausa e' la prima barra dopo un buco di piu' di PAUSA_MINUTI:
+        # si riconosce su quella barra stessa, quindi nessun lookahead.
+        #
+        # Assorbe anche il FIX della mattina (stesso giorno): una finestra
+        # che non ha ancora ne' fine ne' pausa e' APERTA e le sue barre non
+        # appartengono a nessuna finestra. Prima finivano nella finestra
+        # precedente, gia' chiusa (lookahead trovato da
+        # engine/collaudo_catalogo.py su E22 e F21).
+        salto = pd.Series(idx).diff().dt.total_seconds().to_numpy()
+        i_pausa = np.flatnonzero(salto > PAUSA_MINUTI * 60)
+        mai = n + 1                       # "nessuna chiusura nello storico"
+
+        def _prossima(eventi: np.ndarray) -> np.ndarray:
+            """Per ogni apertura, il primo evento DOPO di essa (o `mai`)."""
+            if len(eventi) == 0:
+                return np.full(len(i_start), mai)
+            j = np.searchsorted(eventi, i_start, side="right")
+            return np.where(j < len(eventi), eventi[np.clip(j, 0, len(eventi) - 1)], mai)
+
+        chiusura = np.minimum(_prossima(i_fine), _prossima(i_pausa))
+        valide = chiusura < mai
         i_start = i_start[valide]
+        chiusure = chiusura[valide]
         ultimo_start = np.searchsorted(i_start, posizioni, side="right") - 1
-        dentro = dentro & (ultimo_start >= 0)
+        k = np.clip(ultimo_start, 0, None)
+        # dentro la finestra k: dalla sua apertura fino alla barra prima
+        # della sua chiusura (esclusa)
+        dentro = (ultimo_start >= 0) & (
+            posizioni < (chiusure[k] if len(chiusure) else 0)
+        )
         n_finestre = len(chiusure)
 
     if n_finestre == 0:
