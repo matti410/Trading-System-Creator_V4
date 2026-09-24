@@ -45,6 +45,19 @@ LE DUE FASCE
                in anticipo quali sono le grandezze tipiche dell'asset che
                si sta guardando. Cresce con la radice dell'orizzonte e
                cala con la radice del numero di trigger.
+               Dal 24/9/2026 tiene conto dei trigger VICINI, che
+               condividono le stesse candele e non valgono come prove
+               indipendenti: vedi _errore_standard_sovrapposti.
+
+LA SOGLIA DI RUMORE (24/9/2026)
+-------------------------------
+La sintesi e' una classifica: prende il picco di ogni curva e ordina le
+entry. Provando 52 entry, la prima sembra buona anche su dati casuali. La
+riga stampata sotto la tabella, e la colonna `oltre_rumore`, dicono oltre
+quale |volte_incertezza| il risultato non e' piu' spiegabile dal caso
+(engine/giudizio.py, soglia_rumore_orizzonte). E' la stessa idea della
+soglia della ricerca dei filtri, adattata al fatto che qui si sceglie
+anche la barra del picco.
 
 AVVERTENZA PERMANENTE (vale su ogni asset)
 ------------------------------------------
@@ -64,6 +77,7 @@ import numpy as np
 import pandas as pd
 
 from .registry import get_entry, get_entry_direction, list_entries, get_filter
+from .giudizio import soglia_rumore_orizzonte
 
 
 # ========================================================================
@@ -91,6 +105,51 @@ def deduci_pip(prezzo_medio: float) -> float:
 
 
 # ========================================================================
+# Incertezza con trigger sovrapposti
+# ========================================================================
+
+def _errore_standard_sovrapposti(v: np.ndarray, pos: np.ndarray, k: int) -> float:
+    """
+    Errore standard della media dei rendimenti a k barre, tenendo conto che
+    trigger VICINI condividono le stesse candele (24/9/2026).
+
+    Due trade partiti a d barre di distanza, misurati a k barre, hanno in
+    comune k - d candele su k: non sono due prove indipendenti. La formula
+    classica (deviazione standard / radice di n) li conta come
+    indipendenti e SOTTOSTIMA l'incertezza. Misurato su entry casuali: al
+    posto del 5% atteso, falsi allarmi al 15% con un trigger ogni ~25 barre
+    e al 91% con trigger a grappolo.
+
+    Qui la covarianza fra due trade e' proporzionale alle candele condivise:
+
+        var(media) = [ somma_i r_i^2 + 2 somma_{i<j} w_ij r_i r_j ] / n^2
+        w_ij = max(0, 1 - |pos_i - pos_j| / k)
+
+    dove r sono gli scarti dalla media. Senza sovrapposizioni (trigger
+    distanti almeno k barre) tutti i w sono zero e il risultato coincide con
+    la formula classica, a meno del fattore n/(n-1).
+
+    v    rendimenti a k barre dei trigger validi, nell'ordine delle posizioni
+    pos  posizioni (indici di barra) degli stessi trigger, crescenti
+    """
+    n_v = v.size
+    if n_v < 2:
+        return np.nan
+    res = v - v.mean()
+    tot = float((res ** 2).sum()) * n_v / (n_v - 1)
+    d = 1
+    while d < n_v:
+        dist = pos[d:] - pos[:-d]
+        vicini = dist < k
+        if not vicini.any():
+            break
+        w = 1.0 - dist[vicini] / k
+        tot += 2.0 * float((w * res[d:][vicini] * res[:-d][vicini]).sum())
+        d += 1
+    return float(np.sqrt(max(tot, 0.0))) / n_v
+
+
+# ========================================================================
 # Motore
 # ========================================================================
 
@@ -105,6 +164,7 @@ def run_event_study(
     open_col: str = "Open",
     banda: tuple[float, float] = (25.0, 75.0),
     verbose: bool = True,
+    alpha: float = 0.05,
 ):
     """
     Calcola l'andamento medio del prezzo dopo il trigger, per ogni entry.
@@ -123,6 +183,7 @@ def run_event_study(
     pip           dimensione di un pip in unita' di prezzo. None = dedotta
                   dal prezzo (vedi `deduci_pip`).
     filters       lista di filtri da applicare in AND all'entry, o None.
+    alpha         famiglia della soglia di rumore (default 5%). Vedi sotto.
     banda         percentili bassi/alti della fascia di dispersione.
 
     Ritorna
@@ -197,6 +258,8 @@ def run_event_study(
     prezzo_ing_medio = {nome: float(np.nanmean(prezzo_ing[maschere[nome]]))
                         for nome in attive}
 
+    posizioni = {nome: np.flatnonzero(maschere[nome]) for nome in attive}
+    ok = {}
     for k in barre:
         fwd = np.full(n, np.nan)
         limite = n - k
@@ -207,7 +270,8 @@ def run_event_study(
         for nome in attive:
             d = direzioni[nome]
             v = fwd[maschere[nome]]
-            v = v[np.isfinite(v)]
+            ok[nome] = np.isfinite(v)
+            v = v[ok[nome]]
             if v.size == 0:
                 for chiave in ("media", "lo", "hi", "se"):
                     acc[nome][chiave].append(np.nan)
@@ -217,8 +281,8 @@ def run_event_study(
                 lo, hi = np.percentile(v, banda)
                 acc[nome]["lo"].append(float(lo))
                 acc[nome]["hi"].append(float(hi))
-                sd = float(v.std(ddof=1)) if v.size > 1 else np.nan
-                acc[nome]["se"].append(sd / np.sqrt(v.size) if v.size > 1 else np.nan)
+                acc[nome]["se"].append(
+                    _errore_standard_sovrapposti(v, posizioni[nome][ok[nome]], k))
                 n_trade[nome] = max(n_trade[nome], int(v.size))
             acc[nome]["mkt"].append(mkt_long * d)
 
@@ -272,14 +336,31 @@ def run_event_study(
                .sort_values("volte_incertezza", key=abs, ascending=False)
                .reset_index(drop=True))
 
+    # --- soglia di rumore (24/9/2026) -----------------------------------
+    # La classifica sceglie il migliore due volte: la barra del picco
+    # sull'orizzonte e l'entry fra le k misurate. La soglia dice oltre
+    # quale |volte_incertezza| il primo della classifica non e' piu'
+    # spiegabile dal caso. k = entry misurate in QUESTA chiamata: le metro
+    # vanno lasciate fuori passando entry_names (sono un righello).
+    k = len(sintesi)
+    soglia = soglia_rumore_orizzonte(k, horizon, alpha) if k else np.nan
+    if k:
+        sintesi["oltre_rumore"] = sintesi["volte_incertezza"].abs() > soglia
+
     if verbose:
         print(f"\n{len(attive)} entry · orizzonte {horizon} barre · "
               f"{sum(n_trade.values()):,} trigger misurati")
+        if k:
+            print(f"soglia di rumore per {k} entry × picco su {horizon} barre "
+                  f"(famiglia {alpha:.0%}): |volte_incertezza| > {soglia:.2f}  —  "
+                  f"entry oltre: {int(sintesi['oltre_rumore'].sum())}. "
+                  f"Conta solo le prove di questa chiamata, e' un pavimento")
 
     return EventStudy(curve=curva, mercato=mercato, banda_bassa=b_lo,
                       banda_alta=b_hi, incertezza=incert, sintesi=sintesi,
                       horizon=horizon, banda=banda, pip=pip_size,
-                      pips_per_pct=pips_per_pct, scartate=scartate)
+                      pips_per_pct=pips_per_pct, scartate=scartate,
+                      soglia_rumore=soglia, k=k, alpha=alpha)
 
 
 # ========================================================================
@@ -290,7 +371,8 @@ class EventStudy:
     """Risultato di run_event_study. Vedi .sintesi, .plot(), .diagnosi()."""
 
     def __init__(self, curve, mercato, banda_bassa, banda_alta, incertezza,
-                 sintesi, horizon, banda, pip, pips_per_pct, scartate):
+                 sintesi, horizon, banda, pip, pips_per_pct, scartate,
+                 soglia_rumore=np.nan, k=0, alpha=0.05):
         self.curve = curve
         self.mercato = mercato
         self.banda_bassa = banda_bassa
@@ -302,6 +384,10 @@ class EventStudy:
         self.pip = pip
         self.pips_per_pct = pips_per_pct
         self.scartate = scartate
+        # soglia di rumore della classifica (vedi run_event_study)
+        self.soglia_rumore = soglia_rumore
+        self.k = k
+        self.alpha = alpha
 
     def __repr__(self):
         return (f"<EventStudy: {self.curve.shape[1]} entry, "
@@ -342,6 +428,10 @@ class EventStudy:
               f"({int(s['picco_in_coda'].sum())}/{len(s)}, oltre la barra {coda})")
         print(f"|picco| / incertezza, mediana: {mediana:.2f}")
         print(f"|picco| / incertezza, massimo: {massimo:.2f}")
+        if np.isfinite(self.soglia_rumore):
+            oltre = int((s["volte_incertezza"].abs() > self.soglia_rumore).sum())
+            print(f"soglia di rumore ({self.k} entry × picco su {self.horizon} barre): "
+                  f"{self.soglia_rumore:.2f}  —  entry oltre: {oltre}")
         print()
         if quota >= 0.5:
             print("I picchi si ammassano in fondo alla finestra: e' il")

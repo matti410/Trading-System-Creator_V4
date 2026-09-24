@@ -194,6 +194,67 @@ def soglia_rumore(k: int, alpha: float = 0.05) -> float:
     return float(NormalDist().inv_cdf(1.0 - per_test / 2.0))
 
 
+_CACHE_ORIZZONTE: dict[tuple, np.ndarray] = {}
+
+
+def soglia_rumore_orizzonte(k: int, horizon: int, alpha: float = 0.05,
+                            n_sim: int = 1_000_000, seme: int = 0) -> float:
+    """
+    Come `soglia_rumore`, ma per l'EVENT STUDY, dove si sceglie DUE volte
+    il migliore:
+
+      1. per ogni entry, la barra del PICCO fra le `horizon` barre
+         dell'orizzonte (`volte_incertezza` e' misurata li');
+      2. fra le k entry, quella in cima alla classifica.
+
+    Restituisce il |volte_incertezza| oltre cui il migliore di k entry,
+    ciascuna col proprio picco scelto sull'orizzonte, non e' piu'
+    spiegabile dal caso (famiglia `alpha`).
+
+    Le barre dell'orizzonte sono molto correlate fra loro (la barra 20 e la
+    21 condividono 20 barre di storia), quindi NON valgono `horizon` prove
+    indipendenti: su rumore puro 25 barre valgono circa 7 prove, 48 circa 10.
+    Per questo la soglia si ottiene per simulazione e non con una formula:
+
+      - rumore puro: rendimenti indipendenti, la curva media dopo il
+        trigger e' una passeggiata casuale; alla barra t il rapporto
+        picco/incertezza e' S_t / radice(t);
+      - per una entry, il massimo di |S_t / radice(t)| su t = 1..horizon;
+      - fra k entry indipendenti si combina come Sidak: la soglia e' il
+        quantile (1 - alpha)^(1/k) di quel massimo.
+
+    Seme fisso: stesso input, stesso numero. La simulazione di un dato
+    orizzonte si fa una volta sola per sessione (cache).
+
+    Con horizon=1 non c'e' nessun picco da scegliere e la funzione
+    restituisce esattamente `soglia_rumore(k, alpha)`.
+
+    Vale se i trigger non si sovrappongono. Con trigger vicini (grappoli)
+    l'incertezza dell'event study e' sottostimata e la soglia e' un
+    PAVIMENTO. Come `soglia_rumore`, conta solo le prove di quella chiamata.
+    """
+    k = max(1, int(k))
+    horizon = max(1, int(horizon))
+    if horizon == 1:
+        return soglia_rumore(k, alpha)
+
+    chiave = (horizon, int(n_sim), int(seme))
+    if chiave not in _CACHE_ORIZZONTE:
+        rng = np.random.default_rng(seme)
+        radici = np.sqrt(np.arange(1, horizon + 1))
+        blocco = max(1, 2_000_000 // horizon)       # memoria contenuta
+        massimi, rimasti = [], int(n_sim)
+        while rimasti > 0:
+            m = min(blocco, rimasti)
+            z = np.cumsum(rng.standard_normal((m, horizon)), axis=1) / radici
+            massimi.append(np.abs(z).max(axis=1))
+            rimasti -= m
+        _CACHE_ORIZZONTE[chiave] = np.sort(np.concatenate(massimi))
+
+    livello = (1.0 - alpha) ** (1.0 / k)
+    return float(np.quantile(_CACHE_ORIZZONTE[chiave], livello))
+
+
 # ========================================================================
 # 2 · Il confronto tenuti / scartati
 # ========================================================================

@@ -97,7 +97,8 @@ from backtesting import Backtest, Strategy
 
 from .registry import get_entry, get_entry_direction, get_exit, list_exit_pairs
 from .event_study import deduci_pip
-from .metriche import metriche_per_trade
+from .metriche import metriche_per_trade, pips_per_trade
+from .giudizio import soglia_rumore, t_stat
 
 
 # ========================================================================
@@ -230,6 +231,7 @@ def run_exit_search_bt(
     min_trades=30,
     close_col="Close", open_col="Open", high_col="High", low_col="Low",
     verbose=True,
+    alpha=0.05,
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -283,8 +285,15 @@ def run_exit_search_bt(
         leverage-invariant, la metrica giusta per confrontare i trigger
         fra loro a prescindere da come verranno poi dimensionati.
 
+    alpha
+        Famiglia della soglia di rumore (default 5%). La tabella ha la
+        colonna `t_stat` (t sui pips NETTI per trade) e `oltre_rumore`:
+        True se |t_stat| supera la soglia di Sidak per le k righe di
+        questa chiamata. Conta solo le prove di questa chiamata: e' un
+        pavimento.
+
     Ritorna un oggetto ExitSearchBT: .risultati (tabella), .top(),
-    .equity(combinazione), .trades(combinazione).
+    .trades(combinazione), .soglia_rumore, .k.
     """
     n_barre = int(n_barre)
     if n_barre < 1:
@@ -418,6 +427,9 @@ def run_exit_search_bt(
         # calcolo sta in engine/metriche.py, unico per i due motori.
         m = metriche_per_trade(trades, pip_size, commission)
         n_t = m["n_trades"]
+        # t sui pips NETTI per trade: il numero da confrontare con la soglia
+        # di rumore (i trade non si sovrappongono, exclusive_orders=True)
+        _, netti = pips_per_trade(trades, pip_size, commission)
 
         righe.append({
             "combinazione": etichetta,
@@ -432,6 +444,7 @@ def run_exit_search_bt(
             "profit_factor": float(stats["Profit Factor"]),
             "avg_trade": m["avg_trade"],
             "avg_trade_netto": m["avg_trade_netto"],
+            "t_stat": t_stat(netti),
             "costo_pips": m["costo_pips"],
             "durata_media": m["durata_media"],
             "durata_max": m["durata_max"],
@@ -443,16 +456,30 @@ def run_exit_search_bt(
                 .sort_values("sharpe", ascending=False)
                 .reset_index(drop=True))
 
+    # --- soglia di rumore (24/9/2026) -----------------------------------
+    # Si sceglie la combinazione migliore fra k righe: oltre questo |t| il
+    # risultato non e' piu' spiegabile dal caso. k = righe di QUESTA
+    # chiamata, comprese quelle con pochi trade (sono state provate).
+    k = len(risultati)
+    soglia = soglia_rumore(k, alpha) if k else np.nan
+    if k:
+        risultati["oltre_rumore"] = risultati["t_stat"].abs() > soglia
+
     if verbose:
         print(f"{len(combinazioni)} combinazioni · n_barre={n_barre} · "
               f"coppie di uscita: {[p or '—' for p in pair_list]} · "
               f"stop adattivo {perc_sl}°/{perc_tp}° pct (finestra {finestra}) · "
               f"spread {spread:.5f} · commission {commission:.5f} · margin {margin}")
+        if k:
+            print(f"soglia di rumore per {k} righe (Sidak, famiglia {alpha:.0%}): "
+                  f"|t_stat| > {soglia:.2f}  —  righe oltre: {int(risultati['oltre_rumore'].sum())}. "
+                  f"Conta solo le prove di questa chiamata, e' un pavimento")
 
     return ExitSearchBT(risultati=risultati, trades_per_combo=trades_per_combo,
                         n_barre=n_barre, perc_sl=perc_sl, perc_tp=perc_tp,
                         finestra=finestra, spread=spread, commission=commission,
-                        margin=margin, min_trades=min_trades)
+                        margin=margin, min_trades=min_trades,
+                        soglia_rumore=soglia, k=k, alpha=alpha)
 
 
 # ========================================================================
@@ -463,7 +490,8 @@ class ExitSearchBT:
     """Risultato di run_exit_search_bt. Vedi .risultati, .top(), .trades()."""
 
     def __init__(self, risultati, trades_per_combo, n_barre, perc_sl,
-                 perc_tp, finestra, spread, commission, margin, min_trades):
+                 perc_tp, finestra, spread, commission, margin, min_trades,
+                 soglia_rumore=np.nan, k=0, alpha=0.05):
         self.risultati = risultati
         self._trades_per_combo = trades_per_combo
         self.n_barre = n_barre
@@ -474,6 +502,10 @@ class ExitSearchBT:
         self.commission = commission
         self.margin = margin
         self.min_trades = min_trades
+        # soglia di rumore della tabella (vedi run_exit_search_bt)
+        self.soglia_rumore = soglia_rumore
+        self.k = k
+        self.alpha = alpha
 
     def __repr__(self):
         return f"<ExitSearchBT: {len(self.risultati)} combinazioni, n_barre={self.n_barre}>"
@@ -488,7 +520,7 @@ class ExitSearchBT:
         # le righe, in tabella sarebbe rumore).
         colonne = ["combinazione", "trades", "pnl_pct", "sharpe", "max_dd_pct",
                    "win_rate_pct", "profit_factor", "avg_trade", "avg_trade_netto",
-                   "durata_media", "durata_max"]
+                   "t_stat", "oltre_rumore", "durata_media", "durata_max"]
         return r.sort_values(per, ascending=False).head(n)[colonne].round(3)
 
     def trades(self, combinazione=None):
