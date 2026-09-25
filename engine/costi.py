@@ -153,10 +153,29 @@ def _colonna(df: pd.DataFrame, nome: str) -> str:
     )
 
 
+# Valute ufficiali (ISO 4217) che compaiono nelle coppie forex dei broker, e
+# le sigle crypto piu' comuni. Servono quando manca il path di MT5 (Colab):
+# prima del 25/9 bastava avere 6 lettere per essere "forex", e BTCUSD lo era.
+VALUTE_FIAT = {
+    "USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD", "SEK", "NOK",
+    "DKK", "PLN", "HUF", "CZK", "TRY", "ZAR", "MXN", "SGD", "HKD", "CNH",
+    "CNY", "RUB", "ILS", "THB", "INR", "KRW", "BRL", "RON", "ISK",
+}
+SIGLE_CRYPTO = {
+    "BTC", "ETH", "LTC", "XRP", "BCH", "ADA", "DOT", "SOL", "DOG", "DOGE",
+    "LNK", "LINK", "XLM", "EOS", "BNB", "UNI", "AVAX", "MATIC", "TRX", "XTZ",
+}
+
+
 def classifica_simbolo(symbol: str, path: str = "") -> str:
     """
     Classe dell'asset, dedotta dal `path` di MT5 (es. 'Forex\\Majors\\EURUSD').
     Il path e' piu' affidabile del nome: 'US500' e 'USDJPY' iniziano uguale.
+
+    Senza path (strada senza MT5) si guarda il nome: e' forex solo se e'
+    fatto di DUE valute ufficiali (EURUSD, USDJPY); e' crypto se comincia con
+    una sigla crypto nota (BTCUSD, ETHUSD). Corretto il 25/9: prima BTCUSD,
+    avendo 6 lettere, risultava forex.
     """
     p, s = (path or "").lower(), (symbol or "").upper()
     if "crypto" in p:                                              return "crypto"
@@ -164,7 +183,9 @@ def classifica_simbolo(symbol: str, path: str = "") -> str:
     if "ind" in p or "cash" in p:                                  return "indici"
     if "share" in p or "stock" in p or "equit" in p:               return "azioni"
     if "forex" in p or "fx" in p:                                  return "forex"
-    if len(s) == 6 and s.isalpha():                                return "forex"
+    if any(s.startswith(c) for c in SIGLE_CRYPTO):                 return "crypto"
+    if len(s) == 6 and s.isalpha() and s[:3] in VALUTE_FIAT and s[3:] in VALUTE_FIAT:
+        return "forex"
     return "altro"
 
 
@@ -428,8 +449,10 @@ def costo_simbolo(symbol: str, bars: pd.DataFrame | None = None,
 def _stampa_costo(symbol: str, c: dict, valuta_conto: str) -> None:
     rt = c["spread_rel"] + c["comm_rel_rt"]
     print(f"{symbol}  [{c['classe']}]  conto in {valuta_conto}")
-    print(f"   prezzo mediano   : {c['prezzo']:,.6g}"
-          f"   nozionale: {c['nozionale']:,.0f} {valuta_conto}")
+    noz = c.get("nozionale")
+    testo_noz = (f"{noz:,.0f} {valuta_conto}" if noz is not None and np.isfinite(noz)
+                 else "— (non serve: niente commissione)")
+    print(f"   prezzo mediano   : {c['prezzo']:,.6g}   nozionale: {testo_noz}")
     print(f"   spread           : {c['spread_rel']*1e4:6.3f} bp   <- {c['fonte_spread']}")
     print(f"   commissione      : {c['comm_rel_rt']*1e4:6.3f} bp   <- "
           f"{c['commissione_rt']:.2f} {valuta_conto} round-turn per lotto")
@@ -512,11 +535,18 @@ def parametri_backtest(symbol: str, bars: pd.DataFrame | None = None,
         classe = classifica_simbolo(symbol)
         comm_rt = (commissione_round_turn(classe, valuta_conto)
                    if commissione_rt is None else float(commissione_rt))
-        noz = (float(nozionale) if nozionale is not None
-               else nozionale_senza_mt5(symbol, prezzo, valuta_conto))
+        # Il nozionale serve solo a convertire la commissione. Dove la
+        # commissione e' zero (crypto, indici, azioni) non serve, e non si
+        # chiede: nozionale_senza_mt5 sa calcolarlo solo per il forex.
+        if nozionale is not None:
+            noz = float(nozionale)
+        elif comm_rt > 0:
+            noz = nozionale_senza_mt5(symbol, prezzo, valuta_conto)
+        else:
+            noz = float("nan")
 
         spread_rel = float(spread_pips) * float(pip_size) / prezzo
-        comm_rel_rt = (comm_rt / noz) if noz else 0.0
+        comm_rel_rt = (comm_rt / noz) if (comm_rt > 0 and noz) else 0.0
         c = {"spread_rel": spread_rel, "comm_rel_rt": comm_rel_rt,
              "classe": classe, "nozionale": noz, "prezzo": prezzo,
              "commissione_rt": comm_rt,

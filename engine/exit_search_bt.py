@@ -98,6 +98,7 @@ from backtesting import Backtest, Strategy
 from .registry import get_entry, get_entry_direction, get_exit, list_exit_pairs
 from .event_study import deduci_pip
 from .metriche import metriche_per_trade, pips_per_trade
+from .controlli import avviso_capitale
 from .giudizio import soglia_rumore, t_stat
 
 
@@ -395,6 +396,7 @@ def run_exit_search_bt(
         pair_cols[pair] = (col_long, col_short)
 
     # --- backtest, una sola costruzione, riusata per ogni combinazione --
+    avviso_capitale(df, cash, margin, close_col, contesto="run_exit_search_bt")  # 25/9: prezzo > capitale
     bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
                  commission=commission, margin=margin, exclusive_orders=True)
 

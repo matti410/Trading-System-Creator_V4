@@ -72,6 +72,7 @@ from .registry import (get_entry, get_exit, get_filter, get_filter_direction,
 from .event_study import deduci_pip
 from .exit_search_bt import soglie_adattive, _StrategiaGenerica
 from .metriche import metriche_per_trade, pips_per_trade
+from .controlli import avviso_capitale
 from .giudizio import (RIFERIMENTO, p_ev_negativo, soglia_rumore, t_stat,
                        tenuti_scartati, verdetto)
 
@@ -273,6 +274,7 @@ def run_filter_search_bt(
                               col_long, col_short, m_long, m_short))
 
     # --- backtest, una sola costruzione, riusata per ogni riga ------------
+    avviso_capitale(df, cash, margin, close_col, contesto="run_filter_search_bt")  # 25/9: prezzo > capitale
     bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
                  commission=commission, margin=margin, exclusive_orders=True)
 
