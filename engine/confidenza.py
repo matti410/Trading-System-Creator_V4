@@ -49,7 +49,14 @@ congelato, nessun filtro), fatta girare su tutta la serie. Dal vivo si
 possono calcolare anche per i segnali che non si tradano: basta simulare il
 setup base accanto a quello reale.
 
+IL FILTRO SCELTO VA CONGELATO PRIMA (25/9)
+------------------------------------------
+Se al passo 5 si e' scelto un filtro (es. F8_UPTREND_CONTEXT), il setup e'
+«entry + filtro»: `congela_filtro(fs, filtro_scelto)` lo mette dentro le
+entry, e da li' in poi storia, test e OOS usano quel setup.
+
 Modulo ADDITIVO: legge registry, livelli e metriche, non modifica niente.
+Registra solo nomi nuovi (entry derivate, filtri CONF_...).
 Richiede `engine/volatility_features_engineering.py` (il file di Mattia,
 invariato).
 """
@@ -60,7 +67,8 @@ import pandas as pd
 
 from .livelli import giorno_fx
 from .metriche import pips_per_trade
-from .registry import list_filters, register_filter
+from .registry import (get_entry, get_entry_direction, get_filter, list_entries,
+                       list_filters, register_entry, register_filter)
 from .volatility_features_engineering import (build_labels,
                                               feat_historical_volatility)
 
@@ -73,6 +81,67 @@ ETICHETTE_CELLA = {
 
 _FINESTRE_VOL = (5, 20, 50, 200)   # quelle che feat_historical_volatility produce
 _METRICHE = ("pips_medi", "win_rate")
+
+
+# ========================================================================
+# 0 · Il filtro scelto, congelato dentro l'entry
+# ========================================================================
+
+_VUOTO = "—"   # stesso segnaposto di filter_search_bt.py per "nessun filtro su questo lato"
+
+
+def congela_filtro(fs, filtro_scelto):
+    """
+    Congela il filtro scelto al passo 5 dentro le entry, cosi' che il setup
+    diventi «entry + filtro» e la confidenza si costruisca e si provi SOPRA.
+
+    `run_filter_search_bt` prova un'idea per riga e la sua baseline e' sempre
+    senza filtri: non ha un posto per un filtro fisso. Invece di modificarlo,
+    si registra una entry derivata, vera solo dove sono veri entry e filtro.
+
+    fs              il FilterSearchBT della ricerca dei filtri
+    filtro_scelto   l'etichetta della riga scelta, come appare in
+                    fs.risultati['filtro'] (un filtro singolo o una coppia).
+                    None = nessun filtro: restituisce le entry di fs.
+
+    Il filtro di ciascun lato si legge dalla riga (colonne filtro_long /
+    filtro_short): si congela esattamente quello che la tabella ha provato.
+
+    Ritorna (entry_long, entry_short): i nomi da passare a
+    run_filter_search_bt, None dove il lato non e' attivo. Il nome di una
+    entry derivata e' "ENTRY+FILTRO", es. E22_ASIAN_RANGE_BREAKOUT+F8_UPTREND_CONTEXT.
+    """
+    if filtro_scelto is None:
+        return fs.entry_long, fs.entry_short
+
+    r = fs.risultati
+    if filtro_scelto not in set(r["filtro"]):
+        disponibili = sorted(x for x in r["filtro"] if not str(x).startswith("—"))
+        raise ValueError(
+            f"'{filtro_scelto}' non e' una riga di fs.risultati. Etichette "
+            f"disponibili: {disponibili}"
+        )
+    riga = r.loc[r["filtro"] == filtro_scelto].iloc[0]
+
+    registrate = set(list_entries())
+    nomi = []
+    for entry, filtro in ((fs.entry_long, riga["filtro_long"]),
+                          (fs.entry_short, riga["filtro_short"])):
+        if entry is None:
+            nomi.append(None)
+            continue
+        if filtro is None or filtro == _VUOTO:
+            nomi.append(entry)
+            continue
+        nome = f"{entry}+{filtro}"
+        if nome not in registrate:
+            def derivata(d, _e=entry, _f=filtro):
+                # stesse conversioni di filter_search_bt: .astype(bool) su entrambe
+                return (get_entry(_e)(d).astype(bool)
+                        & pd.Series(get_filter(_f)(d).astype(bool).to_numpy(), index=d.index))
+            register_entry(nome, get_entry_direction(entry))(derivata)
+        nomi.append(nome)
+    return nomi[0], nomi[1]
 
 
 # ========================================================================
