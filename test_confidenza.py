@@ -21,12 +21,14 @@ import pandas as pd
 
 from engine.collaudo_catalogo import mercato_sintetico
 from engine.confidenza import (ETICHETTE_CELLA, asse_volatilita, cella_contesto,
+                               congela_filtro,
                                confidenza_rolling, esiti_trade, gap_trend,
                                plot_oos_confidenza, registra_filtro_confidenza,
                                report_calibrazione)
 from engine.filter_search_bt import BASELINE, run_filter_search_bt
 from engine.livelli import giorno_fx, svuota_cache
-from engine.registry import clear_registry, list_filters, register_entry
+from engine.registry import (clear_registry, get_entry, list_entries, list_filters,
+                             register_entry, register_filter)
 
 warnings.simplefilter("ignore")
 
@@ -317,6 +319,64 @@ def esegui() -> int:
           and np.isclose(r0["pips_totali"], netti.sum()) and np.isclose(r0["max_dd_pips"], dd)
           and len(ax.get_lines()) == 3,
           f"senza: {int(r0['trade'])} trade, dd {r0['max_dd_pips']:.1f} pips")
+
+    # ------------------------------------------------ il filtro congelato --
+    print("\nE · Il filtro scelto congelato dentro l'entry")
+
+    register_filter("F_TEST_UP", direction=1, pair="T_CTX")(
+        lambda d: d["Close"] > d["Close"].shift(20))
+    register_filter("F_TEST_DOWN", direction=-1, pair="T_CTX")(
+        lambda d: d["Close"] < d["Close"].shift(20))
+
+    def stessi_trade(a, b):
+        col = ["EntryTime", "ExitTime", "EntryPrice", "ExitPrice", "Size"]
+        return len(a) == len(b) and len(a) > 0 and \
+            a[col].reset_index(drop=True).equals(b[col].reset_index(drop=True))
+
+    # coppia su un setup long + short
+    fs_f = run_filter_search_bt(df_is, filtri=["F_TEST_UP", "F_TEST_DOWN"], **param)
+    el_, es_ = congela_filtro(fs_f, "T_CTX")
+    fb = run_filter_search_bt(df_is, **{**param, "entry_long": el_, "entry_short": es_}, filtri=[])
+    check("25. coppia congelata: la baseline nuova ha gli STESSI trade della riga della coppia",
+          (el_, es_) == ("T_RANDOM_LONG+F_TEST_UP", "T_RANDOM_SHORT+F_TEST_DOWN")
+          and stessi_trade(fb.trades(), fs_f.trades("T_CTX")),
+          f"{len(fb.trades())} trade, {el_} / {es_}")
+
+    # setup solo long: la coppia si riduce al membro long, la riga prende il suo nome
+    p_long = {**param, "entry_short": None}
+    fs_lo = run_filter_search_bt(df_is, filtri=["F_TEST_UP", "F_TEST_DOWN"], **p_long)
+    el_, es_ = congela_filtro(fs_lo, "F_TEST_UP")
+    fb = run_filter_search_bt(df_is, **{**p_long, "entry_long": el_}, filtri=[])
+    check("26. setup solo long (come E22 + F8): stessi trade della riga del filtro, short None",
+          es_ is None and el_ == "T_RANDOM_LONG+F_TEST_UP"
+          and stessi_trade(fb.trades(), fs_lo.trades("F_TEST_UP")),
+          f"{len(fb.trades())} trade")
+
+    # filtro singolo +1 su setup long + short: lo short resta com'e'
+    fs_s = run_filter_search_bt(df_is, filtri=["F_TEST_UP"], **param)
+    el_, es_ = congela_filtro(fs_s, "F_TEST_UP")
+    fb = run_filter_search_bt(df_is, **{**param, "entry_long": el_, "entry_short": es_}, filtri=[])
+    check("27. filtro long su setup long + short: short invariato, stessi trade della riga",
+          es_ == "T_RANDOM_SHORT" and stessi_trade(fb.trades(), fs_s.trades("F_TEST_UP")))
+
+    try:
+        congela_filtro(fs_lo, "T_CTX")
+        errore = False
+    except ValueError as err:
+        errore = "F_TEST_UP" in str(err)
+    check("28. etichetta assente -> errore con l'elenco di quelle disponibili; None -> entry di fs",
+          errore and congela_filtro(fs_lo, None) == ("T_RANDOM_LONG", None))
+
+    n_prima = len(list_entries())
+    ripetuto = congela_filtro(fs_lo, "F_TEST_UP")
+    check("29. richiamarla non registra doppioni",
+          ripetuto == ("T_RANDOM_LONG+F_TEST_UP", None) and len(list_entries()) == n_prima)
+
+    intera = get_entry("T_RANDOM_LONG+F_TEST_UP")(df)
+    ok = True
+    for t in rng.integers(1000, n - 10, 5):
+        ok &= get_entry("T_RANDOM_LONG+F_TEST_UP")(df.iloc[:t]).equals(intera.iloc[:t])
+    check("30. nessun lookahead nell'entry congelata (5 tagli)", ok)
 
     clear_registry()
     print("\n" + "=" * 70)
