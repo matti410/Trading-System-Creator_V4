@@ -144,6 +144,47 @@ def congela_filtro(fs, filtro_scelto):
     return nomi[0], nomi[1]
 
 
+def congela_confidenza_nota(entry_long, entry_short, conf_long=None, conf_short=None):
+    """
+    Restringe le entry ai segnali che hanno una confidenza NOTA (almeno
+    `min_obs` trade conclusi nella stessa cella), cosi' che le soglie di
+    confidenza si confrontino solo fra «sopra soglia» e «sotto soglia».
+
+    PERCHE' (26/9, trovato sul run EURUSD)
+    Senza questo passo, nel confronto tenuti/scartati di run_filter_search_bt
+    gli scartati contengono anche i trade del riscaldamento, a confidenza
+    ignota: tutti all'inizio della serie. Il confronto mescolava cosi'
+    «confidenza bassa» con «periodo diverso». Su EURUSD erano 240 trade su 408
+    scartati, tutti prima di luglio 2022.
+
+    entry_long, entry_short   i nomi del setup congelato (da congela_filtro)
+    conf_long, conf_short     le tabelle di confidenza_rolling (None dove il
+                              lato non e' attivo)
+
+    Ritorna (entry_long, entry_short): nomi "ENTRY+CONF_NOTA", da usare come
+    entry nella cella delle soglie e in quella dell'OOS. La baseline della
+    tabella diventa «setup con confidenza nota».
+    """
+    registrate = set(list_entries())
+    nomi = []
+    for entry, conf in ((entry_long, conf_long), (entry_short, conf_short)):
+        if entry is None:
+            nomi.append(None)
+            continue
+        if conf is None:
+            raise ValueError(f"'{entry}' e' attiva ma manca la sua tabella di confidenza.")
+        nome = f"{entry}+CONF_NOTA"
+        _DATI_FILTRI[nome] = (conf["pips_medi"], float("-inf"))
+        if nome not in registrate:
+            nota = _funzione_filtro(nome)       # vero dove la confidenza e' nota
+            def derivata(d, _e=entry, _n=nota):
+                return (get_entry(_e)(d).astype(bool)
+                        & pd.Series(_n(d).to_numpy(), index=d.index))
+            register_entry(nome, get_entry_direction(entry))(derivata)
+        nomi.append(nome)
+    return nomi[0], nomi[1]
+
+
 # ========================================================================
 # 1 · Il contesto
 # ========================================================================
