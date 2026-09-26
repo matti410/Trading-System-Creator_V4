@@ -21,7 +21,7 @@ import pandas as pd
 
 from engine.collaudo_catalogo import mercato_sintetico
 from engine.confidenza import (ETICHETTE_CELLA, asse_volatilita, cella_contesto,
-                               congela_filtro,
+                               congela_filtro, congela_confidenza_nota,
                                confidenza_rolling, esiti_trade, gap_trend,
                                plot_oos_confidenza, registra_filtro_confidenza,
                                report_calibrazione)
@@ -377,6 +377,45 @@ def esegui() -> int:
     for t in rng.integers(1000, n - 10, 5):
         ok &= get_entry("T_RANDOM_LONG+F_TEST_UP")(df.iloc[:t]).equals(intera.iloc[:t])
     check("30. nessun lookahead nell'entry congelata (5 tagli)", ok)
+
+    # ------------------------------------------ solo confidenza nota --
+    print("\nF · Le soglie si confrontano solo fra trade a confidenza nota")
+    el_n, es_n = congela_confidenza_nota("T_RANDOM_LONG", "T_RANDOM_SHORT", conf_l, conf_s)
+    raw_l = get_entry("T_RANDOM_LONG")(df).astype(bool)
+    got_l = get_entry(el_n)(df)
+    atteso = raw_l & conf_l["pips_medi"].notna()
+    check("31. l'entry ristretta scatta solo dove la confidenza e' nota",
+          el_n == "T_RANDOM_LONG+CONF_NOTA" and got_l.equals(atteso)
+          and int(raw_l.sum()) > int(got_l.sum()) > 0,
+          f"{int(raw_l.sum())} segnali -> {int(got_l.sum())} a confidenza nota")
+
+    fs_n = run_filter_search_bt(df_is, filtri=nomi[:2],
+                                **{**param, "entry_long": el_n, "entry_short": es_n})
+    e_n = esiti_trade(fs_n.trades(), df, fs_n.pip_size, costi["commission"])
+    note = np.where(e_n["lato"] == 1, conf_l["pips_medi"].to_numpy()[e_n["barra_segnale"]],
+                    conf_s["pips_medi"].to_numpy()[e_n["barra_segnale"]])
+    r0 = fs_n.risultati.set_index("filtro").loc["CONF_PIPS_MEDI_0"]
+    sopra = int((note > 0).sum())
+    check("32. baseline tutta a confidenza nota; tenuti = sopra soglia, scartati = sotto",
+          not np.isnan(note).any() and r0["n_tenuti"] == sopra
+          and r0["n_scartati"] == len(note) - sopra and r0["n_scartati"] > 0,
+          f"baseline {len(note)} · tenuti {int(r0['n_tenuti'])} · scartati {int(r0['n_scartati'])}")
+
+    n_prima = len(list_entries())
+    ancora = congela_confidenza_nota("T_RANDOM_LONG", "T_RANDOM_SHORT", conf_l, conf_s)
+    ok = True
+    for t in rng.integers(3000, n - 10, 4):
+        ok &= get_entry(el_n)(df.iloc[:t]).equals(got_l.iloc[:t])
+    check("33. nessun doppione rieseguendo, nessun lookahead (4 tagli)",
+          ancora == (el_n, es_n) and len(list_entries()) == n_prima and ok)
+
+    try:
+        congela_confidenza_nota("T_RANDOM_LONG", None, None, None)
+        errore = False
+    except ValueError:
+        errore = True
+    check("34. lato attivo senza tabella di confidenza -> errore; lato None resta None",
+          errore and congela_confidenza_nota(None, "T_RANDOM_SHORT", None, conf_s)[0] is None)
 
     clear_registry()
     print("\n" + "=" * 70)
