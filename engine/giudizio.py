@@ -374,11 +374,17 @@ def verdetto(ev=None, p_neg=None, n_trades=0, t=None, soglia_t=None,
 # ========================================================================
 
 def _drawdown_chiusi(pips) -> float:
-    """Max drawdown della cumulata dei soli trade chiusi, in pips."""
+    """
+    Max drawdown della cumulata dei soli trade chiusi, in pips.
+
+    La curva parte da ZERO (corretto il 26/9): senza lo zero iniziale una
+    perdita sui primi trade non veniva contata. Esempio: trade -5, -3 ->
+    drawdown 8, non 3.
+    """
     x = np.asarray(pips, dtype=float)
     if x.size == 0:
         return np.nan
-    eq = np.cumsum(x)
+    eq = np.r_[0.0, np.cumsum(x)]
     return float((np.maximum.accumulate(eq) - eq).max())
 
 
@@ -398,7 +404,7 @@ def drawdown_montecarlo(pips, n_sim: int = 2000, seed: int = 0) -> dict:
     rng = np.random.default_rng(seed)
     dds = np.empty(int(n_sim))
     for i in range(int(n_sim)):
-        eq = np.cumsum(rng.permutation(x))
+        eq = np.r_[0.0, np.cumsum(rng.permutation(x))]   # parte da zero (26/9)
         dds[i] = (np.maximum.accumulate(eq) - eq).max()
     p50, p90, p99 = np.percentile(dds, [50, 90, 99])
     return {"dd_50": float(p50), "dd_90": float(p90), "dd_99": float(p99)}
