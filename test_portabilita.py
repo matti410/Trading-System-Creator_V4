@@ -111,7 +111,8 @@ def esegui() -> int:
     rng = np.random.default_rng(1)
     segnali = pd.Series(rng.random(len(df_btc)), index=df_btc.index)
     register_entry("T_PORT_LONG", 1)(lambda d: segnali.reindex(d.index) < 0.01)
-    p = dict(n_barre=8, perc_sl=0.0, perc_tp=0.0, spread=0.0, commission=0.0, verbose=False)
+    p = dict(n_barre=8, perc_sl=0.0, perc_tp=0.0, spread=0.0, commission=0.0, verbose=False,
+             quarantena=False)   # 5/10/2026: qui si collauda il capitale, non la quarantena
 
     fs_poco, testo_poco = _cattura(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
                                    filtri=[], cash=10_000, **p)
