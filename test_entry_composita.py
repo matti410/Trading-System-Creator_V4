@@ -155,6 +155,63 @@ def esegui() -> int:
           f"senza {int(comp['trades'].iloc[0])} · con {int(comp_inv['trades'].iloc[0])}")
     reg.clear_registry()
 
+    print("\nE · risolvi_scelta: una condizione o una lista, con il lato dichiarato")
+    from entry_composita import risolvi_scelta
+    from engine.filter_search_bt import run_filter_search_bt
+    reg.clear_registry()
+    reg.register_entry("E1_RSI_L", 1)(_entry(sl1))
+    reg.register_entry("E4_EMA_L", 1)(_entry(sl2))
+    reg.register_entry("E9_SHORT_X", -1)(_entry(ss))
+    reg.register_entry("E4_SHORT_Y", -1)(_entry(rng.random(m) < 0.01))
+
+    check("23. stringa singola: restituisce lo stesso nome, nessuna composita creata",
+          risolvi_scelta("E1_RSI_L", lato="long") == "E1_RSI_L" and not elenca_composite().get("E1_RSI_L"))
+    check("24. lista di una sola entry: restituisce quel nome",
+          risolvi_scelta(["E1_RSI_L"], lato="long") == "E1_RSI_L")
+    check("25. None: lato non attivo", risolvi_scelta(None, lato="short") is None)
+    with redirect_stdout(io.StringIO()):
+        nome_l = risolvi_scelta(["E4_EMA_L", "E1_RSI_L"], lato="long")
+    check("26. lista di due: nome automatico, entry in ordine alfabetico",
+          nome_l == "OR(E1_RSI_L|E4_EMA_L)", nome_l)
+    check("27. la composita e' registrata, long, con le due entry di base",
+          reg.get_entry_direction(nome_l) == 1 and componenti(nome_l) == ("E1_RSI_L", "E4_EMA_L"))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        nome_l2 = risolvi_scelta(["E1_RSI_L", "E4_EMA_L"], lato="long")   # ordine diverso
+    check("28. stessa lista in ordine diverso: stesso nome, nessun errore",
+          nome_l2 == nome_l and "gia' registrata" in buf.getvalue())
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        nome_s = risolvi_scelta(("E9_SHORT_X", "E4_SHORT_Y"), lato="short")   # anche una tupla
+    check("29. lato short: composita short, e lo scrive a video",
+          reg.get_entry_direction(nome_s) == -1 and "short" in buf.getvalue(), buf.getvalue().strip())
+    check("30. entry short in una scelta LONG: errore che dice quali",
+          errore(lambda: risolvi_scelta(["E1_RSI_L", "E9_SHORT_X"], lato="long"), "E9_SHORT_X"))
+    check("31. entry long in una scelta SHORT: errore",
+          errore(lambda: risolvi_scelta("E1_RSI_L", lato="short"), "LONG"))
+    check("32. consenti_invertite=True: accettata",
+          risolvi_scelta("E1_RSI_L", lato="short", consenti_invertite=True) == "E1_RSI_L")
+    check("33. lato sbagliato (scritto male): errore", errore(lambda: risolvi_scelta("E1_RSI_L", lato="lungo"), "lato"))
+    check("34. nome inesistente: errore con i nomi simili",
+          errore(lambda: risolvi_scelta("E1_RSI_LL", lato="long"), "simili registrate: E1_RSI_L"))
+    check("35. lista vuota: errore", errore(lambda: risolvi_scelta([], lato="long"), "vuota"))
+    check("36. elementi non stringa: errore", errore(lambda: risolvi_scelta(["E1_RSI_L", 3], lato="long"), "stringhe"))
+
+    # il nome automatico (con | e parentesi) attraversa davvero i due motori
+    r1 = run_exit_search_bt(mk, entry_cols_long=[nome_l, None], entry_cols_short=[nome_s, None],
+                            n_barre=8, verbose=False).risultati
+    check("37. run_exit_search_bt con [nome composito, None]: gira, 3 combinazioni (solo L, solo S, L+S)",
+          len(r1) == 3 and r1["trades"].min() > 0, f"{len(r1)} righe")
+    check("38. l'etichetta della combinazione contiene il nome composito",
+          r1["combinazione"].str.contains(nome_l, regex=False).any())
+    reg.register_filter("T_SEMPRE", 0)(lambda d: pd.Series(True, index=d.index))
+    f1 = run_filter_search_bt(mk, entry_long=nome_l, entry_short=nome_s, n_barre=8,
+                              filtri=["T_SEMPRE"], verbose=False, n_boot=100,
+                              inverti_su_opposto=True).risultati
+    check("39. run_filter_search_bt con entry composite + inversione: gira",
+          len(f1) == 2 and int(f1["trades"].iloc[0]) > 0 and int(f1["trades"].iloc[0]) == int(f1["trades"].iloc[1]))
+    reg.clear_registry()
+
     print("\n" + "=" * 70)
     ok_, tot = sum(ESITI), len(ESITI)
     print(f"RISULTATO: {ok_}/{tot} test superati  (pandas {pd.__version__})")

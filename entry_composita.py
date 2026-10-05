@@ -8,15 +8,25 @@ d'ingresso («entro long se scatta A oppure B oppure C») si registra una entry
 composita: per il resto del framework e' una entry come le altre
 (`run_event_study`, `run_exit_search_bt`, `run_filter_search_bt`, collaudo).
 
-Come si usa (dal notebook, dopo aver registrato le entry di base):
+Come si usa (dal notebook, dopo aver registrato le entry di base) — il modo
+semplice, `risolvi_scelta`: una condizione singola OPPURE una lista, e il lato
+dichiarato in modo esplicito:
 
-    from entry_composita import registra_or
+    from entry_composita import risolvi_scelta
 
-    registra_or("C1_LONG_EMA_O_ENGULFING",
-                ["E4_EMA_CROSS_UP", "E12_ENGULFING"])
+    LONG_condition_scelta  = risolvi_scelta("E1_RSI_CROSS_OVERSOLD", lato="long")
+    LONG_condition_scelta  = risolvi_scelta(["E1_RSI_CROSS_OVERSOLD",
+                                             "E4_EMA_CROSS_UP"], lato="long")
+    SHORT_condition_scelta = risolvi_scelta(["E9_SHORT_CLOSING_PATTERN_ONLY_II",
+                                             "E4_SHORT_EMA_CROSS_DOWN"], lato="short")
 
-    # poi, come qualunque altra entry:
-    #   entry_cols_long=["C1_LONG_EMA_O_ENGULFING"]
+La variabile che ne esce e' sempre UN NOME (una stringa): le celle dopo
+(`entry_cols_long=[LONG_condition_scelta]`, `entry_long=LONG_condition_scelta`)
+restano come sono. Con una lista di 2 o piu' entry il nome e' generato da solo,
+tipo `OR(E1_RSI_CROSS_OVERSOLD|E4_EMA_CROSS_UP)`, con le entry in ordine
+alfabetico (stessa lista in ordine diverso = stessa composita).
+
+`registra_or(nome, [...])` e' la funzione sotto, se vuoi dare tu un nome.
 
 Regole
 ------
@@ -42,6 +52,8 @@ che hanno retto. `componenti(nome)` restituisce le entry di base.
 """
 from __future__ import annotations
 
+import difflib
+
 import numpy as np
 import pandas as pd
 
@@ -49,6 +61,15 @@ from helpers import _evento
 
 # nome della composita -> tuple dei nomi delle entry di base
 _COMPOSITE: dict[str, tuple[str, ...]] = {}
+
+
+def _con_suggerimenti(mancanti, registrate) -> str:
+    """'NOME (simili: A, B)' per ogni nome non trovato: aiuta quando una numerazione e' cambiata."""
+    pezzi = []
+    for n in mancanti:
+        simili = difflib.get_close_matches(n, sorted(registrate), n=3, cutoff=0.6)
+        pezzi.append(f"'{n}'" + (f" (simili registrate: {', '.join(simili)})" if simili else ""))
+    return "; ".join(pezzi)
 
 
 def componenti(nome: str) -> tuple[str, ...]:
@@ -86,7 +107,7 @@ def registra_or(nome: str, entry_nomi) -> str:
     registrate = set(list_entries())
     mancanti = [n for n in entry_nomi if n not in registrate]
     if mancanti:
-        raise ValueError(f"Entry non registrate: {mancanti}. "
+        raise ValueError(f"Entry non registrate: {_con_suggerimenti(mancanti, registrate)}. "
                          f"Registrale prima (es. registra_trigger_long()).")
 
     direzioni = {n: get_entry_direction(n) for n in entry_nomi}
@@ -114,3 +135,59 @@ def registra_or(nome: str, entry_nomi) -> str:
     print(f"[registra_or] '{nome}' registrata ({'long' if direction == 1 else 'short'}): "
           f"{' OR '.join(entry_nomi)}.")
     return nome
+
+
+def risolvi_scelta(scelta, lato: str, consenti_invertite: bool = False):
+    """
+    Dalla scelta fatta dopo l'event study al NOME da passare al motore.
+
+    scelta
+        Un nome di entry (str) oppure una lista di nomi. Con una sola entry
+        restituisce quel nome com'e'. Con 2 o piu' registra la composita in OR
+        (`OR(A|B)`, entry in ordine alfabetico) e ne restituisce il nome.
+        None -> None (lato non attivo).
+    lato
+        "long" o "short", obbligatorio: dichiara per quale lato stai
+        scegliendo e fa da controllo. Se una entry e' dell'altro lato
+        solleva ValueError e dice quali. Il nome della variabile non basta:
+        la direzione di ogni entry e' scritta nel registro.
+    consenti_invertite
+        True = accetta entry dell'altro lato (il motore le tradera' con il
+        segnale invertito). Default False: quasi sempre e' un errore di copia.
+
+    Il risultato e' una stringa: le celle successive non cambiano.
+    """
+    from engine.registry import get_entry_direction, list_entries
+
+    attese = {"long": 1, "short": -1}
+    if lato not in attese:
+        raise ValueError("lato dev'essere 'long' oppure 'short'.")
+    if scelta is None:
+        return None
+
+    nomi = (scelta,) if isinstance(scelta, str) else tuple(scelta)
+    if not nomi:
+        raise ValueError(f"Scelta {lato.upper()} vuota: una lista senza entry. "
+                         f"Usa None se quel lato non deve entrare.")
+    if not all(isinstance(n, str) for n in nomi):
+        raise ValueError(f"Scelta {lato.upper()}: servono nomi di entry (stringhe), trovato {list(nomi)}.")
+
+    registrate = set(list_entries())
+    mancanti = [n for n in nomi if n not in registrate]
+    if mancanti:
+        raise ValueError(f"Scelta {lato.upper()}: entry non registrate: "
+                         f"{_con_suggerimenti(mancanti, registrate)}.")
+
+    if not consenti_invertite:
+        sbagliate = [n for n in nomi if get_entry_direction(n) != attese[lato]]
+        if sbagliate:
+            altro = "short" if lato == "long" else "long"
+            raise ValueError(
+                f"Scelta {lato.upper()}: queste entry sono {altro.upper()}: {sbagliate}. "
+                f"Se vuoi davvero tradarle con il segnale invertito passa consenti_invertite=True.")
+
+    if len(nomi) == 1:
+        return nomi[0]
+
+    ordinati = sorted(nomi)
+    return registra_or("OR(" + "|".join(ordinati) + ")", ordinati)
