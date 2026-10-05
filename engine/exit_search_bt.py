@@ -162,6 +162,11 @@ class _StrategiaGenerica(Strategy):
     exit_rule_long_col = None
     exit_rule_short_col = None
     n_barre = 32
+    # 5/10/2026 — INVERSIONE SU SEGNALE OPPOSTO. Spenta di default: con False il
+    # comportamento e' identico a prima (a posizione aperta i segnali d'ingresso
+    # non si guardano). Con True, un segnale OPPOSTO alla posizione aperta la
+    # chiude e ne apre una al contrario, all'Open della barra successiva.
+    inverti_su_opposto = False
 
     def init(self):
         pass
@@ -188,8 +193,28 @@ class _StrategiaGenerica(Strategy):
                     if not np.isnan(frac_tp):
                         trade.tp = trade.entry_price * (1 - frac_tp)
 
+            # inversione (5/10/2026): segnale opposto alla posizione aperta.
+            # Regole: stesso verso -> ignorato; long e short sulla stessa
+            # barra -> non succede nulla; se nella stessa barra scatta anche
+            # l'uscita (a regola o a tempo) prevale l'inversione. Con
+            # exclusive_orders=True il nuovo ordine chiude la posizione
+            # aperta: chiusura e nuovo ingresso avvengono all'Open della barra
+            # successiva. Il nuovo trade ha il suo `entry_bar`, quindi stop e
+            # timer ripartono da li'.
+            if self.inverti_su_opposto:
+                segnale_long = (self.long_col is not None
+                                and bool(getattr(self.data, self.long_col)[-1]))
+                segnale_short = (self.short_col is not None
+                                 and bool(getattr(self.data, self.short_col)[-1]))
+                if trade.is_long and segnale_short and not segnale_long:
+                    self.sell()
+                    return
+                if trade.is_short and segnale_long and not segnale_short:
+                    self.buy()
+                    return
+
             # regola di uscita: chiude PRIMA del tetto a tempo se scatta
-            col_regola = self.exit_rule_long_col if trade.is_long else self.exit_rule_short_col
+            col_regola =self.exit_rule_long_col if trade.is_long else self.exit_rule_short_col
             if col_regola is not None and bool(getattr(self.data, col_regola)[-1]):
                 self.position.close()
                 return
@@ -233,6 +258,7 @@ def run_exit_search_bt(
     close_col="Close", open_col="Open", high_col="High", low_col="Low",
     verbose=True,
     alpha=0.05,
+    inverti_su_opposto=False,
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -292,6 +318,14 @@ def run_exit_search_bt(
         True se |t_stat| supera la soglia di Sidak per le k righe di
         questa chiamata. Conta solo le prove di questa chiamata: e' un
         pavimento.
+
+    inverti_su_opposto
+        False (default) = comportamento di sempre. True = un segnale
+        d'ingresso OPPOSTO a posizione aperta chiude la posizione e ne apre
+        una al contrario (stop-and-reverse), all'Open della barra dopo il
+        segnale. Segnale nello stesso verso: ignorato. Long e short sulla
+        stessa barra: nessuna azione. Vedi _StrategiaGenerica e
+        test_inversione.py. Resta una posizione alla volta.
 
     Ritorna un oggetto ExitSearchBT: .risultati (tabella), .top(),
     .trades(combinazione), .soglia_rumore, .k.
@@ -420,7 +454,8 @@ def run_exit_search_bt(
             warnings.simplefilter("ignore", UserWarning)
             stats = bt.run(long_col=long_col, short_col=short_col, n_barre=n_barre,
                            exit_rule_long_col=exit_rule_long_col,
-                           exit_rule_short_col=exit_rule_short_col)
+                           exit_rule_short_col=exit_rule_short_col,
+                           inverti_su_opposto=bool(inverti_su_opposto))
 
         trades = stats["_trades"]
         etichetta = f"L={l or '—'} · S={s or '—'} | X={pair or '—'}"

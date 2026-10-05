@@ -102,6 +102,7 @@ def run_filter_search_bt(
     seed=0,
     close_col="Close", open_col="Open", high_col="High", low_col="Low",
     verbose=True,
+    inverti_su_opposto=False,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -143,6 +144,13 @@ def run_filter_search_bt(
     n_boot, seed
         Ricampionamenti del bootstrap di P(EV<0), e seme per renderlo
         riproducibile.
+
+    inverti_su_opposto
+        False (default) = comportamento di sempre. True = un segnale
+        d'ingresso opposto a posizione aperta chiude e inverte (vedi
+        run_exit_search_bt). Vale per baseline e per ogni riga di filtro: un
+        filtro che toglie segnali toglie anche le inversioni che ne
+        sarebbero nate.
 
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
@@ -292,6 +300,7 @@ def run_filter_search_bt(
                 long_col=col_long, short_col=col_short, n_barre=n_barre,
                 exit_rule_long_col="__exit_long__" if exit_long_nome is not None else None,
                 exit_rule_short_col="__exit_short__" if exit_short_nome is not None else None,
+                inverti_su_opposto=bool(inverti_su_opposto),
             )
 
         trades = stats["_trades"]
