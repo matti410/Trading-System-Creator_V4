@@ -78,6 +78,7 @@ import pandas as pd
 
 from .registry import get_entry, get_entry_direction, list_entries, get_filter
 from .giudizio import soglia_rumore_orizzonte
+from .quarantena_trade import maschera_segnali_puliti
 
 
 # ========================================================================
@@ -165,6 +166,7 @@ def run_event_study(
     banda: tuple[float, float] = (25.0, 75.0),
     verbose: bool = True,
     alpha: float = 0.05,
+    quarantena=True,
 ):
     """
     Calcola l'andamento medio del prezzo dopo il trigger, per ogni entry.
@@ -216,6 +218,12 @@ def run_event_study(
     pip_size = float(pip) if pip is not None else deduci_pip(prezzo_medio)
     pips_per_pct = (prezzo_medio / 100.0) / pip_size
 
+    # quarantena (5/10/2026): un trigger la cui barra, o la barra d'ingresso,
+    # e' in quarantena non si misura — stessa regola dei motori di backtest.
+    # quarantena=False ridà il comportamento di prima.
+    pulito = maschera_segnali_puliti(df, quarantena)
+    tolti_q = 0
+
     cache_filtri = {f: get_filter(f)(df).to_numpy(dtype=bool) for f in filters}
     maschere, scartate = {}, []
     for nome in entry_names:
@@ -223,6 +231,8 @@ def run_event_study(
         for f in filters:
             m = m & cache_filtri[f]
         m = m & valido_ing
+        tolti_q += int((m & ~pulito).sum())
+        m = m & pulito
         if int(m.sum()) < min_trades:
             scartate.append((nome, int(m.sum())))
             continue
@@ -242,6 +252,8 @@ def run_event_study(
         print(f"pip = {pip_size:g} unita' di prezzo  (prezzo medio {prezzo_medio:,.2f})")
         if scartate:
             print(f"{len(scartate)} entry scartate sotto min_trades={min_trades}")
+        if tolti_q:
+            print(f"{tolti_q:,} trigger scartati per quarantena")
 
     barre = np.arange(1, horizon + 1)
     curva = pd.DataFrame(index=barre, dtype=float)

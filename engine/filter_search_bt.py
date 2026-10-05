@@ -73,6 +73,7 @@ from .event_study import deduci_pip
 from .exit_search_bt import soglie_adattive, _StrategiaGenerica
 from .metriche import metriche_per_trade, pips_per_trade
 from .controlli import avviso_capitale
+from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
 from .giudizio import (RIFERIMENTO, p_ev_negativo, soglia_rumore, t_stat,
                        tenuti_scartati, verdetto)
 
@@ -103,6 +104,8 @@ def run_filter_search_bt(
     close_col="Close", open_col="Open", high_col="High", low_col="Low",
     verbose=True,
     inverti_su_opposto=False,
+    quarantena=True,
+    spread_rollover_pips=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -152,6 +155,12 @@ def run_filter_search_bt(
         filtro che toglie segnali toglie anche le inversioni che ne
         sarebbero nate.
 
+    quarantena, spread_rollover_pips (5/10/2026)
+        Stesso significato di run_exit_search_bt: i segnali sulla quarantena
+        si scartano (default), e i lati dei trade che cadono nel rollover
+        pagano lo spread di quel momento. Valgono per la baseline e per ogni
+        riga.
+
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
     """
@@ -197,8 +206,17 @@ def run_filter_search_bt(
     # --- ingressi grezzi (una volta sola) ---------------------------------
     grezzo_long = get_entry(entry_long)(df).astype(bool) if entry_long is not None else None
     grezzo_short = get_entry(entry_short)(df).astype(bool) if entry_short is not None else None
-    base_long = (grezzo_long & ok_long_al_segnale) if grezzo_long is not None else None
-    base_short = (grezzo_short & ok_short_al_segnale) if grezzo_short is not None else None
+    # quarantena (5/10/2026): ne' la barra del segnale ne' quella d'ingresso
+    pulito = pd.Series(maschera_segnali_puliti(df, quarantena), index=df.index)
+    base_long = (grezzo_long & ok_long_al_segnale & pulito) if grezzo_long is not None else None
+    base_short = (grezzo_short & ok_short_al_segnale & pulito) if grezzo_short is not None else None
+    scartati_q = {
+        "long": int((grezzo_long & ok_long_al_segnale & ~pulito).sum()) if grezzo_long is not None else 0,
+        "short": int((grezzo_short & ok_short_al_segnale & ~pulito).sum()) if grezzo_short is not None else 0,
+    }
+    if verbose and any(scartati_q.values()):
+        print(f"segnali scartati per quarantena — long {scartati_q['long']}, "
+              f"short {scartati_q['short']}")
 
     # --- piano delle righe: baseline + coppie complete + filtri singoli --
     # ogni riga: (etichetta, filtro_da_applicare_al_long_o_None,
@@ -303,7 +321,8 @@ def run_filter_search_bt(
                 inverti_su_opposto=bool(inverti_su_opposto),
             )
 
-        trades = stats["_trades"]
+        trades = costo_extra_pips(stats["_trades"], df, quarantena, spread,
+                                  spread_rollover_pips, pip_size)
 
         # stesso calcolo di exit_search_bt: engine/metriche.py, un posto solo.
         m = metriche_per_trade(trades, pip_size, commission)

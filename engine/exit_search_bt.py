@@ -100,6 +100,7 @@ from .event_study import deduci_pip
 from .metriche import metriche_per_trade, pips_per_trade
 from .controlli import avviso_capitale
 from .giudizio import soglia_rumore, t_stat
+from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
 
 
 # ========================================================================
@@ -259,6 +260,8 @@ def run_exit_search_bt(
     verbose=True,
     alpha=0.05,
     inverti_su_opposto=False,
+    quarantena=True,
+    spread_rollover_pips=None,
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -327,6 +330,19 @@ def run_exit_search_bt(
         stessa barra: nessuna azione. Vedi _StrategiaGenerica e
         test_inversione.py. Resta una posizione alla volta.
 
+    quarantena (5/10/2026)
+        True (default) = un segnale la cui barra, o la barra d'ingresso, e'
+        in quarantena (rollover, prima barra dopo una pausa) viene scartato.
+        False = comportamento di prima. Accetta anche il DataFrame di
+        `quarantena()`. Vedi engine/quarantena_trade.py.
+
+    spread_rollover_pips (5/10/2026)
+        Spread nel rollover, in pips. None (default) = nessun costo in piu'.
+        Se indicato, ogni lato di un trade (ingresso o uscita) che cade in
+        quarantena paga meta' della differenza con lo spread normale: finisce
+        nella colonna `CostoExtraPips` dei trade e in `avg_trade_netto`.
+        NON entra in pnl_pct, sharpe e max_dd_pct, che vengono dalla libreria.
+
     Ritorna un oggetto ExitSearchBT: .risultati (tabella), .top(),
     .trades(combinazione), .soglia_rumore, .k.
     """
@@ -394,6 +410,9 @@ def run_exit_search_bt(
     # barra d'ingresso (una dopo): la validita' va controllata li'
     ok_long_al_segnale = ok_long.shift(-1, fill_value=False)
     ok_short_al_segnale = ok_short.shift(-1, fill_value=False)
+    # quarantena (5/10/2026): ne' la barra del segnale ne' quella d'ingresso
+    pulito = pd.Series(maschera_segnali_puliti(df, quarantena), index=df.index)
+    scartati_q = {}
 
     # --- costruzione delle colonne per backtesting.py -------------------
     df_bt = df.copy()
@@ -405,18 +424,23 @@ def run_exit_search_bt(
     ignorati = {}
     for nome in {n for n in long_list if n is not None}:
         grezzo = get_entry(nome)(df).astype(bool)
-        finale = grezzo & ok_long_al_segnale
+        finale = grezzo & ok_long_al_segnale & pulito
         ignorati[nome] = int((grezzo & ~ok_long_al_segnale).sum())
+        scartati_q[nome] = int((grezzo & ok_long_al_segnale & ~pulito).sum())
         df_bt[f"__long__{nome}"] = finale.to_numpy()
     for nome in {n for n in short_list if n is not None}:
         grezzo = get_entry(nome)(df).astype(bool)
-        finale = grezzo & ok_short_al_segnale
+        finale = grezzo & ok_short_al_segnale & pulito
         ignorati[nome] = int((grezzo & ~ok_short_al_segnale).sum())
+        scartati_q[nome] = int((grezzo & ok_short_al_segnale & ~pulito).sum())
         df_bt[f"__short__{nome}"] = finale.to_numpy()
 
     if verbose and any(ignorati.values()):
         dettaglio = ", ".join(f"{k}: {v}" for k, v in ignorati.items() if v)
         print(f"segnali ignorati per soglia non calcolabile — {dettaglio}")
+    if verbose and any(scartati_q.values()):
+        dettaglio = ", ".join(f"{k}: {v}" for k, v in scartati_q.items() if v)
+        print(f"segnali scartati per quarantena — {dettaglio}")
 
     # colonne delle coppie di uscita: una volta per pair unica, nessun
     # filtro di validita' (non dipendono da una finestra mobile)
@@ -457,7 +481,8 @@ def run_exit_search_bt(
                            exit_rule_short_col=exit_rule_short_col,
                            inverti_su_opposto=bool(inverti_su_opposto))
 
-        trades = stats["_trades"]
+        trades = costo_extra_pips(stats["_trades"], df, quarantena, spread,
+                                  spread_rollover_pips, pip_size)
         etichetta = f"L={l or '—'} · S={s or '—'} | X={pair or '—'}"
 
         # avg_trade (lordo, invariato), avg_trade_netto e costo_pips: il

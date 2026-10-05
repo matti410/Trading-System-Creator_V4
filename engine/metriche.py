@@ -99,6 +99,11 @@ def pips_per_trade(trades: pd.DataFrame, pip_size: float,
     segno = np.where(trades["Size"] > 0, 1, -1)
     lordi = (trades["ExitPrice"] - trades["EntryPrice"]) / pip_size * segno
     netti = lordi - costo_pips_per_trade(trades, pip_size, commission)
+    # 5/10/2026: costo in piu' dei lati che cadono nel rollover, se il motore
+    # l'ha calcolato (vedi engine/quarantena_trade.py). Senza la colonna il
+    # comportamento e' quello di prima.
+    if "CostoExtraPips" in trades.columns:
+        netti = netti - trades["CostoExtraPips"].fillna(0.0)
     return lordi, netti
 
 
@@ -134,7 +139,7 @@ def metriche_per_trade(trades: pd.DataFrame, pip_size: float,
                 "costo_pips": np.nan, "durata_media": np.nan, "durata_max": 0}
 
     lordi, netti = pips_per_trade(trades, pip_size, commission)
-    costo = costo_pips_per_trade(trades, pip_size, commission)
+    costo = lordi - netti        # commissione + eventuale costo extra del rollover
     durate = (trades["ExitBar"] - trades["EntryBar"]).to_numpy()
 
     return {
