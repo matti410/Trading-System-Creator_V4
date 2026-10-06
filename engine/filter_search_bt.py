@@ -70,7 +70,8 @@ from backtesting import Backtest
 from .registry import (get_entry, get_exit, get_filter, get_filter_direction,
                         list_exit_pairs, list_filter_pairs)
 from .event_study import deduci_pip
-from .exit_search_bt import soglie_adattive, _StrategiaGenerica
+from .exit_search_bt import (soglie_adattive, _StrategiaGenerica,
+                             barre_per_lato, soglie_per_lato)
 from .metriche import metriche_per_trade, pips_per_trade
 from .controlli import avviso_capitale
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
@@ -106,6 +107,8 @@ def run_filter_search_bt(
     inverti_su_opposto=False,
     quarantena=True,
     spread_rollover_pips=None,
+    n_barre_long=None,
+    n_barre_short=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -161,12 +164,15 @@ def run_filter_search_bt(
         pagano lo spread di quel momento. Valgono per la baseline e per ogni
         riga.
 
+    n_barre_long / n_barre_short (6/10/2026)
+        Scadenza a tempo diversa per lato; None (default) = `n_barre`.
+        Stesso significato di run_exit_search_bt.
+
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
     """
     n_barre = int(n_barre)
-    if n_barre < 1:
-        raise ValueError("n_barre deve essere >= 1.")
+    n_long, n_short = barre_per_lato(n_barre, n_barre_long, n_barre_short)
     if entry_long is None and entry_short is None:
         raise ValueError(
             "Serve almeno un entry_long o un entry_short (setup congelato "
@@ -189,7 +195,7 @@ def run_filter_search_bt(
     # --- soglie adattive, una volta sola (n_barre unico in questo step) --
     usa_sl = perc_sl not in (None, 0)
     usa_tp = perc_tp not in (None, 0)
-    soglie = soglie_adattive(df, n_barre, finestra, perc_sl, perc_tp,
+    soglie = soglie_per_lato(df, n_long, n_short, finestra, perc_sl, perc_tp,
                              open_col, high_col, low_col, lag=lag)
 
     ok_long = pd.Series(True, index=df.index)
@@ -316,6 +322,7 @@ def run_filter_search_bt(
             warnings.simplefilter("ignore", UserWarning)
             stats = bt.run(
                 long_col=col_long, short_col=col_short, n_barre=n_barre,
+                n_barre_long=n_long, n_barre_short=n_short,
                 exit_rule_long_col="__exit_long__" if exit_long_nome is not None else None,
                 exit_rule_short_col="__exit_short__" if exit_short_nome is not None else None,
                 inverti_su_opposto=bool(inverti_su_opposto),
@@ -424,7 +431,10 @@ def run_filter_search_bt(
 
     if verbose:
         print(f"{len(piano_colonne)} righe (baseline + {k} "
-              f"filtri/coppie) · n_barre={n_barre} · exit_rule_pair={exit_rule_pair or '—'} "
+              f"filtri/coppie) · "
+              + (f"n_barre={n_barre}" if n_long == n_short == n_barre
+                 else f"n_barre long={n_long} · short={n_short}")
+              + f" · exit_rule_pair={exit_rule_pair or '—'} "
               f"· stop adattivo {perc_sl}°/{perc_tp}° pct (finestra {finestra}) · "
               f"spread {spread:.5f} · commission {commission:.5f} · margin {margin}")
         print(f"soglia di rumore per {k} prove (Sidak, famiglia {alpha:.0%}): "
@@ -435,7 +445,8 @@ def run_filter_search_bt(
                           entry_long=entry_long, entry_short=entry_short,
                           exit_rule_pair=exit_rule_pair, n_barre=n_barre,
                           min_trades=min_trades, soglia_rumore=soglia,
-                          pip_size=pip_size, commission=commission)
+                          pip_size=pip_size, commission=commission,
+                          n_barre_long=n_long, n_barre_short=n_short)
 
 
 class FilterSearchBT:
@@ -443,13 +454,17 @@ class FilterSearchBT:
 
     def __init__(self, risultati, trades_per_filtro, entry_long, entry_short,
                  exit_rule_pair, n_barre, min_trades, soglia_rumore=None,
-                 pip_size=None, commission=None):
+                 pip_size=None, commission=None,
+                 n_barre_long=None, n_barre_short=None):
         self.risultati = risultati
         self._trades_per_filtro = trades_per_filtro
         self.entry_long = entry_long
         self.entry_short = entry_short
         self.exit_rule_pair = exit_rule_pair
         self.n_barre = n_barre
+        # scadenza per lato (6/10/2026): uguali a n_barre se non indicate
+        self.n_barre_long = n_barre if n_barre_long is None else n_barre_long
+        self.n_barre_short = n_barre if n_barre_short is None else n_barre_short
         self.min_trades = min_trades
         self.soglia_rumore = soglia_rumore
         self.pip_size = pip_size

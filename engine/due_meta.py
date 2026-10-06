@@ -231,6 +231,9 @@ def due_meta(df_is, fs, etichette,
 
     kwargs = dict(entry_long=fs.entry_long, entry_short=fs.entry_short,
                   exit_rule_pair=fs.exit_rule_pair, n_barre=fs.n_barre,
+                  # 6/10/2026: scadenza per lato, letta da fs come n_barre
+                  n_barre_long=getattr(fs, "n_barre_long", None),
+                  n_barre_short=getattr(fs, "n_barre_short", None),
                   filtri=filtri, perc_sl=perc_sl, perc_tp=perc_tp,
                   finestra=finestra, lag=lag, spread=spread,
                   commission=commission, cash=cash, margin=margin,

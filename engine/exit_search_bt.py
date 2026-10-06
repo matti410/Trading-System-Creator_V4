@@ -145,6 +145,40 @@ def soglie_adattive(df, n, finestra=500, perc_sl=90.0, perc_tp=90.0,
     }
 
 
+def barre_per_lato(n_barre, n_barre_long=None, n_barre_short=None):
+    """
+    Le barre di scadenza dei due lati (6/10/2026): (long, short).
+
+    `n_barre_long` / `n_barre_short` non indicati (None) = quel lato usa
+    `n_barre`. Con entrambi None il risultato e' (n_barre, n_barre): il
+    comportamento di sempre.
+    """
+    n_barre = int(n_barre)
+    nl = n_barre if n_barre_long is None else int(n_barre_long)
+    ns = n_barre if n_barre_short is None else int(n_barre_short)
+    for nome, v in (("n_barre", n_barre), ("n_barre_long", nl), ("n_barre_short", ns)):
+        if v < 1:
+            raise ValueError(f"{nome} deve essere >= 1 (la scadenza e' sempre attiva).")
+    return nl, ns
+
+
+def soglie_per_lato(df, n_long, n_short, finestra=500, perc_sl=90.0, perc_tp=90.0,
+                    open_col="Open", high_col="High", low_col="Low", lag=0):
+    """
+    `soglie_adattive` con un orizzonte per lato (6/10/2026): stop e target
+    del long misurati sulle escursioni a `n_long` barre, quelli dello short
+    a `n_short` barre. Con n_long == n_short e' una sola chiamata, identica
+    a prima.
+    """
+    args = (finestra, perc_sl, perc_tp, open_col, high_col, low_col)
+    s_long = soglie_adattive(df, n_long, *args, lag=lag)
+    if n_short == n_long:
+        return s_long
+    s_short = soglie_adattive(df, n_short, *args, lag=lag)
+    return {"sl_long": s_long["sl_long"], "tp_long": s_long["tp_long"],
+            "sl_short": s_short["sl_short"], "tp_short": s_short["tp_short"]}
+
+
 # ========================================================================
 # 2 · Strategy generica — non conosce nessun trigger specifico
 # ========================================================================
@@ -163,6 +197,11 @@ class _StrategiaGenerica(Strategy):
     exit_rule_long_col = None
     exit_rule_short_col = None
     n_barre = 32
+    # 6/10/2026 — SCADENZA DIVERSA PER LATO. None (default) = quel lato usa
+    # `n_barre`, come sempre. Un numero = i trade di quel lato scadono dopo
+    # quelle barre.
+    n_barre_long = None
+    n_barre_short = None
     # 5/10/2026 — INVERSIONE SU SEGNALE OPPOSTO. Spenta di default: con False il
     # comportamento e' identico a prima (a posizione aperta i segnali d'ingresso
     # non si guardano). Con True, un segnale OPPOSTO alla posizione aperta la
@@ -222,7 +261,10 @@ class _StrategiaGenerica(Strategy):
 
             # chiusura richiesta una barra prima del traguardo: anche lei
             # si riempie alla barra successiva (vedi docstring del modulo)
-            if barra_corrente - trade.entry_bar >= self.n_barre - 1:
+            scadenza = self.n_barre_long if trade.is_long else self.n_barre_short
+            if scadenza is None:
+                scadenza = self.n_barre
+            if barra_corrente - trade.entry_bar >= scadenza - 1:
                 self.position.close()
             return
 
@@ -262,6 +304,8 @@ def run_exit_search_bt(
     inverti_su_opposto=False,
     quarantena=True,
     spread_rollover_pips=None,
+    n_barre_long=None,
+    n_barre_short=None,
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -343,12 +387,18 @@ def run_exit_search_bt(
         nella colonna `CostoExtraPips` dei trade e in `avg_trade_netto`.
         NON entra in pnl_pct, sharpe e max_dd_pct, che vengono dalla libreria.
 
+    n_barre_long / n_barre_short (6/10/2026)
+        Scadenza a tempo diversa per lato. None (default) = quel lato usa
+        `n_barre`: senza indicarli il risultato e' identico a prima. Se
+        indicati, i trade di quel lato scadono dopo quelle barre, e le soglie
+        di stop/target di quel lato si misurano sul suo orizzonte (stessi
+        percentili per i due lati).
+
     Ritorna un oggetto ExitSearchBT: .risultati (tabella), .top(),
     .trades(combinazione), .soglia_rumore, .k.
     """
     n_barre = int(n_barre)
-    if n_barre < 1:
-        raise ValueError("n_barre deve essere >= 1 (la scadenza e' sempre attiva in questo step).")
+    n_long, n_short = barre_per_lato(n_barre, n_barre_long, n_barre_short)
 
     def normalizza(lista):
         if lista is None:
@@ -395,7 +445,7 @@ def run_exit_search_bt(
     # --- soglie adattive, una volta sola (n_barre e' unico in questo step)
     usa_sl = perc_sl not in (None, 0)
     usa_tp = perc_tp not in (None, 0)
-    soglie = soglie_adattive(df, n_barre, finestra, perc_sl, perc_tp,
+    soglie = soglie_per_lato(df, n_long, n_short, finestra, perc_sl, perc_tp,
                              open_col, high_col, low_col, lag=lag)
 
     ok_long = pd.Series(True, index=df.index)
@@ -477,6 +527,7 @@ def run_exit_search_bt(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             stats = bt.run(long_col=long_col, short_col=short_col, n_barre=n_barre,
+                           n_barre_long=n_long, n_barre_short=n_short,
                            exit_rule_long_col=exit_rule_long_col,
                            exit_rule_short_col=exit_rule_short_col,
                            inverti_su_opposto=bool(inverti_su_opposto))
@@ -528,7 +579,9 @@ def run_exit_search_bt(
         risultati["oltre_rumore"] = risultati["t_stat"].abs() > soglia
 
     if verbose:
-        print(f"{len(combinazioni)} combinazioni · n_barre={n_barre} · "
+        barre_txt = (f"n_barre={n_barre}" if n_long == n_short == n_barre
+                     else f"n_barre long={n_long} · short={n_short}")
+        print(f"{len(combinazioni)} combinazioni · {barre_txt} · "
               f"coppie di uscita: {[p or '—' for p in pair_list]} · "
               f"stop adattivo {perc_sl}°/{perc_tp}° pct (finestra {finestra}) · "
               f"spread {spread:.5f} · commission {commission:.5f} · margin {margin}")
@@ -541,7 +594,8 @@ def run_exit_search_bt(
                         n_barre=n_barre, perc_sl=perc_sl, perc_tp=perc_tp,
                         finestra=finestra, spread=spread, commission=commission,
                         margin=margin, min_trades=min_trades,
-                        soglia_rumore=soglia, k=k, alpha=alpha)
+                        soglia_rumore=soglia, k=k, alpha=alpha,
+                        n_barre_long=n_long, n_barre_short=n_short)
 
 
 # ========================================================================
@@ -553,10 +607,14 @@ class ExitSearchBT:
 
     def __init__(self, risultati, trades_per_combo, n_barre, perc_sl,
                  perc_tp, finestra, spread, commission, margin, min_trades,
-                 soglia_rumore=np.nan, k=0, alpha=0.05):
+                 soglia_rumore=np.nan, k=0, alpha=0.05,
+                 n_barre_long=None, n_barre_short=None):
         self.risultati = risultati
         self._trades_per_combo = trades_per_combo
         self.n_barre = n_barre
+        # scadenza per lato (6/10/2026): uguali a n_barre se non indicate
+        self.n_barre_long = n_barre if n_barre_long is None else n_barre_long
+        self.n_barre_short = n_barre if n_barre_short is None else n_barre_short
         self.perc_sl = perc_sl
         self.perc_tp = perc_tp
         self.finestra = finestra
