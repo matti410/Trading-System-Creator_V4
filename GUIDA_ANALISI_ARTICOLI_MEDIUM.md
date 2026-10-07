@@ -1,12 +1,3 @@
-# Guida — analisi di articoli Medium e trascrizione in condizioni
-
-**Per:** Mattia · **Data:** 7 ottobre 2026
-**Dove sta:** nel repo `Trading-System-Creator_V4`. Il metodo completo è nel progetto Claude «Metodo Combinatorio», documento `50_IDEE_DA_ARTICOLI.md`: questa guida è la parte pratica, da seguire passo per passo.
-
-In questa fase **non c'è codice da lanciare**. Si leggono articoli, si scrivono schede in testo e si decide cosa entra nel catalogo. Il codice arriva solo dopo il tuo via libera.
-
----
-
 ## 1 · Prima di iniziare
 
 Controlla queste tre cose (servono ogni volta che apri una chat nuova):
