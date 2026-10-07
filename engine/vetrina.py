@@ -15,7 +15,9 @@ risultato con un riquadro «Come leggerlo» scritto per un trader.
     imposta_uscite(s, barre_long=10, barre_short=18, sl=90)  4 · Imposta le uscite
     trova_strategia(s)                                       5 · Trova la strategia
     scheda(s, filtro="F1, F2")                               6 · Scheda strategia
-    stress_test(s, drawdown_max_usd=10_000)                  7 · Stress test
+    verifica_trade(s)                                        7 · Verifica i trade
+    lente(s, numero=12, indicatori="ema20, ema50")           (engine/vetrina_verifica.py)
+    stress_test(s, drawdown_max_usd=10_000)                  8 · Stress test
 
 `s` e' la SESSIONE: tiene dati, costi e scelte e passa da una schermata
 all'altra. Le schermate vanno eseguite in ordine; se ne salti una la
@@ -247,6 +249,7 @@ class Sessione:
         self.filtri_scelti = []
         self.oos = None
         self.trades_is = self.trades_oos = None
+        self.controlli = None
         self.tabelle = {}
 
     def __repr__(self):
@@ -989,19 +992,19 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         "Conta la colonna di destra. Una strategia cucita su misura sul passato brilla in-sample e si spegne "
         "out-of-sample; una che ha colto qualcosa di vero tiene numeri simili, anche se un po' più bassi. "
         "Guarda guadagno medio per trade, probabilità che in realtà perda (meglio sotto il 5%) e drawdown.",
-        "Se la strategia tiene, vai alla schermata 7 per capire quanto drawdown aspettarti e con quanti lotti partire. "
+        "Vai alla schermata 7 per controllare che i trade siano entrati dove dicono le tue regole; poi, se la strategia tiene, alla 8 per capire quanto drawdown aspettarti e con quanti lotti partire. "
         "L'out-of-sample si guarda una volta sola: se torni indietro a ritoccare finché non ti piace, smette di essere una prova.")
     return tabella
 
 
 # ========================================================================
-# 7 · Stress test
+# 8 · Stress test
 # ========================================================================
 
 def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
                 simulazioni: int = 20_000) -> dict:
     """
-    Schermata 7. Monte Carlo sui trade della strategia scelta (in-sample +
+    Schermata 8. Monte Carlo sui trade della strategia scelta (in-sample +
     out-of-sample), tabella di controllo per il live e lotti consigliati.
 
     drawdown_max_usd   il drawdown massimo che accetti sul conto, in dollari
@@ -1053,3 +1056,11 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
     _nota("Limite da conoscere: le simulazioni trattano i trade come indipendenti e non possono inventare "
           "un trade peggiore del peggiore già visto. Se le perdite arrivano a grappoli, la realtà può essere un po' più dura.")
     return {"controllo": controllo, "montecarlo": mc, "sizing": sz}
+
+
+# ========================================================================
+# 7 · Verifica i trade (in un modulo a parte: engine/vetrina_verifica.py)
+# ========================================================================
+# In fondo, perche' quel modulo usa gli strumenti di presentazione definiti qui.
+from .vetrina_verifica import (indicatori_disponibili, lente, registro_trade,  # noqa: E402
+                               verifica_trade)
