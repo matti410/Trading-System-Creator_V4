@@ -14,7 +14,7 @@ risultato con un riquadro «Come leggerlo» scritto per un trader.
     scegli_trigger(s, long=[...], short=[...])
     imposta_uscite(s, barre_long=10, barre_short=18, sl=90)  4 · Imposta le uscite
     trova_strategia(s)                                       5 · Trova la strategia
-    scheda(s, filtro=None)                                   6 · Scheda strategia
+    scheda(s, filtro="F1, F2")                               6 · Scheda strategia
     stress_test(s, drawdown_max_usd=10_000)                  7 · Stress test
 
 `s` e' la SESSIONE: tiene dati, costi e scelte e passa da una schermata
@@ -59,6 +59,7 @@ from __future__ import annotations
 import contextlib
 import html
 import io
+import math
 import os
 
 import numpy as np
@@ -72,7 +73,8 @@ from .equity_plot import plot_equity
 from .event_study import deduci_pip, run_event_study
 from .exit_search_bt import barre_per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
-from .giudizio import CAMPIONE_CORTO, DA_VALUTARE, scheda_strategia
+from .confidenza import congela_filtro
+from .giudizio import CAMPIONE_CORTO, DA_VALUTARE, scheda_strategia, soglia_rumore
 from .indicatori import aggiungi_indicatori
 from .livelli import quarantena_cached
 from .metriche import pips_per_trade
@@ -210,6 +212,14 @@ def _riquadro(cosa: str, buono: str, adesso: str) -> None:
             print(f"  {k}: {v}")
 
 
+def _spiegazione(titolo: str, testo: str) -> None:
+    """Un riquadro di spiegazione con un titolo e un testo continuo."""
+    if _in_notebook():
+        _html(f"<div class='vt-box'><b>{html.escape(titolo)}</b><br>{html.escape(testo)}</div>")
+    else:
+        print(f"\n  {titolo}\n  {testo}")
+
+
 # ========================================================================
 # La sessione
 # ========================================================================
@@ -234,7 +244,9 @@ class Sessione:
         self.dm = None
         self.sopravvissuti = []
         self.filtro = None
+        self.filtri_scelti = []
         self.oos = None
+        self.trades_is = self.trades_oos = None
         self.tabelle = {}
 
     def __repr__(self):
@@ -327,7 +339,11 @@ def _trigger_candidati(direzione: int | None = None) -> list[str]:
         esclusi |= set(NOMI_METRO)
     except Exception:
         pass
-    return [n for n in reg.list_entries(direzione) if n not in esclusi]
+    tutte = set(reg.list_entries())
+    # le entry «ENTRY+FILTRO» nascono quando si congela un filtro (schermata 6):
+    # sono combinazioni gia' scelte, non trigger da esplorare
+    return [n for n in reg.list_entries(direzione)
+            if n not in esclusi and not ("+" in n and n.split("+")[0] in tutte)]
 
 
 def _tutti_i_filtri() -> list[str]:
@@ -682,6 +698,28 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
 # ========================================================================
 
 _ESITO = {DA_VALUTARE: "promosso", CAMPIONE_CORTO: "promosso (pochi trade)"}
+
+
+def _prima_prova(esito, motivo) -> str:
+    """L'esito della prima prova con il motivo, tradotto dal `motivo` del giudizio."""
+    if esito in _ESITO:
+        return _ESITO[esito]
+    m = str(motivo or "")
+    if m.startswith("EV netto"):
+        perche = "in perdita dopo i costi"
+    elif m.startswith("guadagno"):
+        perche = "non migliora il sistema base"
+    elif "NEGATIVO" in m:
+        perche = "peggiora il sistema base"
+    elif m.startswith("|t|"):
+        perche = "miglioramento sotto l'asticella"
+    elif m.startswith("P(EV<0)"):
+        perche = "può ancora essere in perdita"
+    elif m.startswith("confronto"):
+        perche = "non scarta nessun trade"
+    else:
+        perche = ""
+    return "non passa" + (f": {perche}" if perche else "")
 _VERDETTO = {"regge": "regge", "non regge": "non regge", "giudizio sospeso": "troppo pochi trade"}
 
 
@@ -715,7 +753,8 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
             s.dm = due_meta(s.df_is, s.fs, [None, *promossi], verbose=False, **solo_costi)
         verdetti = s.dm.tabella.set_index("filtro")["verdetto"].to_dict()
     s.sopravvissuti = [f for f in promossi if verdetti.get(f) == "regge"]
-    s.filtro = s.oos = None
+    s.filtro = s.oos = s.trades_is = s.trades_oos = None
+    s.filtri_scelti = []
 
     # --- imbuto ---------------------------------------------------------
     tappe = [("Filtri provati (una coppia long/short conta per uno)", len(prove)),
@@ -756,16 +795,29 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
             "Guadagno medio netto per trade (pips)": x["avg_trade_netto"],
             "Miglioramento sul sistema base (pips)": x["guadagno_pips"],
             "Solidità del miglioramento": x["t_guadagno"],
-            "Prima prova": _ESITO.get(x["esito"], "non passa"),
+            "Prima prova": _prima_prova(x["esito"], x.get("motivo")),
             "Seconda prova (due metà)": _VERDETTO.get(verdetti.get(x["filtro"]), "—"),
         })
     tabella = pd.DataFrame(righe)
     s.tabelle["filtri"] = tabella
     _mostra(("I filtri migliori (in-sample, al netto dei costi)", tabella))
 
+    asticella = float(s.fs.soglia_rumore)
+    una_prova = soglia_rumore(1, ALPHA)
+    s.tabelle["asticella"] = asticella
+    _spiegazione(
+        f"Dove sta l'asticella della prima prova: solidità del miglioramento di almeno {_fmt(asticella)}.",
+        f"Perché non basta essere sopra 1? Solidità 1 vuol dire che il miglioramento è grande quanto la sua normale "
+        f"oscillazione casuale: è il livello del puro rumore. Se avessi provato un solo filtro basterebbe circa "
+        f"{_fmt(una_prova, 0)}: oltre quel valore un risultato capita per caso meno di 1 volta su 20. "
+        f"Qui però i filtri provati sono {len(prove)}, e fra {len(prove)} tentativi il migliore arriva facilmente a "
+        f"{_fmt(una_prova, 0)} anche quando nessuno vale davvero qualcosa: è come lanciare i dadi {len(prove)} volte "
+        f"e guardare solo il tiro più alto. Per questo l'asticella sale con il numero di filtri provati: "
+        f"con {len(prove)} è {_fmt(asticella)}. Chi la supera passa poi alla seconda prova, sulle due metà dello storico.")
+
     if s.sopravvissuti:
-        adesso = ("Scegli uno dei filtri che «reggono» e scrivine il nome nella schermata 6. "
-                  "Lì la strategia affronta i dati che non ha mai visto.")
+        adesso = ("Scegli uno dei filtri che «reggono» e scrivine il nome nella schermata 6 (puoi indicarne anche "
+                  "più di uno, separati da virgola). Lì la strategia affronta i dati che non ha mai visto.")
     else:
         adesso = ("Nessun filtro ha superato entrambe le prove: lo strumento non te ne consiglia nessuno. "
                   "Puoi andare alla schermata 6 con il sistema base (lasciando vuoto il filtro), oppure tornare indietro "
@@ -804,36 +856,115 @@ def _membri_filtro(s: Sessione, etichetta: str) -> list[str]:
     return sorted({n for n in (riga["filtro_long"], riga["filtro_short"]) if n not in ("—", None)})
 
 
-def scheda(s: Sessione, filtro: str | None = None) -> pd.DataFrame:
+def _lista_filtri(s: Sessione, filtro) -> list[str]:
+    """Da «F1, F2» (o da una lista) ai nomi scelti, controllati sulla classifica."""
+    if filtro is None:
+        voci = []
+    elif isinstance(filtro, str):
+        voci = filtro.split(",")
+    else:
+        voci = list(filtro)
+    voci = [v.strip() for v in voci if isinstance(v, str) and v.strip()]
+    scelti = list(dict.fromkeys(voci))                     # senza doppioni, nell'ordine scritto
+    disponibili = [f for f in s.fs.risultati["filtro"] if f != BASELINE]
+    mancanti = [f for f in scelti if f not in disponibili]
+    if mancanti:
+        raise ValueError(f"Filtro non trovato: {', '.join(mancanti)}. Copia i nomi dalla classifica della "
+                         f"schermata 5 (più filtri: separali con una virgola), oppure lascia vuoto per il sistema base.")
+    return scelti
+
+
+def _kw_filtri(s: Sessione) -> dict:
+    return dict(exit_rule_pair=s.fs.exit_rule_pair, min_trades_giudizio=MIN_TRADE_GIUDIZIO,
+                p_max=P_MAX, alpha=ALPHA, verbose=False, **_kw_motore(s))
+
+
+def _catena_filtri(s: Sessione, scelti: list[str]):
+    """
+    Applica i filtri uno sopra l'altro, nell'ordine scritto (7/10/2026).
+
+    Il primo filtro e' gia' stato provato nella schermata 5 (`s.fs`). Per ogni
+    filtro successivo si «congela» il precedente dentro le entry con
+    `confidenza.congela_filtro` (entry AND filtro) e si riesegue
+    `run_filter_search_bt` con il solo filtro nuovo: la sua baseline e' il
+    passo prima, la sua riga e' il passo prima PIU' il filtro nuovo. Si entra
+    quindi solo dove sono veri tutti i filtri. Nessun calcolo nuovo: sono le
+    due funzioni dell'engine, usate in sequenza.
+
+    Ritorna (entry_long, entry_short, fs_ultimo, passi): le entry con dentro
+    tutti i filtri tranne l'ultimo, la ricerca dell'ultimo passo e le righe
+    della tabella dei passi.
+    """
+    base = s.fs.risultati[s.fs.risultati["filtro"] == BASELINE].iloc[0]
+    passi = [{"Passo": "Sistema base", "Trade": int(base["trades"]),
+              "Guadagno medio netto per trade (pips)": base["avg_trade_netto"],
+              "Miglioramento sul passo prima (pips)": np.nan,
+              "Solidità del miglioramento": np.nan}]
+    entry_long, entry_short, fs_k = s.fs.entry_long, s.fs.entry_short, s.fs
+    for k, etichetta in enumerate(scelti):
+        if k > 0:
+            entry_long, entry_short = congela_filtro(fs_k, scelti[k - 1])
+            fs_k = run_filter_search_bt(s.df_is, entry_long=entry_long, entry_short=entry_short,
+                                        filtri=_membri_filtro(s, etichetta), **_kw_filtri(s))
+        riga = fs_k.risultati[fs_k.risultati["filtro"] == etichetta].iloc[0]
+        passi.append({"Passo": f"+ {etichetta}", "Trade": int(riga["trades"]),
+                      "Guadagno medio netto per trade (pips)": riga["avg_trade_netto"],
+                      "Miglioramento sul passo prima (pips)": riga["guadagno_pips"],
+                      "Solidità del miglioramento": riga["t_guadagno"]})
+    return entry_long, entry_short, fs_k, passi
+
+
+def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
     """
     Schermata 6. La scheda della strategia scelta: in-sample accanto alla
     prova out-of-sample (stesso setup, rieseguito sui dati mai visti), e
     l'equity out-of-sample contro il buy & hold.
 
-    filtro   il nome di un filtro della classifica; None o vuoto = sistema base.
+    filtro   il nome di un filtro della classifica, oppure piu' nomi separati
+             da virgola (o una lista): si entra solo dove sono veri TUTTI.
+             None o vuoto = sistema base.
 
-    Ritorna la tabella della scheda.
+    Con piu' filtri mostra anche la tabella dei passi (base, + primo filtro,
+    + secondo ...). Ritorna la tabella della scheda.
     """
     s._serve("fs", "5 · Trova la strategia")
-    filtro = (filtro or "").strip() or None      # vuoto = sistema base
-    disponibili = [f for f in s.fs.risultati["filtro"] if f != BASELINE]
-    if filtro is not None and filtro not in disponibili:
-        raise ValueError(f"Filtro «{filtro}» non trovato. Copia il nome dalla classifica della "
-                         f"schermata 5, oppure usa None per il sistema base.")
-    s.filtro = filtro
+    scelti = _lista_filtri(s, filtro)
+    ultimo = scelti[-1] if scelti else None
     kw = _kw_motore(s)
     kw["margin"] = 1.0
     with _zitto():
+        entry_long, entry_short, fs_ultimo, passi = _catena_filtri(s, scelti)
         s.oos = run_filter_search_bt(
-            s.df_oos, entry_long=s.fs.entry_long, entry_short=s.fs.entry_short,
+            s.df_oos, entry_long=entry_long, entry_short=entry_short,
             exit_rule_pair=s.fs.exit_rule_pair,
-            filtri=_membri_filtro(s, filtro) if filtro else [],
+            filtri=_membri_filtro(s, ultimo) if ultimo else [],
             min_trades=s.fs.min_trades, verbose=False, **kw)
-        tr_is, tr_oos = s.fs.trades(filtro), s.oos.trades(filtro)
+        tr_is, tr_oos = fs_ultimo.trades(ultimo), s.oos.trades(ultimo)
         k_is = scheda_strategia(tr_is, s.fs.pip_size, s.fs.commission or 0.0,
                                 montecarlo=False, verbose=False)
         k_oos = scheda_strategia(tr_oos, s.fs.pip_size, s.fs.commission or 0.0,
                                  montecarlo=False, verbose=False)
+    s.filtri_scelti = scelti
+    s.filtro = " + ".join(scelti) if scelti else None
+    s.trades_is, s.trades_oos = tr_is, tr_oos
+
+    if len(scelti) > 1:
+        tab_passi = pd.DataFrame(passi)
+        s.tabelle["passi"] = tab_passi
+        _mostra(("Un filtro sopra l'altro (in-sample, al netto dei costi)", tab_passi))
+        n_prove = int((s.fs.risultati["filtro"] != BASELINE).sum())
+        combinazioni = math.comb(n_prove, len(scelti))
+        _spiegazione(
+            "Combinazione scelta a mano: non è passata dall'imbuto.",
+            f"Ogni riga aggiunge un filtro a quella sopra: si entra solo quando sono veri tutti. Guarda quanti trade "
+            f"toglie ogni passo e quanto migliora il guadagno medio. Se due filtri misurano la stessa cosa, il secondo "
+            f"toglie pochi trade e aggiunge poco. Attenzione all'asticella: scegliendo {len(scelti)} filtri fra "
+            f"{n_prove} le combinazioni possibili sono {_fmt(combinazioni)}, e fra così tanti tentativi una che sembra "
+            f"buona si trova sempre. Come ordine di grandezza, per fidarsi di una combinazione scelta a occhio la "
+            f"solidità dovrebbe superare {_fmt(soglia_rumore(combinazioni, ALPHA))}. "
+            f"La prova che conta resta la colonna out-of-sample qui sotto.")
+    else:
+        s.tabelle.pop("passi", None)
 
     tabella = pd.DataFrame({
         "": [nome for _, nome, _ in _VOCI_SCHEDA],
@@ -841,7 +972,7 @@ def scheda(s: Sessione, filtro: str | None = None) -> pd.DataFrame:
         "Out-of-sample": [_fmt(k_oos.get(k, np.nan), d) for k, _, d in _VOCI_SCHEDA],
     })
     s.tabelle["scheda"] = tabella
-    nome = filtro or "sistema base"
+    nome = s.filtro or "sistema base"
     _mostra((f"Scheda strategia · {s.symbol} · {nome}", tabella))
 
     if len(tr_oos):
@@ -878,7 +1009,7 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
     Ritorna {"controllo": tabella, "montecarlo": dict, "sizing": dict}.
     """
     s._serve("oos", "6 · Scheda strategia")
-    pips = pips_per_dataset(s.fs.trades(s.filtro), s.oos.trades(s.filtro),
+    pips = pips_per_dataset(s.trades_is, s.trades_oos,
                             s.fs.pip_size, s.fs.commission or 0.0, dataset="FULL")
     with _zitto():
         orizzonti = tuple(h for h in ORIZZONTI_MC if h <= max(len(pips), 10))
