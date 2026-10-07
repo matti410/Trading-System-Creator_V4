@@ -120,10 +120,12 @@ def esegui() -> int:
         t = cl[nome]
         rif = sint.set_index("candidato").loc[t["Trigger"]]
         ok &= bool((rif["direction"] == d).all())
-        ok &= np.allclose(t["Movimento a favore (pips)"].to_numpy(), (rif["picco_pips"] * d).to_numpy())
-        ok &= np.allclose(t["Solidità del segnale"].to_numpy(), (rif["volte_incertezza"] * d).to_numpy())
+        # nessun ribaltamento: la sintesi e' gia' «a favore del trade» per i due lati
+        ok &= np.allclose(t["Movimento a favore (pips)"].to_numpy(), rif["picco_pips"].to_numpy())
+        ok &= np.allclose(t["Solidità del segnale"].to_numpy(), rif["volte_incertezza"].to_numpy())
         ok &= t["Solidità del segnale"].is_monotonic_decreasing
-    check("9. classifiche: ogni lato ha solo i suoi trigger, numeri della sintesi, ordine per solidita'", ok)
+    check("9. classifiche: ogni lato ha solo i suoi trigger, numeri della sintesi senza ribaltamenti, "
+          "ordine per solidita'", ok)
 
     muto(v.scegli_trigger, s, long=", ".join(LONG), short=SHORT)
     from entry_composita import risolvi_scelta
@@ -223,6 +225,46 @@ def esegui() -> int:
           len(s.fs.risultati) == prima + 1 and "T_FILTRO_NUOVO" in set(s.fs.risultati["filtro"]))
     check("27. le composite in OR non rientrano fra i trigger da esplorare",
           not any(n.startswith("OR(") for n in v._trigger_candidati()))
+
+    print("\nD · Il segno, verificato in modo indipendente (7/10/2026)")
+    # Trigger finti costruiti GUARDANDO IL FUTURO (solo qui, per il test): si sa
+    # in partenza quale guadagna. Uno short «buono» scatta dove il prezzo poi
+    # SCENDE, uno «cattivo» dove poi SALE; lo stesso, a specchio, per i long.
+    def finto(verso_prezzo):
+        def f(d):
+            dopo = d["Close"].shift(-10) / d["Open"].shift(-1) - 1.0
+            soglia = dopo.abs().quantile(0.80)
+            scelti = (dopo * verso_prezzo > soglia) & (np.arange(len(d)) % 7 == 0)
+            return scelti.fillna(False)
+        return f
+    reg.register_entry("T_SHORT_BUONO", -1)(finto(-1))
+    reg.register_entry("T_SHORT_CATTIVO", -1)(finto(+1))
+    reg.register_entry("T_LONG_BUONO", 1)(finto(+1))
+    reg.register_entry("T_LONG_CATTIVO", 1)(finto(-1))
+    s2 = muto(v.prepara, "EURUSD", 12)
+    muto(v.esplora, s2)
+    cl = muto(v.classifiche, s2, 1000)
+    for n, lato in ((28, "short"), (29, "long")):
+        t = cl[lato].set_index("Trigger")
+        buono, cattivo = f"T_{lato.upper()}_BUONO", f"T_{lato.upper()}_CATTIVO"
+        check(f"{n}. {lato}: il trigger che guadagna e' positivo e primo in classifica, quello che perde "
+              f"negativo e ultimo",
+              t.loc[buono, "Movimento a favore (pips)"] > 0 and t.loc[cattivo, "Movimento a favore (pips)"] < 0
+              and t.index[0] == buono and t.index[-1] == cattivo,
+              f"{t.loc[buono, 'Movimento a favore (pips)']:+.1f} / {t.loc[cattivo, 'Movimento a favore (pips)']:+.1f} pips")
+    check("30. «supera il rumore» distingue a favore da contro",
+          cl["short"].set_index("Trigger").loc["T_SHORT_BUONO", "Supera il rumore"] == "sì"
+          and cl["short"].set_index("Trigger").loc["T_SHORT_CATTIVO", "Supera il rumore"] == "sì, ma contro")
+    # stessa lettura nel backtest: il segno della classifica e quello della
+    # schermata 4 devono dire la stessa cosa
+    esiti = {}
+    for nome in ("T_SHORT_BUONO", "T_SHORT_CATTIVO"):
+        muto(v.scegli_trigger, s2, long=None, short=nome)
+        t = muto(v.imposta_uscite, s2, None, 10, 0, 0)
+        esiti[nome] = float(t.iloc[0]["Guadagno medio netto per trade (pips)"])
+    check("31. backtest solo short: lo short «buono» guadagna, il «cattivo» perde (stesso segno della classifica)",
+          esiti["T_SHORT_BUONO"] > 0 > esiti["T_SHORT_CATTIVO"],
+          f"{esiti['T_SHORT_BUONO']:+.1f} / {esiti['T_SHORT_CATTIVO']:+.1f} pips netti per trade")
 
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
