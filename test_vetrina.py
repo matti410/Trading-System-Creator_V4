@@ -334,6 +334,108 @@ def esegui() -> int:
     check("41. le entry con un filtro congelato non rientrano fra i trigger da esplorare",
           any("+" in n for n in reg.list_entries()) and not any("+" in n for n in v._trigger_candidati()))
 
+    print("\nF · La verifica dei trade e la lente (7/10/2026)")
+    import engine.vetrina_verifica as vv
+    muto(v.scheda, s, f"{A}, {C}")
+    r = muto(v.verifica_trade, s)
+    n_is, n_oos = len(s.trades_is), len(s.trades_oos)
+    check("42. strategia vera (due filtri, una coppia long/short): tutte le regole OK su tutti i trade",
+          bool((r["regole"]["Esito"] == "OK").all()) and r["da_guardare"] == {"in-sample": [], "out-of-sample": []}
+          and r["regole"]["Rispettata in"].iloc[0] == f"{v._fmt(n_is + n_oos)} trade su {v._fmt(n_is + n_oos)}",
+          f"{n_is} + {n_oos} trade")
+    sg = r["segnali"].set_index("Che fine ha fatto il segnale")
+    check("43. i segnali «diventati un trade» sono tanti quanti i trade, nessuno senza spiegazione",
+          int(sg.loc["è diventato un trade", "In-sample"]) == n_is
+          and int(sg.loc["è diventato un trade", "Out-of-sample"]) == n_oos
+          and "senza spiegazione" not in sg.index and "filtro falso" in sg.index)
+    muto(v.scheda, s, None)
+    r = muto(v.verifica_trade, s)
+    check("44. sistema base (nessun filtro): tutte le regole OK",
+          bool((r["regole"]["Esito"] == "OK").all()), f"{len(s.trades_is) + len(s.trades_oos)} trade")
+
+    reg_oos = v.registro_trade(s, "out-of-sample")
+    k = 3
+    riga = reg_oos.iloc[k]
+    ora_it = s.df_oos.index.tz_convert("Europe/Rome")
+    check("45. registro: ora italiana, ingresso una barra dopo il segnale, numerazione da 1",
+          riga["Segnale"] == ora_it[int(riga["barra_segnale"])].strftime("%d/%m/%Y %H:%M")
+          and riga["Ingresso"] == ora_it[int(riga["barra_segnale"]) + 1].strftime("%d/%m/%Y %H:%M")
+          and list(reg_oos["N."]) == list(range(1, len(reg_oos) + 1))
+          and bool((reg_oos["barra_ingresso"] == reg_oos["barra_segnale"] + 1).all()),
+          f"n. {k + 1}: segnale {riga['Segnale']}, ingresso {riga['Ingresso']}")
+    durata = reg_oos["barra_uscita"] - reg_oos["barra_ingresso"]
+    limite = np.where(reg_oos["Lato"] == "LONG", BL, BS)
+    tempo, stop = reg_oos["Uscita per"] == "a tempo", reg_oos["Uscita per"] == "stop"
+    # uno stop si esegue al suo prezzo, o peggio se la barra apre gia' oltre (gap)
+    verso = np.where(reg_oos["Lato"] == "LONG", 1.0, -1.0)
+    oltre = (reg_oos["stop"] - reg_oos["Prezzo uscita"]) * verso
+    check("46. motivo di uscita: «a tempo» = durata piena, «stop» = uscita al prezzo dello stop o oltre",
+          tempo.any() and stop.any() and bool((durata[tempo] == limite[tempo]).all())
+          and bool((durata[stop] <= limite[stop]).all()) and bool((oltre[stop] >= -1e-9).all())
+          and bool((oltre[tempo] < 0).all()),
+          str(reg_oos["Uscita per"].value_counts().to_dict()))
+
+    # ERRORI MESSI APPOSTA: la verifica li deve trovare
+    buoni = s.trades_oos.copy()
+    ordine = buoni.sort_values("EntryBar", kind="mergesort").index
+    guasto = buoni.copy()
+    guasto.loc[ordine[k], "EntryBar"] += 1               # trade spostato di una barra
+    s.trades_oos = guasto
+    r = muto(v.verifica_trade, s)
+    s.trades_oos = buoni
+    rg = r["regole"].set_index("Regola")
+    check("47. un trade spostato di una barra viene segnalato, con il suo numero",
+          rg.loc["L'ingresso è all'apertura della barra dopo il segnale", "Esito"] == "DA GUARDARE"
+          and (k + 1) in r["da_guardare"]["out-of-sample"] and r["da_guardare"]["in-sample"] == [],
+          f"da guardare: {r['da_guardare']['out-of-sample']}")
+    guasto = buoni.copy()
+    guasto.loc[ordine[k], "ExitBar"] = guasto.loc[ordine[k + 1], "EntryBar"] + BL + BS   # dura troppo e si accavalla
+    s.trades_oos = guasto
+    r = muto(v.verifica_trade, s)
+    s.trades_oos = buoni
+    rg = r["regole"].set_index("Regola")
+    check("48. un trade troppo lungo e accavallato al successivo viene segnalato",
+          rg.loc["Il trade non dura più delle barre del suo lato", "Esito"] == "DA GUARDARE"
+          and rg.loc["Una posizione alla volta", "Esito"] == "DA GUARDARE")
+    # trade del sistema base spacciati per trade filtrati: il filtro risulta falso
+    muto(v.scheda, s, A)
+    filtrati = s.trades_is
+    s.trades_is = s.fs.trades(None)
+    r = muto(v.verifica_trade, s)
+    s.trades_is = filtrati
+    rg = r["regole"].set_index("Regola")
+    check("49. trade entrati con il filtro falso vengono segnalati",
+          rg.loc["Tutti i filtri scelti erano veri su quella barra", "Esito"] == "DA GUARDARE"
+          and len(r["da_guardare"]["in-sample"]) > 0, f"{len(r['da_guardare']['in-sample'])} trade")
+    r = muto(v.verifica_trade, s)
+    check("50. rimessi i trade veri, torna tutto OK", bool((r["regole"]["Esito"] == "OK").all()))
+
+    reg_oos = v.registro_trade(s, "out-of-sample")
+    fig = muto(v.lente, s, "out-of-sample", 2, None, "ema20, rsi", 30, 10)
+    tracce = {t.name: t for t in fig.data}
+    riga = reg_oos.iloc[1]
+    inizio = max(0, int(riga["barra_segnale"]) - 30)
+    check("51. lente: segnale e ingresso sulle candele giuste, a una barra di distanza",
+          tracce["segnale"].x[0] == int(riga["barra_segnale"]) - inizio
+          and tracce["ingresso"].x[0] == tracce["segnale"].x[0] + 1
+          and abs(tracce["ingresso"].y[0] - riga["Prezzo ingresso"]) < 1e-12
+          and any(str(n).startswith("uscita (") for n in tracce))
+    check("52. lente: la media sta sulle candele, l'RSI in un pannello sotto",
+          tracce["ema20"].yaxis in (None, "y") and tracce["rsi"].yaxis == "y2")
+    giorno = reg_oos["Segnale"].iloc[4][:10]
+    muto(v.lente, s, "out-of-sample", None, giorno)
+    primo = int(np.flatnonzero(pd.to_datetime(reg_oos["Segnale"], format="%d/%m/%Y %H:%M")
+                               >= pd.to_datetime(giorno, dayfirst=True))[0]) + 1
+    check("53. lente per data: apre il primo trade da quel giorno",
+          s.tabelle["lente"].iloc[0, 1].startswith(f"n. {primo} di"), s.tabelle["lente"].iloc[0, 1])
+    check("54. lente: numero inesistente, indicatore sconosciuto, periodo sbagliato -> errore",
+          errore(lambda: v.lente(s, "out-of-sample", 10**6), ValueError)
+          and errore(lambda: v.lente(s, "out-of-sample", 1, None, "ema999"), ValueError)
+          and errore(lambda: v.lente(s, "domani", 1), ValueError))
+    check("55. gli indicatori disponibili sono le colonne calcolate, senza i prezzi",
+          {"ema20", "ema50", "rsi", "vwap"} <= set(v.indicatori_disponibili(s))
+          and not {"Open", "Close", "Volume", "spread"} & set(v.indicatori_disponibili(s)))
+
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
     print(f"RISULTATO: {ok}/{tot} test superati  (pandas {pd.__version__})")
