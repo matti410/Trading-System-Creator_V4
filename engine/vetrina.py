@@ -403,11 +403,48 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
 # ========================================================================
 
 def _favorevoli(s: Sessione, direzione: int) -> pd.DataFrame:
-    """La sintesi dell'event study di un lato, con i movimenti letti «a favore»."""
+    """
+    La sintesi dell'event study di un lato, dal trigger piu' favorevole al meno.
+
+    ATTENZIONE AL SEGNO (corretto il 7/10/2026). `run_event_study` moltiplica
+    gia' ogni variazione per la direzione del trigger: curve, `picco_pips` e
+    `volte_incertezza` sono «a favore del trade» per ENTRAMBI i lati
+    (positivo = il trade guadagna, anche per uno short). Qui quindi NON si
+    ribalta nulla: la prima versione lo faceva sugli short e metteva in cima
+    alla classifica i peggiori.
+    """
     t = s.ev.sintesi[s.ev.sintesi["direction"] == direzione].copy()
-    t["a_favore_pips"] = t["picco_pips"] * direzione
-    t["solidita"] = t["volte_incertezza"] * direzione
+    t["a_favore_pips"] = t["picco_pips"]
+    t["solidita"] = t["volte_incertezza"]
+    oltre = t["oltre_rumore"].astype(bool) if "oltre_rumore" in t.columns else False
+    t["rumore"] = np.where(oltre & (t["solidita"] > 0), "sì",
+                           np.where(oltre, "sì, ma contro", "no"))
     return t.sort_values("solidita", ascending=False).reset_index(drop=True)
+
+
+def _grafico_curve(s: Sessione, candidati: list[str], lato: str) -> None:
+    """
+    Le curve dell'event study di un lato, in pips. Stessi dati di
+    `EventStudy.plot`; qui cambiano solo titolo ed etichette, per dire in
+    chiaro che l'asse e' il guadagno del trade e non il prezzo.
+    """
+    import matplotlib.pyplot as plt
+    curve = s.ev.in_pips(s.ev.curve)
+    mercato = s.ev.in_pips(s.ev.mercato)
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for c in candidati:
+        ax.plot(curve.index, curve[c], lw=1.7, label=c)
+    ax.plot(mercato.index, mercato[candidati[0]], color="black", ls="--", lw=1.2,
+            label=f"entrando {lato} a caso (tutte le barre)")
+    ax.axhline(0, color="black", lw=0.8)
+    ax.set_xlabel("barre dal segnale")
+    ax.set_ylabel(f"guadagno medio del trade {lato}  (pips, prima dei costi)")
+    ax.set_title(f"Trigger {lato.upper()}: guadagno medio del trade nelle {s.H} barre dopo il segnale"
+                 "   (sopra lo zero = guadagna)")
+    ax.grid(alpha=.3)
+    ax.legend(fontsize=8, loc="best")
+    plt.tight_layout()
+    plt.show()
 
 
 def esplora(s: Sessione, quanti: int = 5):
@@ -430,13 +467,15 @@ def esplora(s: Sessione, quanti: int = 5):
         lato = _favorevoli(s, direzione)
         if lato.empty:
             continue
-        _titolo(f"Trigger {nome}: cosa fa il prezzo nelle {s.H} barre dopo il segnale")
-        s.ev.plot(candidati=list(lato["candidato"].head(quanti)), pips=True, figsize=(11, 5))
+        _grafico_curve(s, list(lato["candidato"].head(quanti)), nome.lower())
     _riquadro(
-        "Ogni linea è un trigger: il movimento medio del prezzo, in pips, barra dopo barra dal segnale. "
-        "La linea tratteggiata è il mercato «senza segnale», cioè quello che otterresti entrando a caso.",
-        "Un trigger long interessante sale e si stacca presto dalla tratteggiata; uno short scende. "
-        "Guarda anche dove la curva smette di allontanarsi: è la durata naturale del movimento, "
+        "Ogni linea è un trigger: quanto guadagna in media un trade aperto su quel segnale, in pips e prima "
+        "dei costi, barra dopo barra. Vale la stessa regola per long e short: la linea sale quando il trade "
+        "guadagna. Per uno short «sale» vuol dire che il prezzo sta scendendo. "
+        "La tratteggiata è quello che otterresti entrando a caso nella stessa direzione.",
+        "Un trigger interessante sta sopra lo zero e sopra la tratteggiata, e ci arriva presto. "
+        "Una linea che scende sotto lo zero è un segnale che in media ti porta dalla parte sbagliata. "
+        "Guarda anche dove la curva smette di salire: è la durata naturale del movimento, "
         "ti servirà per scegliere dopo quante barre uscire.",
         "Vai alla schermata 3: trovi gli stessi trigger in classifica, con i numeri.")
     return s.ev
@@ -452,7 +491,7 @@ _COLONNE_CLASSIFICA = {
     "barra_picco": "Dopo quante barre",
     "trades": "Occasioni",
     "solidita": "Solidità del segnale",
-    "oltre_rumore": "Supera il rumore",
+    "rumore": "Supera il rumore",
 }
 
 
@@ -474,12 +513,14 @@ def classifiche(s: Sessione, quanti: int = 8) -> dict:
     s.tabelle["classifiche"] = out
     _mostra(*da_mostrare, decimali={"Dopo quante barre": 0})
     _riquadro(
-        "Per ogni trigger: di quanti pips si muove in media il prezzo a tuo favore nel momento migliore, "
-        "dopo quante barre arriva quel momento e quante occasioni ci sono state. La «solidità» dice quante "
-        "volte il movimento è più grande della sua normale oscillazione casuale.",
-        "Cerca solidità alta e tante occasioni insieme. «Supera il rumore: sì» vuol dire che il risultato "
-        "è difficile da spiegare con la sola fortuna, anche tenendo conto di quanti trigger hai messo a confronto. "
-        "Solidità sotto 2 circa: potrebbe essere solo caso.",
+        "Per ogni trigger: il movimento medio più ampio dopo il segnale, in pips e prima dei costi, dopo quante "
+        "barre arriva e quante occasioni ci sono state. Positivo = a favore del trade (per uno short: il prezzo "
+        "è sceso). Negativo = in media il prezzo è andato contro. La «solidità» dice quante volte il movimento "
+        "è più grande della sua normale oscillazione casuale, con lo stesso segno.",
+        "Cerca movimento positivo, solidità alta e tante occasioni insieme, e confronta il movimento con il costo "
+        "per trade della schermata 1. «Supera il rumore: sì» vuol dire che il risultato è difficile da spiegare "
+        "con la sola fortuna, anche tenendo conto di quanti trigger hai messo a confronto. "
+        "Solidità fra −2 e 2 circa: potrebbe essere solo caso. Una riga negativa non è un candidato.",
         "Copia nella cella sotto i nomi dei trigger che vuoi portare avanti, uno o più per lato. "
         "Più trigger sullo stesso lato lavorano insieme: si entra quando ne scatta uno qualsiasi.")
     return out
