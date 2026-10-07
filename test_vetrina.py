@@ -266,6 +266,74 @@ def esegui() -> int:
           esiti["T_SHORT_BUONO"] > 0 > esiti["T_SHORT_CATTIVO"],
           f"{esiti['T_SHORT_BUONO']:+.1f} / {esiti['T_SHORT_CATTIVO']:+.1f} pips netti per trade")
 
+    print("\nE · Piu' filtri insieme e l'asticella della prima prova (7/10/2026)")
+    from engine.giudizio import soglia_rumore
+    muto(v.scegli_trigger, s, long=LONG, short=SHORT)
+    muto(v.imposta_uscite, s, BL, BS, SL, TP)
+    muto(v.trova_strategia, s)
+    n_prove = int((s.fs.risultati["filtro"] != BASELINE).sum())
+    check("32. l'asticella mostrata e' la soglia di rumore per il numero di filtri provati",
+          abs(s.tabelle["asticella"] - soglia_rumore(n_prove, 0.05)) < 1e-12 and s.tabelle["asticella"] > 1.96,
+          f"{n_prove} filtri -> {s.tabelle['asticella']:.2f}")
+    tf = s.tabelle["filtri"]
+    check("33. chi non passa la prima prova ha scritto il perche'",
+          all(x == "—" or x.startswith("promosso") or x.startswith("non passa: ") for x in tf["Prima prova"]),
+          str(sorted(set(tf["Prima prova"]))[:3]))
+
+    # due filtri neutri e una coppia long/short, presi dal registro
+    ris = s.fs.risultati.set_index("filtro")
+    neutri = [f for f in ris.index if f != BASELINE and ris.loc[f, "filtro_long"] == ris.loc[f, "filtro_short"]]
+    coppie = [f for f in ris.index if f != BASELINE and ris.loc[f, "filtro_long"] != ris.loc[f, "filtro_short"]
+              and "—" not in (ris.loc[f, "filtro_long"], ris.loc[f, "filtro_short"])]
+    A, B, C = neutri[0], neutri[1], coppie[0]
+
+    # riferimento INDIPENDENTE: un filtro unico «A e B» registrato a mano e
+    # passato al motore come un filtro qualsiasi
+    fa, fb = reg.get_filter(A), reg.get_filter(B)
+    reg.register_filter("T_A_E_B", 0)(lambda d: fa(d).astype(bool) & fb(d).astype(bool))
+    comuni = dict(n_barre=BL, n_barre_long=BL, n_barre_short=BS, perc_sl=SL, perc_tp=TP,
+                  inverti_su_opposto=True, verbose=False, **s.costi)
+    with contextlib.redirect_stdout(io.StringIO()):
+        rif_is = run_filter_search_bt(s.df_is, entry_long=s.entry_long, entry_short=s.entry_short,
+                                      filtri=["T_A_E_B"], **comuni).trades("T_A_E_B")
+        rif_oos = run_filter_search_bt(s.df_oos, entry_long=s.entry_long, entry_short=s.entry_short,
+                                       filtri=["T_A_E_B"], margin=1.0, **comuni).trades("T_A_E_B")
+    colonne = ["Size", "EntryBar", "ExitBar", "EntryPrice", "ExitPrice", "PnL"]
+    muto(v.scheda, s, f"{A}, {B}")
+    ab_is, ab_oos = s.trades_is.copy(), s.trades_oos.copy()
+    check("34. due filtri: i trade sono quelli del filtro unico «A e B» (in-sample e out-of-sample)",
+          ab_is[colonne].reset_index(drop=True).equals(rif_is[colonne].reset_index(drop=True))
+          and ab_oos[colonne].reset_index(drop=True).equals(rif_oos[colonne].reset_index(drop=True)),
+          f"{A} + {B}: {len(ab_is)} trade IS, {len(ab_oos)} OOS")
+    tp = s.tabelle["passi"]
+    check("35. tabella dei passi: base, + A, + B; il primo passo ha i numeri della classifica",
+          list(tp["Passo"]) == ["Sistema base", f"+ {A}", f"+ {B}"]
+          and int(tp.iloc[1]["Trade"]) == int(ris.loc[A, "trades"])
+          and abs(tp.iloc[1]["Solidità del miglioramento"] - ris.loc[A, "t_guadagno"]) < 1e-12
+          and int(tp.iloc[2]["Trade"]) == len(ab_is) <= int(tp.iloc[1]["Trade"]),
+          f"trade {list(tp['Trade'])}")
+    muto(v.scheda, s, [B, A])
+    check("36. l'ordine in cui scrivi i filtri non cambia i trade finali",
+          s.trades_is[colonne].reset_index(drop=True).equals(ab_is[colonne].reset_index(drop=True))
+          and s.trades_oos[colonne].reset_index(drop=True).equals(ab_oos[colonne].reset_index(drop=True)))
+    muto(v.scheda, s, f"{A}, {C}, {B}")
+    abc_is = s.trades_is.copy()
+    muto(v.scheda, s, f"{C}, {B}, {A}, {B}")
+    check("37. tre filtri con una coppia long/short, in un altro ordine e con un doppione: stessi trade",
+          s.trades_is[colonne].reset_index(drop=True).equals(abc_is[colonne].reset_index(drop=True))
+          and len(abc_is) <= len(ab_is) and s.filtri_scelti == [C, B, A] and len(s.tabelle["passi"]) == 4,
+          f"{len(abc_is)} trade")
+    r = muto(v.stress_test, s, 10_000)
+    check("38. lo stress test usa i trade della combinazione",
+          r["montecarlo"]["n_trade"] == len(s.trades_is) + len(s.trades_oos))
+    muto(v.scheda, s, A)
+    check("39. un filtro solo: stessi trade della riga della classifica, nessuna tabella dei passi",
+          s.trades_is.equals(s.fs.trades(A)) and "passi" not in s.tabelle and s.filtro == A)
+    check("40. un nome sbagliato in mezzo agli altri -> errore che lo nomina",
+          errore(lambda: v.scheda(s, f"{A}, F99_NON_ESISTE"), ValueError))
+    check("41. le entry con un filtro congelato non rientrano fra i trigger da esplorare",
+          any("+" in n for n in reg.list_entries()) and not any("+" in n for n in v._trigger_candidati()))
+
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
     print(f"RISULTATO: {ok}/{tot} test superati  (pandas {pd.__version__})")
