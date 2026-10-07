@@ -5,10 +5,23 @@ verso la registry).
 """
 import pandas as pd
 
+from helpers import _evento, _cross_up
 
-def exit_short_rsi_oversold(df: pd.DataFrame, threshold: float = 30.0) -> pd.Series:
-    """RSI sotto una soglia (ipervenduto) -> chiudi lo short."""
-    return df["rsi"] < threshold
+
+def exit_short_cycle_turn_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Il ciclo dominante gira al rialzo -> chiudi lo short.
+
+    Speculare di X1_CYCLE_TURN_DOWN (exit_long.py), stesso `pair`: vera solo
+    sulla barra in cui `ciclo_pendenza` passa da negativa a positiva.
+
+    Dal 7/10/2026 prende il posto di X1_SHORT_RSI_OVERSOLD (uscita di prova).
+
+    Fonte dell'idea: Sofien Kaabar, "Forecasting Market Cycles with Fourier
+    Transform in Python", 29/9/2026, https://medium.com/@kaabar-sofien/forecasting-market-cycles-with-fourier-transform-in-python-9b29c110cd3c
+    """
+    zero = pd.Series(0.0, index=df.index)
+    return _evento(_cross_up(df["ciclo_pendenza"], zero))
 
 
 def exit_short_ema_bullish(df: pd.DataFrame) -> pd.Series:
@@ -28,7 +41,7 @@ def exit_none_short(df: pd.DataFrame) -> pd.Series:
 
 # nome -> (funzione, pair)
 EXIT_SHORT = {
-    "X1_SHORT_RSI_OVERSOLD":      (exit_short_rsi_oversold, "RSI_EXTREME"),
+    "X1_SHORT_CYCLE_TURN_UP":     (exit_short_cycle_turn_up, "CYCLE_TURN"),
     "X2_SHORT_EMA_BULLISH_CROSS": (exit_short_ema_bullish,  "EMA_CROSS"),
     "X3_SHORT_MACD_BULLISH":      (exit_short_macd_bullish, "MACD_CROSS"),
     "X0_SHORT_NO_EXIT":           (exit_none_short,         "NO_EXIT"),

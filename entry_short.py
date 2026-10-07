@@ -266,6 +266,37 @@ def entry_short_prev_day_low_breakdown(df: pd.DataFrame) -> pd.Series:
     return primo_del_giorno(rottura & pulita, df)
 
 
+# ------------------------------------------------------------ E24 --------
+def entry_short_cycle_turn_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Il ciclo dominante smette di salire e inizia a scendere -> short.
+
+    Speculare di E24_CYCLE_TURN_UP: `ciclo_pendenza` passa da positiva a
+    negativa.
+
+    Fonte dell'idea: Sofien Kaabar, "Forecasting Market Cycles with Fourier
+    Transform in Python", 29/9/2026, https://medium.com/@kaabar-sofien/forecasting-market-cycles-with-fourier-transform-in-python-9b29c110cd3c
+    """
+    zero = pd.Series(0.0, index=df.index)
+    return _evento(_cross_down(df["ciclo_pendenza"], zero))
+
+
+# ------------------------------------------------------------ E25 --------
+def entry_short_adaptive_channel_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Il canale di trend adattivo passa da rialzista a ribassista -> short.
+
+    Speculare di E25_ADAPTIVE_CHANNEL_UP: `atc_regime` passa da +1 a -1.
+
+    Fonte: "Adaptive Trend Channel" di MarketStructureLab (TradingView,
+    licenza CC BY-NC-SA 4.0), usato in Sayedali Richu, "Want to Find Better
+    Trading Opportunities? Start With These 2 Indicators", 24/9/2026,
+    https://medium.com/@sayedali_3166/want-to-find-better-trading-opportunities-start-with-these-2-indicators-ea37c3ee6f55
+    """
+    regime = df["atc_regime"]
+    return _evento((regime == -1) & (regime.shift(1) == 1))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -299,6 +330,8 @@ TRIGGER_SHORT = {
     "E21_SHORT_BELT_HOLD_CONFIRMED": entry_short_belt_hold_confirmed,
     "E22_SHORT_ASIAN_RANGE_BREAKDOWN": entry_short_asian_range_breakdown,
     "E23_SHORT_PREV_DAY_LOW_BREAKDOWN": entry_short_prev_day_low_breakdown,
+    "E24_SHORT_CYCLE_TURN_DOWN": entry_short_cycle_turn_down,
+    "E25_SHORT_ADAPTIVE_CHANNEL_DOWN": entry_short_adaptive_channel_down,
 }
 
 

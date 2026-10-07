@@ -658,6 +658,74 @@ def filter_far_from_rollover(df: pd.DataFrame) -> pd.Series:
     return vicino & ~_quarantena(df)["totale"]
 
 
+# =========================================================================
+# Filtri entrati da articoli il 7/10/2026 (metodo: 50_IDEE_DA_ARTICOLI.md)
+# =========================================================================
+
+# --- F23: il mercato sta oscillando in modo regolare ---------------------
+
+def filter_cycle_strength(df: pd.DataFrame, rank_window: int = 2000,
+                          percentile: float = 0.70) -> pd.Series:
+    """
+    Ciclo forte: la quota di energia nel ciclo dominante (`ciclo_quota`,
+    calcolata su 300 barre) e' sopra il 70° percentile delle proprie ultime
+    2000 barre.
+
+    Neutro: misura quanto il movimento e' ciclico, non il suo verso. La
+    finestra del percentile (2000) e' molto piu' larga di quella del valore
+    che classifica (300), come vuole la regola 2 dei filtri. Vera circa il
+    30% delle barre, per costruzione. Parametri fissati a priori, mai
+    provati in varianti. Finestra massima: 2300 barre.
+
+    Fonte dell'idea: Sofien Kaabar, "Forecasting Market Cycles with Fourier
+    Transform in Python", 29/9/2026, https://medium.com/@kaabar-sofien/forecasting-market-cycles-with-fourier-transform-in-python-9b29c110cd3c
+    """
+    return ts_rank(df["ciclo_quota"], rank_window) > percentile
+
+
+# --- F24/F25: momentum dei volumi (istogramma del PVO) -------------------
+# Due filtri NEUTRI e separati (scelta del 7/10): il volume non dice il
+# verso del prezzo, quindi ogni trigger, long o short, li prova entrambi.
+# Nessun `pair`: un filtro neutro non puo' averlo.
+
+def filter_pvo_hist_positive(df: pd.DataFrame) -> pd.Series:
+    """
+    Istogramma del PVO sopra zero: i volumi stanno accelerando.
+
+    `pvo_hist` viene da engine/indicatori.py (PVO 12/26/9 sul tick volume).
+    La soglia e' lo zero, cioe' il segno: non e' un valore da calibrare.
+
+    Fonte: Sayedali Richu, "Want to Find Better Trading Opportunities? Start
+    With These 2 Indicators", 24/9/2026, https://medium.com/@sayedali_3166/want-to-find-better-trading-opportunities-start-with-these-2-indicators-ea37c3ee6f55
+    """
+    return df["pvo_hist"] > 0
+
+
+def filter_pvo_hist_negative(df: pd.DataFrame) -> pd.Series:
+    """Istogramma del PVO sotto zero: i volumi stanno rallentando. Vedi F24."""
+    return df["pvo_hist"] < 0
+
+
+# --- F26: due candele di fila nello stesso verso -------------------------
+# Coppia direzionale: due chiusure sopra l'apertura sono contesto rialzista.
+
+def filter_two_bars_up(df: pd.DataFrame) -> pd.Series:
+    """
+    La barra corrente e la precedente chiudono entrambe sopra l'apertura.
+
+    Fonte: Sayedali Richu, "Want to Find Better Trading Opportunities? Start
+    With These 2 Indicators", 24/9/2026, https://medium.com/@sayedali_3166/want-to-find-better-trading-opportunities-start-with-these-2-indicators-ea37c3ee6f55
+    """
+    su = df["Close"] > df["Open"]
+    return su & su.shift(1, fill_value=False)
+
+
+def filter_two_bars_down(df: pd.DataFrame) -> pd.Series:
+    """La barra corrente e la precedente chiudono entrambe sotto l'apertura. Vedi F26_TWO_BARS_UP."""
+    giu = df["Close"] < df["Open"]
+    return giu & giu.shift(1, fill_value=False)
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -688,6 +756,11 @@ FILTRI = {
     "F22_FAR_FROM_ROLLOVER":     (filter_far_from_rollover, 0, None),
     "F21_OVERNIGHT_UP":          (filter_overnight_up, 1, "OVERNIGHT_RETURN"),
     "F21_OVERNIGHT_DOWN":        (filter_overnight_down, -1, "OVERNIGHT_RETURN"),
+    "F23_CYCLE_STRENGTH":        (filter_cycle_strength, 0, None),
+    "F24_PVO_HIST_POSITIVE":     (filter_pvo_hist_positive, 0, None),
+    "F25_PVO_HIST_NEGATIVE":     (filter_pvo_hist_negative, 0, None),
+    "F26_TWO_BARS_UP":           (filter_two_bars_up, 1, "TWO_BARS"),
+    "F26_TWO_BARS_DOWN":         (filter_two_bars_down, -1, "TWO_BARS"),
 }
 
 
@@ -695,7 +768,7 @@ def registra_filtri():
     """
     Registra tutti i filtri di questo file nel motore (engine.registry),
     cosi' filter_search_bt li trova da sola tramite get_filter(nome), e le
-    8 coppie tramite list_filter_pairs().
+    coppie tramite list_filter_pairs().
 
     Va chiamata una volta prima di usare i filtri. E' sicura da richiamare
     piu' volte nella stessa sessione: i nomi gia' registrati vengono

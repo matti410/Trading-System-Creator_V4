@@ -293,6 +293,38 @@ def entry_prev_day_high_breakout(df: pd.DataFrame) -> pd.Series:
     return primo_del_giorno(rottura & pulita, df)
 
 
+# ------------------------------------------------------------ E24 --------
+def entry_cycle_turn_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Il ciclo dominante smette di scendere e inizia a salire -> long.
+
+    Legge `ciclo_pendenza` (engine/indicatori.py, finestra di 300 barre solo
+    sul passato): l'evento e' la barra in cui passa da negativa a positiva.
+
+    Fonte dell'idea: Sofien Kaabar, "Forecasting Market Cycles with Fourier
+    Transform in Python", 29/9/2026, https://medium.com/@kaabar-sofien/forecasting-market-cycles-with-fourier-transform-in-python-9b29c110cd3c
+    """
+    zero = pd.Series(0.0, index=df.index)
+    return _evento(_cross_up(df["ciclo_pendenza"], zero))
+
+
+# ------------------------------------------------------------ E25 --------
+def entry_adaptive_channel_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Il canale di trend adattivo passa da ribassista a rialzista -> long.
+
+    Legge `atc_regime` (engine/indicatori.py): l'evento e' la barra del
+    cambio di stato, da -1 a +1.
+
+    Fonte: "Adaptive Trend Channel" di MarketStructureLab (TradingView,
+    licenza CC BY-NC-SA 4.0), usato in Sayedali Richu, "Want to Find Better
+    Trading Opportunities? Start With These 2 Indicators", 24/9/2026,
+    https://medium.com/@sayedali_3166/want-to-find-better-trading-opportunities-start-with-these-2-indicators-ea37c3ee6f55
+    """
+    regime = df["atc_regime"]
+    return _evento((regime == 1) & (regime.shift(1) == -1))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -326,6 +358,8 @@ TRIGGER_LONG = {
     "E21_BELT_HOLD_CONFIRMED": entry_belt_hold_confirmed,
     "E22_ASIAN_RANGE_BREAKOUT": entry_asian_range_breakout,
     "E23_PREV_DAY_HIGH_BREAKOUT": entry_prev_day_high_breakout,
+    "E24_CYCLE_TURN_UP": entry_cycle_turn_up,
+    "E25_ADAPTIVE_CHANNEL_UP": entry_adaptive_channel_up,
 }
 
 

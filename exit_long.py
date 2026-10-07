@@ -15,10 +15,25 @@ run_exit_search_bt, che prende un nome di exit per volta.
 """
 import pandas as pd
 
+from helpers import _evento, _cross_down
 
-def exit_rsi_overbought(df: pd.DataFrame, threshold: float = 70.0) -> pd.Series:
-    """RSI sopra una soglia (ipercomprato) -> chiudi il long."""
-    return df["rsi"] > threshold
+
+def exit_cycle_turn_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Il ciclo dominante gira al ribasso -> chiudi il long.
+
+    E' un evento, non uno stato: vera solo sulla barra in cui
+    `ciclo_pendenza` (engine/indicatori.py) passa da positiva a negativa.
+    Un long aperto mentre il ciclo sta gia' scendendo non viene chiuso
+    subito: aspetta il prossimo giro.
+
+    Dal 7/10/2026 prende il posto di X1_RSI_OVERBOUGHT (uscita di prova).
+
+    Fonte dell'idea: Sofien Kaabar, "Forecasting Market Cycles with Fourier
+    Transform in Python", 29/9/2026, https://medium.com/@kaabar-sofien/forecasting-market-cycles-with-fourier-transform-in-python-9b29c110cd3c
+    """
+    zero = pd.Series(0.0, index=df.index)
+    return _evento(_cross_down(df["ciclo_pendenza"], zero))
 
 
 def exit_ema_bearish(df: pd.DataFrame) -> pd.Series:
@@ -42,7 +57,7 @@ def exit_none_long(df: pd.DataFrame) -> pd.Series:
 
 # nome -> (funzione, pair)
 EXIT_LONG = {
-    "X1_RSI_OVERBOUGHT":    (exit_rsi_overbought, "RSI_EXTREME"),
+    "X1_CYCLE_TURN_DOWN":   (exit_cycle_turn_down, "CYCLE_TURN"),
     "X2_EMA_BEARISH_CROSS": (exit_ema_bearish,    "EMA_CROSS"),
     "X3_MACD_BEARISH":      (exit_macd_bearish,   "MACD_CROSS"),
     "X0_NO_EXIT":           (exit_none_long,      "NO_EXIT"),
