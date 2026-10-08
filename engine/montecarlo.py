@@ -303,7 +303,7 @@ def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
         [np.zeros((n_sim_grafici, 1)),
          np.cumsum(rng.choice(x, size=(n_sim_grafici, x.size), replace=True), axis=1)],
         axis=1)
-    fig3, (a1, a2) = plt.subplots(1, 2, figsize=(13, 4.5))
+    fig3, (a1, a2) = plt.subplots(2, 1, figsize=(10, 9))
     a1.plot(cammini[:n_spaghetti].T, linewidth=0.6, alpha=0.6)
     a1.plot(np.r_[0.0, np.cumsum(x)], color="black", linewidth=1.8, label="sequenza reale")
     a1.set_title(f"{n_spaghetti} curve simulate{suff}")
