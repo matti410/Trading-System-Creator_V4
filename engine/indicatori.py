@@ -217,16 +217,89 @@ def pvo_istogramma(volume: pd.Series, veloce: int = 12, lenta: int = 26,
     return pvo - linea
 
 
+def supertrend_direzione(df: pd.DataFrame, periodo_atr: int = 10,
+                         moltiplicatore: float = 3.0) -> pd.Series:
+    """
+    Direzione del Supertrend: +1 rialzista, -1 ribassista.
+
+    Bande a (massimo + minimo) / 2 +/- moltiplicatore x ATR. La banda
+    inferiore puo' solo salire e quella superiore solo scendere, finche' la
+    chiusura precedente non le attraversa. La direzione diventa rialzista
+    quando la chiusura supera la banda superiore, ribassista quando scende
+    sotto quella inferiore. Stessa logica di ta.supertrend di TradingView,
+    che parte ribassista sulla prima barra con ATR disponibile.
+
+    Usa solo la barra corrente e le precedenti; lo stato ha memoria dal
+    primo dato. ATR di TA-Lib (media di Wilder), come l'`atr` del progetto.
+
+    Parametri: ATR 10, moltiplicatore 3, quelli della fonte.
+
+    Fonte: Sayedali Richu, "My Simple Formula for Filtering Intraday Buy &
+    Sell Signals", 27/9/2026,
+    https://medium.com/@sayedali_3166/my-simple-formula-for-filtering-intraday-buy-sell-signals-0267e115d0f5
+    """
+    atr = ta.ATR(df["High"], df["Low"], df["Close"], timeperiod=periodo_atr).to_numpy()
+    centro = ((df["High"] + df["Low"]) / 2.0).to_numpy()
+    close = df["Close"].to_numpy(dtype=float)
+    stato = np.full(len(df), np.nan)
+    bassa_prima = alta_prima = 0.0          # come nz() di Pine: 0 prima del primo valore
+    sopra = True                            # la linea della barra prima era la banda alta?
+    pronto_prima = False
+    for i in range(len(df)):
+        if not np.isfinite(atr[i]):
+            pronto_prima = False
+            continue
+        bassa = centro[i] - moltiplicatore * atr[i]
+        alta = centro[i] + moltiplicatore * atr[i]
+        if i > 0:
+            if not (bassa > bassa_prima or close[i - 1] < bassa_prima):
+                bassa = bassa_prima
+            if not (alta < alta_prima or close[i - 1] > alta_prima):
+                alta = alta_prima
+        if not pronto_prima:
+            direzione = -1                  # prima barra con ATR: ribassista
+        elif sopra:
+            direzione = 1 if close[i] > alta else -1
+        else:
+            direzione = -1 if close[i] < bassa else 1
+        stato[i] = direzione
+        sopra = direzione == -1
+        bassa_prima, alta_prima, pronto_prima = bassa, alta, True
+    return pd.Series(stato, index=df.index)
+
+
+def intraday_intensity(df: pd.DataFrame, barre: int = 21) -> pd.Series:
+    """
+    Intraday Intensity, somma sulle ultime `barre`: positiva quando, pesando
+    con il volume, le chiusure stanno nella parte alta delle barre
+    (pressione di acquisto), negativa quando stanno in basso.
+
+    Per barra: (2 x chiusura - massimo - minimo) x volume / (massimo - minimo);
+    se massimo = minimo il denominatore vale 1 (la barra vale zero). Poi
+    somma mobile su 21 barre. E' la versione classica (David Bostian), la
+    stessa dello script "INTRADAY INTENSITY INDEX" di KIVANC su TradingView
+    che Mattia ha fornito l'8/10/2026. Il volume e' il tick volume di MT5.
+
+    Fonte: Sayedali Richu, "My Simple Formula for Filtering Intraday Buy &
+    Sell Signals", 27/9/2026 (URL in supertrend_direzione).
+    """
+    ampiezza = (df["High"] - df["Low"]).astype(float)
+    per_barra = ((2.0 * df["Close"] - df["High"] - df["Low"]) * df["Volume"].astype(float)
+                 / ampiezza.where(ampiezza != 0, 1.0))
+    return per_barra.rolling(int(barre)).sum()
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
 
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
-        ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist
+        ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix
 
-    Le ultime quattro vengono da articoli (7/10/2026): vedi le funzioni
-    ciclo_dominante, canale_adattivo_regime e pvo_istogramma qui sopra. Il
+    Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
+    ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
+    supertrend_direzione e intraday_intensity qui sopra. Il
     ciclo dominante ha bisogno di 300 barre di storia: sono le prime 300
     righe a essere tolte, non piu' le prime 100 circa.
 
@@ -253,6 +326,8 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["ciclo_pendenza"] = ciclo["ciclo_pendenza"]
     df["atc_regime"] = canale_adattivo_regime(df)
     df["pvo_hist"] = pvo_istogramma(df["Volume"])
+    df["st_dir"] = supertrend_direzione(df)
+    df["iix"] = intraday_intensity(df)
     return df.dropna()
 
 
@@ -260,5 +335,5 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
 COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
-    "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist",
+    "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
 )
