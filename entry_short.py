@@ -28,6 +28,7 @@ import talib
 
 from helpers import (
     _evento,
+    _vsa_figure,
     _cross_up,
     _cross_down,
     _ts_rank,
@@ -297,6 +298,33 @@ def entry_short_adaptive_channel_down(df: pd.DataFrame) -> pd.Series:
     return _evento((regime == -1) & (regime.shift(1) == 1))
 
 
+# ------------------------------------------------------------ E26 --------
+def entry_short_supertrend_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Il Supertrend (ATR 10, moltiplicatore 3) passa da rialzista a
+    ribassista -> short. Speculare di E26_SUPERTREND_UP.
+
+    Fonte: Sayedali Richu, "My Simple Formula for Filtering Intraday Buy &
+    Sell Signals", 27/9/2026, https://medium.com/@sayedali_3166/my-simple-formula-for-filtering-intraday-buy-sell-signals-0267e115d0f5
+    """
+    direzione = df["st_dir"]
+    return _evento((direzione == -1) & (direzione.shift(1) == 1))
+
+
+# ------------------------------------------------------------ E27 --------
+def entry_short_vsa_bearish(df: pd.DataFrame) -> pd.Series:
+    """
+    Figura VSA ribassista: "climax" oppure "no demand" -> short.
+    Speculare di E27_VSA_BULLISH.
+
+    Fonte: PyQuantLab, "Volume Spread Analysis (VSA) Strategy: Quantifying
+    Market Action for Trading Signals with Rolling Backtesting", 20/6/2025,
+    https://medium.com/@pyquantlab/volume-spread-analysis-vsa-strategy-quantifying-market-action-for-trading-signals-with-rolling-9aa57fb79fe9
+    """
+    figure = _vsa_figure(df)
+    return _evento(figure["climax_sell"] | figure["no_demand"])
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -331,7 +359,8 @@ TRIGGER_SHORT = {
     "E22_SHORT_ASIAN_RANGE_BREAKDOWN": entry_short_asian_range_breakdown,
     "E23_SHORT_PREV_DAY_LOW_BREAKDOWN": entry_short_prev_day_low_breakdown,
     "E24_SHORT_CYCLE_TURN_DOWN": entry_short_cycle_turn_down,
-    "E25_SHORT_ADAPTIVE_CHANNEL_DOWN": entry_short_adaptive_channel_down,
+    "E25_SHORT_ADAPTIVE_CHANNEL_DOWN": entry_short_adaptive_channel_down,    "E26_SHORT_SUPERTREND_DOWN": entry_short_supertrend_down,
+    "E27_SHORT_VSA_BEARISH": entry_short_vsa_bearish,
 }
 
 

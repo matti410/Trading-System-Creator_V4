@@ -726,6 +726,30 @@ def filter_two_bars_down(df: pd.DataFrame) -> pd.Series:
     return giu & giu.shift(1, fill_value=False)
 
 
+
+# --- F27: pressione di acquisto o vendita (Intraday Intensity) -----------
+# Coppia direzionale: l'IIX misura dove chiude il prezzo dentro le barre,
+# quindi ha un verso (regola 1: niente direction=0 su una grandezza con
+# segno di prezzo).
+
+def filter_iix_positive(df: pd.DataFrame) -> pd.Series:
+    """
+    Intraday Intensity a 21 barre sopra zero: pressione di acquisto.
+
+    `iix` viene da engine/indicatori.py. La soglia e' lo zero, cioe' il
+    segno: non e' un valore da calibrare.
+
+    Fonte: Sayedali Richu, "My Simple Formula for Filtering Intraday Buy &
+    Sell Signals", 27/9/2026, https://medium.com/@sayedali_3166/my-simple-formula-for-filtering-intraday-buy-sell-signals-0267e115d0f5
+    """
+    return df["iix"] > 0
+
+
+def filter_iix_negative(df: pd.DataFrame) -> pd.Series:
+    """Intraday Intensity a 21 barre sotto zero: pressione di vendita. Vedi F27_IIX_POSITIVE."""
+    return df["iix"] < 0
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -761,6 +785,8 @@ FILTRI = {
     "F25_PVO_HIST_NEGATIVE":     (filter_pvo_hist_negative, 0, None),
     "F26_TWO_BARS_UP":           (filter_two_bars_up, 1, "TWO_BARS"),
     "F26_TWO_BARS_DOWN":         (filter_two_bars_down, -1, "TWO_BARS"),
+    "F27_IIX_POSITIVE":          (filter_iix_positive, 1, "IIX"),
+    "F27_IIX_NEGATIVE":          (filter_iix_negative, -1, "IIX"),
 }
 
 

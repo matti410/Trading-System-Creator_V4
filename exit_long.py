@@ -15,7 +15,7 @@ run_exit_search_bt, che prende un nome di exit per volta.
 """
 import pandas as pd
 
-from helpers import _evento, _cross_down
+from helpers import _evento, _cross_down, _vsa_figure
 
 
 def exit_cycle_turn_down(df: pd.DataFrame) -> pd.Series:
@@ -36,9 +36,22 @@ def exit_cycle_turn_down(df: pd.DataFrame) -> pd.Series:
     return _evento(_cross_down(df["ciclo_pendenza"], zero))
 
 
-def exit_ema_bearish(df: pd.DataFrame) -> pd.Series:
-    """EMA veloce torna sotto EMA lenta -> il trend rialzista si esaurisce."""
-    return df["ema20"] < df["ema50"]
+def exit_vsa_bearish(df: pd.DataFrame) -> pd.Series:
+    """
+    Compare una figura VSA ribassista -> chiudi il long: "climax",
+    "no demand" o "sforzo al ribasso senza risultato" (effort_down_reverse).
+
+    Sono le figure con cui la fonte chiude un long senza il punteggio di
+    contesto. Classificazioni in helpers._vsa_figure.
+
+    Dall'8/10/2026 prende il posto di X2_EMA_BEARISH_CROSS (uscita di prova).
+
+    Fonte: PyQuantLab, "Volume Spread Analysis (VSA) Strategy: Quantifying
+    Market Action for Trading Signals with Rolling Backtesting", 20/6/2025,
+    https://medium.com/@pyquantlab/volume-spread-analysis-vsa-strategy-quantifying-market-action-for-trading-signals-with-rolling-9aa57fb79fe9
+    """
+    figure = _vsa_figure(df)
+    return figure["climax_sell"] | figure["no_demand"] | figure["effort_down_reverse"]
 
 
 def exit_macd_bearish(df: pd.DataFrame) -> pd.Series:
@@ -58,7 +71,7 @@ def exit_none_long(df: pd.DataFrame) -> pd.Series:
 # nome -> (funzione, pair)
 EXIT_LONG = {
     "X1_CYCLE_TURN_DOWN":   (exit_cycle_turn_down, "CYCLE_TURN"),
-    "X2_EMA_BEARISH_CROSS": (exit_ema_bearish,    "EMA_CROSS"),
+    "X2_VSA_BEARISH":       (exit_vsa_bearish,     "VSA"),
     "X3_MACD_BEARISH":      (exit_macd_bearish,   "MACD_CROSS"),
     "X0_NO_EXIT":           (exit_none_long,      "NO_EXIT"),
 }

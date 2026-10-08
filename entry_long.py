@@ -28,6 +28,7 @@ import talib
 
 from helpers import (
     _evento,
+    _vsa_figure,
     _cross_up,
     _cross_down,
     _ts_rank,
@@ -325,6 +326,36 @@ def entry_adaptive_channel_up(df: pd.DataFrame) -> pd.Series:
     return _evento((regime == 1) & (regime.shift(1) == -1))
 
 
+# ------------------------------------------------------------ E26 --------
+def entry_supertrend_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Il Supertrend (ATR 10, moltiplicatore 3) passa da ribassista a
+    rialzista -> long. Legge `st_dir` (engine/indicatori.py).
+
+    Fonte: Sayedali Richu, "My Simple Formula for Filtering Intraday Buy &
+    Sell Signals", 27/9/2026, https://medium.com/@sayedali_3166/my-simple-formula-for-filtering-intraday-buy-sell-signals-0267e115d0f5
+    """
+    direzione = df["st_dir"]
+    return _evento((direzione == 1) & (direzione.shift(1) == -1))
+
+
+# ------------------------------------------------------------ E27 --------
+def entry_vsa_bullish(df: pd.DataFrame) -> pd.Series:
+    """
+    Figura VSA rialzista: "stopping volume" oppure "no supply" -> long.
+
+    Sono le due figure con cui la fonte apre un long senza il punteggio di
+    contesto (tolto: nel codice della fonte non calcola cio' che dichiara).
+    Un'OR, quindi una sola prova. Classificazioni in helpers._vsa_figure.
+
+    Fonte: PyQuantLab, "Volume Spread Analysis (VSA) Strategy: Quantifying
+    Market Action for Trading Signals with Rolling Backtesting", 20/6/2025,
+    https://medium.com/@pyquantlab/volume-spread-analysis-vsa-strategy-quantifying-market-action-for-trading-signals-with-rolling-9aa57fb79fe9
+    """
+    figure = _vsa_figure(df)
+    return _evento(figure["stopping_volume"] | figure["no_supply"])
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -359,7 +390,8 @@ TRIGGER_LONG = {
     "E22_ASIAN_RANGE_BREAKOUT": entry_asian_range_breakout,
     "E23_PREV_DAY_HIGH_BREAKOUT": entry_prev_day_high_breakout,
     "E24_CYCLE_TURN_UP": entry_cycle_turn_up,
-    "E25_ADAPTIVE_CHANNEL_UP": entry_adaptive_channel_up,
+    "E25_ADAPTIVE_CHANNEL_UP": entry_adaptive_channel_up,    "E26_SUPERTREND_UP": entry_supertrend_up,
+    "E27_VSA_BULLISH": entry_vsa_bullish,
 }
 
 
