@@ -283,11 +283,14 @@ def entry_short_cycle_turn_down(df: pd.DataFrame) -> pd.Series:
 
 
 # ------------------------------------------------------------ E25 --------
-def entry_short_adaptive_channel_down(df: pd.DataFrame) -> pd.Series:
+def entry_short_atc_pvo_setup_down(df: pd.DataFrame) -> pd.Series:
     """
-    Il canale di trend adattivo passa da rialzista a ribassista -> short.
+    Setup completo della fonte, lato short (speculare di E25_ATC_PVO_SETUP_UP,
+    come lo scrive l'autore): il canale adattivo passa da rialzista a
+    ribassista, la barra del segnale e la precedente chiudono sotto
+    l'apertura, l'istogramma del PVO e' sotto zero.
 
-    Speculare di E25_ADAPTIVE_CHANNEL_UP: `atc_regime` passa da +1 a -1.
+    Dal 9/10/2026 sostituisce E25_SHORT_ADAPTIVE_CHANNEL_DOWN.
 
     Fonte: "Adaptive Trend Channel" di MarketStructureLab (TradingView,
     licenza CC BY-NC-SA 4.0), usato in Sayedali Richu, "Want to Find Better
@@ -295,20 +298,29 @@ def entry_short_adaptive_channel_down(df: pd.DataFrame) -> pd.Series:
     https://medium.com/@sayedali_3166/want-to-find-better-trading-opportunities-start-with-these-2-indicators-ea37c3ee6f55
     """
     regime = df["atc_regime"]
-    return _evento((regime == -1) & (regime.shift(1) == 1))
+    cambio = (regime == -1) & (regime.shift(1) == 1)
+    rossa = df["Close"] < df["Open"]
+    due_rosse = rossa & rossa.shift(1, fill_value=False)
+    return _evento(cambio & due_rosse & (df["pvo_hist"] < 0))
 
 
 # ------------------------------------------------------------ E26 --------
-def entry_short_supertrend_down(df: pd.DataFrame) -> pd.Series:
+def entry_short_supertrend_iix_setup_down(df: pd.DataFrame) -> pd.Series:
     """
-    Il Supertrend (ATR 10, moltiplicatore 3) passa da rialzista a
-    ribassista -> short. Speculare di E26_SUPERTREND_UP.
+    Setup completo della fonte, lato short (speculare di
+    E26_SUPERTREND_IIX_SETUP_UP): il Supertrend passa da rialzista a
+    ribassista, la barra precedente chiude sotto l'apertura, l'Intraday
+    Intensity a 21 barre e' sotto zero.
+
+    Dal 9/10/2026 sostituisce E26_SHORT_SUPERTREND_DOWN.
 
     Fonte: Sayedali Richu, "My Simple Formula for Filtering Intraday Buy &
     Sell Signals", 27/9/2026, https://medium.com/@sayedali_3166/my-simple-formula-for-filtering-intraday-buy-sell-signals-0267e115d0f5
     """
     direzione = df["st_dir"]
-    return _evento((direzione == -1) & (direzione.shift(1) == 1))
+    cambio = (direzione == -1) & (direzione.shift(1) == 1)
+    precedente_rossa = (df["Close"] < df["Open"]).shift(1, fill_value=False)
+    return _evento(cambio & precedente_rossa & (df["iix"] < 0))
 
 
 # ------------------------------------------------------------ E27 --------
@@ -359,7 +371,7 @@ TRIGGER_SHORT = {
     "E22_SHORT_ASIAN_RANGE_BREAKDOWN": entry_short_asian_range_breakdown,
     "E23_SHORT_PREV_DAY_LOW_BREAKDOWN": entry_short_prev_day_low_breakdown,
     "E24_SHORT_CYCLE_TURN_DOWN": entry_short_cycle_turn_down,
-    "E25_SHORT_ADAPTIVE_CHANNEL_DOWN": entry_short_adaptive_channel_down,    "E26_SHORT_SUPERTREND_DOWN": entry_short_supertrend_down,
+    "E25_SHORT_ATC_PVO_SETUP_DOWN": entry_short_atc_pvo_setup_down,    "E26_SHORT_SUPERTREND_IIX_SETUP_DOWN": entry_short_supertrend_iix_setup_down,
     "E27_SHORT_VSA_BEARISH": entry_short_vsa_bearish,
 }
 

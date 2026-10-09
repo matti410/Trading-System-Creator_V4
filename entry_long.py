@@ -310,12 +310,22 @@ def entry_cycle_turn_up(df: pd.DataFrame) -> pd.Series:
 
 
 # ------------------------------------------------------------ E25 --------
-def entry_adaptive_channel_up(df: pd.DataFrame) -> pd.Series:
+def entry_atc_pvo_setup_up(df: pd.DataFrame) -> pd.Series:
     """
-    Il canale di trend adattivo passa da ribassista a rialzista -> long.
+    Setup completo della fonte, lato long: tutte e quattro insieme, sulla
+    stessa barra.
 
-    Legge `atc_regime` (engine/indicatori.py): l'evento e' la barra del
-    cambio di stato, da -1 a +1.
+      1. il canale di trend adattivo passa da ribassista a rialzista
+         (`atc_regime` da -1 a +1);
+      2. la barra del segnale chiude sopra l'apertura;
+      3. anche la barra precedente chiude sopra l'apertura;
+      4. l'istogramma del PVO (12/26/9, tick volume) e' sopra zero.
+
+    Una sola prova: l'AND e' l'ipotesi dell'autore (regola di 50 §4). Se
+    una conferma manca sulla barra del cambio, nessun ingresso: la fonte non
+    aspetta conferme arrivate dopo.
+
+    Dal 9/10/2026 sostituisce E25_ADAPTIVE_CHANNEL_UP (solo il canale).
 
     Fonte: "Adaptive Trend Channel" di MarketStructureLab (TradingView,
     licenza CC BY-NC-SA 4.0), usato in Sayedali Richu, "Want to Find Better
@@ -323,20 +333,35 @@ def entry_adaptive_channel_up(df: pd.DataFrame) -> pd.Series:
     https://medium.com/@sayedali_3166/want-to-find-better-trading-opportunities-start-with-these-2-indicators-ea37c3ee6f55
     """
     regime = df["atc_regime"]
-    return _evento((regime == 1) & (regime.shift(1) == -1))
+    cambio = (regime == 1) & (regime.shift(1) == -1)
+    verde = df["Close"] > df["Open"]
+    due_verdi = verde & verde.shift(1, fill_value=False)
+    return _evento(cambio & due_verdi & (df["pvo_hist"] > 0))
 
 
 # ------------------------------------------------------------ E26 --------
-def entry_supertrend_up(df: pd.DataFrame) -> pd.Series:
+def entry_supertrend_iix_setup_up(df: pd.DataFrame) -> pd.Series:
     """
-    Il Supertrend (ATR 10, moltiplicatore 3) passa da ribassista a
-    rialzista -> long. Legge `st_dir` (engine/indicatori.py).
+    Setup completo della fonte, lato long: tutte e tre insieme, sulla stessa
+    barra.
+
+      1. il Supertrend (ATR 10, moltiplicatore 3) passa da ribassista a
+         rialzista (`st_dir` da -1 a +1);
+      2. la barra PRECEDENTE quella del segnale chiude sopra l'apertura (la
+         barra del segnale non e' richiesta: la fonte non la nomina);
+      3. l'Intraday Intensity a 21 barre e' sopra zero.
+
+    Una sola prova: l'AND e' l'ipotesi dell'autore (regola di 50 §4).
+
+    Dal 9/10/2026 sostituisce E26_SUPERTREND_UP (solo il Supertrend).
 
     Fonte: Sayedali Richu, "My Simple Formula for Filtering Intraday Buy &
     Sell Signals", 27/9/2026, https://medium.com/@sayedali_3166/my-simple-formula-for-filtering-intraday-buy-sell-signals-0267e115d0f5
     """
     direzione = df["st_dir"]
-    return _evento((direzione == 1) & (direzione.shift(1) == -1))
+    cambio = (direzione == 1) & (direzione.shift(1) == -1)
+    precedente_verde = (df["Close"] > df["Open"]).shift(1, fill_value=False)
+    return _evento(cambio & precedente_verde & (df["iix"] > 0))
 
 
 # ------------------------------------------------------------ E27 --------
@@ -390,7 +415,7 @@ TRIGGER_LONG = {
     "E22_ASIAN_RANGE_BREAKOUT": entry_asian_range_breakout,
     "E23_PREV_DAY_HIGH_BREAKOUT": entry_prev_day_high_breakout,
     "E24_CYCLE_TURN_UP": entry_cycle_turn_up,
-    "E25_ADAPTIVE_CHANNEL_UP": entry_adaptive_channel_up,    "E26_SUPERTREND_UP": entry_supertrend_up,
+    "E25_ATC_PVO_SETUP_UP": entry_atc_pvo_setup_up,    "E26_SUPERTREND_IIX_SETUP_UP": entry_supertrend_iix_setup_up,
     "E27_VSA_BULLISH": entry_vsa_bullish,
 }
 

@@ -683,30 +683,9 @@ def filter_cycle_strength(df: pd.DataFrame, rank_window: int = 2000,
     return ts_rank(df["ciclo_quota"], rank_window) > percentile
 
 
-# --- F24/F25: momentum dei volumi (istogramma del PVO) -------------------
-# Due filtri NEUTRI e separati (scelta del 7/10): il volume non dice il
-# verso del prezzo, quindi ogni trigger, long o short, li prova entrambi.
-# Nessun `pair`: un filtro neutro non puo' averlo.
-
-def filter_pvo_hist_positive(df: pd.DataFrame) -> pd.Series:
-    """
-    Istogramma del PVO sopra zero: i volumi stanno accelerando.
-
-    `pvo_hist` viene da engine/indicatori.py (PVO 12/26/9 sul tick volume).
-    La soglia e' lo zero, cioe' il segno: non e' un valore da calibrare.
-
-    Fonte: Sayedali Richu, "Want to Find Better Trading Opportunities? Start
-    With These 2 Indicators", 24/9/2026, https://medium.com/@sayedali_3166/want-to-find-better-trading-opportunities-start-with-these-2-indicators-ea37c3ee6f55
-    """
-    return df["pvo_hist"] > 0
-
-
-def filter_pvo_hist_negative(df: pd.DataFrame) -> pd.Series:
-    """Istogramma del PVO sotto zero: i volumi stanno rallentando. Vedi F24."""
-    return df["pvo_hist"] < 0
-
-
-# --- F26: due candele di fila nello stesso verso -------------------------
+# --- F24: due candele di fila nello stesso verso -------------------------
+# (era F26 fino all'8/10/2026: rinumerato il 9/10, quando i filtri PVO,
+# F24/F25, e IIX, F27, sono stati tolti ed entrati nei setup completi E25/E26.)
 # Coppia direzionale: due chiusure sopra l'apertura sono contesto rialzista.
 
 def filter_two_bars_up(df: pd.DataFrame) -> pd.Series:
@@ -721,33 +700,10 @@ def filter_two_bars_up(df: pd.DataFrame) -> pd.Series:
 
 
 def filter_two_bars_down(df: pd.DataFrame) -> pd.Series:
-    """La barra corrente e la precedente chiudono entrambe sotto l'apertura. Vedi F26_TWO_BARS_UP."""
+    """La barra corrente e la precedente chiudono entrambe sotto l'apertura. Vedi F24_TWO_BARS_UP."""
     giu = df["Close"] < df["Open"]
     return giu & giu.shift(1, fill_value=False)
 
-
-
-# --- F27: pressione di acquisto o vendita (Intraday Intensity) -----------
-# Coppia direzionale: l'IIX misura dove chiude il prezzo dentro le barre,
-# quindi ha un verso (regola 1: niente direction=0 su una grandezza con
-# segno di prezzo).
-
-def filter_iix_positive(df: pd.DataFrame) -> pd.Series:
-    """
-    Intraday Intensity a 21 barre sopra zero: pressione di acquisto.
-
-    `iix` viene da engine/indicatori.py. La soglia e' lo zero, cioe' il
-    segno: non e' un valore da calibrare.
-
-    Fonte: Sayedali Richu, "My Simple Formula for Filtering Intraday Buy &
-    Sell Signals", 27/9/2026, https://medium.com/@sayedali_3166/my-simple-formula-for-filtering-intraday-buy-sell-signals-0267e115d0f5
-    """
-    return df["iix"] > 0
-
-
-def filter_iix_negative(df: pd.DataFrame) -> pd.Series:
-    """Intraday Intensity a 21 barre sotto zero: pressione di vendita. Vedi F27_IIX_POSITIVE."""
-    return df["iix"] < 0
 
 
 FILTRI = {
@@ -781,12 +737,8 @@ FILTRI = {
     "F21_OVERNIGHT_UP":          (filter_overnight_up, 1, "OVERNIGHT_RETURN"),
     "F21_OVERNIGHT_DOWN":        (filter_overnight_down, -1, "OVERNIGHT_RETURN"),
     "F23_CYCLE_STRENGTH":        (filter_cycle_strength, 0, None),
-    "F24_PVO_HIST_POSITIVE":     (filter_pvo_hist_positive, 0, None),
-    "F25_PVO_HIST_NEGATIVE":     (filter_pvo_hist_negative, 0, None),
-    "F26_TWO_BARS_UP":           (filter_two_bars_up, 1, "TWO_BARS"),
-    "F26_TWO_BARS_DOWN":         (filter_two_bars_down, -1, "TWO_BARS"),
-    "F27_IIX_POSITIVE":          (filter_iix_positive, 1, "IIX"),
-    "F27_IIX_NEGATIVE":          (filter_iix_negative, -1, "IIX"),
+    "F24_TWO_BARS_UP":           (filter_two_bars_up, 1, "TWO_BARS"),
+    "F24_TWO_BARS_DOWN":         (filter_two_bars_down, -1, "TWO_BARS"),
 }
 
 
