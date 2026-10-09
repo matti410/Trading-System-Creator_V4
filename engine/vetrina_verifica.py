@@ -7,7 +7,9 @@ Dopo la scheda della strategia, prima dello stress test: controllare che il
 backtest abbia fatto quello che le regole dicono. Due funzioni.
 
     verifica_trade(s)     7a · controllo automatico su TUTTI i trade
-    lente(s, numero=...)  7b · un trade sul grafico a candele
+    lente(s, numero=...)  7b · un trade sul grafico a candele (dal 9/10/2026
+                          disegna anche la regola dei trigger scattati:
+                          engine/vetrina_trigger.py)
 
 COME CONTROLLA
 --------------
@@ -52,6 +54,7 @@ from .exit_search_bt import soglie_per_lato
 from .filter_search_bt import BASELINE
 from .metriche import pips_per_trade
 from .quarantena_trade import barre_in_quarantena
+from .vetrina_trigger import descrivi_trigger
 
 FUSO = "Europe/Rome"
 PERIODI = {"in-sample": "is", "out-of-sample": "oos"}
@@ -439,7 +442,7 @@ def _scegli_trade(registro: pd.DataFrame, numero, data) -> int:
 
 
 def lente(s, periodo: str = "out-of-sample", numero=None, data=None, indicatori="",
-          barre_prima: int = 40, barre_dopo: int = 20):
+          barre_prima: int = 40, barre_dopo: int = 20, mostra_trigger: bool = True):
     """
     Schermata 7b. Un trade sul grafico a candele, con segnale, ingresso,
     uscita, stop e gli indicatori scelti.
@@ -451,6 +454,11 @@ def lente(s, periodo: str = "out-of-sample", numero=None, data=None, indicatori=
                  (`indicatori_disponibili(s)`). Quelli sulla scala del prezzo
                  vanno sulle candele, gli altri in un pannello sotto.
     barre_prima / barre_dopo   quanto allargare la finestra
+    mostra_trigger   True (default): accanto al triangolo il nome del trigger
+                 scattato, una banda sulle candele che formano la figura, la
+                 linea del livello che la regola rompe e gli indicatori che la
+                 regola legge (engine/vetrina_trigger.py). False: la lente di
+                 prima, con la scritta «segnale».
 
     Ritorna la figura plotly (in un notebook la mostra).
     """
@@ -477,6 +485,16 @@ def lente(s, periodo: str = "out-of-sample", numero=None, data=None, indicatori=
     ore = finestra.index.tz_convert(FUSO)
     etichette = [o.strftime("%d/%m %H:%M") for o in ore]
     decimali = max(0, int(round(-np.log10(s.pip))) + 1)
+
+    # --- le regole dei trigger scattati su questo segnale ------------------
+    # Sono quelli scritti nella colonna «Trigger scattato» del registro: i
+    # trigger scelti che erano veri sulla candela del segnale.
+    scattati = [n for n in str(t["Trigger scattato"]).split(", ") if n and n != "—"]
+    disegni = [descrivi_trigger(n, df, seg, a, b) for n in scattati] if mostra_trigger else []
+    for d in disegni:                    # gli indicatori che la regola legge si aggiungono ai tuoi
+        for nome in d.indicatori:
+            if nome in finestra.columns and nome not in scelti:
+                scelti.append(nome)
 
     # indicatori: sul prezzo se stanno nella fascia dei prezzi, altrimenti in
     # un pannello sotto, raggruppati per ordine di grandezza
@@ -516,15 +534,47 @@ def lente(s, periodo: str = "out-of-sample", numero=None, data=None, indicatori=
                                      hovertemplate=f"{nome} %{{y:.4g}}<extra></extra>"), row=2 + k, col=1)
         fig.update_yaxes(title_text=", ".join(gruppo), row=2 + k, col=1)
 
+    verde, rosso, blu = "#1b7f3b", "#b3261e", "#1f5f99"
+
+    # --- le regole dei trigger: banda sulle candele, livelli, soglie --------
+    riga_di = {nome: 1 for nome in sul_prezzo}
+    for k, gruppo in enumerate(gruppi):
+        for nome in gruppo:
+            riga_di[nome] = 2 + k
+    soglie_gia = set()
+    corse = []                                   # candele consecutive = una banda sola
+    for p in sorted(set().union(*[d.barre for d in disegni])):
+        if corse and p == corse[-1][1] + 1:
+            corse[-1][1] = p
+        else:
+            corse.append([p, p])
+    for ini, fin in corse:                       # l'unione dei trigger: niente bande sovrapposte
+        fig.add_vrect(x0=ini - a - 0.5, x1=fin - a + 0.5, fillcolor=verde if long else rosso,
+                      opacity=0.13, layer="below", line_width=0, row="all", col=1)
+    for d in disegni:
+        for testo, valori in d.livelli:
+            fig.add_trace(go.Scatter(
+                x=x, y=valori, mode="lines", name=testo, connectgaps=False,
+                line=dict(width=1.8, color="#b8860b"),
+                hovertemplate=f"{testo} %{{y:.{decimali}f}}<extra></extra>"), row=1, col=1)
+        for nome, valore in d.soglie.items():
+            riga = riga_di.get(nome)
+            if riga and riga > 1 and (riga, valore) not in soglie_gia:
+                soglie_gia.add((riga, valore))
+                fig.add_hline(y=valore, line=dict(width=1, dash="dot", color="gray"),
+                              annotation_text=f"{valore:g}", annotation_position="top left",
+                              row=riga, col=1)
+
     # --- il trade ---------------------------------------------------------
     scarto = (alto - basso) * 0.035
     y_segnale = (float(df["Low"].iloc[seg]) - scarto) if long else (float(df["High"].iloc[seg]) + scarto)
-    verde, rosso, blu = "#1b7f3b", "#b3261e", "#1f5f99"
+    nome_segnale = ", ".join(scattati) if (mostra_trigger and scattati) else "segnale"
     fig.add_trace(go.Scatter(
         x=[seg - a], y=[y_segnale], mode="markers+text", name="segnale",
         marker=dict(symbol="triangle-up" if long else "triangle-down", size=15,
                     color=verde if long else rosso, line=dict(width=1, color="white")),
-        text=["segnale"], textposition="bottom center" if long else "top center",
+        text=[nome_segnale], textposition="bottom center" if long else "top center",
+        **(dict(textfont=dict(size=11), cliponaxis=False) if nome_segnale != "segnale" else {}),
         hovertemplate=f"SEGNALE {t['Lato']}<br>{t['Segnale']}<br>{t['Trigger scattato']}<extra></extra>"),
         row=1, col=1)
     fig.add_trace(go.Scatter(
@@ -576,9 +626,15 @@ def lente(s, periodo: str = "out-of-sample", numero=None, data=None, indicatori=
         fig.show()
     _v._mostra(("Il trade in chiaro", scheda))
     _v._nota("Indicatori disponibili: " + ", ".join(indicatori_disponibili(s)) + ".")
+    spiega_regola = ""
+    if disegni:
+        spiega_regola = (" Accanto al triangolo c'è il nome del trigger scattato. La banda colorata copre le candele "
+                         "che formano la figura o che la regola confronta; la linea dorata è il livello che la regola "
+                         "doveva rompere; gli indicatori che la regola legge sono sul grafico o nei pannelli sotto.")
     _v._riquadro(
         "Un trade vero del backtest. Il triangolo colorato è la candela su cui è scattato il segnale; il triangolo "
-        "blu è l'ingresso, all'apertura della candela dopo; la croce è l'uscita. La linea tratteggiata rossa è lo stop.",
+        "blu è l'ingresso, all'apertura della candela dopo; la croce è l'uscita. La linea tratteggiata rossa è lo stop."
+        + spiega_regola,
         "Il segnale deve stare proprio dove la tua regola dice: per un incrocio di medie accendi le due medie e "
         "guarda che si incrocino sulla candela del triangolo. L'ingresso deve essere sempre una candela dopo, mai "
         "sulla stessa: è la garanzia che il backtest non usa informazioni che dal vivo non avresti.",
