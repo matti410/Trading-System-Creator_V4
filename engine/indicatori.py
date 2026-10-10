@@ -289,6 +289,104 @@ def intraday_intensity(df: pd.DataFrame, barre: int = 21) -> pd.Series:
     return per_barra.rolling(int(barre)).sum()
 
 
+# =========================================================================
+# Indicatori di regime entrati da articoli il 9/10/2026
+# (metodo: 50_IDEE_DA_ARTICOLI.md)
+# =========================================================================
+def indice_choppiness(df: pd.DataFrame, barre: int = 14) -> pd.Series:
+    """
+    Choppiness Index: quanto il prezzo va a zig-zag invece di marciare.
+    Da 0 (tendenza pulita) a circa 100 (movimento tutto laterale).
+
+        CHOP = 100 x log10( somma del true range delle ultime n barre
+                            / (massimo piu' alto - minimo piu' basso delle n barre) )
+               / log10(n)
+
+    Il true range e' il massimo fra: massimo - minimo, |massimo - chiusura
+    precedente|, |minimo - chiusura precedente|. Se il prezzo avanza in linea
+    retta la somma dei true range e' poco piu' dell'ampiezza e CHOP e' vicino
+    a 0; se oscilla avanti e indietro la somma e' circa n volte l'ampiezza e
+    CHOP e' vicino a 100.
+
+    Solo somme e massimi/minimi su finestra mobile: nessun ciclo, nessuno
+    smoothing. Usa la barra corrente e le n-1 precedenti. Le prime n barre
+    sono NaN (il true range della prima barra manca).
+
+    Mercato fermo (massimo = minimo su tutta la finestra): vale 100 ("tutto
+    laterale") invece di NaN, perche' `aggiungi_indicatori` toglie le righe
+    con un NaN e un buco nei dati sposterebbe tutte le finestre.
+
+    Parametro: n = 14, il valore standard dell'indicatore (E. W. Dreiss). Non
+    e' quello dell'articolo (7), che l'autore dichiara scelto sulla stessa
+    storia che mostra.
+
+    Fonte: PyQuantLab, "Can We Detect a Market Crash Before It Happens? I
+    Tested 5 Regime Filters", 7/9/2026,
+    https://pyquantlab.medium.com/can-we-detect-a-market-crash-before-it-happens-i-tested-5-regime-filters-c45290f652fa
+    L'articolo lo usa insieme a un segno di momentum negativo, per segnalare
+    il rischio di ribasso: qui e' la sola magnitudine, senza verso.
+    """
+    n = int(barre)
+    chiusura_prima = df["Close"].shift(1)
+    true_range = pd.concat(
+        [df["High"] - df["Low"],
+         (df["High"] - chiusura_prima).abs(),
+         (df["Low"] - chiusura_prima).abs()],
+        axis=1,
+    ).max(axis=1, skipna=False)
+    somma_tr = true_range.rolling(n).sum()
+    ampiezza = df["High"].rolling(n).max() - df["Low"].rolling(n).min()
+    rapporto = somma_tr / ampiezza.where(ampiezza > 0)
+    chop = 100.0 * np.log10(rapporto) / np.log10(n)
+    ferma = somma_tr.notna() & (ampiezza == 0)
+    return chop.where(~ferma, 100.0)
+
+
+def variance_ratio(close: pd.Series, orizzonte: int = 4, finestra: int = 192) -> pd.Series:
+    """
+    Variance ratio su finestra mobile: la tendenza a proseguire (sopra 1) o a
+    tornare indietro (sotto 1) del prezzo, all'orizzonte scelto.
+
+        VR = varianza dei rendimenti a `orizzonte` barre
+             / (orizzonte x varianza dei rendimenti a 1 barra)
+
+    Entrambe le varianze sono calcolate sulle ultime `finestra` barre, sui
+    rendimenti logaritmici. In una passeggiata casuale vale circa 1: un
+    rendimento a q barre e' la somma di q rendimenti a una barra e la
+    varianza si somma. Se i rendimenti tendono a ripetersi (persistenza) le
+    onde a q barre sono piu' ampie e VR sale sopra 1; se tendono a
+    rimbalzare scende sotto 1.
+
+    Solo rendimenti e varianze mobili: nessun ciclo per barra. Usa la barra
+    corrente e le precedenti. Le prime `finestra` + `orizzonte` - 1 barre
+    sono NaN. Prezzo fermo (varianza a 1 barra nulla): vale 1, come una
+    passeggiata neutra, per non lasciare buchi (vedi indice_choppiness).
+
+    Parametri, scelti a priori e mai provati in varianti (idea non
+    dell'articolo ma proposta il 9/10/2026, in alternativa piu' leggera
+    all'esponente di Hurst):
+      orizzonte 4   = 1 ora su M15;
+      finestra 192  = 2 giorni di contrattazione su M15. Con 192 barre lo
+                      scarto tipico di VR in una passeggiata casuale e' circa
+                      0,13 (formula asintotica di Lo e MacKinlay).
+    I salti del weekend entrano nei rendimenti come ogni altra barra.
+
+    Fonte: A. W. Lo e A. C. MacKinlay, "Stock Market Prices Do Not Follow
+    Random Walks", Review of Financial Studies, 1988. Il tema (persistenza
+    del prezzo come filtro di regime) viene da PyQuantLab, "Enhancing Trading
+    Strategies With a Hurst-Based Regime Filter", 6/3/2026,
+    https://pyquantlab.medium.com/enhancing-trading-strategies-with-a-hurst-based-regime-filter-ac6639be43cf
+    che usa l'esponente di Hurst (R/S ricalcolato a ogni barra, piu' pesante
+    e piu' rumoroso su 120 punti).
+    """
+    q, w = int(orizzonte), int(finestra)
+    log_prezzo = np.log(close.astype(float))
+    var_1 = log_prezzo.diff().rolling(w).var()
+    var_q = log_prezzo.diff(q).rolling(w).var()
+    vr = var_q / (q * var_1.where(var_1 > 0))
+    return vr.where(~(var_1 == 0), 1.0)
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
@@ -328,6 +426,8 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["pvo_hist"] = pvo_istogramma(df["Volume"])
     df["st_dir"] = supertrend_direzione(df)
     df["iix"] = intraday_intensity(df)
+    df["chop"] = indice_choppiness(df)
+    df["vr"] = variance_ratio(df["Close"])
     return df.dropna()
 
 
@@ -336,4 +436,5 @@ COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
+    "chop", "vr",
 )
