@@ -14,6 +14,8 @@ scritta a mano, e viaggia nel dizionario dei costi fino ai motori.
   F  nozionale senza MT5: XAUUSD 100 once, EURUSD come prima (correzione 2)
   G  indici riconosciuti dal nome senza MT5 (correzione 3)
   H  valore di 1 pip per 1 lotto su oro e indici (correzione 4)
+  I  spread di listino per il notebook: riga mancante -> messaggio con la riga
+     esatta e il rollover proposto dai dati (10/10/2026)
   E  identita' su EURUSD e BTCUSD: parametri_backtest, event study,
      run_exit_search_bt e run_filter_search_bt danno numeri identici col pip
      dedotto (il comportamento di prima) e col pip della tabella
@@ -47,7 +49,8 @@ from engine.filter_search_bt import run_filter_search_bt
 from engine.montecarlo import valore_pip_lotto
 from engine.registry import clear_registry, register_entry, register_filter
 from engine.simboli import SIMBOLI, info_symbol, pip_symbol
-from engine.vetrina import _punto_da_prezzi
+from engine.vetrina import _punto_da_prezzi, _punto_symbol, proposta_rollover, spread_listino
+from engine.livelli import svuota_cache
 
 warnings.simplefilter("ignore")
 
@@ -73,6 +76,11 @@ def _carica(nome: str, anno: int) -> pd.DataFrame:
     df = pd.read_csv(QUI / nome, index_col="Date")
     df = _muto(to_utc_index, df, "A_US_DST (NY+7h)", on_dst_gap="drop", verbose=False)
     return df[df.index.year == anno]
+
+
+def _carica_dati(percorso: Path) -> pd.DataFrame:
+    df = pd.read_csv(percorso, index_col="Date")
+    return _muto(to_utc_index, df, "A_US_DST (NY+7h)", on_dst_gap="drop", verbose=False)
 
 
 def esegui() -> int:
@@ -292,6 +300,47 @@ def esegui() -> int:
           np.isclose(valore_pip_lotto("EURUSD", 0.0001), 10.0)
           and np.isclose(valore_pip_lotto("BTCUSD", 1.0), 1.0)
           and np.isclose(valore_pip_lotto("USDJPY", 0.01, prezzo=150.0), 100_000 * 0.01 / 150))
+
+    # --------------------------------------------- spread di listino --
+    print("\nI · Spread di listino per il notebook")
+    sl = spread_listino("EURUSD", pd.DataFrame())
+    check("I1. EURUSD: 0,8 e 1,5 pips dal listino, come prima",
+          (sl["normale"], sl["rollover"]) == (0.8, 1.5))
+    sint = mercato_sintetico("2024-08-01", "2024-12-01", seme=3)
+    svuota_cache()
+    from engine.quarantena import quarantena as _q
+    qq = _muto(_q, sint)["totale"].to_numpy()
+    sint["spread"] = np.where(qq, 23.0, 0.0)          # 23 punti = 2,3 pips solo in quarantena
+    try:
+        spread_listino("GBPUSD", sint)
+        msg = ""
+    except ValueError as e:
+        msg = str(e)
+    check("I2. GBPUSD senza riga: si ferma e dice la riga esatta, rollover 2,3 dai dati",
+          '"GBPUSD":' in msg and '"normale": ...' in msg and '"rollover": 2.3' in msg
+          and "engine/vetrina.py" in msg, msg.strip().splitlines()[-1].strip() if msg else "")
+    svuota_cache()
+    sint["spread"] = 0.0
+    try:
+        spread_listino("GBPUSD", sint)
+        msg = ""
+    except ValueError as e:
+        msg = str(e)
+    check("I3. colonna spread a zero: rollover None e la spiegazione",
+          '"rollover": None' in msg and "non significativa" in msg
+          and proposta_rollover("GBPUSD", sint) is None)
+    svuota_cache()
+    check("I4. il punto MT5 viene dalle cifre della tabella (USTEC 0,01 anche se quota a 0,1)",
+          _punto_symbol("USTEC", pd.Series([20000.1, 20000.3])) == 0.01
+          and _punto_symbol("XXXUSD", pd.Series([1.10123, 1.10456])) == 1e-5)
+    f = QUI / "dati" / "USTEC_M15.csv"
+    if f.exists():
+        d = _carica_dati(f)
+        check("I5. USTEC vero: rollover proposto 2 punti (prima, col passo dei prezzi, 20)",
+              proposta_rollover("USTEC", d) == 2.0, f"{proposta_rollover('USTEC', d)}")
+        svuota_cache()
+    else:
+        saltato("I5", "dati/ non c'e' (es. Colab)")
 
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
