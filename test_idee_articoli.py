@@ -371,8 +371,11 @@ def esegui() -> int:
           list(np.flatnonzero(su2)) == [1, 4], f"{[int(x) for x in np.flatnonzero(su2)]}")
     check("C6. F24 giu': vero solo sulla barra 6 (la 7 chiude pari: ne' su ne' giu')",
           list(np.flatnonzero(giu2)) == [6], f"{[int(x) for x in np.flatnonzero(giu2)]}")
-    check("C7. i filtri PVO e IIX non ci sono piu', le due candele non sono piu' F26",
-          not any(k.startswith(("F25", "F26", "F27")) or "PVO" in k or "IIX" in k for k in FILTRI))
+    nuovi_regime = {"F25_CHOP_TREND", "F25_CHOP_RANGE", "F26_VARIANCE_RATIO_TREND",
+                    "F27_REGIME_TREND_COMPOSITE"}
+    check("C7. i filtri PVO e IIX non ci sono piu', le due candele non sono piu' F26 (F25-F27 ora sono i filtri di regime)",
+          not any(k.startswith(("F25", "F26", "F27")) and k not in nuovi_regime
+                  or "PVO" in k or "IIX" in k for k in FILTRI))
 
     # =====================================================================
     print("\nD · REGISTRAZIONE\n" + "-" * 70)
