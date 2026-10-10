@@ -169,6 +169,14 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 `test_tempo_prezzo.py` (20), `test_filtri_tempo.py` (25), `test_confidenza.py`
 (34, dal 25/9), `test_portabilita.py` (13, dal 25/9), `test_montecarlo.py` (17, dal 26/9). **151 su 151**, verificati il 25/9 con pandas 3.0 e 2.2. Si
 lanciano da terminale, mai dal notebook.
+
+**Al 10/10 le suite sono 16, 494 test in tutto, tutti superati** (pandas 3.0.6,
+in locale): barre_per_lato 24 · confidenza 34 · entry_composita 39 ·
+entry_metro 22 · filtri_tempo 25 · idee_articoli 64 · inversione 25 ·
+montecarlo 17 · portabilita 13 · quarantena_trade 23 · regime 41 · sessioni 20
+· **simboli 46 (nuova, 10/10)** · tempo_prezzo 20 · vetrina 55 ·
+vetrina_trigger 26. Su Windows si lanciano con `PYTHONIOENCODING=utf-8`,
+altrimenti la console si ferma su alcuni caratteri (es. "−").
  
 **Notebook `Collaudo_Catalogo.ipynb`** (Colab, *Esegui tutto*, 2–3 minuti):
 A1 23/23 trappole di lookahead · A2 16/16 casi di degenerazione · B lookahead
@@ -248,6 +256,14 @@ Resta: il tool ha visto solo EURUSD e BTCUSD. Prezzi di
 ordini di grandezza diversi, strumenti senza weekend, orari diversi: mai
 provati su asset sintetici costruiti apposta. `mercato_sintetico()` è un punto
 di partenza (oggi genera solo forex con weekend, prezzo 1,10).
+
+**Aggiornamento 10/10.** Il tool ha girato su 9 symbol veri (EURUSD, GBPUSD,
+USDJPY, NZDUSD, BTCUSD, US500, USTEC, XAUUSD, DE40, M15 dal 2020): lookahead e
+degenerazione puliti. Sono emersi altri difetti di portabilità, **corretti**:
+pip dedotto dal prezzo (su US500 cambiava fra IS e OOS), contratto dell'oro
+senza MT5, indici classificati "altro", valore del pip per lotto su oro e
+indici. Ora il pip è **fisso per symbol** (`engine/simboli.py`). Dettagli in
+`51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`, §6 e §7.
  
 ### 6. Un runner unico dei test
  
