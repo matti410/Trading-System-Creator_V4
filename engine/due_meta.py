@@ -192,7 +192,8 @@ def due_meta(df_is, fs, etichette,
              perc_sl=0.0, perc_tp=0.0, finestra=500, lag=1,
              spread=0.0, commission=0.00007, cash=10_000.0, margin=1.0,
              close_col="Close", open_col="Open", high_col="High", low_col="Low",
-             verbose=True, quarantena=True, spread_rollover_pips=None):
+             verbose=True, quarantena=True, spread_rollover_pips=None,
+             pip_size=None):
     """
     Verifica sulle due meta' (Difesa C, Passo 5) per le `etichette`
     indicate.
@@ -241,7 +242,10 @@ def due_meta(df_is, fs, etichette,
                   open_col=open_col, high_col=high_col, low_col=low_col,
                   verbose=False,
                   # 5/10/2026: vanno ripassati identici alla cella di fs
-                  quarantena=quarantena, spread_rollover_pips=spread_rollover_pips)
+                  quarantena=quarantena, spread_rollover_pips=spread_rollover_pips,
+                  # 10/10/2026: il pip e' quello di fs (fisso del symbol), non
+                  # ridedotto sul prezzo di ciascuna meta'
+                  pip_size=pip_size if pip_size is not None else getattr(fs, "pip_size", None))
 
     fs1 = run_filter_search_bt(metà1_df, **kwargs)
     fs2 = run_filter_search_bt(metà2_df, **kwargs)

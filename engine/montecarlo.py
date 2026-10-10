@@ -181,7 +181,7 @@ CONTRATTO_FOREX = 100_000.0
 
 
 def valore_pip_lotto(symbol: str, pip_size: float, prezzo: float | None = None,
-                     contratto: float | None = None) -> float:
+                     contratto: float | None = None, cambio: float | None = None) -> float:
     """
     Valore in dollari di 1 pip per 1 lotto.
 
@@ -191,6 +191,17 @@ def valore_pip_lotto(symbol: str, pip_size: float, prezzo: float | None = None,
 
     Per altri strumenti passa `contratto` (unita' per lotto) a mano: il valore e'
     contratto x pip_size (in valuta quotata, che deve essere USD).
+
+    Metalli e indici (10/10/2026): contratto dalla tabella di engine/simboli.py.
+
+        XAUUSD (100 once)                            100 x 0,10 -> 10 $
+        US500, USTEC (contratto 1, quotati in USD)   1 x 1 punto -> 1 $
+        DE40 (contratto 1, quotato in EUR)           1 x 1 punto -> 1 EUR: serve
+                                                     cambio= (dollari per 1 EUR,
+                                                     cioe' il prezzo di EURUSD)
+
+    Una valuta di quotazione diversa da USD senza `cambio` e' un errore: il
+    valore non viene indovinato.
     """
     from .costi import classifica_simbolo
     s = (symbol or "").upper()
@@ -206,6 +217,18 @@ def valore_pip_lotto(symbol: str, pip_size: float, prezzo: float | None = None,
             if prezzo is None:
                 raise ValueError(f"{s}: serve prezzo= per convertire il pip in dollari.")
             return CONTRATTO_FOREX * float(pip_size) / float(prezzo)
+    from .simboli import in_tabella, info_symbol
+    if classe in ("metalli", "indici") and in_tabella(s):
+        t = info_symbol(s)
+        valore = t["contratto"] * float(pip_size)          # in valuta di quotazione
+        if t["valuta"] == "USD":
+            return valore
+        if cambio is None:
+            raise ValueError(
+                f"{s} e' quotato in {t['valuta']}: passa cambio= (dollari per 1 "
+                f"{t['valuta']}, es. il prezzo di {t['valuta']}USD)."
+            )
+        return valore * float(cambio)
     raise ValueError(
         f"{s}: non so il contratto per lotto. Passa contratto= (unita' per lotto)."
     )

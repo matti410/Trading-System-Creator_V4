@@ -86,6 +86,7 @@ import numpy as np
 import pandas as pd
 
 from .event_study import deduci_pip
+from .simboli import in_tabella, info_symbol, pip_symbol
 
 
 # ========================================================================
@@ -176,6 +177,11 @@ def classifica_simbolo(symbol: str, path: str = "") -> str:
     fatto di DUE valute ufficiali (EURUSD, USDJPY); e' crypto se comincia con
     una sigla crypto nota (BTCUSD, ETHUSD). Corretto il 25/9: prima BTCUSD,
     avendo 6 lettere, risultava forex.
+
+    Indici (10/10/2026): senza path, i nomi che la tabella di
+    engine/simboli.py segna come indici (US500, USTEC, DE40) sono "indici".
+    Prima risultavano "altro". Nessun numero cambia: gli indici non pagano
+    commissione ne' come "altro" ne' come "indici".
     """
     p, s = (path or "").lower(), (symbol or "").upper()
     if "crypto" in p:                                              return "crypto"
@@ -183,6 +189,7 @@ def classifica_simbolo(symbol: str, path: str = "") -> str:
     if "ind" in p or "cash" in p:                                  return "indici"
     if "share" in p or "stock" in p or "equit" in p:               return "azioni"
     if "forex" in p or "fx" in p:                                  return "forex"
+    if in_tabella(s) and info_symbol(s)["classe"] == "indici":     return "indici"
     if any(s.startswith(c) for c in SIGLE_CRYPTO):                 return "crypto"
     if len(s) == 6 and s.isalpha() and s[:3] in VALUTE_FIAT and s[3:] in VALUTE_FIAT:
         return "forex"
@@ -258,8 +265,37 @@ def nozionale_senza_mt5(symbol: str, prezzo: float,
 
     Il terzo caso (cross: conto USD su EURGBP) richiede un cambio che qui
     non c'e', e la funzione lo dice invece di indovinare.
+
+    METALLI (10/10/2026): prima XAUUSD, avendo 6 lettere, passava per una
+    coppia forex da 100.000 unita' invece di 100 once, e la commissione
+    risultava 1.000 volte troppo piccola, in silenzio. Ora:
+
+        forex     solo se le due meta' sono valute ufficiali (classifica_simbolo)
+        metalli   contratto della tabella di engine/simboli.py x prezzo, con
+                  il conto nella valuta di quotazione (USD su XAUUSD)
+        altro     errore, come prima per i nomi non da 6 lettere
     """
     s, v = (symbol or "").upper(), (valuta_conto or "").upper()
+    classe = classifica_simbolo(s)
+    if classe == "metalli":
+        if not in_tabella(s):
+            raise ValueError(
+                f"'{symbol}': metallo non presente in engine/simboli.py. Aggiungi "
+                "la riga col contratto per lotto, oppure passa nozionale= a mano."
+            )
+        t = info_symbol(s)
+        if v != t["valuta"]:
+            raise ValueError(
+                f"conto in {v} su {s}, quotato in {t['valuta']}: serve il cambio. "
+                "Passa nozionale= a mano, oppure usa la strada con MT5."
+            )
+        return t["contratto"] * float(prezzo)
+    if classe != "forex":
+        raise ValueError(
+            f"'{symbol}' non e' una coppia forex ne' un metallo in tabella: senza "
+            "MT5 il nozionale non e' deducibile. Passa nozionale= a mano, oppure "
+            "usa la strada con MT5."
+        )
     if not (len(s) == 6 and s.isalpha()):
         raise ValueError(
             f"'{symbol}' non e' una coppia forex a 6 lettere: senza MT5 il "
@@ -510,8 +546,22 @@ def parametri_backtest(symbol: str, bars: pd.DataFrame | None = None,
     (da listino) e il simbolo deve essere una coppia forex a 6 lettere, o
     va passato `nozionale`. E' un ripiego dichiarato, non equivalente.
 
-    Ritorna {"spread": float, "commission": float}.
+    IL PIP (10/10/2026)
+    -------------------
+    `pip_size` None (default) = il pip FISSO del symbol, dalla tabella di
+    engine/simboli.py, in tutte e due le strade. Prima era dedotto dal prezzo
+    mediano (`deduci_pip`), e cambiava con la finestra di dati: su US500 lo
+    spread di listino in pips finiva convertito con un pip 100 volte troppo
+    piccolo. Symbol non in tabella -> errore con l'istruzione per aggiungerlo.
+
+    Ritorna {"spread": float, "commission": float, "pip_size": float}.
+    Il pip viaggia nel dizionario dei costi: con **costi arriva da solo a
+    run_exit_search_bt, run_filter_search_bt e due_meta.
     """
+    if pip_size is None:
+        pip_size = pip_symbol(symbol)
+    pip_size = float(pip_size)
+
     if usa_mt5:
         c = costo_simbolo(symbol, bars=bars, percentile=percentile,
                           valuta_conto=valuta_conto, commissione_rt=commissione_rt,
@@ -529,8 +579,6 @@ def parametri_backtest(symbol: str, bars: pd.DataFrame | None = None,
                 raise ValueError("senza MT5 serve prezzo= oppure bars=.")
             prezzo = float(bars[_colonna(bars, col_close)].astype(float).median())
         prezzo = float(prezzo)
-        if pip_size is None:
-            pip_size = deduci_pip(prezzo)
 
         classe = classifica_simbolo(symbol)
         comm_rt = (commissione_round_turn(classe, valuta_conto)
@@ -552,11 +600,12 @@ def parametri_backtest(symbol: str, bars: pd.DataFrame | None = None,
              "commissione_rt": comm_rt,
              "fonte_spread": f"listino ({spread_pips} pips) — senza MT5"}
 
-    out = {"spread": float(spread_rel), "commission": float(comm_rel_rt) / 2.0}
+    out = {"spread": float(spread_rel), "commission": float(comm_rel_rt) / 2.0,
+           "pip_size": pip_size}
 
     if verbose:
         _stampa_costo(symbol, c, valuta_conto)
-        pip = pip_size if pip_size is not None else deduci_pip(c["prezzo"])
+        pip = pip_size
         costo_pips = out["commission"] * 2 * c["prezzo"] / pip
         spread_in_pips = spread_rel * c["prezzo"] / pip
         print(f"   -> spread={out['spread']:.3e}   commission={out['commission']:.3e}"

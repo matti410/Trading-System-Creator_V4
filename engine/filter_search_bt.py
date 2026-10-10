@@ -109,6 +109,7 @@ def run_filter_search_bt(
     spread_rollover_pips=None,
     n_barre_long=None,
     n_barre_short=None,
+    pip_size=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -167,6 +168,10 @@ def run_filter_search_bt(
     n_barre_long / n_barre_short (6/10/2026)
         Scadenza a tempo diversa per lato; None (default) = `n_barre`.
         Stesso significato di run_exit_search_bt.
+
+    pip_size (10/10/2026)
+        Il pip fisso del symbol, di norma da **costi. None = dedotto dal
+        prezzo medio come prima, con un avviso. Vedi run_exit_search_bt.
 
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
@@ -310,8 +315,12 @@ def run_filter_search_bt(
     bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
                  commission=commission, margin=margin, exclusive_orders=True)
 
-    prezzo_medio = float(df[close_col].mean())
-    pip_size = deduci_pip(prezzo_medio)
+    if pip_size is None:   # 10/10/2026: di norma arriva fisso da **costi
+        pip_size = deduci_pip(float(df[close_col].mean()))
+        if verbose:
+            print(f"run_filter_search_bt: pip dedotto dal prezzo ({pip_size:g}). "
+                  "Passa i costi di parametri_backtest per il pip fisso del symbol.")
+    pip_size = float(pip_size)
 
     righe = []
     trades_per_filtro = {}
