@@ -13,6 +13,7 @@ scritta a mano, e viaggia nel dizionario dei costi fino ai motori.
   D  coerenza fra la tabella e MT5: cifre, contratto, valuta (saltato se MT5 manca)
   F  nozionale senza MT5: XAUUSD 100 once, EURUSD come prima (correzione 2)
   G  indici riconosciuti dal nome senza MT5 (correzione 3)
+  H  valore di 1 pip per 1 lotto su oro e indici (correzione 4)
   E  identita' su EURUSD e BTCUSD: parametri_backtest, event study,
      run_exit_search_bt e run_filter_search_bt danno numeri identici col pip
      dedotto (il comportamento di prima) e col pip della tabella
@@ -43,6 +44,7 @@ from engine.costi import classifica_simbolo, nozionale_senza_mt5, parametri_back
 from engine.event_study import deduci_pip, run_event_study
 from engine.exit_search_bt import run_exit_search_bt
 from engine.filter_search_bt import run_filter_search_bt
+from engine.montecarlo import valore_pip_lotto
 from engine.registry import clear_registry, register_entry, register_filter
 from engine.simboli import SIMBOLI, info_symbol, pip_symbol
 from engine.vetrina import _punto_da_prezzi
@@ -271,6 +273,25 @@ def esegui() -> int:
           and classifica_simbolo("XAUUSD", "Commodities\\Metals\\XAUUSD") == "metalli")
     c_ind = _muto(parametri_backtest, "US500", prezzo=5000.0, usa_mt5=False, spread_pips=0.5)
     check("G3. US500: commissione zero, come quando era 'altro'", c_ind["commission"] == 0.0)
+
+    # ------------------------------------------ valore del pip per lotto --
+    print("\nH · Valore di 1 pip per 1 lotto")
+    check("H1. XAUUSD: 100 once x 0,10 $ = 10 $",
+          np.isclose(valore_pip_lotto("XAUUSD", pip_symbol("XAUUSD")), 10.0))
+    check("H2. US500 e USTEC: contratto 1 x 1 punto = 1 $",
+          np.isclose(valore_pip_lotto("US500", 1.0), 1.0)
+          and np.isclose(valore_pip_lotto("USTEC", 1.0), 1.0))
+    try:
+        valore_pip_lotto("DE40", 1.0)
+        fermo = False
+    except ValueError:
+        fermo = True
+    check("H3. DE40 quotato in EUR: senza cambio si ferma, con cambio 1,12 vale 1,12 $",
+          fermo and np.isclose(valore_pip_lotto("DE40", 1.0, cambio=1.12), 1.12))
+    check("H4. EURUSD, BTCUSD, USDJPY: come prima (10 $, 1 $, 100.000 x 0,01 / prezzo)",
+          np.isclose(valore_pip_lotto("EURUSD", 0.0001), 10.0)
+          and np.isclose(valore_pip_lotto("BTCUSD", 1.0), 1.0)
+          and np.isclose(valore_pip_lotto("USDJPY", 0.01, prezzo=150.0), 100_000 * 0.01 / 150))
 
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
