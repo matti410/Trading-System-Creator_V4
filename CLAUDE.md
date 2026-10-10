@@ -10,14 +10,14 @@ Leggi PRIMA di lavorare: docs/00_SCOPO_E_STATO.md (regola che viene prima di tut
 i risultati sui dati NON sono il metro di giudizio del progetto, non fare commenti
 tipo "la strategia tiene/non tiene" né proposte di cambiare asset se non richiesti),
 docs/02_KPI_E_GIUDIZIO.md e, per il processo, docs/50_IDEE_DA_ARTICOLI.md
-con docs/51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md (dove divergono, vale il 51).
+(dal 10/10/2026 contiene anche l'ex docs/51).
 
 ## Processo per ogni articolo (docs/50)
 1. Leggi la fonte (articolo con Claude in Chrome; se non si apre, l'utente incolla il testo).
 2. Scrivi la SCHEDA in testo (modello in docs/50 §3). Nessun codice.
 3. ASPETTA il via libera dell'utente, candidato per candidato.
 4. Solo dopo: scrivi il codice direttamente nei file e collaudalo (docs/50 §7).
-5. Aggiorna il registro (docs/50 §10 / docs/51) con le "prove" aggiunte.
+5. Aggiorna il registro (docs/50 §10) con le "prove" aggiunte.
 Parametri fissati a priori, mai ottimizzati sui dati. Provare più symbol serve a VERIFICARE
 la condizione, non a ritoccare i parametri per ogni symbol.
 Se scegli quale condizione tenere in base ai risultati per symbol, conta come prova in più.

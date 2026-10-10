@@ -1,7 +1,8 @@
 # 50 · Idee da fonti testuali — come trascriverle in condizioni
  
-**Data:** 7 ottobre 2026 (registro aggiornato l'8/10; regola dei setup composti in §4 e riordino del 9/10)
-**Stato:** metodo concordato con Mattia; esteso il 7/10 da articoli a **video YouTube (trascrizione incollata da Mattia) e libri**. Al 9/10/2026 trascritti 4 articoli, 14 prove: vedi il registro in §10. L'esempio guidato del primo articolo (Fourier, Kaabar) resta in §11. Repo di destinazione predefinito: V4 (confermato il 7/10).
+**Data:** 7 ottobre 2026 (registro aggiornato l'8/10; regola dei setup composti in §4 e riordino del 9/10; **il 10/10 fuso con l'ex `51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`**)
+**Stato:** metodo concordato con Mattia; esteso il 7/10 da articoli a **video YouTube (trascrizione incollata da Mattia) e libri**. Al 10/10/2026 trascritti 9 articoli (7 con candidate nel catalogo), **17 prove**: vedi il registro in §10. L'esempio guidato del primo articolo (Fourier, Kaabar) resta in §11. Repo di destinazione predefinito: V4 (confermato il 7/10).
+**Fusione con 51 (10/10/2026):** il documento `51` (consegna "a parti", registro dei filtri di regime, lavoro in locale) è entrato qui e non esiste più. Dove i due documenti dicevano cose diverse valeva il 51, e qui è già applicato: regola di consegna in §9, registro in §10, filtri di regime in §10 bis, lavoro in locale con Claude Code in §12.
 **Nota sul nome:** il file resta `50_IDEE_DA_ARTICOLI.md` perché altri documenti lo citano; vale per qualunque fonte testuale.
 **Prima di questo:** `00_SCOPO_E_STATO.md`, `02_KPI_E_GIUDIZIO.md`, `20_CONDIZIONI_TEMPO.md`, `21_COLLAUDO_CATALOGO.md`, `32_RIORDINO_CONDIZIONI.md`
 **Guida operativa per la nuova chat:** `GUIDA_ANALISI_FONTI.md` (nel repo, sostituisce `GUIDA_ANALISI_ARTICOLI_MEDIUM.md`), con prompt di avvio per articoli, video e libri ed elenco dei link da leggere.
@@ -35,7 +36,7 @@ Il tool serve a collaudarle, non a confermare quello che l'autore sostiene.
 | 2 · Scheda | Claude | scheda in testo (§3), nessun codice |
 | 3 · Via libera | Mattia | per ogni candidato: sì / no / modifica; repo di destinazione; per i video, conferma dei parametri dubbi |
 | 4 · Scrittura e collaudo | Claude | funzioni, trappola nuova se serve, collaudo (§7); tutto verificato prima di consegnare |
-| 5 · Consegna | Claude | file modificati come download, celle di notebook come testo, istruzioni di esecuzione (§9) |
+| 5 · Consegna | Claude | in locale (Claude Code): modifiche scritte direttamente nei file, su un ramo, test, commit; in chat: gli interventi "a parti" (§9) |
 | 6 · Registro | Claude | riga in §10, con le prove aggiunte al conteggio |
  
 Dal passo 5 in poi la condizione entra nel flusso normale (event study per le entry, ricerca uscite, filtri). Lì valgono i criteri di `02`, non questo documento.
@@ -182,7 +183,7 @@ Funzione `df -> Series bool`. Il motore esce all'Open della barra successiva al 
 - **Tempo.** Se l'idea usa sessioni, giorni o finestre orarie: `engine/sessioni.py` e `engine/livelli.py`, e le cinque trappole di `20` (giornata con `giorno_fx()` e mai `df.index.date`; grandezza fotografata davvero; finestra che finisce a mercato chiuso).
 - **Quarantena.** Per le entry la maschera sugli ingressi sta nei motori dal 5/10 (`93`, `quarantena=True` di default): non si duplica nella condizione. Per filtri e uscite, e per i livelli calcolati da prezzi, si verifica caso per caso se le barre in quarantena (bid deformato nel rollover) entrano nel calcolo.
 - **Modifiche additive.** Quando non è possibile, si dichiara.
-- **Unità:** costi in pips, non in bp; se serve la conversione si esplicita.
+- **Unità:** costi in pips, non in bp; se serve la conversione si esplicita. Il pip è **fisso per symbol** e viene da `engine/simboli.py` (dal 10/10, §12): mai dedurlo dal prezzo.
 - **Docstring:** una riga che dice cosa fa, più la fonte: articolo (autore, titolo, URL); video (canale, titolo, URL, minuto); libro (autore, titolo, edizione, capitolo, pagina).
 - **Segno nell'event study:** sempre dal punto di vista del trade, mai del prezzo (`40`, §6 bis). Vale anche per le condizioni nuove.
 ---
@@ -220,9 +221,9 @@ Ogni condizione nuova passa tutto questo prima di arrivare a Mattia, con casi a 
  
 1. **Trappola nuova per ogni famiglia nuova** (sezione A1 del notebook di collaudo). Si costruisce la versione con il difetto tipico della fonte (es. FFT sull'intero campione) e si verifica che `verifica_lookahead` la segni `LOOKAHEAD`. Se non la vede, il test va rafforzato **prima** di fidarsi della versione corretta. Poi la versione corretta deve risultare `OK`.
 2. **`verifica_lookahead`** (troncamento: lo storico si taglia alla barra *t*, si ricalcola da zero indicatori compresi, si confrontano tutte le barre fino a *t*). Esito atteso `OK`. `NON_ESERCITATA` non è una promozione: la condizione non era mai vera nel test. Si prova su una serie dove scatta, e con tagli sulle barre in cui la condizione è vera.
-3. **`verifica_degenerazione`** su EURUSD vero: copertura, eventi, `STATO`, `RARA`, `SEMPRE_VERA`. Sotto le 30 occorrenze (entry) o 30 barre vere (filtri e uscite) si segnala, non si promuove né si boccia.
+3. **`verifica_degenerazione`** su EURUSD vero (dal 10/10 si può fare anche sugli altri symbol di `dati/`, §12): copertura, eventi, `STATO`, `RARA`, `SEMPRE_VERA`. Sotto le 30 occorrenze (entry) o 30 barre vere (filtri e uscite) si segnala, non si promuove né si boccia.
 4. **Casi a risultato noto:** serie costruite a mano su cui l'esito è noto (il trigger scatta sulla barra attesa; lo short è lo speculare del long; il filtro cambia stato dove deve).
-5. **Sovrapposizioni con il catalogo:** `diagnostica.sovrapposizioni(df, colonne, finestra, soglia)` (`32`), solo su `df_is`, filtri a finestra 0 e trigger a finestra 2, soglia 70. Una condizione contenuta al 70% o più in una già presente, o suo contrario esatto, è un doppione: non si aggiunge, a meno che Mattia lo decida. Funzione presente nel ramo ML dal 1/10; **nel repo V4 va verificata** prima di contarci.
+5. **Sovrapposizioni con il catalogo:** `diagnostica.sovrapposizioni(df, colonne, finestra, soglia)` (`32`), solo su `df_is`, filtri a finestra 0 e trigger a finestra 2, soglia 70. Una condizione contenuta al 70% o più in una già presente, o suo contrario esatto, è un doppione: non si aggiunge, a meno che Mattia lo decida. Funzione presente nel ramo ML dal 1/10; **nel repo V4 non esiste** (verificato il 9/10): il controllo si fa con uno script a parte, con le stesse regole.
 6. **Riscaldamento:** dopo il taglio, la colonna è identica a prescindere dal punto di partenza dei dati (come verificato il 28/9 per le 72 colonne E*/F*).
 7. **Pandas 2.2 e 3.0:** stessi risultati con entrambe.
 8. **Suite da terminale** del progetto e **`Collaudo_Catalogo.ipynb`** rilanciati: da rifare ogni volta che si aggiunge una condizione.
@@ -255,15 +256,32 @@ Gli scarti non sono giudizi sull'idea: sono limiti del tool o del dato di oggi, 
  
 ## 9 · Consegna e come si esegue (per Mattia)
  
-**Cosa riceve:**
-- i file modificati come download (es. `engine/indicatori.py`, `entry_long.py`, `entry_short.py`, `filter_conditions.py`, i file di exit), ognuno con la cartella dove va;
-- eventuali test nuovi (`test_*.py`);
-- le celle di notebook da incollare, come testo, ciascuna con una cella markdown breve davanti (cosa fa, come leggere l'output, cosa fare dopo).
-**Come si esegue:**
-1. Caricare i file sul repo, nelle cartelle indicate (`engine/…` nella cartella `engine`, gli altri nella cartella principale).
-2. Aprire il terminale **nella cartella del progetto** e lanciare i test nuovi: `python test_nome.py`. L'ultima riga attesa è nel formato `RISULTATO: n/n test superati`; con meno del totale, copiare qui il messaggio.
-3. Rilanciare **`Collaudo_Catalogo.ipynb`** su Colab: *Runtime → Esegui tutto*, 2–3 minuti. Attesi: A1 e A2 con tutte le prove superate (il totale sale quando si aggiungono trappole), B con **0 LOOKAHEAD e 0 ERRORE**, D e E superate. La sezione C è una tabella da leggere, senza promosso o bocciato.
-4. Nel notebook principale la condizione compare da sola dopo la registrazione (riavviare il runtime e rieseguire dall'inizio, così i dizionari si rileggono).
+Regola del 9/10/2026, su richiesta di Mattia (ex `51`, §1). Dal 10/10 ci sono due modi di lavorare.
+ 
+### 9.1 · In locale con Claude Code (il modo normale dal 10/10)
+ 
+Claude Code **scrive le modifiche direttamente nei file** del repo clonato sul PC di Mattia (§12):
+- un **ramo per argomento**, mai direttamente su `main`;
+- prima di ogni commit lancia **tutti** i `test_*.py`: l'ultima riga di ognuno dev'essere `RISULTATO: n/n test superati`; se un test fallisce si ferma e spiega;
+- commit con messaggio chiaro in italiano; mai `--force`; nessun file cancellato senza chiedere;
+- invio del ramo su GitHub (Publish Branch, o `git push` con GitHub CLI) e Pull request; **il Merge lo fa Mattia** su GitHub.
+La regola "a parti" qui sotto **non si applica** al lavoro in locale.
+ 
+### 9.2 · In chat: consegna "a parti"
+ 
+**Non si riscrive il file intero.** Per ogni file già esistente nel repo Claude consegna:
+- il blocco di codice da aggiungere o sostituire;
+- **dove** va (il nome del file, la riga o la funzione "subito prima / dopo", con l'indentazione);
+- se è una sostituzione, la riga vecchia da cercare e quella nuova.
+Il **file intero** si consegna solo (a) se è un file nuovo (es. `test_*.py`), (b) se le modifiche sono così sparse che le parti sarebbero più rischiose del file. In questo caso Claude lo dice e ne spiega il motivo.
+ 
+Ogni consegna include sempre, per un lettore non informatico: l'elenco numerato degli interventi, il comando per eseguire i test, l'ultima riga attesa (`RISULTATO: n/n test superati`) e cosa fare se il numero non torna (incollare l'output, non modificare niente). Le celle di notebook si danno come testo, ciascuna con una cella markdown breve davanti (cosa fa, come leggere l'output, cosa fare dopo).
+ 
+### 9.3 · Come si esegue (in entrambi i modi)
+ 
+1. Applicare gli interventi (in chat) o verificare che siano nel ramo (in locale), poi lanciare i test dal terminale **nella cartella del progetto**: `python test_nome.py`. Su Windows con `PYTHONIOENCODING=utf-8`, altrimenti la console si ferma su alcuni caratteri. L'ultima riga attesa è nel formato `RISULTATO: n/n test superati`; con meno del totale, copiare qui il messaggio.
+2. Rilanciare **`Collaudo_Catalogo.ipynb`** su Colab: *Runtime → Esegui tutto*, 2–3 minuti. Attesi: A1 e A2 con tutte le prove superate (il totale sale quando si aggiungono trappole), B con **0 LOOKAHEAD e 0 ERRORE**, D e E superate. La sezione C è una tabella da leggere, senza promosso o bocciato.
+3. Nel notebook principale la condizione compare da sola dopo la registrazione (riavviare il runtime e rieseguire dall'inizio, così i dizionari si rileggono).
 Per ogni consegna Claude dice **quali di questi passi servono** e cosa deve vedere Mattia alla fine di ciascuno.
  
 ---
@@ -279,11 +297,43 @@ Una riga per fonte (nei libri, per capitolo). Serve a due cose: sapere cosa è g
 | 2 | articolo | 7/10/2026 | Sayedali Richu, «Want to Find Better Trading Opportunities? Start With These 2 Indicators», 24/9/2026 | canale di trend adattivo (script MarketStructureLab, CC BY-NC-SA 4.0) + due candele + PVO | **dal 9/10:** setup completo E25_ATC_PVO_SETUP_UP / E25_SHORT_ATC_PVO_SETUP_DOWN (canale che cambia colore + candela del segnale e precedente dello stesso colore + PVO verde/rosso); coppia F24_TWO_BARS_UP / F24_TWO_BARS_DOWN (era F26). Tolti il 9/10: E25 solo canale, filtri PVO F24/F25 | approvata 7/10; rivista il 9/10 (regola §4) | superato 7/10 e 9/10 | E25 setup consegnato 9/10; F24 sì | 3 (erano 5) |
 | 3 | articolo | 8/10/2026 | Sayedali Richu, «My Simple Formula for Filtering Intraday Buy & Sell Signals», 27/9/2026 | Supertrend 10/3 + candela precedente + Intraday Intensity a 21 barre (script KIVANÇ) | **dal 9/10:** setup completo E26_SUPERTREND_IIX_SETUP_UP / E26_SHORT_SUPERTREND_IIX_SETUP_DOWN. Tolti il 9/10: E26 solo Supertrend, filtro IIX F27 | approvata 8/10; rivista il 9/10 (regola §4) | superato 8/10 e 9/10 (E25 ed E26 long entro 2 barre da E3 short all'83% e 87%: da decidere) | consegnato 9/10 | 2 (erano 3) |
 | 4 | articolo | 8/10/2026 | PyQuantLab, «Volume Spread Analysis (VSA) Strategy: Quantifying Market Action for Trading Signals with Rolling Backtesting», 20/6/2025 | figure VSA (volume, ampiezza, chiusura nella barra, trend), senza il punteggio di contesto | entry E27_VSA_BULLISH / E27_SHORT_VSA_BEARISH (già setup composti: figure in AND); uscite X2_VSA_BEARISH / X2_SHORT_VSA_BULLISH (al posto di X2 EMA) | approvata 8/10 (parametri del giornaliero tenuti in barre su M15) | superato 8/10 | sì | 4 |
+| 5 | articolo | 9/10/2026 | PyQuantLab, «Can We Detect a Market Crash Before It Happens? I Tested 5 Regime Filters», 7/9/2026 | Choppiness Index (14 barre, standard di Dreiss, non il 7 dell'articolo) + stato con isteresi (si accende al 25° percentile, si spegne sopra il 50°) | filtri F25_CHOP_TREND, F25_CHOP_RANGE (neutri) | approvata 9/10 | superato 9/10 (`test_regime.py`) | sì | 2 |
+| 6 | articolo | 9/10/2026 | PyQuantLab, «Enhancing Trading Strategies With a Hurst-Based Regime Filter», 6/3/2026 | persistenza del prezzo come filtro; l'esponente di Hurst (R/S per barra, pesante e rumoroso) sostituito col **variance ratio** di Lo–MacKinlay (orizzonte 4, finestra 192) | filtro F26_VARIANCE_RATIO_TREND (neutro) | variante approvata da Mattia 9/10 | superato 9/10 | sì | 1 |
+| 7 | articolo | 9/10/2026 | PyQuantLab, «Regime Filtered Trend Strategy», 12/7/2025 | voto fra misure di regime | idea del voto riusata in F27_REGIME_TREND_COMPOSITE (almeno 2 voti su 3: CHOP-tendenza, VR-persistenza, ADX alto) | **opzionale**: riga nel dizionario commentata (rimessa commentata il 10/10: nel repo era attiva) | superato 9/10 | no (spento) | 0 (+1 se attivato) |
+| 8 | articolo | 9/10/2026 | Kaabar, VA-RSI (Volatility-Adjusted RSI), Medium/Coinmonks | RSI aggiustato per volatilità | — | **messo da parte** (non scartato): troppo reattivo; la EMA di lisciatura aggiungerebbe ritardo su ritardo | — | no | 0 |
+| 9 | articolo | 9/10/2026 | articolo Mellin (trasformata) | — | — | scartato: FFT per barra, nessuna regola in condizione | — | no | 0 |
  
-**Prove da fonti testuali al 9/10/2026: 14** (articoli 14, video 0, libri 0). Erano 17: il 9/10 i setup degli articoli 2 e 3 sono stati riscritti come entry uniche (§4) e i filtri estratti PVO e IIX sono stati tolti.
+Non letti per scelta di Mattia: articoli su HMM / UMAP (modelli addestrati: rischio lookahead e calcolo pesante). Restano in elenco in `GUIDA_ANALISI_FONTI.md` §11.2 (Range Index, Vertical Horizontal Filter, change point bayesiano…).
+ 
+**Prove da fonti testuali al 10/10/2026: 17** (articoli 17, video 0, libri 0), con **F27 spento**; **18** se si attiva F27. Storia del conteggio: 17 all'8/10; 14 il 9/10, quando i setup degli articoli 2 e 3 sono stati riscritti come entry uniche (§4) e i filtri estratti PVO e IIX sono stati tolti; 17 dal 9/10 con i filtri di regime F25 (2) e F26 (1).
  
 Per video e libri la colonna «fonte» riporta canale e titolo (video) o autore, titolo e capitolo (libro), più il riferimento (minuto o pagina).
  
+---
+ 
+## 10 bis · I filtri di regime F25, F26, F27 (9/10/2026)
+ 
+### Come funzionano (per decidere senza codice)
+ 
+- **F25 CHOP (14 barre).** Misura quanto il prezzo va a zig-zag. "Tendenza" = choppiness nel 25% più basso delle ultime 500 barre; "laterale" = nel 25% più alto. Con isteresi: resta acceso finché non rientra sopra il 50° (tendenza) / sotto il 50° (laterale). Mai veri insieme.
+- **F26 variance ratio (1 ora, finestra 2 giorni).** Sopra 1 = i movimenti tendono a proseguire. Stato acceso al 75° percentile (ultime 1000 barre), spento sotto il 50°.
+- **F27 composito (opzionale, spento).** Almeno 2 voti su 3 fra CHOP-tendenza, VR-persistenza e ADX alto. Le tre misure sono poco correlate (0,02–0,17 su EURUSD): il voto è un consenso fra orizzonti diversi, senza altro ritardo.
+**Limiti emersi dalle misure su EURUSD (onesti):**
+- CHOP a 14 barre resta reattivo anche con l'isteresi: durata mediana di uno stato ≈ 10 barre (~2,5 ore), circa 10.000 cambi su 167.000 barre.
+- Il VR è molto più lento: mediana ≈ 66 barre (~16 ore).
+- F27 è dominato da CHOP e ADX (mediana 10 barre).
+- Se serve un regime più stabile: variante con CHOP a 48 barre (+1 prova), da decidere.
+### Collaudo (9–10/10/2026)
+ 
+- `test_regime.py` (nuovo): 41/41 con pandas 3.0.5 e con pandas 2.2.3 (indicatori confrontati con riscrittura indipendente barra per barra, due trappole di lookahead riconosciute, isteresi verificata a mano, indipendenza dal punto di partenza dopo 3000 barre).
+- Suite esistenti al 9/10: test_idee_articoli 64/64 (dopo l'aggiornamento del controllo C7, che vietava i numeri F25–F27 ora riusati), barre_per_lato 24, confidenza 34, entry_composita 39, entry_metro 22, filtri_tempo 25, inversione 25, montecarlo 17, portabilita 13, quarantena_trade 23, sessioni 20, tempo_prezzo 20, vetrina 55, vetrina_trigger 26.
+- Sovrapposizioni: `diagnostica.sovrapposizioni` **non esiste in V4**; controllo fatto con uno script a parte. 9 coppie ≥70%, quasi tutte contro filtri molto larghi (F22 80%, F2_MID 75%) con correlazione ≈0: attese per caso.
+- Il 10/10 in locale: tutte le suite passano (pandas 3.0.6); lookahead e degenerazione puliti anche sui 9 symbol di `dati/` (§12).
+### Decisioni aperte
+ 
+1. Attivare F27 composito? (+1 prova)
+2. Variante CHOP lenta (48 barre)? (+1 prova)
+3. Leggere gli articoli VHF / Range Index di `GUIDA_ANALISI_FONTI.md` §11.2?
 ---
  
 ## 11 · Esempio guidato — l'articolo Fourier (applicazione della lista, non la scheda)
@@ -301,3 +351,39 @@ Serve a mostrare come si usa §6 su un articolo vero. La scheda completa è il p
 - **Entry sulla fase del ciclo:** evento in cui la componente ciclica gira verso l'alto (long) o verso il basso (short).
 - **Uscita a regola:** fine del semiciclo, con periodo ricavato dal ciclo dominante.
 **Da decidere insieme:** lunghezza della finestra mobile (e quindi riscaldamento), numero di armoniche (proposta: una sola, la dominante, per ridurre i parametri), e se il costo di calcolo su ogni barra è accettabile per M15.
+ 
+---
+ 
+## 12 · Lavoro in locale con Claude Code (dal 10/10/2026)
+ 
+### Impostazione
+ 
+Repo clonato sul PC di Mattia (Windows), VS Code + Claude Code. Nel repo: `CLAUDE.md` (istruzioni per Claude Code), `docs/` (copia dei documenti del Project), `engine/mt5_interaction.py` (si usano solo le funzioni di lettura), `scarica_dati.py`. La cartella `dati/` è nel `.gitignore`, come `.venv/` e `credenziali_mt5.txt`: i dati non vanno su GitHub. Un ramo per argomento; il Merge lo fa Mattia su GitHub. GitHub CLI è installato e collegato (`gh auth login`, account matti410): l'invio del ramo e la Pull request li può fare anche Claude Code. Regole di consegna in §9.1.
+ 
+### Dati
+ 
+`scarica_dati.py` scarica da MT5 (sole funzioni di lettura) le barre M15 dal 2/1/2020 e le salva in `dati/<SYMBOL>_M15.csv`, nello stesso formato di `EURUSD_M15.csv` (ora server, colonne `Date, Open, High, Low, Close, Volume, spread`). A fine corsa stampa prima e ultima barra, barre, pause ricorrenti, buchi, fuso, quarantena.
+ 
+- **Symbol disponibili (al 9/10/2026):** EURUSD, GBPUSD, USDJPY, NZDUSD (~168.600 barre ciascuno), BTCUSD (223.655), US500, USTEC, XAUUSD, DE40 (156.700–160.200).
+- **USDCAD escluso:** il broker lo fornisce in M15 solo da gennaio 2025, anche nel grafico di MT5.
+- **Pause ricorrenti, non buchi:** indici e oro si fermano ogni giorno dalle 17:00 alle 18:00 di New York; BTCUSD si ferma il venerdì alla stessa ora. Buchi veri: festivi USA (3 luglio, 24 dicembre, 9/1/2025), sospensioni di marzo 2020, il buco noto del 2/12/2021, piccole manutenzioni.
+- **Il notebook principale legge da `dati/`** (dal 10/10): su Colab da Google Drive, `Il mio Drive/Trading-System-Creator_V4/dati/`; in locale dalla cartella `dati/`. `symbol` (cella 11) è l'unica variabile da cambiare.
+### Fuso
+ 
+Una sola regola per tutto il conto: `A_US_DST (NY+7h)` (`10_DATI_FUSO_BROKER.md`). Conferma sui dati nuovi: le pause quotidiane di indici, oro e BTCUSD (venerdì) cadono alle 17:00 di New York, cioè **21:00–22:00 UTC d'estate e 22:00–23:00 UTC d'inverno**. La diagnosi automatica dà "NO" su indici e oro (match 26–47%) perché guarda la riapertura del weekend, che per loro non segue la regola dei cambi: non è un errore dei dati. Su BTCUSD (aperto nel weekend) la diagnosi non si fa. Quarantena ≈5,2% sul forex, ≈2% su indici e oro.
+ 
+### Pip e costi per symbol
+ 
+- **Pip fisso per symbol**, dalla tabella `engine/simboli.py` (classe, pip, contratto, valuta di quotazione, cifre; letti da MT5 con `symbol_info` in sola lettura il 10/10). Convenzione: forex 0,0001 (JPY 0,01), **oro 0,10 $**, indici 1 punto, BTCUSD 1 $. Il pip viaggia nel dizionario dei costi (`parametri_backtest` → `**costi`) fino ai motori, a `due_meta` e alla vetrina. Symbol fuori tabella → errore, nessun pip indovinato. Prima il pip era dedotto dal prezzo medio: su US500 valeva 0,01 in-sample e 1,0 out-of-sample.
+- **Metalli senza MT5:** nozionale = contratto × prezzo (XAUUSD 100 once): una commissione di 7 $ vale 0,7 pips.
+- **Indici dal nome:** US500, USTEC, DE40 → classe "indici".
+- **Valore del pip per lotto:** XAUUSD 10 $, US500 e USTEC 1 $; DE40 è quotato in EUR e il notebook passa il cambio EURUSD dell'ultima barra.
+- **Spread:** il notebook li prende **solo dal listino** del conto Standard (`SPREAD_LISTINO_PIPS` in `engine/vetrina.py`); commissione zero. Un symbol senza riga ferma il notebook, e il messaggio dice la riga esatta da aggiungere, col rollover proposto dai dati (mediana dello spread nelle barre di quarantena, solo se la colonna è significativa: è il minimo di barra, quindi un limite inferiore). Lo spread normale **non** si ricava dalla colonna `spread`: sul forex vale quasi sempre zero (feed di tipo Raw), non è lo spread Standard.
+- **Capitale:** `CASH = 10.000.000` basta per tutti i 9 symbol; il notebook si ferma se è meno di 10 volte il prezzo massimo.
+- USTEC ha 2 cifre in MT5 (punto 0,01) ma nei dati quota sempre a passi di 0,1: la colonna `spread` si converte col punto della tabella, non col passo dei prezzi (prima usciva 10 volte troppo alta).
+### Collaudo su 9 symbol (10/10/2026)
+ 
+- `verifica_lookahead` sul mercato sintetico e sugli ultimi ~4 mesi di ogni symbol: 141 righe (122 condizioni + 19 indicatori, compresi `chop` e `vr`), **0 LOOKAHEAD, 0 ERRORE**.
+- `verifica_degenerazione` sullo storico intero: unico segnale E19_SHORT_THREE_BLACK_CROWS RARA (8–29 eventi). Copertura F25/F26 35–38% su tutti i symbol (attesa: sono percentili).
+- Il notebook principale sui file di `dati/`: su EURUSD, a parità di barre, uscite e variabili identiche a prima (42 celle, 62 variabili, 20 tabelle intere).
+- Collaudo `test_simboli.py` per tabella, pip, costi e spread di listino.
