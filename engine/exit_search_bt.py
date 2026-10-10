@@ -306,6 +306,7 @@ def run_exit_search_bt(
     spread_rollover_pips=None,
     n_barre_long=None,
     n_barre_short=None,
+    pip_size=None,
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -393,6 +394,13 @@ def run_exit_search_bt(
         indicati, i trade di quel lato scadono dopo quelle barre, e le soglie
         di stop/target di quel lato si misurano sul suo orizzonte (stessi
         percentili per i due lati).
+
+    pip_size (10/10/2026)
+        Il pip del symbol, in unita' di prezzo. Arriva da solo con **costi
+        (parametri_backtest lo mette nel dizionario, dalla tabella fissa di
+        engine/simboli.py). None = dedotto dal prezzo medio come prima, con
+        un avviso: succede solo chiamando il motore senza i costi del symbol
+        (dati sintetici).
 
     Ritorna un oggetto ExitSearchBT: .risultati (tabella), .top(),
     .trades(combinazione), .soglia_rumore, .k.
@@ -508,8 +516,12 @@ def run_exit_search_bt(
     bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
                  commission=commission, margin=margin, exclusive_orders=True)
 
-    prezzo_medio = float(df[close_col].mean())
-    pip_size = deduci_pip(prezzo_medio)
+    if pip_size is None:   # 10/10/2026: di norma arriva fisso da **costi
+        pip_size = deduci_pip(float(df[close_col].mean()))
+        if verbose:
+            print(f"run_exit_search_bt: pip dedotto dal prezzo ({pip_size:g}). "
+                  "Passa i costi di parametri_backtest per il pip fisso del symbol.")
+    pip_size = float(pip_size)
 
     righe = []
     trades_per_combo = {}

@@ -86,6 +86,7 @@ import numpy as np
 import pandas as pd
 
 from .event_study import deduci_pip
+from .simboli import pip_symbol
 
 
 # ========================================================================
@@ -510,8 +511,22 @@ def parametri_backtest(symbol: str, bars: pd.DataFrame | None = None,
     (da listino) e il simbolo deve essere una coppia forex a 6 lettere, o
     va passato `nozionale`. E' un ripiego dichiarato, non equivalente.
 
-    Ritorna {"spread": float, "commission": float}.
+    IL PIP (10/10/2026)
+    -------------------
+    `pip_size` None (default) = il pip FISSO del symbol, dalla tabella di
+    engine/simboli.py, in tutte e due le strade. Prima era dedotto dal prezzo
+    mediano (`deduci_pip`), e cambiava con la finestra di dati: su US500 lo
+    spread di listino in pips finiva convertito con un pip 100 volte troppo
+    piccolo. Symbol non in tabella -> errore con l'istruzione per aggiungerlo.
+
+    Ritorna {"spread": float, "commission": float, "pip_size": float}.
+    Il pip viaggia nel dizionario dei costi: con **costi arriva da solo a
+    run_exit_search_bt, run_filter_search_bt e due_meta.
     """
+    if pip_size is None:
+        pip_size = pip_symbol(symbol)
+    pip_size = float(pip_size)
+
     if usa_mt5:
         c = costo_simbolo(symbol, bars=bars, percentile=percentile,
                           valuta_conto=valuta_conto, commissione_rt=commissione_rt,
@@ -529,8 +544,6 @@ def parametri_backtest(symbol: str, bars: pd.DataFrame | None = None,
                 raise ValueError("senza MT5 serve prezzo= oppure bars=.")
             prezzo = float(bars[_colonna(bars, col_close)].astype(float).median())
         prezzo = float(prezzo)
-        if pip_size is None:
-            pip_size = deduci_pip(prezzo)
 
         classe = classifica_simbolo(symbol)
         comm_rt = (commissione_round_turn(classe, valuta_conto)
@@ -552,11 +565,12 @@ def parametri_backtest(symbol: str, bars: pd.DataFrame | None = None,
              "commissione_rt": comm_rt,
              "fonte_spread": f"listino ({spread_pips} pips) — senza MT5"}
 
-    out = {"spread": float(spread_rel), "commission": float(comm_rel_rt) / 2.0}
+    out = {"spread": float(spread_rel), "commission": float(comm_rel_rt) / 2.0,
+           "pip_size": pip_size}
 
     if verbose:
         _stampa_costo(symbol, c, valuta_conto)
-        pip = pip_size if pip_size is not None else deduci_pip(c["prezzo"])
+        pip = pip_size
         costo_pips = out["commission"] * 2 * c["prezzo"] / pip
         spread_in_pips = spread_rel * c["prezzo"] / pip
         print(f"   -> spread={out['spread']:.3e}   commission={out['commission']:.3e}"

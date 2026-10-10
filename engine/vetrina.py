@@ -73,6 +73,7 @@ from .costi import parametri_backtest
 from .due_meta import due_meta
 from .equity_plot import plot_equity
 from .event_study import deduci_pip, run_event_study
+from .simboli import in_tabella, pip_symbol
 from .exit_search_bt import barre_per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
 from .confidenza import congela_filtro
@@ -291,7 +292,9 @@ def spread_in_pips(symbol: str, df: pd.DataFrame, percentile: float = 75.0) -> d
         punti = df[col].astype(float)
         if float(punti.median()) > 0:
             close = df["Close"].astype(float)
-            pip = deduci_pip(float(close.mean()))
+            # 10/10/2026: pip fisso se il symbol e' in engine/simboli.py; uno
+            # strumento fuori tabella resta una lettura dai dati, come prima
+            pip = pip_symbol(s) if in_tabella(s) else deduci_pip(float(close.mean()))
             in_pips = punti * _punto_da_prezzi(close) / pip
             normale = float(np.percentile(in_pips.dropna(), percentile))
             roll = quarantena_cached(df)["rollover"].to_numpy(dtype=bool)
@@ -386,7 +389,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
         df = aggiungi_indicatori(df)
         s.df_is, s.df_oos = split_is_oos(df, is_ratio=quota_in_sample)
     s.df, s.costi = df, costi
-    s.pip = deduci_pip(float(df["Close"].mean()))
+    s.pip = costi["pip_size"]      # 10/10/2026: fisso, da engine/simboli.py
     s.spread_pips, s.spread_rollover_pips, s.fonte_spread = sp["normale"], sp["rollover"], sp["fonte"]
     _registra_condizioni()
 
@@ -478,7 +481,7 @@ def esplora(s: Sessione, quanti: int = 5):
     candidati = _trigger_candidati()
     with _zitto():
         s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=s.H,
-                               min_trades=MIN_TRIGGER, verbose=False)
+                               min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
     misurati = len(s.ev.sintesi)
     _nota(f"{misurati} trigger misurati su {len(candidati)} "
           f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media).")
