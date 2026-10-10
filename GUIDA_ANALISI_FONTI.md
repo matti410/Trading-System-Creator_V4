@@ -158,7 +158,7 @@ Gli scarti non sono un giudizio sull'idea: sono limiti del tool o dei dati di og
 
 Claude ti dice sempre **quali di questi passi servono** e cosa devi vedere alla fine di ognuno.
 
-1. **Carica i file sul repo**, nelle cartelle indicate: i file di `engine/…` nella cartella `engine`, gli altri nella cartella principale.
+1. **Applica solo gli interventi indicati da Claude**, file per file, nel punto indicato: di norma sono poche righe da aggiungere o sostituire, e il file intero si riscrive solo se Claude lo chiede esplicitamente. I file nuovi (es. `test_*.py`) si caricano interi: quelli di `engine/…` nella cartella `engine`, gli altri nella cartella principale. **In locale con Claude Code** questo passo lo fa Claude Code: scrive le modifiche direttamente nei file, su un ramo, lancia i test e fa il commit; a te restano Publish Branch e Merge su GitHub (`docs/50_IDEE_DA_ARTICOLI.md`, §9).
 2. **Lancia i test nuovi dal terminale**, aperto nella cartella del progetto: `python test_nome.py` (il nome esatto lo trovi nella consegna). L'ultima riga attesa ha la forma `RISULTATO: n/n test superati`. Se i superati sono meno del totale, copia qui il messaggio.
 3. **Rilancia `Collaudo_Catalogo.ipynb` su Colab**: *Runtime → Esegui tutto*, 2–3 minuti. Attesi: A1 e A2 con tutte le prove superate, **B con 0 LOOKAHEAD e 0 ERRORE**, D ed E superate. La sezione C è una tabella da leggere, senza promosso o bocciato.
 4. **Nel notebook principale** la condizione compare da sola dopo la registrazione: riavvia il runtime e riesegui dall'inizio, così i dizionari si rileggono.
