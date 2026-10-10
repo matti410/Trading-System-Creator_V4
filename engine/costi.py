@@ -177,6 +177,11 @@ def classifica_simbolo(symbol: str, path: str = "") -> str:
     fatto di DUE valute ufficiali (EURUSD, USDJPY); e' crypto se comincia con
     una sigla crypto nota (BTCUSD, ETHUSD). Corretto il 25/9: prima BTCUSD,
     avendo 6 lettere, risultava forex.
+
+    Indici (10/10/2026): senza path, i nomi che la tabella di
+    engine/simboli.py segna come indici (US500, USTEC, DE40) sono "indici".
+    Prima risultavano "altro". Nessun numero cambia: gli indici non pagano
+    commissione ne' come "altro" ne' come "indici".
     """
     p, s = (path or "").lower(), (symbol or "").upper()
     if "crypto" in p:                                              return "crypto"
@@ -184,6 +189,7 @@ def classifica_simbolo(symbol: str, path: str = "") -> str:
     if "ind" in p or "cash" in p:                                  return "indici"
     if "share" in p or "stock" in p or "equit" in p:               return "azioni"
     if "forex" in p or "fx" in p:                                  return "forex"
+    if in_tabella(s) and info_symbol(s)["classe"] == "indici":     return "indici"
     if any(s.startswith(c) for c in SIGLE_CRYPTO):                 return "crypto"
     if len(s) == 6 and s.isalpha() and s[:3] in VALUTE_FIAT and s[3:] in VALUTE_FIAT:
         return "forex"

@@ -53,9 +53,11 @@ def esegui() -> int:
     print("\nA · Classe dell'asset senza MT5")
     attese = {"EURUSD": "forex", "USDJPY": "forex", "GBPAUD": "forex", "EURGBP": "forex",
               "BTCUSD": "crypto", "ETHUSD": "crypto", "LTCUSD": "crypto",
-              "XAUUSD": "metalli", "XAGUSD": "metalli", "US500": "altro", "ABCDEF": "altro"}
+              "XAUUSD": "metalli", "XAGUSD": "metalli", "US500": "indici", "ABCDEF": "altro"}
     trovate = {s: classifica_simbolo(s) for s in attese}
-    check("1. forex solo se sono due valute ufficiali, crypto per sigla",
+    # 10/10/2026: US500 era "altro"; ora gli indici della tabella di engine/simboli.py
+    # si riconoscono dal nome (test_simboli.py, sezione G)
+    check("1. forex solo se sono due valute ufficiali, crypto per sigla, indici dalla tabella",
           trovate == attese,
           " · ".join(f"{s}={c}" for s, c in trovate.items()))
     check("2. col path di MT5 decide il path, come prima",

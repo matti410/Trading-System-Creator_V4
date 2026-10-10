@@ -12,6 +12,7 @@ scritta a mano, e viaggia nel dizionario dei costi fino ai motori.
      fisso: USTEC ha 2 cifre in MT5 ma nei dati quota sempre a passi di 0,1
   D  coerenza fra la tabella e MT5: cifre, contratto, valuta (saltato se MT5 manca)
   F  nozionale senza MT5: XAUUSD 100 once, EURUSD come prima (correzione 2)
+  G  indici riconosciuti dal nome senza MT5 (correzione 3)
   E  identita' su EURUSD e BTCUSD: parametri_backtest, event study,
      run_exit_search_bt e run_filter_search_bt danno numeri identici col pip
      dedotto (il comportamento di prima) e col pip della tabella
@@ -38,7 +39,7 @@ import pandas as pd
 
 from engine.broker_tz_diagnostic import to_utc_index
 from engine.collaudo_catalogo import mercato_sintetico
-from engine.costi import nozionale_senza_mt5, parametri_backtest
+from engine.costi import classifica_simbolo, nozionale_senza_mt5, parametri_backtest
 from engine.event_study import deduci_pip, run_event_study
 from engine.exit_search_bt import run_exit_search_bt
 from engine.filter_search_bt import run_filter_search_bt
@@ -256,6 +257,20 @@ def esegui() -> int:
             return True
     check("F4. errore chiaro: 6 lettere non forex, metallo fuori tabella, oro con conto EUR",
           _ferma("ABCDEF", 1.0) and _ferma("XAUEUR", 1.0) and _ferma("XAUUSD", 2000.0, "EUR"))
+
+    # ---------------------------------------------------- classe indici --
+    print("\nG · Indici riconosciuti dal nome, senza MT5")
+    attese = {"US500": "indici", "USTEC": "indici", "DE40": "indici", "EURUSD": "forex",
+              "USDJPY": "forex", "BTCUSD": "crypto", "XAUUSD": "metalli",
+              "US30": "altro", "ABCDEF": "altro"}
+    trovate = {s: classifica_simbolo(s) for s in attese}
+    check("G1. US500, USTEC, DE40 -> indici; gli altri come prima; fuori tabella -> altro",
+          trovate == attese, " · ".join(f"{s}={c}" for s, c in trovate.items()))
+    check("G2. col path di MT5 decide il path, come prima",
+          classifica_simbolo("US500", "Indices\\Indices Spot\\US500") == "indici"
+          and classifica_simbolo("XAUUSD", "Commodities\\Metals\\XAUUSD") == "metalli")
+    c_ind = _muto(parametri_backtest, "US500", prezzo=5000.0, usa_mt5=False, spread_pips=0.5)
+    check("G3. US500: commissione zero, come quando era 'altro'", c_ind["commission"] == 0.0)
 
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
