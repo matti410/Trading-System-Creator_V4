@@ -1,0 +1,4 @@
+dati/
+.venv/
+credenziali_mt5.txt
+__pycache__/
