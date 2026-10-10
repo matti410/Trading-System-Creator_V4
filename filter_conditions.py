@@ -705,6 +705,151 @@ def filter_two_bars_down(df: pd.DataFrame) -> pd.Series:
     return giu & giu.shift(1, fill_value=False)
 
 
+def _stato_isteresi(rango: pd.Series, entra: float, esce: float, basso: bool) -> pd.Series:
+    """
+    Stato "acceso/spento" con isteresi, da un percentile rolling (0-1).
+
+    Una soglia sola fa sfarfallare lo stato quando il valore le gira
+    attorno. Qui lo stato si ACCENDE con una soglia e si SPEGNE con un'altra,
+    piu' lontana: una volta acceso resta acceso finche' il percentile non
+    torna oltre la soglia di uscita. Nessuna media sul valore di partenza:
+    non si aggiunge ritardo all'indicatore, solo all'uscita dallo stato.
+
+        basso=True   acceso quando rango <= entra, spento quando rango > esce
+        basso=False  acceso quando rango >= entra, spento quando rango < esce
+
+    Rango non disponibile (NaN): lo stato si spegne, come ogni condizione
+    del progetto quando manca la storia. Parte spento.
+
+    Lo stato ha MEMORIA: dipende dalla storia dall'inizio dei dati, fino
+    all'ultima volta in cui si e' spento. Il percentile torna sopra la soglia
+    di uscita spesso, quindi la memoria si azzera presto: il collaudo
+    (test_regime.py) verifica che dopo 60 barre di rango casuale, e dopo 3000
+    barre di dati veri, il punto di partenza dei dati non cambi niente.
+
+    Idea: l'articolo "Can We Detect a Market Crash Before It Happens? I
+    Tested 5 Regime Filters" (PyQuantLab, 7/9/2026,
+    https://pyquantlab.medium.com/can-we-detect-a-market-crash-before-it-happens-i-tested-5-regime-filters-c45290f652fa)
+    tiene l'allarme acceso finche' il prezzo non rientra sopra una media
+    esponenziale. Qui l'uscita e' una soglia sul percentile (l'articolo non
+    dichiara il periodo della media): traduzione nostra.
+    """
+    r = rango.to_numpy(dtype=float)
+    acceso = np.zeros(len(r), dtype=bool)
+    stato = False
+    for i, x in enumerate(r):
+        if not np.isfinite(x):
+            stato = False
+        elif stato:
+            if (x > esce) if basso else (x < esce):
+                stato = False
+        else:
+            if (x <= entra) if basso else (x >= entra):
+                stato = True
+        acceso[i] = stato
+    return pd.Series(acceso, index=rango.index)
+
+
+# --- F25: choppiness ------------------------------------------------------
+
+def filter_chop_trend(df: pd.DataFrame, rank_window: int = 500,
+                      entra: float = 0.25, esce: float = 0.50) -> pd.Series:
+    """
+    Regime di TENDENZA: choppiness bassa. Il Choppiness Index a 14 barre
+    (colonna `chop`) entra sotto il 25° percentile delle proprie ultime 500
+    barre e ne esce quando risale sopra il 50° (isteresi, vedi
+    `_stato_isteresi`).
+
+    Neutro (direction 0): misura quanto il prezzo marcia in linea retta, non
+    in che verso. La finestra del percentile (500) e' molto piu' larga di
+    quella dell'indicatore (14), come vuole la regola 2 dei filtri.
+    Parametri scelti a priori e mai provati in varianti. Finestra massima:
+    circa 515 barre.
+
+    Fonte: PyQuantLab, "Can We Detect a Market Crash Before It Happens? I
+    Tested 5 Regime Filters", 7/9/2026 (URL in `_stato_isteresi`). Percentili,
+    isteresi e uso senza segno di momentum: traduzione nostra.
+    """
+    return _stato_isteresi(ts_rank(df["chop"], rank_window), entra, esce, basso=True)
+
+
+def filter_chop_range(df: pd.DataFrame, rank_window: int = 500,
+                      entra: float = 0.75, esce: float = 0.50) -> pd.Series:
+    """
+    Regime LATERALE: choppiness alta. Speculare di F25_CHOP_TREND: entra
+    sopra il 75° percentile, esce quando scende sotto il 50°.
+
+    E' un filtro a se', non il "contrario" del precedente: i due non sono
+    mai veri insieme, ma nella zona di mezzo possono essere entrambi falsi.
+    Si prova da solo (serve alle entry di rimbalzo). Neutro. Finestra
+    massima: circa 515 barre.
+    """
+    return _stato_isteresi(ts_rank(df["chop"], rank_window), entra, esce, basso=False)
+
+
+# --- F26: variance ratio --------------------------------------------------
+
+def filter_variance_ratio_trend(df: pd.DataFrame, rank_window: int = 1000,
+                                entra: float = 0.75, esce: float = 0.50) -> pd.Series:
+    """
+    Regime di PERSISTENZA: il variance ratio a 4 barre su 192 (colonna `vr`)
+    entra sopra il 75° percentile delle proprie ultime 1000 barre e ne esce
+    quando scende sotto il 50° (isteresi).
+
+    Neutro: misura se i rendimenti tendono a ripetersi o a rimbalzare, non
+    il verso. La finestra del percentile (1000) e' circa 5 volte quella
+    dell'indicatore (192), come per F14. Parametri scelti a priori e mai
+    provati in varianti. Finestra massima: circa 1200 barre.
+
+    Idea (non dell'articolo): alternativa piu' leggera all'esponente di
+    Hurst proposto da PyQuantLab, "Enhancing Trading Strategies With a
+    Hurst-Based Regime Filter", 6/3/2026 (URL in `variance_ratio`).
+    """
+    return _stato_isteresi(ts_rank(df["vr"], rank_window), entra, esce, basso=False)
+
+
+# --- F27 (OPZIONALE): regime di tendenza composito ------------------------
+
+def _adx_forte(df: pd.DataFrame, rank_window: int = 500,
+               entra: float = 0.75, esce: float = 0.50) -> pd.Series:
+    """ADX (colonna `adx`) alto rispetto alle proprie ultime 500 barre, con isteresi. Neutro."""
+    return _stato_isteresi(ts_rank(df["adx"], rank_window), entra, esce, basso=False)
+
+
+def filter_regime_trend_composite(df: pd.DataFrame, voti_minimi: int = 2) -> pd.Series:
+    """
+    Regime di tendenza "a consenso": vero quando almeno `voti_minimi` su 3
+    misure di tendenza concordano, ciascuna col suo stato a isteresi:
+
+      1. choppiness bassa   (F25_CHOP_TREND)
+      2. persistenza alta   (F26_VARIANCE_RATIO_TREND)
+      3. ADX alto           (colonna `adx`, 500 barre, 75°/50°)
+
+    Perche' un voto e non una media: le tre misure guardano lo stesso
+    prezzo in tre modi diversi (lunghezza del percorso, autocorrelazione,
+    forza direzionale) e sbagliano in momenti diversi. Il consenso toglie
+    rumore SENZA aggiungere ritardo nel tempo: non c'e' nessuna media mobile
+    in piu'. Le tre misure guardano scale diverse (14 barre, 192 barre, ADX
+    lungo) e sono poco correlate fra loro (0,02-0,17 su EURUSD): il voto e'
+    un consenso fra orizzonti diversi. Il prezzo e' che quello piu' reattivo
+    (CHOP) e l'ADX dominano la durata degli stati.
+
+    Neutro. Tutti i parametri sono quelli dei tre componenti (nessuno nuovo
+    tranne il numero di voti: 2 su 3). E' UNA prova sola, ma i componenti
+    1 e 2 sono prove a parte. Finestra massima: circa 1200 barre.
+
+    Idea dell'insieme (traduzione nostra, proposta da Mattia il 9/10/2026):
+    voto fra segnali di regime come in PyQuantLab, "Regime Filtered Trend
+    Strategy", 12/7/2025, https://pyquantlab.medium.com/regime-filtered-trend-strategy-a-market-adaptive-trend-following-system-fa933e001237
+    (3 su 4 segnali) e nell'articolo del 7/9/2026 citato sopra (almeno 2 su
+    5). Componenti e soglie sono nostri: nelle fonti sono assoluti e tarati
+    su BTC giornaliero.
+    """
+    voti = (filter_chop_trend(df).astype(int)
+            + filter_variance_ratio_trend(df).astype(int)
+            + _adx_forte(df).astype(int))
+    return voti >= int(voti_minimi)
+
 
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
@@ -739,6 +884,10 @@ FILTRI = {
     "F23_CYCLE_STRENGTH":        (filter_cycle_strength, 0, None),
     "F24_TWO_BARS_UP":           (filter_two_bars_up, 1, "TWO_BARS"),
     "F24_TWO_BARS_DOWN":         (filter_two_bars_down, -1, "TWO_BARS"),
+    "F25_CHOP_TREND":            (filter_chop_trend, 0, None),
+    "F25_CHOP_RANGE":            (filter_chop_range, 0, None),
+    "F26_VARIANCE_RATIO_TREND":  (filter_variance_ratio_trend, 0, None),
+    "F27_REGIME_TREND_COMPOSITE": (filter_regime_trend_composite, 0, None),
 }
 
 
