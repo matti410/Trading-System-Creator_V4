@@ -63,12 +63,12 @@ Non letti per scelta di Mattia: articoli su HMM / UMAP (modelli addestrati: risc
 1. Attivare F27 composito? (+1 prova)
 2. Variante CHOP lenta (48 barre)? (+1 prova)
 3. Leggere gli articoli VHF / Range Index di `GUIDA_ANALISI_FONTI.md` §11.2?
-4. Correzioni multi-asset di §7: attesa la scheda di Claude Code.
+4. ~~Correzioni multi-asset di §7~~ — **fatte il 10/10** (PR #4), vedi §7.
 ---
  
 ## 6 · Lavoro in locale con Claude Code (10/10/2026)
  
-**Impostazione.** Repo clonato sul PC di Mattia (Windows), VS Code + Claude Code. Nel repo: `CLAUDE.md` (istruzioni), `docs/` (copia dei documenti del Project), `engine/mt5_interaction.py` (solo funzioni di lettura), `scarica_dati.py`, cartella `dati/` (nel `.gitignore`, come `.venv/` e `credenziali_mt5.txt`). Un ramo per argomento; invio su GitHub e Merge fatti da Mattia (Git non ha accesso salvato; opzione: GitHub CLI con `gh auth login`).
+**Impostazione.** Repo clonato sul PC di Mattia (Windows), VS Code + Claude Code. Nel repo: `CLAUDE.md` (istruzioni), `docs/` (copia dei documenti del Project), `engine/mt5_interaction.py` (solo funzioni di lettura), `scarica_dati.py`, cartella `dati/` (nel `.gitignore`, come `.venv/` e `credenziali_mt5.txt`). Un ramo per argomento; il Merge lo fa Mattia su GitHub. Dal 10/10 GitHub CLI è installato e collegato (`gh auth login`, account matti410): l'invio del ramo e la Pull request li può fare anche Claude Code.
  
 **Dati scaricati (M15, MT5 del broker, dal 2/1/2020 al 9/10/2026).** EURUSD, GBPUSD, USDJPY, NZDUSD (~168.600 barre ciascuno), BTCUSD (223.655), US500, USTEC, XAUUSD, DE40 (156.700–160.200). **USDCAD escluso**: i dati finiscono a gennaio 2025. Formato identico a `EURUSD_M15.csv`; il notebook oggi legge dalla cartella principale, la riga `pd.read_csv(f'dati/{symbol}_M15.csv', ...)` si cambia al momento dei test per symbol.
  
@@ -78,7 +78,7 @@ Non letti per scelta di Mattia: articoli su HMM / UMAP (modelli addestrati: risc
  
 ---
  
-## 7 · Difetti di portabilità trovati sui symbol nuovi (10/10) — da correggere con scheda
+## 7 · Difetti di portabilità trovati sui symbol nuovi (10/10) — corretti il 10/10 (PR #4)
  
 | difetto | dove | gravità |
 |---|---|---|
@@ -89,3 +89,14 @@ Non letti per scelta di Mattia: articoli su HMM / UMAP (modelli addestrati: risc
 | capitale 10.000 < prezzo su BTCUSD, USTEC, DE40 | `avviso_capitale` già segnala | nota (docs/00) |
  
 Correzioni proposte da Claude Code: (1) pip fisso per symbol, (2) contratto corretto per i metalli, (3) riconoscimento indici dal nome. Le prime due **non sono additive** (toccano `event_study.py`, `costi.py`, i due motori di backtest). Prima la scheda, poi il codice; i numeri di EURUSD e BTCUSD devono restare identici, dimostrato da un test.
+
+**Fatto il 10/10** (scheda approvata da Mattia, PR #4, un commit per correzione):
+
+1. **Pip fisso per symbol**: nuova tabella `engine/simboli.py` (classe, pip, contratto, valuta, cifre di 9 symbol, letti da MT5 con `symbol_info` in sola lettura). Convenzione: forex 0,0001 (JPY 0,01), **oro 0,10 $**, indici 1 punto, BTCUSD 1 $. Il pip viaggia nel dizionario dei costi (`parametri_backtest` → `**costi`) fino a `run_exit_search_bt`, `run_filter_search_bt`, `due_meta` e alla vetrina. Symbol fuori tabella → errore, nessun pip indovinato. `deduci_pip` resta solo come ripiego senza costi (dati sintetici), con un avviso.
+2. **Metalli senza MT5**: nozionale = contratto della tabella × prezzo (XAUUSD 100 once); la commissione di 7 $ vale 0,7 pips, non 0,007.
+3. **Indici dal nome**: US500, USTEC, DE40 → "indici" (nessun numero cambia).
+4. **`valore_pip_lotto`** su oro e indici: XAUUSD 10 $ per pip per lotto, US500 e USTEC 1 $; DE40 è quotato in EUR e chiede `cambio=` (il prezzo di EURUSD).
+
+EURUSD e BTCUSD: numeri identici al bit (parametri, event study, ricerca uscite, ricerca filtri). Collaudo nuovo `test_simboli.py` (46/46); `test_portabilita.py` aggiornato in una riga (US500 ora "indici"). Nota emersa: USTEC ha 2 cifre in MT5 ma nei dati quota sempre a passi di 0,1.
+
+**Resta per il notebook** (insieme al cambio verso `dati/`): `pip=pip_symbol(symbol)` nella cella dell'event study, le righe di spread di listino dei symbol nuovi, `cambio=` per DE40 nella cella dei lotti.
