@@ -887,7 +887,8 @@ FILTRI = {
     "F25_CHOP_TREND":            (filter_chop_trend, 0, None),
     "F25_CHOP_RANGE":            (filter_chop_range, 0, None),
     "F26_VARIANCE_RATIO_TREND":  (filter_variance_ratio_trend, 0, None),
-    "F27_REGIME_TREND_COMPOSITE": (filter_regime_trend_composite, 0, None),
+    # F27: OPZIONALE, togli il "#" solo se approvato (conta 1 prova in piu')
+    # "F27_REGIME_TREND_COMPOSITE": (filter_regime_trend_composite, 0, None),
 }
 
 
