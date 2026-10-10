@@ -86,7 +86,7 @@ import numpy as np
 import pandas as pd
 
 from .event_study import deduci_pip
-from .simboli import pip_symbol
+from .simboli import in_tabella, info_symbol, pip_symbol
 
 
 # ========================================================================
@@ -259,8 +259,37 @@ def nozionale_senza_mt5(symbol: str, prezzo: float,
 
     Il terzo caso (cross: conto USD su EURGBP) richiede un cambio che qui
     non c'e', e la funzione lo dice invece di indovinare.
+
+    METALLI (10/10/2026): prima XAUUSD, avendo 6 lettere, passava per una
+    coppia forex da 100.000 unita' invece di 100 once, e la commissione
+    risultava 1.000 volte troppo piccola, in silenzio. Ora:
+
+        forex     solo se le due meta' sono valute ufficiali (classifica_simbolo)
+        metalli   contratto della tabella di engine/simboli.py x prezzo, con
+                  il conto nella valuta di quotazione (USD su XAUUSD)
+        altro     errore, come prima per i nomi non da 6 lettere
     """
     s, v = (symbol or "").upper(), (valuta_conto or "").upper()
+    classe = classifica_simbolo(s)
+    if classe == "metalli":
+        if not in_tabella(s):
+            raise ValueError(
+                f"'{symbol}': metallo non presente in engine/simboli.py. Aggiungi "
+                "la riga col contratto per lotto, oppure passa nozionale= a mano."
+            )
+        t = info_symbol(s)
+        if v != t["valuta"]:
+            raise ValueError(
+                f"conto in {v} su {s}, quotato in {t['valuta']}: serve il cambio. "
+                "Passa nozionale= a mano, oppure usa la strada con MT5."
+            )
+        return t["contratto"] * float(prezzo)
+    if classe != "forex":
+        raise ValueError(
+            f"'{symbol}' non e' una coppia forex ne' un metallo in tabella: senza "
+            "MT5 il nozionale non e' deducibile. Passa nozionale= a mano, oppure "
+            "usa la strada con MT5."
+        )
     if not (len(s) == 6 and s.isalpha()):
         raise ValueError(
             f"'{symbol}' non e' una coppia forex a 6 lettere: senza MT5 il "

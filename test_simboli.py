@@ -11,6 +11,7 @@ scritta a mano, e viaggia nel dizionario dei costi fino ai motori.
      il pip deve essere il passo per una potenza di 10. Non un rapporto
      fisso: USTEC ha 2 cifre in MT5 ma nei dati quota sempre a passi di 0,1
   D  coerenza fra la tabella e MT5: cifre, contratto, valuta (saltato se MT5 manca)
+  F  nozionale senza MT5: XAUUSD 100 once, EURUSD come prima (correzione 2)
   E  identita' su EURUSD e BTCUSD: parametri_backtest, event study,
      run_exit_search_bt e run_filter_search_bt danno numeri identici col pip
      dedotto (il comportamento di prima) e col pip della tabella
@@ -37,7 +38,7 @@ import pandas as pd
 
 from engine.broker_tz_diagnostic import to_utc_index
 from engine.collaudo_catalogo import mercato_sintetico
-from engine.costi import parametri_backtest
+from engine.costi import nozionale_senza_mt5, parametri_backtest
 from engine.event_study import deduci_pip, run_event_study
 from engine.exit_search_bt import run_exit_search_bt
 from engine.filter_search_bt import run_filter_search_bt
@@ -234,6 +235,27 @@ def esegui() -> int:
               and _uguali(fs_prima.risultati, fs_dopo.risultati) and trade_uguali,
               f"pip {fs_dopo.pip_size:g} · {len(fs_dopo.trades())} trade nella baseline")
         clear_registry()
+
+    # ------------------------------------------- nozionale dei metalli --
+    print("\nF · Nozionale senza MT5: i metalli non sono piu' trattati come forex")
+    check("F1. XAUUSD: nozionale = 100 once x prezzo",
+          nozionale_senza_mt5("XAUUSD", 2000.0) == 200_000.0)
+    c_oro = _muto(parametri_backtest, "XAUUSD", prezzo=2000.0, usa_mt5=False, spread_pips=1.0)
+    costo_rt = c_oro["commission"] * 2 * 2000.0
+    check("F2. XAUUSD: 7 $ per lotto = 0,07 $ per oncia = 0,7 pips da 0,10 $",
+          np.isclose(costo_rt, 0.07) and np.isclose(costo_rt / c_oro["pip_size"], 0.7),
+          f"{costo_rt:.4f} $ di prezzo · {costo_rt / c_oro['pip_size']:.3f} pips")
+    check("F3. EURUSD: nozionale invariato (100.000 x prezzo in USD, 100.000 in EUR)",
+          nozionale_senza_mt5("EURUSD", 1.1) == 100_000.0 * 1.1
+          and nozionale_senza_mt5("EURUSD", 1.1, "EUR") == 100_000.0)
+    def _ferma(*a):
+        try:
+            nozionale_senza_mt5(*a)
+            return False
+        except ValueError:
+            return True
+    check("F4. errore chiaro: 6 lettere non forex, metallo fuori tabella, oro con conto EUR",
+          _ferma("ABCDEF", 1.0) and _ferma("XAUEUR", 1.0) and _ferma("XAUUSD", 2000.0, "EUR"))
 
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
