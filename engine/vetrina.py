@@ -268,6 +268,7 @@ class Sessione:
     def __init__(self):
         self.symbol = None
         self.H = None
+        self.cartella = "."           # 11/10/2026: dove stanno i CSV (anche quello del cambio)
         self.df = self.df_is = self.df_oos = None
         self.costi = None
         self.pip = None
@@ -467,23 +468,50 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     symbol            nome dello strumento: serve il file `{symbol}_M15.csv`
     H                 orizzonte di osservazione, in barre (unico per long e short)
     quota_in_sample   parte iniziale dello storico usata per costruire (0.8 = 80%)
+    cartella          dove stanno i CSV. Default "." (cartella principale, come
+                      prima); il Lab passa DATI_DIR: dati/ in locale, Google
+                      Drive su Colab.
+
+    11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
+    symbol solo dalla tabella di engine/simboli.py; spread dal solo listino
+    (`spread_listino`: senza riga si ferma con la riga esatta da aggiungere);
+    verifica del fuso sul symbol se e' un forex, altrimenti su EURUSD della
+    stessa cartella (la regola del fuso e' del server, docs/10); si ferma se
+    CASH e' meno di 10 volte il prezzo massimo.
 
     Ritorna la sessione da passare alle schermate successive.
     """
     H = int(H)
     if H < 1:
         raise ValueError("H deve essere almeno 1 barra.")
+    info = info_symbol(symbol)      # si ferma subito se il symbol non e' in engine/simboli.py
     percorso = os.path.join(cartella, f"{symbol}_M15.csv")
     if not os.path.exists(percorso):
         raise FileNotFoundError(f"Non trovo {percorso}: serve il CSV dello storico M15 di {symbol}.")
 
     s = Sessione()
-    s.symbol, s.H = symbol, H
+    s.symbol, s.H, s.cartella = symbol, H, cartella
     with _zitto():
         df = pd.read_csv(percorso, index_col="Date")
         df = to_utc_index(df, REGOLA_FUSO, on_dst_gap="drop")
-        verifica_indice_utc(df)
-        sp = spread_in_pips(symbol, df)
+    if info["classe"] == "forex":
+        verifica_indice_utc(df, verbose=False)
+    else:
+        # indici, oro e cripto riaprono a orari loro: il fuso del server si verifica su EURUSD
+        rif = os.path.join(cartella, "EURUSD_M15.csv")
+        if not os.path.exists(rif):
+            raise FileNotFoundError(f"{symbol} non e' un forex: per verificare il fuso del server "
+                                    f"serve anche {rif}.")
+        with _zitto():
+            df_rif = to_utc_index(pd.read_csv(rif, index_col="Date"), REGOLA_FUSO,
+                                  on_dst_gap="drop", verbose=False)
+        verifica_indice_utc(df_rif, verbose=False)
+    prezzo_max = float(df["High"].max())
+    if CASH < 10 * prezzo_max:
+        raise ValueError(f"CASH = {CASH:,} e' meno di 10 volte il prezzo massimo di {symbol} "
+                         f"({prezzo_max:,.2f}): alza CASH in engine/vetrina.py.")
+    sp = spread_listino(symbol, df)
+    with _zitto():
         costi = parametri_backtest(symbol, bars=df, valuta_conto="USD", usa_mt5=False,
                                    spread_pips=sp["normale"], commissione_rt=0.0)
         costi["cash"] = CASH
@@ -1106,6 +1134,23 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
 # 8 · Stress test
 # ========================================================================
 
+def _cambio_ultima_barra(s: Sessione) -> float | None:
+    """
+    Indici e metalli non quotati in USD (oggi DE40, in EUR): il cambio della
+    loro valuta in dollari all'ultima barra, dal CSV `{valuta}USD_M15.csv`
+    della stessa cartella. None per tutti gli altri symbol. 11/10/2026, come
+    la cella dei lotti del notebook principale.
+    """
+    info = info_symbol(s.symbol)
+    if info["classe"] not in ("indici", "metalli") or info["valuta"] == "USD":
+        return None
+    f = os.path.join(s.cartella, f"{info['valuta']}USD_M15.csv")
+    with _zitto():
+        cambi = to_utc_index(pd.read_csv(f, index_col="Date"), REGOLA_FUSO,
+                             on_dst_gap="drop", verbose=False)
+    return float(cambi["Close"].loc[:s.df.index[-1]].iloc[-1])
+
+
 def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
                 simulazioni: int = 20_000) -> dict:
     """
@@ -1123,7 +1168,8 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
         orizzonti = tuple(h for h in ORIZZONTI_MC if h <= max(len(pips), 10))
         yard = yardstick(pips, orizzonti=orizzonti, n_sim=simulazioni)
         mc = montecarlo_completo(pips, n_sim=simulazioni)
-        valore_pip = valore_pip_lotto(s.symbol, s.fs.pip_size, prezzo=float(s.df["Close"].iloc[-1]))
+        valore_pip = valore_pip_lotto(s.symbol, s.fs.pip_size, prezzo=float(s.df["Close"].iloc[-1]),
+                                      cambio=_cambio_ultima_barra(s))
         sz = sizing(mc, drawdown_max_usd, valore_pip, percentile=95)
 
     controllo = pd.DataFrame({
