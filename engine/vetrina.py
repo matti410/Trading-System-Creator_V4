@@ -73,7 +73,7 @@ from .costi import parametri_backtest
 from .due_meta import due_meta
 from .equity_plot import plot_equity
 from .event_study import deduci_pip, run_event_study
-from .simboli import in_tabella, pip_symbol
+from .simboli import in_tabella, info_symbol, pip_symbol
 from .exit_search_bt import barre_per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
 from .confidenza import congela_filtro
@@ -93,9 +93,30 @@ from .splitting import split_is_oos
 
 # Spread in pips del conto IC Markets Standard, per gli strumenti i cui dati
 # non lo contengono. `rollover` e' una stima (vedi 93_QUARANTENA_TRADE_E_COSTI).
+#
+# 10/10/2026: il notebook principale prende lo spread SOLO da qui
+# (`spread_listino`): un symbol senza riga ferma il notebook e il messaggio
+# dice la riga esatta da aggiungere. Le righe degli 8 symbol nuovi sono qui
+# sotto, commentate: "normale" va compilato col listino del conto Standard
+# (da Mattia). Il "rollover" proposto e' la mediana dello spread nelle barre
+# di quarantena dei CSV in dati/ (10/10/2026): e' lo spread MINIMO di barra,
+# quindi un limite inferiore. Pips secondo engine/simboli.py (indici: punti).
 SPREAD_LISTINO_PIPS = {
     "EURUSD": {"normale": 0.8, "rollover": 1.5},
+    # "GBPUSD": {"normale": ..., "rollover": 2.3},
+    # "USDJPY": {"normale": ..., "rollover": 1.4},
+    # "NZDUSD": {"normale": ..., "rollover": 1.7},
+    # "BTCUSD": {"normale": ..., "rollover": 7.4},
+    # "US500":  {"normale": ..., "rollover": 0.5},
+    # "USTEC":  {"normale": ..., "rollover": 2.0},
+    # "XAUUSD": {"normale": ..., "rollover": 0.5},
+    # "DE40":   {"normale": ..., "rollover": 6.0},
 }
+
+# Proposta del rollover dai dati: solo se la colonna spread e' significativa
+# nelle barre di quarantena (almeno 100 barre, almeno meta' con spread > 0).
+ROLLOVER_MIN_BARRE = 100
+ROLLOVER_QUOTA_MIN = 0.5
 
 REGOLA_FUSO = "A_US_DST (NY+7h)"   # da ora server IC Markets a UTC
 CASH = 10_000_000                  # capitale del backtest: i pips non ne dipendono
@@ -274,6 +295,73 @@ def _punto_da_prezzi(close: pd.Series) -> float:
     raise ValueError("impossibile dedurre il punto dello strumento dai prezzi.")
 
 
+def _punto_symbol(symbol: str, close: pd.Series) -> float:
+    """
+    Il «punto» MT5 in cui e' espressa la colonna `spread`. Per i symbol di
+    engine/simboli.py viene dalle cifre decimali lette da MT5; per gli altri
+    dai decimali dei prezzi. 10/10/2026: USTEC ha 2 cifre (punto 0,01) ma
+    quota sempre a passi di 0,1, e dai prezzi risultava uno spread 10 volte
+    troppo alto.
+    """
+    if in_tabella(symbol):
+        return 10.0 ** -info_symbol(symbol)["cifre"]
+    return _punto_da_prezzi(close)
+
+
+def proposta_rollover(symbol: str, df: pd.DataFrame) -> float | None:
+    """
+    Spread nel rollover proposto dai dati, in pips: la mediana della colonna
+    `spread` nelle barre di quarantena (le stesse su cui il motore addebita il
+    costo del rollover), arrotondata a 0,1. None se la colonna non e'
+    significativa: meno di ROLLOVER_MIN_BARRE barre di quarantena, o meno di
+    ROLLOVER_QUOTA_MIN con spread > 0. La colonna e' lo spread MINIMO della
+    barra: la proposta e' un limite inferiore. `df` con indice UTC.
+    """
+    col = next((c for c in df.columns if c.lower() == "spread"), None)
+    if col is None:
+        return None
+    q = quarantena_cached(df)["totale"].to_numpy(dtype=bool)
+    if q.sum() < ROLLOVER_MIN_BARRE:
+        return None
+    punti = df[col].astype(float).to_numpy()[q]
+    if np.mean(punti > 0) < ROLLOVER_QUOTA_MIN:
+        return None
+    in_pips = punti * _punto_symbol(symbol, df["Close"]) / pip_symbol(symbol)
+    return round(float(np.median(in_pips)), 1)
+
+
+def spread_listino(symbol: str, df: pd.DataFrame) -> dict:
+    """
+    Spread normale e nel rollover, in pips, dal SOLO listino
+    (SPREAD_LISTINO_PIPS). E' la fonte del notebook principale (10/10/2026).
+
+    Symbol senza riga: si ferma, e il messaggio contiene la riga esatta da
+    aggiungere, col rollover proposto dai dati (`proposta_rollover`) o con
+    l'avviso che la colonna spread non basta. Lo spread normale non viene
+    mai ricavato dai dati: la colonna e' il minimo di barra di un feed che sul
+    forex vale quasi sempre zero, non lo spread del conto Standard.
+    """
+    s = symbol.upper()
+    if s in SPREAD_LISTINO_PIPS:
+        v = SPREAD_LISTINO_PIPS[s]
+        return {"normale": float(v["normale"]), "rollover": v.get("rollover"),
+                "fonte": "listino del conto Standard"}
+    roll = proposta_rollover(s, df)
+    if roll is None:
+        valore, nota = "None", ("colonna spread non significativa nella quarantena: "
+                                "rollover da leggere in MT5 verso le 23:00 italiane")
+    else:
+        valore, nota = f"{roll:.1f}", ("rollover proposto dai dati: mediana nelle barre di "
+                                     "quarantena, limite inferiore")
+    chiave = f'"{s}":'
+    raise ValueError(
+        f"Manca lo spread di listino di {s}. Aggiungi questa riga a SPREAD_LISTINO_PIPS "
+        f"in engine/vetrina.py, con lo spread normale del conto Standard in pips "
+        f"(indici: punti) al posto di ...:\n\n"
+        f'    {chiave:<9} {{"normale": ..., "rollover": {valore}}},   # {nota}\n'
+    )
+
+
 def spread_in_pips(symbol: str, df: pd.DataFrame, percentile: float = 75.0) -> dict:
     """
     Spread normale e nel rollover, in pips, senza MetaTrader.
@@ -295,7 +383,7 @@ def spread_in_pips(symbol: str, df: pd.DataFrame, percentile: float = 75.0) -> d
             # 10/10/2026: pip fisso se il symbol e' in engine/simboli.py; uno
             # strumento fuori tabella resta una lettura dai dati, come prima
             pip = pip_symbol(s) if in_tabella(s) else deduci_pip(float(close.mean()))
-            in_pips = punti * _punto_da_prezzi(close) / pip
+            in_pips = punti * _punto_symbol(s, close) / pip
             normale = float(np.percentile(in_pips.dropna(), percentile))
             roll = quarantena_cached(df)["rollover"].to_numpy(dtype=bool)
             rollover = (float(np.percentile(in_pips[roll].dropna(), percentile))
