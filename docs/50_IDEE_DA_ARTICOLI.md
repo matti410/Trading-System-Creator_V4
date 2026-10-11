@@ -367,7 +367,7 @@ Repo clonato sul PC di Mattia (Windows), VS Code + Claude Code. Nel repo: `CLAUD
 - **Symbol disponibili (al 9/10/2026):** EURUSD, GBPUSD, USDJPY, NZDUSD (~168.600 barre ciascuno), BTCUSD (223.655), US500, USTEC, XAUUSD, DE40 (156.700–160.200).
 - **USDCAD escluso:** il broker lo fornisce in M15 solo da gennaio 2025, anche nel grafico di MT5.
 - **Pause ricorrenti, non buchi:** indici e oro si fermano ogni giorno dalle 17:00 alle 18:00 di New York; BTCUSD si ferma il venerdì alla stessa ora. Buchi veri: festivi USA (3 luglio, 24 dicembre, 9/1/2025), sospensioni di marzo 2020, il buco noto del 2/12/2021, piccole manutenzioni.
-- **Il notebook principale legge da `dati/`** (dal 10/10): su Colab da Google Drive, `Il mio Drive/Trading-System-Creator_V4/dati/`; in locale dalla cartella `dati/`. `symbol` (cella 11) è l'unica variabile da cambiare.
+- **I due notebook leggono da `dati/`** (il principale dal 10/10, il Lab dall'11/10): su Colab da Google Drive, `Il mio Drive/Trading-System-Creator_V4/dati/`; in locale dalla cartella `dati/`. Nel principale `symbol` (cella 11) è l'unica variabile da cambiare; nel Lab lo strumento si sceglie dal menu del passo 1, fra i 9 symbol di `engine/simboli.py`.
 ### Fuso
  
 Una sola regola per tutto il conto: `A_US_DST (NY+7h)` (`10_DATI_FUSO_BROKER.md`). Conferma sui dati nuovi: le pause quotidiane di indici, oro e BTCUSD (venerdì) cadono alle 17:00 di New York, cioè **21:00–22:00 UTC d'estate e 22:00–23:00 UTC d'inverno**. La diagnosi automatica dà "NO" su indici e oro (match 26–47%) perché guarda la riapertura del weekend, che per loro non segue la regola dei cambi: non è un errore dei dati. Su BTCUSD (aperto nel weekend) la diagnosi non si fa. Per lo stesso motivo nel notebook (cella 13, dall'11/10) `verifica_indice_utc` si applica al symbol solo se è un forex; per indici, oro e cripto si applica a EURUSD dello stesso server. Quarantena ≈5,2% sul forex, ≈2% su indici e oro.
@@ -381,6 +381,15 @@ Una sola regola per tutto il conto: `A_US_DST (NY+7h)` (`10_DATI_FUSO_BROKER.md`
 - **Spread:** il notebook li prende **solo dal listino** del conto Standard (`SPREAD_LISTINO_PIPS` in `engine/vetrina.py`); commissione zero. Valori Standard stimati l'11/10: vedi la sottosezione qui sotto. Un symbol senza riga ferma il notebook, e il messaggio dice la riga esatta da aggiungere, col rollover proposto dai dati (mediana dello spread nelle barre di quarantena, solo se la colonna è significativa: è il minimo di barra, quindi un limite inferiore). Lo spread normale **non** si ricava dalla colonna `spread`: sul forex vale quasi sempre zero (feed di tipo Raw), non è lo spread Standard.
 - **Capitale:** `CASH = 10.000.000` basta per tutti i 9 symbol; il notebook si ferma se è meno di 10 volte il prezzo massimo.
 - USTEC ha 2 cifre in MT5 (punto 0,01) ma nei dati quota sempre a passi di 0,1: la colonna `spread` si converte col punto della tabella, non col passo dei prezzi (prima usciva 10 volte troppo alta).
+### I due notebook: sempre allineati (regola di Mattia, 11/10/2026)
+ 
+`Trading_Grid_Search_v4_backtesting.ipynb` (la ricerca) e `Trading_System_Lab.ipynb` (il laboratorio guidato) **si aggiornano sempre insieme, nello stesso ramo**: ogni modifica a dati, symbol, costi, pip, fuso, capitale o lotti fatta in uno va portata anche nell'altro.
+ 
+- Il Lab non ha codice nelle celle: chiama le funzioni di `engine/vetrina.py` (`prepara`, `stress_test`, …). Allineare il Lab vuol dire di solito modificare `vetrina.py`, più le celle di avvio e del passo 1.
+- **Prova per entrambi:** identità su EURUSD a parità di barre (stesso CSV tagliato all'ultima barra del vecchio, notebook eseguito prima e dopo, uscite e variabili confrontate) e un giro completo su un symbol non forex (DE40), che esercita listino, verifica del fuso su EURUSD e cambio nei lotti.
+- **Allineamento dell'11/10:** il Lab legge da `dati/` o da Drive, offre i 9 symbol, prende lo spread dal solo listino (`spread_listino`), verifica il fuso su EURUSD per indici, oro e cripto, si ferma se `CASH` è meno di 10 volte il prezzo massimo, e nello stress test passa il cambio per DE40. Prova: Lab su EURUSD e BTCUSD identico prima e dopo (24 tabelle su 24 per ciascuno); su DE40 e XAUUSD arriva in fondo (valore del pip 1,12 $ e 10 $).
+- La lente sul trade (passo 7b) disegna un grafico interattivo che richiede il pacchetto `nbformat`: c'è su Colab, non nell'ambiente locale (in locale quel passo dà errore, gli altri no).
+ 
 ### Costi: decisione dell'11/10/2026
  
 **Il demo IC Markets non ha i costi di un conto reale.** Letto dallo storico (9.226 operazioni dal 22/12/2023 al 31/07/2026, sola lettura con permesso di Mattia) e dal report XLSX: commissione **zero** su tutte le operazioni, e spread pagato da Raw (EURUSD circa 0,05 pips; oro 0,09 $, misurato sui tick all'esecuzione). Un conto reale costa circa 0,8 pips su EURUSD sia come Raw (0,06 + 0,7 di commissione) sia come Standard (da 0,8): il demo costa circa 15 volte meno.

@@ -16,6 +16,9 @@ scritta a mano, e viaggia nel dizionario dei costi fino ai motori.
   H  valore di 1 pip per 1 lotto su oro e indici (correzione 4)
   I  spread di listino per il notebook: riga mancante -> messaggio con la riga
      esatta e il rollover proposto dai dati (10/10/2026)
+  J  vetrina (Trading_System_Lab) allineata al notebook principale: symbol
+     della tabella, cartella dei dati, fuso dei non forex su EURUSD, cambio
+     di DE40 (11/10/2026)
   E  identita' su EURUSD e BTCUSD: parametri_backtest, event study,
      run_exit_search_bt e run_filter_search_bt danno numeri identici col pip
      dedotto (il comportamento di prima) e col pip della tabella
@@ -32,7 +35,9 @@ from __future__ import annotations
 
 import contextlib
 import io
+import shutil
 import subprocess
+import tempfile
 import sys
 import warnings
 from pathlib import Path
@@ -351,6 +356,42 @@ def esegui() -> int:
         svuota_cache()
     else:
         saltato("I5", "dati/ non c'e' (es. Colab)")
+
+    # ------------------------------------------- vetrina multi-symbol --
+    print("\nJ · La vetrina (Trading_System_Lab) allineata al notebook principale")
+    try:
+        _muto(_vetrina.prepara, "GBPAUD", cartella=str(QUI / "dati"))
+        fermo = False
+    except KeyError:
+        fermo = True
+    check("J1. strumento fuori da engine/simboli.py: prepara si ferma subito", fermo)
+    s_eur = _muto(_vetrina.prepara, "EURUSD", H=25)
+    check("J2. EURUSD dalla cartella principale come prima: 0,8 / 1,5 pips, pip 0,0001, nessun cambio",
+          (s_eur.spread_pips, s_eur.spread_rollover_pips, s_eur.pip) == (0.8, 1.5, 0.0001)
+          and _vetrina._cambio_ultima_barra(s_eur) is None and s_eur.cartella == ".")
+    dati = QUI / "dati"
+    if (dati / "DE40_M15.csv").exists() and (dati / "EURUSD_M15.csv").exists():
+        s_de = _muto(_vetrina.prepara, "DE40", H=25, cartella=str(dati))
+        eur = _carica_dati(dati / "EURUSD_M15.csv")
+        atteso = float(eur["Close"].loc[:s_de.df.index[-1]].iloc[-1])
+        check("J3. DE40 da dati/: listino 1,5 / 6,5 punti, pip 1, cambio EURUSD dell'ultima barra",
+              (s_de.spread_pips, s_de.spread_rollover_pips, s_de.pip) == (1.5, 6.5, 1.0)
+              and _vetrina._cambio_ultima_barra(s_de) == atteso, f"cambio {atteso:.5f}")
+        cartella_sola = Path(tempfile.mkdtemp())
+        try:
+            shutil.copy(dati / "DE40_M15.csv", cartella_sola)
+            try:
+                _muto(_vetrina.prepara, "DE40", cartella=str(cartella_sola))
+                msg = ""
+            except FileNotFoundError as e:
+                msg = str(e)
+        finally:
+            shutil.rmtree(cartella_sola, ignore_errors=True)
+        check("J4. DE40 senza EURUSD nella cartella: si ferma e dice che serve EURUSD per il fuso",
+              "EURUSD_M15.csv" in msg and "fuso" in msg)
+    else:
+        saltato("J3-J4", "dati/ non c'e' (es. Colab)")
+    svuota_cache()
 
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
