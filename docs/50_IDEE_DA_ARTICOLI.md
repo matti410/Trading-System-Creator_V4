@@ -370,7 +370,7 @@ Repo clonato sul PC di Mattia (Windows), VS Code + Claude Code. Nel repo: `CLAUD
 - **Il notebook principale legge da `dati/`** (dal 10/10): su Colab da Google Drive, `Il mio Drive/Trading-System-Creator_V4/dati/`; in locale dalla cartella `dati/`. `symbol` (cella 11) è l'unica variabile da cambiare.
 ### Fuso
  
-Una sola regola per tutto il conto: `A_US_DST (NY+7h)` (`10_DATI_FUSO_BROKER.md`). Conferma sui dati nuovi: le pause quotidiane di indici, oro e BTCUSD (venerdì) cadono alle 17:00 di New York, cioè **21:00–22:00 UTC d'estate e 22:00–23:00 UTC d'inverno**. La diagnosi automatica dà "NO" su indici e oro (match 26–47%) perché guarda la riapertura del weekend, che per loro non segue la regola dei cambi: non è un errore dei dati. Su BTCUSD (aperto nel weekend) la diagnosi non si fa. Quarantena ≈5,2% sul forex, ≈2% su indici e oro.
+Una sola regola per tutto il conto: `A_US_DST (NY+7h)` (`10_DATI_FUSO_BROKER.md`). Conferma sui dati nuovi: le pause quotidiane di indici, oro e BTCUSD (venerdì) cadono alle 17:00 di New York, cioè **21:00–22:00 UTC d'estate e 22:00–23:00 UTC d'inverno**. La diagnosi automatica dà "NO" su indici e oro (match 26–47%) perché guarda la riapertura del weekend, che per loro non segue la regola dei cambi: non è un errore dei dati. Su BTCUSD (aperto nel weekend) la diagnosi non si fa. Per lo stesso motivo nel notebook (cella 13, dall'11/10) `verifica_indice_utc` si applica al symbol solo se è un forex; per indici, oro e cripto si applica a EURUSD dello stesso server. Quarantena ≈5,2% sul forex, ≈2% su indici e oro.
  
 ### Pip e costi per symbol
  
@@ -378,9 +378,32 @@ Una sola regola per tutto il conto: `A_US_DST (NY+7h)` (`10_DATI_FUSO_BROKER.md`
 - **Metalli senza MT5:** nozionale = contratto × prezzo (XAUUSD 100 once): una commissione di 7 $ vale 0,7 pips.
 - **Indici dal nome:** US500, USTEC, DE40 → classe "indici".
 - **Valore del pip per lotto:** XAUUSD 10 $, US500 e USTEC 1 $; DE40 è quotato in EUR e il notebook passa il cambio EURUSD dell'ultima barra.
-- **Spread:** il notebook li prende **solo dal listino** del conto Standard (`SPREAD_LISTINO_PIPS` in `engine/vetrina.py`); commissione zero. Un symbol senza riga ferma il notebook, e il messaggio dice la riga esatta da aggiungere, col rollover proposto dai dati (mediana dello spread nelle barre di quarantena, solo se la colonna è significativa: è il minimo di barra, quindi un limite inferiore). Lo spread normale **non** si ricava dalla colonna `spread`: sul forex vale quasi sempre zero (feed di tipo Raw), non è lo spread Standard.
+- **Spread:** il notebook li prende **solo dal listino** del conto Standard (`SPREAD_LISTINO_PIPS` in `engine/vetrina.py`); commissione zero. Valori Standard stimati l'11/10: vedi la sottosezione qui sotto. Un symbol senza riga ferma il notebook, e il messaggio dice la riga esatta da aggiungere, col rollover proposto dai dati (mediana dello spread nelle barre di quarantena, solo se la colonna è significativa: è il minimo di barra, quindi un limite inferiore). Lo spread normale **non** si ricava dalla colonna `spread`: sul forex vale quasi sempre zero (feed di tipo Raw), non è lo spread Standard.
 - **Capitale:** `CASH = 10.000.000` basta per tutti i 9 symbol; il notebook si ferma se è meno di 10 volte il prezzo massimo.
 - USTEC ha 2 cifre in MT5 (punto 0,01) ma nei dati quota sempre a passi di 0,1: la colonna `spread` si converte col punto della tabella, non col passo dei prezzi (prima usciva 10 volte troppo alta).
+### Costi: decisione dell'11/10/2026
+ 
+**Il demo IC Markets non ha i costi di un conto reale.** Letto dallo storico (9.226 operazioni dal 22/12/2023 al 31/07/2026, sola lettura con permesso di Mattia) e dal report XLSX: commissione **zero** su tutte le operazioni, e spread pagato da Raw (EURUSD circa 0,05 pips; oro 0,09 $, misurato sui tick all'esecuzione). Un conto reale costa circa 0,8 pips su EURUSD sia come Raw (0,06 + 0,7 di commissione) sia come Standard (da 0,8): il demo costa circa 15 volte meno.
+ 
+**Decisione di Mattia:** si resta su IC Markets; la ricerca usa i costi di un conto **Standard** reale (commissione zero, spread di listino); dopo un numero di operazioni in demo (indicativamente almeno 100) si verifica la veridicità dei costi, e un eventuale scarto dal vivo si sistema dopo.
+ 
+**Come si verifica in demo** (il demo non applica i costi Standard, quindi non si confronta il netto): pips **lordi** delle operazioni demo contro il backtest dello stesso periodo; esecuzione (scarto dal prezzo del segnale, ingresso all'apertura della barra); "demo corretto" = lordo demo meno il costo Standard del listino.
+ 
+**Listino Standard stimato (11/10), in `SPREAD_LISTINO_PIPS`:** normale per forex e oro = spread Raw medio + commissione Raw equivalente (0,7 pips; 1,1 su USDJPY), per indici e BTCUSD = il più alto fra sito e demo; rollover = normale + allargamento misurato nei dati (quarantena meno fuori quarantena). EURUSD resta 0,8 / 1,5, e la regola lo ritrova.
+ 
+| symbol | normale | rollover |
+|---|---|---|
+| EURUSD | 0,8 | 1,5 |
+| GBPUSD | 1,0 | 3,3 |
+| USDJPY | 1,3 | 2,7 |
+| NZDUSD | 0,8 | 2,5 |
+| XAUUSD | 1,6 | 1,8 |
+| US500 | 0,5 | — (nessun allargamento) |
+| USTEC | 1,6 | 2,6 |
+| DE40 | 1,5 | 6,5 |
+| BTCUSD | 12,5 | 12,8 |
+ 
+Sono **stime**: lo 0,8 Standard è il minimo pubblicato, non la media. Da verificare con le prime operazioni sul conto Standard reale; un symbol nuovo senza riga continua a fermare il notebook con la riga esatta da aggiungere.
 ### Collaudo su 9 symbol (10/10/2026)
  
 - `verifica_lookahead` sul mercato sintetico e sugli ultimi ~4 mesi di ogni symbol: 141 righe (122 condizioni + 19 indicatori, compresi `chop` e `vr`), **0 LOOKAHEAD, 0 ERRORE**.
