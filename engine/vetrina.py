@@ -96,21 +96,35 @@ from .splitting import split_is_oos
 #
 # 10/10/2026: il notebook principale prende lo spread SOLO da qui
 # (`spread_listino`): un symbol senza riga ferma il notebook e il messaggio
-# dice la riga esatta da aggiungere. Le righe degli 8 symbol nuovi sono qui
-# sotto, commentate: "normale" va compilato col listino del conto Standard
-# (da Mattia). Il "rollover" proposto e' la mediana dello spread nelle barre
-# di quarantena dei CSV in dati/ (10/10/2026): e' lo spread MINIMO di barra,
-# quindi un limite inferiore. Pips secondo engine/simboli.py (indici: punti).
+# dice la riga esatta da aggiungere (col rollover proposto dai dati).
+#
+# 11/10/2026: righe degli 8 symbol nuovi, STIME del costo di un conto
+# Standard reale (decisione di Mattia: ricerca coi costi Standard, poi verifica
+# in demo; il demo IC Markets ha i prezzi del Raw senza commissione e costa
+# meno del reale, docs/50 §12). Pips secondo engine/simboli.py (indici: punti).
+#   normale, forex e oro = spread Raw medio + commissione Raw equivalente
+#            (7 $ per lotto andata e ritorno), arrotondato per eccesso.
+#            Spread Raw: medio del sito IC Markets EU o pagato davvero nel demo
+#            (tick all'esecuzione, oro: 0,09 $). Commissione: 0,7 pips sulle
+#            coppie in USD e sull'oro, 1,1 pips su USDJPY. Per EURUSD da'
+#            0,06 + 0,7 = 0,8, il valore di listino Standard.
+#   normale, indici e BTCUSD = il piu' alto fra spread medio del sito (uguale
+#            per tutti i conti, niente commissione) e spread pagato nel demo.
+#   rollover = normale + allargamento misurato nei dati (mediana della colonna
+#            spread nelle barre di quarantena meno mediana fuori). Per EURUSD
+#            da' 0,8 + 0,7 = 1,5, il valore gia' in tabella. None = nessun
+#            allargamento misurabile, nessun costo in piu'.
+# Da verificare dal vivo con le prime operazioni sul conto Standard.
 SPREAD_LISTINO_PIPS = {
     "EURUSD": {"normale": 0.8, "rollover": 1.5},
-    # "GBPUSD": {"normale": ..., "rollover": 2.3},
-    # "USDJPY": {"normale": ..., "rollover": 1.4},
-    # "NZDUSD": {"normale": ..., "rollover": 1.7},
-    # "BTCUSD": {"normale": ..., "rollover": 7.4},
-    # "US500":  {"normale": ..., "rollover": 0.5},
-    # "USTEC":  {"normale": ..., "rollover": 2.0},
-    # "XAUUSD": {"normale": ..., "rollover": 0.5},
-    # "DE40":   {"normale": ..., "rollover": 6.0},
+    "GBPUSD": {"normale": 1.0, "rollover": 3.3},    # sito Raw 0,26 + 0,7; allargamento 2,3
+    "USDJPY": {"normale": 1.3, "rollover": 2.7},    # sito Raw 0,22 + 1,1; allargamento 1,4
+    "NZDUSD": {"normale": 0.8, "rollover": 2.5},    # demo 0,05 + 0,7; allargamento 1,7
+    "XAUUSD": {"normale": 1.6, "rollover": 1.8},    # demo 0,9 + 0,7; allargamento 0,2
+    "US500":  {"normale": 0.5, "rollover": None},   # demo 0,50 (sito 0,36); nessun allargamento
+    "USTEC":  {"normale": 1.6, "rollover": 2.6},    # sito 1,57 (demo 1,0); allargamento 1,0
+    "DE40":   {"normale": 1.5, "rollover": 6.5},    # sito 1,46 (demo 0,5); allargamento 5,0
+    "BTCUSD": {"normale": 12.5, "rollover": 12.8},  # demo 12,5 $ (sito 6,46); allargamento 0,3
 }
 
 # Proposta del rollover dai dati: solo se la colonna spread e' significativa

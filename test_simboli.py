@@ -49,6 +49,7 @@ from engine.filter_search_bt import run_filter_search_bt
 from engine.montecarlo import valore_pip_lotto
 from engine.registry import clear_registry, register_entry, register_filter
 from engine.simboli import SIMBOLI, info_symbol, pip_symbol
+from engine import vetrina as _vetrina
 from engine.vetrina import _punto_da_prezzi, _punto_symbol, proposta_rollover, spread_listino
 from engine.livelli import svuota_cache
 
@@ -311,6 +312,7 @@ def esegui() -> int:
     from engine.quarantena import quarantena as _q
     qq = _muto(_q, sint)["totale"].to_numpy()
     sint["spread"] = np.where(qq, 23.0, 0.0)          # 23 punti = 2,3 pips solo in quarantena
+    riga_gbp = _vetrina.SPREAD_LISTINO_PIPS.pop("GBPUSD")   # dall'11/10 c'e': la si toglie per la prova
     try:
         spread_listino("GBPUSD", sint)
         msg = ""
@@ -329,7 +331,15 @@ def esegui() -> int:
     check("I3. colonna spread a zero: rollover None e la spiegazione",
           '"rollover": None' in msg and "non significativa" in msg
           and proposta_rollover("GBPUSD", sint) is None)
+    _vetrina.SPREAD_LISTINO_PIPS["GBPUSD"] = riga_gbp
     svuota_cache()
+    righe = _vetrina.SPREAD_LISTINO_PIPS
+    check("I6. ogni symbol di engine/simboli.py ha la riga di listino, rollover >= normale o None",
+          all(s in righe for s in SIMBOLI)
+          and all(v["rollover"] is None or v["rollover"] >= v["normale"] for v in righe.values()),
+          " · ".join(f"{s} {v['normale']:g}/{v['rollover']}" for s, v in righe.items()))
+    check("I7. EURUSD invariato: 0,8 normale e 1,5 rollover",
+          righe["EURUSD"] == {"normale": 0.8, "rollover": 1.5})
     check("I4. il punto MT5 viene dalle cifre della tabella (USTEC 0,01 anche se quota a 0,1)",
           _punto_symbol("USTEC", pd.Series([20000.1, 20000.3])) == 0.01
           and _punto_symbol("XXXUSD", pd.Series([1.10123, 1.10456])) == 1e-5)
