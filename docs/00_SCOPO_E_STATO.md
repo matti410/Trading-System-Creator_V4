@@ -64,7 +64,7 @@ Ordine di lettura dei documenti:
 | 32 | `32_RIORDINO_CONDIZIONI.md` | riordino del 1/10 nel ramo ML: doppioni tolti (filtri da 20 a 12, trigger da 26 a 18 per lato) e `diagnostica.sovrapposizioni` |
 | 33 | `33_INVERSIONE_E_OR.md` | repo V4, 5/10: entry in OR e inversione su segnale opposto, una posizione alla volta (`entry_composita`, `inverti_su_opposto`) |
 | 40 | `40_NOTEBOOK_SLIM.md` | specifica del notebook «vetrina» da presentare (`engine/vetrina.py`, `Trading_System_Lab.ipynb`), con le correzioni del 7/10 |
-| 50 | `50_IDEE_DA_ARTICOLI.md` | come trascrivere le idee degli articoli Medium in condizioni: flusso, scheda, convenzioni, trappole di lookahead, collaudo, registro delle idee |
+| 50 | `50_IDEE_DA_ARTICOLI.md` | come trascrivere le idee delle fonti testuali in condizioni: flusso, scheda, convenzioni, trappole di lookahead, collaudo, consegna (in locale e in chat), registro delle idee, filtri di regime, lavoro in locale con Claude Code (dati, fuso, pip e costi per symbol). Dal 10/10 contiene anche l'ex `51` |
 | 90 | `90_AUDIT_2026-09-19.md` | audit della pipeline, fotografia datata |
 | 91 | `91_NOTEBOOK_CELLE.md` | cosa resta da incollare nel notebook principale |
 | 92 | `92_AUDIT_2026-10-05.md` | audit del notebook principale V4 del 5/10: cosa è stato verificato e le cose nuove trovate (quarantena sui trade, modello dei costi) |
@@ -263,7 +263,7 @@ degenerazione puliti. Sono emersi altri difetti di portabilità, **corretti**:
 pip dedotto dal prezzo (su US500 cambiava fra IS e OOS), contratto dell'oro
 senza MT5, indici classificati "altro", valore del pip per lotto su oro e
 indici. Ora il pip è **fisso per symbol** (`engine/simboli.py`). Dettagli in
-`51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`, §6 e §7.
+`50_IDEE_DA_ARTICOLI.md`, §12.
  
 ### 6. Un runner unico dei test
  
