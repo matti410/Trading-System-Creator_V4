@@ -42,7 +42,7 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 - Symbol disponibili in dati/ (M15 dal 2/1/2020, scaricati con scarica_dati.py):
   EURUSD, GBPUSD, USDJPY, NZDUSD, BTCUSD, US500, USTEC, XAUUSD, DE40.
   USDCAD è ESCLUSO: il broker lo fornisce in M15 solo da gennaio 2025.
-- Il notebook principale legge dati/{symbol}_M15.csv: in locale dalla cartella dati/,
+- I due notebook leggono dati/{symbol}_M15.csv: in locale dalla cartella dati/,
   su Colab da Google Drive (Il mio Drive/Trading-System-Creator_V4/dati/).
 - Spread: solo dal listino del conto Standard, SPREAD_LISTINO_PIPS in engine/vetrina.py,
   commissione zero. Se un symbol non ha la riga NON inventare lo spread: il notebook si
@@ -56,6 +56,15 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   si leggono da credenziali_mt5.txt (nel .gitignore) o da MT5 già aperto.
 - Dopo ogni download: controlla fuso orario del broker, buchi e barre in quarantena
   (docs/10, docs/11) e riporta il risultato. Pip e costi per symbol: docs/50 §12.
+
+## I due notebook: sempre allineati
+- Trading_Grid_Search_v4_backtesting.ipynb (ricerca) e Trading_System_Lab.ipynb (laboratorio
+  guidato) vanno aggiornati SEMPRE insieme, nello stesso ramo: ogni modifica a dati, symbol,
+  costi, pip, fuso, capitale o lotti fatta in uno va portata anche nell'altro.
+- Il Lab non ha codice nelle celle: chiama le funzioni di engine/vetrina.py (prepara,
+  stress_test, ...). Allineare il Lab vuol dire di solito modificare vetrina.py.
+- Prova per entrambi: identità su EURUSD a parità di barre (prima e dopo la modifica) e un
+  giro completo su un symbol non forex (es. DE40). Dettagli in docs/50 §12.
 
 ## Git e invio su GitHub (procedura completa)
 1. Parti da main aggiornato: `git switch main`, `git fetch origin --prune`,
