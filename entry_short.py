@@ -49,7 +49,7 @@ def entry_short_rsi_cross_overbought(df: pd.DataFrame, threshold: float = 70.0) 
 # ------------------------------------------------------------- E2 --------
 def entry_short_zlema_cross_down(df: pd.DataFrame) -> pd.Series:
     """Il prezzo attraversa la ZLEMA dall'alto verso il basso -> short."""
-    return _evento(_cross_down(df["Close"], df["zlema50"]))
+    return _evento(_cross_down_zlema(df["Open"], df["Close"], df["zlema50"]))
 
 
 # ------------------------------------------------------------- E3 --------
