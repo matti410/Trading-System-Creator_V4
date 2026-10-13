@@ -30,6 +30,7 @@ from helpers import (
     _evento,
     _vsa_figure,
     _cross_up,
+    _cross_up_zlema,
     _cross_down,
     _ts_rank,
     _cdl_bull,
