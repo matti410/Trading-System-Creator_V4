@@ -851,6 +851,28 @@ def filter_regime_trend_composite(df: pd.DataFrame, voti_minimi: int = 2) -> pd.
     return voti >= int(voti_minimi)
 
 
+# --- F28: segno del Volume Flow Indicator (docs/51, V1) -------------------
+# Coppia direzionale: il volume dei rialzi prevale (sopra zero) o no.
+
+def filter_vfi_positive(df: pd.DataFrame) -> pd.Series:
+    """
+    Volume Flow Indicator (colonna `vfi`, 130 barre) sopra lo zero: nelle
+    ultime 130 barre il volume dei rialzi supera quello dei ribassi.
+    Dipende dalla qualita' del volume (tick volume su MT5). Riscaldamento:
+    261 barre.
+
+    Fonte dell'indicatore: LazyBear, "Volume Flow Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/MhlDpfdS-Volume-Flow-Indicator-LazyBear/
+    (nessuna licenza dichiarata). Regola del filtro: docs/51 §3, V1.
+    """
+    return df["vfi"] > 0
+
+
+def filter_vfi_negative(df: pd.DataFrame) -> pd.Series:
+    """Volume Flow Indicator sotto lo zero. Speculare di F28_VFI_POSITIVE."""
+    return df["vfi"] < 0
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -887,6 +909,8 @@ FILTRI = {
     "F25_CHOP_TREND":            (filter_chop_trend, 0, None),
     "F25_CHOP_RANGE":            (filter_chop_range, 0, None),
     "F26_VARIANCE_RATIO_TREND":  (filter_variance_ratio_trend, 0, None),
+    "F28_VFI_POSITIVE":          (filter_vfi_positive, 1, "VFI_SIGN"),
+    "F28_VFI_NEGATIVE":          (filter_vfi_negative, -1, "VFI_SIGN"),
     # F27: OPZIONALE, togli il "#" solo se approvato (conta 1 prova in piu')
     # "F27_REGIME_TREND_COMPOSITE": (filter_regime_trend_composite, 0, None),
 }

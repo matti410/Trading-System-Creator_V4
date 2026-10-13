@@ -387,13 +387,73 @@ def variance_ratio(close: pd.Series, orizzonte: int = 4, finestra: int = 192) ->
     return vr.where(~(var_1 == 0), 1.0)
 
 
+# =========================================================================
+# Indicatori tradotti da script TradingView (docs/51_INDICATORI_TRADINGVIEW.md)
+# Traduzione riga per riga del Pine; fedelta' verificata con PineTS
+# (test_indicatori_tradingview.py).
+# =========================================================================
+def volume_flow(df: pd.DataFrame, lunghezza: int = 130, coef: float = 0.2,
+                vcoef: float = 2.5) -> pd.Series:
+    """
+    Volume Flow Indicator (VFI): il volume delle ultime `lunghezza` barre,
+    contato col segno del movimento del prezzo tipico, diviso per il volume
+    medio. Sopra zero prevale il volume che accompagna i rialzi.
+
+    Riga per riga dallo script (smoothVFI = false, il default):
+      tipico  = (H + L + C) / 3
+      cutoff  = coef x dev. std. (di popolazione, come Pine) su 30 barre dei
+                rendimenti log del tipico x Close
+      vave    = media del volume su `lunghezza` barre, fino alla barra PRIMA
+      vc      = volume, tagliato a vcoef x vave
+      vcp     = +vc se il tipico sale piu' di cutoff, -vc se scende piu' di
+                cutoff, altrimenti 0 (finche' cutoff non esiste vale 0, come
+                in Pine dove un confronto con na e' falso)
+      VFI     = somma di vcp su `lunghezza` barre / vave
+    Usa solo la barra corrente e le precedenti. Riscaldamento: le prime
+    2 x `lunghezza` - 1 barre sono NaN (261 con il default).
+    Volume medio nullo (dati senza volume): vale 0 ("nessun flusso") invece
+    di NaN, perche' `aggiungi_indicatori` toglie le righe con un NaN.
+
+    VOLUME: dipende dalla qualita' del volume. Su MT5 (forex, CFD) e' il
+    tick volume del broker, sugli exchange crypto e' volume reale: il codice
+    non assume ne' l'uno ne' l'altro.
+
+    Parametri: i default dello script (130, 0.2, 2.5), mai provati in varianti.
+
+    Fonte: LazyBear, "Volume Flow Indicator [LazyBear]", TradingView,
+    https://www.tradingview.com/script/MhlDpfdS-Volume-Flow-Indicator-LazyBear/
+    Licenza: nessuna dichiarata nell'header (script open source della
+    community; l'autore chiede solo una segnalazione se lo si riusa).
+    L'indicatore e' di Markos Katsanos (2004).
+    """
+    n = int(lunghezza)
+    tipico = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    volume = df["Volume"].astype(float)
+    inter = np.log(tipico).diff()
+    cutoff = coef * inter.rolling(30).std(ddof=0) * df["Close"]
+    vave = volume.rolling(n).mean().shift(1)
+    vmax = vave * vcoef
+    vc = volume.where(volume < vmax, vmax)
+    mf = tipico.diff()
+    vcp = np.where(mf > cutoff, vc, np.where(mf < -cutoff, -vc, 0.0))
+    # somma rifatta da capo su ogni finestra: la somma mobile di pandas
+    # (aggiungi l'ultima, togli la piu' vecchia) lascia residui di 1e-16
+    # dove la somma vera e' zero, e il segno di VFI deciderebbe a caso
+    somma = np.full(len(vcp), np.nan)
+    if len(vcp) >= n:
+        somma[n - 1:] = sliding_window_view(vcp, n).sum(axis=1)
+    vfi = pd.Series(somma, index=df.index) / vave.where(vave > 0)
+    return vfi.where(~(vave == 0), 0.0)
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
 
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
-        ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix
+        ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
+        chop, vr, vfi (vfi: docs/51, V1, riscaldamento 261 barre)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -428,6 +488,7 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["iix"] = intraday_intensity(df)
     df["chop"] = indice_choppiness(df)
     df["vr"] = variance_ratio(df["Close"])
+    df["vfi"] = volume_flow(df)
     return df.dropna()
 
 
@@ -436,5 +497,5 @@ COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
-    "chop", "vr",
+    "chop", "vr", "vfi",
 )

@@ -382,6 +382,23 @@ def entry_vsa_bullish(df: pd.DataFrame) -> pd.Series:
     return _evento(figure["stopping_volume"] | figure["no_supply"])
 
 
+# ------------------------------------------------------------ E28 --------
+def entry_vfi_cross_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Il Volume Flow Indicator (colonna `vfi`, 130 barre) passa sopra lo zero
+    -> long. Evento: la barra in cui va da <= 0 a > 0.
+
+    Dipende dalla qualita' del volume (tick volume su MT5). Riscaldamento:
+    261 barre.
+
+    Fonte dell'indicatore: LazyBear, "Volume Flow Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/MhlDpfdS-Volume-Flow-Indicator-LazyBear/
+    (nessuna licenza dichiarata). Regola d'ingresso: docs/51 §3, V1.
+    """
+    zero = pd.Series(0.0, index=df.index)
+    return _evento(_cross_up(df["vfi"], zero))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -418,6 +435,7 @@ TRIGGER_LONG = {
     "E24_CYCLE_TURN_UP": entry_cycle_turn_up,
     "E25_ATC_PVO_SETUP_UP": entry_atc_pvo_setup_up,    "E26_SUPERTREND_IIX_SETUP_UP": entry_supertrend_iix_setup_up,
     "E27_VSA_BULLISH": entry_vsa_bullish,
+    "E28_VFI_CROSS_UP": entry_vfi_cross_up,
 }
 
 

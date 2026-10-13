@@ -338,6 +338,20 @@ def entry_short_vsa_bearish(df: pd.DataFrame) -> pd.Series:
     return _evento(figure["climax_sell"] | figure["no_demand"])
 
 
+# ------------------------------------------------------------ E28 --------
+def entry_short_vfi_cross_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Il Volume Flow Indicator (colonna `vfi`) passa sotto lo zero -> short.
+    Speculare di E28_VFI_CROSS_UP.
+
+    Fonte dell'indicatore: LazyBear, "Volume Flow Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/MhlDpfdS-Volume-Flow-Indicator-LazyBear/
+    (nessuna licenza dichiarata). Regola d'ingresso: docs/51 §3, V1.
+    """
+    zero = pd.Series(0.0, index=df.index)
+    return _evento(_cross_down(df["vfi"], zero))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -374,6 +388,7 @@ TRIGGER_SHORT = {
     "E24_SHORT_CYCLE_TURN_DOWN": entry_short_cycle_turn_down,
     "E25_SHORT_ATC_PVO_SETUP_DOWN": entry_short_atc_pvo_setup_down,    "E26_SHORT_SUPERTREND_IIX_SETUP_DOWN": entry_short_supertrend_iix_setup_down,
     "E27_SHORT_VSA_BEARISH": entry_short_vsa_bearish,
+    "E28_SHORT_VFI_CROSS_DOWN": entry_short_vfi_cross_down,
 }
 
 

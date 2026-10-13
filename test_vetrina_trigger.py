@@ -57,6 +57,7 @@ ECCEZIONI_ATTESE = {          # trigger che hanno per scelta solo nome + candela
     "E3_LONG_INTRABAR_WEAKNESS_FADE", "E3_SHORT_INTRABAR_STRENGTH_FADE",
     "E7_BIG_TAIL_BARS", "E7_SHORT_BIG_TAIL_BARS",
     "E27_VSA_BULLISH", "E27_SHORT_VSA_BEARISH",
+    "E28_VFI_CROSS_UP", "E28_SHORT_VFI_CROSS_DOWN",      # docs/51, V1 (13/10/2026)
 }
 W = 60                        # candele di contesto per il test delle candele
 N_RILEVAZIONI = 40

@@ -3,3 +3,5 @@ dati/
 credenziali_mt5.txt
 __pycache__/
 ReportHistory-*.xlsx
+pine_sources/
+strumenti_pinets/node_modules/
