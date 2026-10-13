@@ -31,6 +31,7 @@ from helpers import (
     _vsa_figure,
     _cross_up,
     _cross_down,
+    _cross_down_zlema,
     _ts_rank,
     _cdl_bear,
     _confermato,
