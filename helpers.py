@@ -21,9 +21,31 @@ def _cross_up(fast: pd.Series, slow: pd.Series) -> pd.Series:
     return (fast > slow) & (fast.shift(1) <= slow.shift(1))
 
 
+def _cross_up_zlema(open_: pd.Series, close: pd.Series, zlema: pd.Series) -> pd.Series:
+    """
+    `close` attraversa `zlema` dal basso verso l'alto sulla barra precedente (cross),
+    e la barra corrente è la conferma: candela verde (close > open), close sopra
+    la close della barra del cross e ancora sopra la zlema. Evento puntuale.
+    """
+    cross_prima = (close.shift(1) > zlema.shift(1)) & (close.shift(2) <= zlema.shift(2))
+    conferma = (close > open_) & (close > close.shift(1)) & (close > zlema)
+    return cross_prima & conferma
+
+
 def _cross_down(fast: pd.Series, slow: pd.Series) -> pd.Series:
     """`fast` attraversa `slow` dall'alto verso il basso (evento puntuale)."""
     return (fast < slow) & (fast.shift(1) >= slow.shift(1))
+
+
+def _cross_down_zlema(open_: pd.Series, close: pd.Series, zlema: pd.Series) -> pd.Series:
+    """
+    `close` attraversa `zlema` dall'alto verso il basso sulla barra precedente (cross),
+    e la barra corrente è la conferma: candela rossa (close < open), close sotto
+    la close della barra del cross e ancora sotto la zlema. Evento puntuale.
+    """
+    cross_prima = (close.shift(1) < zlema.shift(1)) & (close.shift(2) >= zlema.shift(2))
+    conferma = (close < open_) & (close < close.shift(1)) & (close < zlema)
+    return cross_prima & conferma
 
 
 def _ts_rank(series: pd.Series, window: int) -> pd.Series:
