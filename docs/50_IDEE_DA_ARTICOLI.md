@@ -1,6 +1,6 @@
 # 50 · Idee da fonti testuali — come trascriverle in condizioni
  
-**Data:** 7 ottobre 2026 (registro aggiornato l'8/10; regola dei setup composti in §4 e riordino del 9/10; **il 10/10 fuso con l'ex `51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`**)
+**Data:** 7 ottobre 2026 (registro aggiornato l'8/10 e il 15/10, filtro di sentiment F36 in §10 ter; regola dei setup composti in §4 e riordino del 9/10; **il 10/10 fuso con l'ex `51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`**)
 **Stato:** metodo concordato con Mattia; esteso il 7/10 da articoli a **video YouTube (trascrizione incollata da Mattia) e libri**. Al 10/10/2026 trascritti 9 articoli (7 con candidate nel catalogo), **17 prove**: vedi il registro in §10. L'esempio guidato del primo articolo (Fourier, Kaabar) resta in §11. Repo di destinazione predefinito: V4 (confermato il 7/10).
 **Fusione con 51 (10/10/2026):** il documento `51` (consegna "a parti", registro dei filtri di regime, lavoro in locale) è entrato qui e non esiste più. Dove i due documenti dicevano cose diverse valeva il 51, e qui è già applicato: regola di consegna in §9, registro in §10, filtri di regime in §10 bis, lavoro in locale con Claude Code in §12.
 **Nota sul nome:** il file resta `50_IDEE_DA_ARTICOLI.md` perché altri documenti lo citano; vale per qualunque fonte testuale.
@@ -303,10 +303,11 @@ Una riga per fonte (nei libri, per capitolo). Serve a due cose: sapere cosa è g
 | 8 | articolo | 9/10/2026 | Kaabar, VA-RSI (Volatility-Adjusted RSI), Medium/Coinmonks | RSI aggiustato per volatilità | — | **messo da parte** (non scartato): troppo reattivo; la EMA di lisciatura aggiungerebbe ritardo su ritardo | — | no | 0 |
 | 9 | articolo | 9/10/2026 | articolo Mellin (trasformata) | — | — | scartato: FFT per barra, nessuna regola in condizione | — | no | 0 |
 | 10 | script TradingView | 13–15/10/2026 | 7 script della community (`51_INDICATORI_TRADINGVIEW.md`): VFI, Squeeze Momentum, WaveTrend di LazyBear; Relative Volume di veryfid; KER di Zorba_the_Buddha; Hurst di PhenLabs (CC BY-NC-SA, uso personale); filtri MLExtensions di jdehorty | traduzione riga per riga del Pine, fedeltà verificata con PineTS | entry E28 (VFI), E29 (squeeze), E30 (WaveTrend a percentile); filtri F28 (VFI, coppia), F29_RVOL_LOW, F32_KER_RANGE, F33 (Hurst ×2), F35 (regime jdehorty). **Spenti come doppioni:** F29_RVOL_HIGH, F30, F31, F32_KER_TREND, F34 | piano approvato il 13/10, scelte del 13–15/10 (`51` §7.1) | superato 15/10 (`test_indicatori_tradingview.py` 143/143) | sì | 12 (+5 se si riattivano i doppioni) |
+| 11 | concetto (indice esterno) | 15/10/2026 | Crypto Fear & Greed Index di alternative.me (https://alternative.me/crypto/fear-and-greed-index/), solo come **idea**: formula, dati e nome non usati, codice nostro senza licenze di terzi (prodotto commerciale) | sentiment giornaliero dai soli prezzi e tick volume: 4 componenti (volatilità, drawdown, momentum, volume con segno) a 30 giorni, percentile a 365 giornate, punteggio 0–100 e 5 quintili; aggiornato a fine giornata FX, ogni barra vede solo l'ultima giornata chiusa | filtri F36_SENT_EXTREME_FEAR (+1) / F36_SENT_EXTREME_GREED (−1), coppia SENTIMENT, **contrarian** (paura sul long); colonne `sentiment_score`, `sentiment_classe` | approvata 15/10 (solo la versione contrarian; no versione momentum e no filtro neutro) | superato 15/10 (`test_sentiment.py` 53/53) | sì | 1 |
  
 Non letti per scelta di Mattia: articoli su HMM / UMAP (modelli addestrati: rischio lookahead e calcolo pesante). Restano in elenco in `GUIDA_ANALISI_FONTI.md` §11.2 (Range Index, Vertical Horizontal Filter, change point bayesiano…).
  
-**Prove da fonti testuali al 15/10/2026: 29** (articoli 17, script TradingView 12, video 0, libri 0), con **F27 e i doppioni di `51` spenti**; **30** se si attiva F27, **+5** se si riattivano i doppioni di `51`. Al 10/10/2026 erano 17. Storia del conteggio: 17 all'8/10; 14 il 9/10, quando i setup degli articoli 2 e 3 sono stati riscritti come entry uniche (§4) e i filtri estratti PVO e IIX sono stati tolti; 17 dal 9/10 con i filtri di regime F25 (2) e F26 (1).
+**Prove da fonti testuali al 15/10/2026: 30** (articoli 17, script TradingView 12, indice di sentiment 1, video 0, libri 0), con **F27 e i doppioni di `51` spenti**; **31** se si attiva F27, **+5** se si riattivano i doppioni di `51`. Prima di F36 (15/10) erano 29. Al 10/10/2026 erano 17. Storia del conteggio: 17 all'8/10; 14 il 9/10, quando i setup degli articoli 2 e 3 sono stati riscritti come entry uniche (§4) e i filtri estratti PVO e IIX sono stati tolti; 17 dal 9/10 con i filtri di regime F25 (2) e F26 (1).
  
 Per video e libri la colonna «fonte» riporta canale e titolo (video) o autore, titolo e capitolo (libro), più il riferimento (minuto o pagina).
  
@@ -335,6 +336,36 @@ Per video e libri la colonna «fonte» riporta canale e titolo (video) o autore,
 1. Attivare F27 composito? (+1 prova)
 2. Variante CHOP lenta (48 barre)? (+1 prova)
 3. Leggere gli articoli VHF / Range Index di `GUIDA_ANALISI_FONTI.md` §11.2?
+---
+ 
+## 10 ter · Il filtro di sentiment F36 (15/10/2026)
+
+### Come funziona (per decidere senza codice)
+
+- **Una volta al giorno**, a fine giornata FX (17:00 New York), si calcolano quattro misure sulle barre M15 di quel giorno, ognuna confrontata con i 30 giorni prima: **volatilità** (alta = paura), **distanza dal massimo** (lontani = paura), **prezzo rispetto alla media** (sotto = paura), **tick volume col segno del giorno** (volume alto in calo = paura). Ogni misura diventa il suo percentile sulle ultime 365 giornate; la media delle quattro, × 100, è il **punteggio** (0 paura, 100 avidità).
+- La **classe** è il percentile del punteggio sulle ultime 365 giornate, in 5 quintili: 1 paura estrema, 2 paura, 3 neutro, 4 avidità, 5 avidità estrema.
+- **Ogni barra vede solo l'ultima giornata chiusa**: dentro la giornata il valore resta quello di ieri. Le barre in quarantena non entrano nel calcolo.
+- **F36 contrarian:** paura estrema → filtro sul long, avidità estrema → filtro sullo short (coppia `SENTIMENT`, una prova). La `direction` qui è il lato su cui si applica: eccezione dichiarata nel codice.
+- **Giornate, non giorni di calendario:** su BTCUSD 365 giornate sono un anno, sul forex circa 17 mesi.
+- **Riscaldamento di circa 2 anni** (30 + 365 + 365 giornate): il punteggio c'è da maggio 2021, la classe da maggio 2022 su BTCUSD e da fine 2022 sugli altri symbol. La scheda diceva 13 mesi: era sbagliato, perché il doppio percentile li raddoppia. Le colonne si aggiungono dopo il taglio di `aggiungi_indicatori`: le altre condizioni non perdono righe.
+### Collaudo (15/10/2026)
+
+- `test_sentiment.py` (nuovo): 53/53 con pandas 3.0.6. Prove: riscrittura indipendente giornata per giornata (forex e crypto sintetici, BTCUSD vero); valore fermo nella giornata; riscaldamento esatto; barre in quarantena sporcate senza effetto; crollo ed euforia costruiti a mano; trappola "giorno in corso" segnata LOOKAHEAD; 30 tagli a metà giornata; indipendenza dal punto di partenza; 9 symbol; registrazione. Pandas 2.2 non provato in locale: lo copre il collaudo su Colab.
+- 9 symbol: F36 vero sul 19–22% delle barre con la classe pronta, per ciascun lato. `verifica_degenerazione` su BTCUSD: OK.
+- `Collaudo_Catalogo.ipynb`: sul mercato sintetico di 4 mesi F36 risulta `NON_ESERCITATA` perché manca la storia di 2 anni. È atteso: il lookahead lo copre `test_sentiment.py`.
+- **Confronto di controllo con alternative.me** (dato in `dati/FNG_alternative_me.csv`, non usato dal prodotto, nessun parametro ritoccato):
+  - livelli: correlazione di rango 0,43 su 1.971 giornate (0,43–0,73 anno per anno), massima col loro valore del giorno dopo, come atteso perché loro aggiornano alle 00:00 UTC;
+  - variazioni a 7 giorni: 0,60;
+  - per componente: drawdown 0,52, momentum 0,53, volume 0,12, volatilità 0,00;
+  - quintili: stessa classe il 29% delle volte (20% a caso), al massimo una classe di distanza il 64% (52% a caso).
+- **Sovrapposizioni** (§7.5, in-sample, barre con la classe pronta):
+  - EURUSD: l'avidità estrema sta al 71% dentro F28_VFI_POSITIVE (1,38 volte il caso);
+  - BTCUSD: paura e avidità stanno al 74% e al 73% dentro VWAP_PREVIOUS_SESSION_CLOSED_BELOW / ABOVE (1,50 e 1,45 volte il caso);
+  - correlazioni 0,18–0,24. Sono al limite della regola: decide Mattia (sotto).
+### Decisioni
+
+1. **Deciso il 15/10/2026 (Mattia): F36 resta acceso** nonostante le sovrapposizioni al limite.
+2. Aperta: riscaldamento più corto, con il percentile delle componenti a 180 giornate invece di 365 (~1,6 anni)? Va deciso prima di guardare i risultati.
 ---
  
 ## 11 · Esempio guidato — l'articolo Fourier (applicazione della lista, non la scheda)

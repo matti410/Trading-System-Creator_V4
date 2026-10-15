@@ -1074,6 +1074,43 @@ def filter_wt_below_signal(df: pd.DataFrame) -> pd.Series:
     return df["wt1"] < df["wt2"]
 
 
+# =========================================================================
+# Filtro di sentiment entrato il 15/10/2026 (docs/50 §10, riga 11)
+# =========================================================================
+
+# --- F36: sentiment paura / avidita', letto in modo CONTRARIAN -----------
+# Coppia "SENTIMENT". ATTENZIONE alla direction, eccezione dichiarata alla
+# convenzione di questo file (direction = stato di mercato): qui direction e'
+# il LATO su cui il filtro si applica. La paura estrema e' uno stato
+# ribassista, ma l'ipotesi della fonte e' contrarian ("la paura estrema e'
+# un'occasione per comprare"): va sul long (+1) e l'avidita' estrema sullo
+# short (-1), cosi' la coppia prova in una riga sola l'ipotesi della fonte.
+# Scelta approvata da Mattia il 15/10/2026 (solo la versione contrarian,
+# 1 prova; la versione momentum non e' nel catalogo).
+
+def filter_sent_extreme_fear(df: pd.DataFrame) -> pd.Series:
+    """
+    Paura estrema: il sentiment dell'ultima giornata FX chiusa
+    (`sentiment_classe`, vedi engine.indicatori.sentiment_giornaliero) e'
+    nel quintile piu' basso delle ultime 365 giornate. Si applica al long
+    (contrarian, vedi sopra).
+
+    Il valore cambia solo sulla prima barra della giornata FX: dentro la
+    giornata il filtro resta fermo. Falso nel riscaldamento (~760 giornate).
+    Parametri fissati a priori, mai provati in varianti.
+
+    Fonte dell'idea: Crypto Fear & Greed Index di alternative.me,
+    https://alternative.me/crypto/fear-and-greed-index/ (15/10/2026). Formula
+    e codice nostri, nessun dato esterno.
+    """
+    return df["sentiment_classe"] == 1
+
+
+def filter_sent_extreme_greed(df: pd.DataFrame) -> pd.Series:
+    """Avidita' estrema: `sentiment_classe` nel quintile piu' alto. Si applica allo short. Vedi F36_SENT_EXTREME_FEAR."""
+    return df["sentiment_classe"] == 5
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -1123,6 +1160,9 @@ FILTRI = {
     #   72% dentro F6 = 1,53 volte; regola di docs/50 §7.5 del 15/10/2026)
     # "F34_JDH_VOLATILITY":        (filter_jdh_volatility, 0, None),
     "F35_JDH_REGIME_TREND":      (filter_jdh_regime_trend, 0, None),
+    # F36: contrarian, direction = lato su cui si applica (vedi la funzione)
+    "F36_SENT_EXTREME_FEAR":     (filter_sent_extreme_fear, 1, "SENTIMENT"),
+    "F36_SENT_EXTREME_GREED":    (filter_sent_extreme_greed, -1, "SENTIMENT"),
     # Doppioni SPENTI (regola di docs/50 §7.5 alla lettera, decisione di Mattia
     # del 15/10/2026): contenuti al 70% o piu' in filtri gia' presenti, su
     # EURUSD in-sample. Togli il "#" solo se Mattia lo decide (1 prova a coppia).

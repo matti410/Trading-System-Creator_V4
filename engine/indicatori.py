@@ -776,6 +776,134 @@ def wavetrend(df: pd.DataFrame, canale: int = 10, media: int = 21) -> pd.DataFra
     return pd.DataFrame({"wt1": wt1, "wt2": wt2}, index=df.index)
 
 
+def _sentiment_per_giorno(df: pd.DataFrame, giorni_media: int = 30,
+                          giorni_percentile: int = 365) -> pd.DataFrame:
+    """
+    Il cuore di `sentiment_giornaliero`: una riga per giornata FX presente
+    nello storico (indice = numero progressivo di `giorno_fx`), con le
+    quattro componenti, il punteggio e la classe CALCOLATI A FINE GIORNATA.
+    Le giornate senza barre utili, o con un rendimento non calcolabile,
+    hanno NaN e non entrano nelle finestre (che contano solo giornate valide).
+    """
+    from engine.livelli import giorno_fx, quarantena_cached
+
+    giorno = giorno_fx(df).to_numpy()
+    utile = ~quarantena_cached(df)["totale"].reindex(df.index).fillna(False).to_numpy(dtype=bool)
+    g, close = giorno[utile], df["Close"].to_numpy(dtype=float)[utile]
+    # rendimenti fra barre UTILI consecutive della stessa giornata: il primo di
+    # ogni giornata (scavalca il confine) e quelli che partirebbero da una barra
+    # in quarantena non esistono
+    rend = np.full(len(close), np.nan)
+    if len(close) > 1:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rend[1:] = np.where(g[1:] == g[:-1], np.log(close[1:] / close[:-1]), np.nan)
+    barre = pd.DataFrame({"g": g, "close": close, "rend": rend,
+                          "volume": df["Volume"].to_numpy(dtype=float)[utile]})
+    per_g = barre.groupby("g").agg(close=("close", "last"), vol=("rend", "std"),
+                                   volume=("volume", "mean"))
+    per_g = per_g.reindex(np.arange(int(giorno.max()) + 1 if len(giorno) else 0))
+
+    m, p = int(giorni_media), int(giorni_percentile)
+    valide = per_g.dropna().copy()
+    valide = valide[(valide["close"] > 0) & (valide["volume"] > 0)]
+    rend_g = np.log(valide["close"] / valide["close"].shift(1))
+    # 1 volatilita' del giorno rispetto alla sua media a `m` giorni (alta = paura)
+    v1 = valide["vol"] / valide["vol"].rolling(m).mean()
+    # 2 distanza dal massimo delle chiusure degli ultimi `m` giorni (profonda = paura)
+    v2 = valide["close"] / valide["close"].rolling(m).max() - 1.0
+    # 3 chiusura rispetto alla media delle chiusure a `m` giorni (sotto = paura)
+    v3 = valide["close"] / valide["close"].rolling(m).mean() - 1.0
+    # 4 volume medio per barra del giorno / media a `m` giorni, col segno del
+    #   rendimento del giorno (volume alto in calo = paura, in salita = avidita')
+    v4 = np.sign(rend_g) * valide["volume"] / valide["volume"].rolling(m).mean()
+
+    def _pct(s: pd.Series) -> pd.Series:
+        # percentile sui soli giorni con il valore (i primi `m` non ce l'hanno)
+        s = s.dropna()
+        return s.rolling(p).rank(pct=True).reindex(valide.index)
+
+    comp = pd.DataFrame({"sent_volatilita": 1.0 - _pct(v1), "sent_drawdown": _pct(v2),
+                         "sent_momentum": _pct(v3), "sent_volume": _pct(v4)})
+    # 1 - rank: il valore piu' alto della finestra (rank 1) diventa 0, il piu'
+    # basso (1/p) diventa 1 - 1/p: scala (0, 1] rovesciata in [0, 1), voluta
+    punteggio = 100.0 * comp.mean(axis=1, skipna=False)
+    rango = punteggio.dropna().rolling(p).rank(pct=True).reindex(valide.index)
+    classe = pd.Series(np.select([rango <= 0.2, rango <= 0.4, rango <= 0.6, rango <= 0.8, rango <= 1.0],
+                                 [1.0, 2.0, 3.0, 4.0, 5.0], default=np.nan), index=valide.index)
+    esito = comp.assign(sentiment_score=punteggio, sentiment_classe=classe)
+    return esito.reindex(per_g.index)
+
+
+def sentiment_giornaliero(df: pd.DataFrame, giorni_media: int = 30,
+                          giorni_percentile: int = 365) -> pd.DataFrame:
+    """
+    Indice di sentiment "paura / avidita'" costruito SOLO dalle barre del
+    symbol (prezzo e tick volume), aggiornato una volta al giorno.
+
+    Per ogni giornata FX (da rollover a rollover, 17:00 New York, `giorno_fx`),
+    a fine giornata, quattro componenti, ciascuna trasformata nel suo
+    percentile sugli ultimi `giorni_percentile` giorni (0 = paura, 1 = avidita'):
+
+      1 volatilita'   deviazione standard dei rendimenti M15 del giorno, divisa
+                      per la sua media a `giorni_media` giorni; ROVESCIATA
+                      (volatilita' alta = paura)
+      2 drawdown      chiusura del giorno / massimo delle chiusure degli ultimi
+                      `giorni_media` giorni - 1 (lontano dai massimi = paura)
+      3 momentum      chiusura del giorno / media delle chiusure a
+                      `giorni_media` giorni - 1 (sotto la media = paura)
+      4 volume        tick volume medio per barra del giorno / sua media a
+                      `giorni_media` giorni, col segno del rendimento del
+                      giorno (volume alto in calo = paura, in salita = avidita')
+
+      sentiment_score   media delle quattro, x 100: da 0 (paura) a 100 (avidita')
+      sentiment_classe  percentile del punteggio sugli ultimi `giorni_percentile`
+                        giorni, in 5 quintili: 1 paura estrema (fino al 20%),
+                        2 paura, 3 neutro, 4 avidita', 5 avidita' estrema (oltre l'80%)
+
+    COSA VEDE UNA BARRA: i valori della giornata FX gia' CHIUSA piu' recente.
+    Dentro la giornata in corso il valore resta fermo (quello di ieri), e
+    cambia solo sulla prima barra della giornata successiva. Nessun valore
+    "di oggi" e' usato durante oggi.
+
+    Dettagli:
+    - Le barre in quarantena (rollover, prima barra dopo una pausa) non
+      entrano nei valori, come in `range_finestra`; il confine della giornata
+      viene dal calendario puro.
+    - Si usa il volume MEDIO per barra e la deviazione standard per barra:
+      una giornata corta (festivo, apertura della domenica) non sembra una
+      giornata "a volume basso". La volatilita' usa i rendimenti fra barre
+      utili consecutive della stessa giornata: il primo di ogni giornata
+      (scavalca il confine) e quelli che partono da una barra in quarantena
+      sono esclusi. Cambiare prezzi o volumi delle barre in quarantena non
+      cambia nulla.
+    - I giorni sono giornate di contrattazione presenti nei dati, non giorni
+      di calendario: su BTCUSD (7 su 7) 365 giornate sono un anno, sul forex
+      (5 su 7) circa 17 mesi.
+    - Componenti a pesi uguali (25% ciascuna), mai ottimizzati.
+    - Riscaldamento: `giorni_media` + 2 x `giorni_percentile` giornate circa
+      (~760 col default, piu' una giornata per il rendimento): prima e' NaN.
+
+    Parametri fissati a priori (scheda approvata da Mattia il 15/10/2026), mai
+    provati in varianti.
+
+    Fonte dell'IDEA: Crypto Fear & Greed Index di alternative.me,
+    https://alternative.me/crypto/fear-and-greed-index/ (letto il 15/10/2026).
+    Delle sue sei componenti si riprendono, con formula nostra, solo le due
+    calcolabili dai prezzi (volatilita'/drawdown, momentum/volume); social,
+    sondaggi, dominance e Google Trends restano fuori (dati che non abbiamo).
+    Formula, dati e nome di alternative.me NON sono usati: codice scritto da
+    zero, nessuna licenza di terzi.
+    """
+    per_g = _sentiment_per_giorno(df, giorni_media, giorni_percentile)
+    from engine.livelli import giorno_fx
+    ieri = giorno_fx(df).to_numpy() - 1                  # l'ultima giornata chiusa
+    colonne = ["sentiment_score", "sentiment_classe"]
+    valori = np.full((len(df), len(colonne)), np.nan)
+    ok = ieri >= 0
+    valori[ok] = per_g[colonne].to_numpy()[ieri[ok]]
+    return pd.DataFrame(valori, index=df.index, columns=colonne)
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
@@ -784,7 +912,7 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         atr, realized_vol, adx, vwap,
         ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
         chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker, hurst,
-        jdh_atr_diff, jdh_regime
+        jdh_atr_diff, jdh_regime, sentiment_score, sentiment_classe
         (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
         R2 103, R3 201)
 
@@ -795,7 +923,9 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     righe a essere tolte, non piu' le prime 100 circa.
 
     poi toglie le righe con almeno un NaN (il riscaldamento iniziale degli
-    indicatori).
+    indicatori). Le due colonne del sentiment (`sentiment_giornaliero`)
+    si aggiungono DOPO questo taglio: restano NaN nel loro riscaldamento
+    (~2 anni) senza togliere righe.
 
     Servono le colonne Open, High, Low, Close, Volume.
     Non modifica il df originale: restituisce una copia.
@@ -834,7 +964,19 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     onda = wavetrend(df)
     df["wt1"] = onda["wt1"]
     df["wt2"] = onda["wt2"]
-    return df.dropna()
+    df = df.dropna()
+    # dopo il taglio: il sentiment ha ~2 anni di riscaldamento (NaN) e non deve
+    # togliere righe alle altre condizioni; un filtro su NaN e' semplicemente falso.
+    # La giornata FX richiede l'indice UTC: senza fuso (es. dati ricampionati nei
+    # test degli altri indicatori) le colonne restano NaN e F36 e' sempre falso,
+    # cosa che verifica_degenerazione segnala
+    if getattr(df.index, "tz", None) is None:
+        sentiment = pd.DataFrame(np.nan, index=df.index, columns=["sentiment_score", "sentiment_classe"])
+    else:
+        sentiment = sentiment_giornaliero(df)
+    df["sentiment_score"] = sentiment["sentiment_score"]
+    df["sentiment_classe"] = sentiment["sentiment_classe"]
+    return df
 
 
 # le colonne che aggiungi_indicatori crea: il collaudo le verifica una per una
@@ -843,5 +985,5 @@ COLONNE_INDICATORI = (
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
     "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2", "ker", "hurst",
-    "jdh_atr_diff", "jdh_regime",
+    "jdh_atr_diff", "jdh_regime", "sentiment_score", "sentiment_classe",
 )
