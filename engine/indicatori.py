@@ -536,6 +536,46 @@ def squeeze_momentum(df: pd.DataFrame, bb: int = 20, mult: float = 2.0,
     return pd.DataFrame({"sqz_on": sqz_on, "sqz_mom": sqz_mom}, index=df.index)
 
 
+def efficienza_kaufman(close: pd.Series, barre: int = 10) -> pd.Series:
+    """
+    Kaufman Efficiency Ratio (KER) CON SEGNO: quanto del cammino fatto dal
+    prezzo nelle ultime `barre` barre e' spostamento netto, e in che verso.
+
+        KER = (Close - Close di `barre` barre fa)
+              / somma di |Close - Close precedente| sulle ultime `barre` barre
+
+    Da -1 (discesa in linea retta) a +1 (salita in linea retta); vicino a 0
+    il prezzo va avanti e indietro. Lo script calcola il valore assoluto del
+    numeratore (da 0 a 1): qui si tiene il segno, come chiede docs/51 §3 R1;
+    |KER| coincide con lo script.
+
+    Usa la barra corrente e le precedenti. Riscaldamento: le prime `barre`
+    barre sono NaN. Prezzo fermo per `barre` barre (cammino nullo): vale 0
+    ("nessuna efficienza") invece di NaN, perche' `aggiungi_indicatori` toglie
+    le righe con un NaN. La somma del cammino e' rifatta da capo su ogni
+    finestra (vedi volume_flow): niente residui di 1e-16 vicino alle soglie.
+
+    Parametro: il default dello script (10, il valore di Kaufman), mai
+    provato in varianti.
+
+    Fonte: Zorba_the_Buddha, "Kaufman Efficiency Ratio (KER)", TradingView,
+    30/10/2023, https://www.tradingview.com/script/7imltc5K-Kaufman-Efficiency-Ratio-KER/
+    Licenza: "open-source script" secondo le regole di TradingView, nessuna
+    licenza specifica dichiarata. Indicatore di Perry Kaufman ("Smarter
+    Trading", 1995).
+    """
+    n = int(barre)
+    c = close.to_numpy(dtype=float)
+    passi = np.abs(np.diff(c, prepend=np.nan))
+    cammino = np.full(len(c), np.nan)
+    if len(c) > n:
+        cammino[n:] = sliding_window_view(passi[1:], n).sum(axis=1)
+    netto = close - close.shift(n)
+    cammino = pd.Series(cammino, index=close.index)
+    ker = netto / cammino.where(cammino > 0)
+    return ker.where(~(cammino == 0), 0.0)
+
+
 def _ema_pine(serie: pd.Series, barre: int) -> pd.Series:
     """
     Media esponenziale come `ta.ema` di Pine: alpha = 2 / (barre + 1), il
@@ -600,8 +640,8 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
         ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
-        chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2
-        (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41)
+        chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker
+        (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -641,6 +681,7 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     squeeze = squeeze_momentum(df)
     df["sqz_on"] = squeeze["sqz_on"]
     df["sqz_mom"] = squeeze["sqz_mom"]
+    df["ker"] = efficienza_kaufman(df["Close"])
     onda = wavetrend(df)
     df["wt1"] = onda["wt1"]
     df["wt2"] = onda["wt2"]
@@ -652,5 +693,5 @@ COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
-    "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2",
+    "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2", "ker",
 )

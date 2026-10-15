@@ -368,11 +368,11 @@ def entry_short_squeeze_release_down(df: pd.DataFrame) -> pd.Series:
 
 
 # ------------------------------------------------------------ E30 --------
-def entry_short_wavetrend_cross_down(df: pd.DataFrame, rank_window: int = 2000,
+def entry_short_wavetrend_cross_down(df: pd.DataFrame, rank_window: int = 500,
                                      percentile: float = 0.90) -> pd.Series:
     """
     WaveTrend: WT1 incrocia sotto WT2 mentre WT1 e' in ipercomprato (nel 10%
-    piu' alto delle proprie ultime 2000 barre) -> short. Speculare di
+    piu' alto delle proprie ultime 500 barre) -> short. Speculare di
     E30_WAVETREND_CROSS_UP.
 
     Fonte dell'indicatore: LazyBear, "WaveTrend Oscillator [WT]", TradingView,

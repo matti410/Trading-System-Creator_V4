@@ -6,6 +6,7 @@ Suite di validazione degli indicatori tradotti da script TradingView
     V2  Relative Volume [veryfid]          F29 (filtri neutri)
     M1  Squeeze Momentum [LazyBear]        E29 (trigger), F30 (filtri)
     M2  WaveTrend [LazyBear]               E30 (trigger), F31 (filtri)
+    R1  Kaufman Efficiency Ratio           F32 (filtri)
 
 Per ogni indicatore, i quattro test obbligatori di docs/51 §4:
 
@@ -49,7 +50,8 @@ from engine import registry as R
 from engine.collaudo_catalogo import (mercato_sintetico, verifica_degenerazione,
                                       verifica_lookahead)
 from engine.indicatori import (COLONNE_INDICATORI, _fine_regressione, aggiungi_indicatori,
-                               squeeze_momentum, volume_flow, volume_relativo, wavetrend)
+                               efficienza_kaufman, squeeze_momentum, volume_flow,
+                               volume_relativo, wavetrend)
 from helpers import _ts_rank
 from entry_long import TRIGGER_LONG, registra_trigger_long
 from entry_short import TRIGGER_SHORT, registra_trigger_short
@@ -80,6 +82,9 @@ TOLLERANZA = 1e-6             # |py - pine| <= TOLLERANZA x max(|pine|, mediana 
 #                dove i dati sono piu' corti, nel test E non si pretende che scattino
 #   pinets_ema_10_decimali  PineTS restituisce ta.ema arrotondata a 10 decimali:
 #                il confronto "alla PineTS" arrotonda allo stesso modo (solo nel test)
+#   pine_trasforma  funzione applicata alla colonna Python prima del confronto
+#                (es. valore assoluto, quando lo script non ha il segno)
+#   valore_dove_pine_nan  dove Pine da' na (0/0) la colonna Python vale questo
 # ---------------------------------------------------------------------------
 def _trappola_vfi(df):
     """Somma del volume col segno del tipico, CENTRATA sulla barra (65 barre avanti)."""
@@ -106,6 +111,12 @@ def _trappola_wavetrend(df):
     return wt1 - wt1.shift(-3)
 
 
+def _trappola_ker(df):
+    """KER calcolato verso il futuro: Close fra 10 barre meno Close di oggi."""
+    c = df["Close"]
+    return (c.shift(-10) - c) / c.diff().abs().rolling(10).sum().shift(-10)
+
+
 INDICATORI = {
     "V1": dict(
         colonne={"vfi": volume_flow},
@@ -121,7 +132,7 @@ INDICATORI = {
         colonne={"rvol": lambda d: volume_relativo(d["Volume"])},
         pine=("V2_rvol_veryfid_v5.pine", {"rvol": "rvol"}),
         riscaldamento=30,
-        riscaldamento_condizioni={"F29_RVOL_LOW": 2030},
+        riscaldamento_condizioni={"F29_RVOL_LOW": 530},
         entry={},
         filtri={"F29_RVOL_LOW": 0},      # F29_RVOL_HIGH spento: doppione di F3
         coppie=[],
@@ -145,13 +156,26 @@ INDICATORI = {
         riscaldamento=2 * 10 + 21 - 3 + 3,
         convergenza=600,
         confronti=[("wt1", "wt2")],
-        riscaldamento_condizioni={"E30_WAVETREND_CROSS_UP": 2041, "E30_SHORT_WAVETREND_CROSS_DOWN": 2041},
+        riscaldamento_condizioni={"E30_WAVETREND_CROSS_UP": 541, "E30_SHORT_WAVETREND_CROSS_DOWN": 541},
         pinets_ema_10_decimali=True,
         entry={"E30_WAVETREND_CROSS_UP": 1, "E30_SHORT_WAVETREND_CROSS_DOWN": -1},
         filtri={"F31_WT_ABOVE_SIGNAL": 1, "F31_WT_BELOW_SIGNAL": -1},
         coppie=[("WAVETREND", "F31_WT_ABOVE_SIGNAL", "F31_WT_BELOW_SIGNAL")],
         trappola=_trappola_wavetrend,
         funzioni_engine=("wavetrend",),
+    ),
+    "R1": dict(
+        colonne={"ker": lambda d: efficienza_kaufman(d["Close"])},
+        pine=("R1_ker.pine", {"ker": "KER"}),
+        pine_trasforma={"ker": np.abs},
+        valore_dove_pine_nan={"ker": 0.0},
+        riscaldamento=10,
+        riscaldamento_condizioni={"F32_KER_RANGE": 510},
+        entry={},
+        filtri={"F32_KER_TREND_UP": 1, "F32_KER_TREND_DOWN": -1, "F32_KER_RANGE": 0},
+        coppie=[("KER_TREND", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN")],
+        trappola=_trappola_ker,
+        funzioni_engine=("efficienza_kaufman",),
     ),
 }
 
@@ -361,11 +385,11 @@ def main() -> int:
           bool((volume_relativo(costante * 0).iloc[30:] == 1.0).all()))
     d = mercato.assign(rvol=rv)
     alto, basso = filter_rvol_high(d), FUNZIONI["F29_RVOL_LOW"](d)
-    rango = _ts_rank(rv, 2000)
-    check("A20. F29: alto = rango >= 0,75, basso = rango <= 0,25 sulle ultime 2000 barre; mai veri insieme; "
-          "falsi nelle prime 2029 barre",
+    rango = _ts_rank(rv, 500)
+    check("A20. F29: alto = rango >= 0,75, basso = rango <= 0,25 sulle ultime 500 barre; mai veri insieme; "
+          "falsi nelle prime 529 barre",
           bool((alto == (rango >= 0.75)).all() and (basso == (rango <= 0.25)).all()
-               and not (alto & basso).any() and not (alto | basso).iloc[:2029].any()),
+               and not (alto & basso).any() and not (alto | basso).iloc[:529].any()),
           f"alto {alto.mean():.0%}, basso {basso.mean():.0%} delle barre")
 
     # =====================================================================
@@ -429,16 +453,48 @@ def main() -> int:
     check("A14. il long sul prezzo specchiato coincide con lo short sull'originale (salvo pareggi nei ranghi)",
           int(ls.sum()) > 30 and diverse <= max(2, int(0.02 * ls.sum())),
           f"{int(ls.sum())} short, {diverse} barre diverse")
-    rango = _ts_rank(d_o["wt1"], 2000)
+    rango = _ts_rank(d_o["wt1"], 500)
     su = FUNZIONI["E30_WAVETREND_CROSS_UP"](d_o)
     incrocio_su = (d_o["wt1"] > d_o["wt2"]) & (d_o["wt1"].shift(1) <= d_o["wt2"].shift(1))
-    check("A15. ogni long: incrocio di WT1 sopra WT2 con WT1 nel 10% piu' basso delle ultime 2000 barre; "
-          "nessun segnale nelle prime 2040 barre",
-          bool(su.sum() > 30 and (incrocio_su & (rango <= 0.10))[su].all() and not su.iloc[:2040].any()
+    check("A15. ogni long: incrocio di WT1 sopra WT2 con WT1 nel 10% piu' basso delle ultime 500 barre; "
+          "nessun segnale nelle prime 540 barre",
+          bool(su.sum() > 30 and (incrocio_su & (rango <= 0.10))[su].all() and not su.iloc[:540].any()
                and (su == (incrocio_su & (rango <= 0.10))).all()), f"{int(su.sum())} long")
     sopra, sotto = FUNZIONI["F31_WT_ABOVE_SIGNAL"](d_o), FUNZIONI["F31_WT_BELOW_SIGNAL"](d_o)
     check("A16. filtri F31 mai veri insieme, falsi nel riscaldamento", not (sopra & sotto).any()
           and not sopra.iloc[:41].any() and not sotto.iloc[:41].any())
+
+    # =====================================================================
+    print("\nA · R1 KAUFMAN EFFICIENCY RATIO: FORMULA E CASI A RISULTATO NOTO\n" + "-" * 70)
+    ker = efficienza_kaufman(mercato["Close"])
+    C = mercato["Close"].to_numpy(dtype=float)
+    rif_k = np.full(len(C), np.nan)
+    for i in range(10, len(C)):
+        cammino = np.abs(np.diff(C[i - 10:i + 1])).sum()
+        rif_k[i] = (C[i] - C[i - 10]) / cammino if cammino > 0 else 0.0
+    check("A21. NaN nelle prime 10 barre, poi uguale alla riscrittura a mano (con il segno)",
+          bool(ker.iloc[:10].isna().all()) and np.allclose(ker.to_numpy()[10:], rif_k[10:], rtol=1e-12, atol=1e-15))
+    idx = pd.date_range("2024-01-01", periods=40, freq="15min", tz="UTC")
+    retta = pd.Series(1.1 + 0.001 * np.arange(40), index=idx)
+    zigzag = pd.Series(1.1 + 0.001 * (np.arange(40) % 2), index=idx)
+    check("A22. salita in linea retta: +1; discesa: -1; zig-zag: 0; prezzo fermo: 0",
+          bool(np.allclose(efficienza_kaufman(retta).iloc[10:], 1.0)
+               and np.allclose(efficienza_kaufman(2.2 - retta).iloc[10:], -1.0)
+               and np.allclose(efficienza_kaufman(zigzag).iloc[10:], 0.0)
+               and (efficienza_kaufman(retta * 0 + 1.1).iloc[10:] == 0).all()))
+    # cammino casuale, poi 60 barre di zig-zag (laterale), poi 60 di salita
+    base = mercato_sintetico("2024-01-01", "2024-02-15", seme=4)["Close"].iloc[:1500]
+    ultimo = float(base.iloc[-1])
+    seq = np.r_[base.to_numpy(), ultimo + 0.0004 * (np.arange(1, 61) % 2), ultimo + 0.0004 + 0.0008 * np.arange(1, 61)]
+    prezzo = pd.Series(seq, index=pd.date_range("2024-01-01", periods=len(seq), freq="15min", tz="UTC"))
+    dk = pd.DataFrame({"Close": prezzo}).assign(ker=efficienza_kaufman(prezzo))
+    lat, su_k, giu_k = (FUNZIONI[n](dk) for n in ("F32_KER_RANGE", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN"))
+    check("A23. laterale acceso in tutto lo zig-zag (dalla barra 11), spento nella salita; "
+          "trend su acceso nella salita, trend giu' mai insieme al trend su",
+          bool(lat.iloc[1511:1560].all() and not lat.iloc[1570:].any() and su_k.iloc[1575:].all()
+               and not (su_k & giu_k).any()))
+    check("A24. laterale falso nelle prime 509 barre (percentile su 500 barre di |KER|)",
+          not FUNZIONI["F32_KER_RANGE"](mercato.assign(ker=ker)).iloc[:509].any())
 
     # =====================================================================
     print("\nB · FEDELTA' A TRADINGVIEW (PineTS sul codice Pine originale)\n" + "-" * 70)
@@ -465,6 +521,16 @@ def main() -> int:
                             py_tutto = {c: f(pezzo) for c, f in spec["colonne"].items()}
                         finally:
                             I._ema_pine = originale
+                    trasforma = spec.get("pine_trasforma", {})
+                    py_tutto = {c: trasforma.get(c, lambda x: x)(s) for c, s in py_tutto.items()}
+                    esatto = {c: trasforma.get(c, lambda x: x)(s) for c, s in esatto.items()} \
+                        if py_tutto is not esatto else py_tutto
+                    pine = pine.copy()
+                    for c, valore in spec.get("valore_dove_pine_nan", {}).items():
+                        buchi = pine[plot_di[c]].isna() & (np.arange(len(pine)) >= w)
+                        check(f"B. {chiave} {c} su {symbol}: dove Pine da' na (0/0, {int(buchi.sum())} barre) "
+                              f"il Python vale {valore}", bool((py_tutto[c][buchi] == valore).all()))
+                        pine.loc[buchi, plot_di[c]] = valore
                     serie = [(col, py_tutto[col], pine[plot_di[col]]) for col in spec["colonne"]]
                     serie += [(f"{a}-{b}", py_tutto[a] - py_tutto[b], pine[plot_di[a]] - pine[plot_di[b]])
                               for a, b in spec.get("confronti", [])]
@@ -479,11 +545,11 @@ def main() -> int:
                                        ((pn > zero) & (pn.shift(1) <= zero))).iloc[1:].sum()
                                       + (((py < zero) & (py.shift(1) >= zero)) !=
                                          ((pn < zero) & (pn.shift(1) >= zero))).iloc[1:].sum())
-                        modo = " (ema arrotondate come PineTS)" if py_tutto is not esatto else ""
+                        modo = " (ema arrotondate come PineTS)" if spec.get("pinets_ema_10_decimali") else ""
                         check(f"B. {chiave} {col} su {symbol}{modo} ({len(py)} barre dopo il riscaldamento)",
                               nan_diversi == 0 and scarto <= TOLLERANZA and segni == 0 and incroci == 0,
                               f"scarto rel. max {scarto:.1e}, segni diversi {segni}, incroci diversi {incroci}")
-                    if py_tutto is not esatto:
+                    if spec.get("pinets_ema_10_decimali"):
                         for col in spec["colonne"]:
                             pn = pine[plot_di[col]].iloc[w:]
                             scala = np.maximum(pn.abs(), float(pn.abs().median()) or 1.0)

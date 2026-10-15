@@ -419,17 +419,17 @@ def entry_squeeze_release_up(df: pd.DataFrame) -> pd.Series:
 
 
 # ------------------------------------------------------------ E30 --------
-def entry_wavetrend_cross_up(df: pd.DataFrame, rank_window: int = 2000,
+def entry_wavetrend_cross_up(df: pd.DataFrame, rank_window: int = 500,
                              percentile: float = 0.10) -> pd.Series:
     """
     WaveTrend: WT1 incrocia sopra WT2 mentre WT1 e' in ipervenduto -> long.
 
     Ipervenduto = WT1, sulla barra dell'incrocio, nel 10% piu' basso delle
-    proprie ultime 2000 barre (percentile rolling al posto della soglia fissa
-    -60 dello script). La finestra (2000) e' molto piu' larga di quella
-    dell'indicatore (~40 barre). Parametri fissati a priori, mai provati in
-    varianti. Riscaldamento: circa 2040 barre (su D1 sono 8 anni: con i dati
-    dal 2020 non scatta mai).
+    proprie ultime 500 barre (percentile rolling al posto della soglia fissa
+    -60 dello script). La finestra (500) e' molto piu' larga di quella
+    dell'indicatore (~40 barre) e resta usabile su H4 e D1 (scelta di Mattia
+    del 15/10/2026: 2000 barre erano 8 anni in D1). Parametri fissati a
+    priori, mai provati in varianti. Riscaldamento: circa 540 barre.
 
     Fonte dell'indicatore: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
     https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/

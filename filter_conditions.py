@@ -877,18 +877,19 @@ def filter_vfi_negative(df: pd.DataFrame) -> pd.Series:
 # Due filtri neutri a se', non una coppia: misurano l'intensita' del volume,
 # non un verso. Mai veri insieme; nella zona di mezzo entrambi falsi.
 
-def filter_rvol_high(df: pd.DataFrame, rank_window: int = 2000,
+def filter_rvol_high(df: pd.DataFrame, rank_window: int = 500,
                      percentile: float = 0.75) -> pd.Series:
     """
     Volume relativo ALTO: RVOL (colonna `rvol`, volume / media delle 30 barre
-    precedenti) nel 25% piu' alto delle proprie ultime 2000 barre.
+    precedenti) nel 25% piu' alto delle proprie ultime 500 barre.
 
     SPENTO nel dizionario FILTRI: e' un doppione di F3_VOLUME_ABOVE_AVG
     (contenuto al 100% su EURUSD in-sample, controllo del 15/10/2026).
 
-    Neutro. La finestra del percentile (2000) e' molto piu' larga di quella
+    Neutro. La finestra del percentile (500, scelta di Mattia del 15/10/2026
+    perche' resti usabile su H4 e D1) e' molto piu' larga di quella
     dell'indicatore (30). Parametri fissati a priori, mai provati in
-    varianti. Riscaldamento: 2030 barre (su D1 piu' dei dati dal 2020).
+    varianti. Riscaldamento: 530 barre.
     Dipende dalla qualita' del volume (tick volume su MT5).
 
     Fonte dell'indicatore: veryfid, "Relative Volume" (RVOL), TradingView,
@@ -899,10 +900,54 @@ def filter_rvol_high(df: pd.DataFrame, rank_window: int = 2000,
     return ts_rank(df["rvol"], rank_window) >= percentile
 
 
-def filter_rvol_low(df: pd.DataFrame, rank_window: int = 2000,
+def filter_rvol_low(df: pd.DataFrame, rank_window: int = 500,
                     percentile: float = 0.25) -> pd.Series:
-    """Volume relativo BASSO: RVOL nel 25% piu' basso delle ultime 2000 barre. Vedi F29_RVOL_HIGH."""
+    """Volume relativo BASSO: RVOL nel 25% piu' basso delle ultime 500 barre. Vedi F29_RVOL_HIGH."""
     return ts_rank(df["rvol"], rank_window) <= percentile
+
+
+# --- F32: efficienza del movimento, Kaufman (docs/51, R1) ----------------
+# Coppia direzionale TREND_UP/TREND_DOWN (soglia +-0,5, la linea "Efficient"
+# dello script: il KER ha una scala teorica) e un filtro neutro a se', il
+# laterale, con percentile e isteresi come F25.
+
+def filter_ker_trend_up(df: pd.DataFrame, soglia: float = 0.5) -> pd.Series:
+    """
+    Tendenza rialzista efficiente: KER con segno (colonna `ker`, 10 barre)
+    sopra +0,5, cioe' piu' di meta' del cammino delle ultime 10 barre e'
+    salita netta. Riscaldamento: 10 barre.
+
+    Fonte dell'indicatore: Zorba_the_Buddha, "Kaufman Efficiency Ratio (KER)",
+    TradingView, https://www.tradingview.com/script/7imltc5K-Kaufman-Efficiency-Ratio-KER/
+    (open source, nessuna licenza specifica). Regola: docs/51 §3, R1; scelte
+    di Mattia del 15/10/2026.
+    """
+    return df["ker"] > soglia
+
+
+def filter_ker_trend_down(df: pd.DataFrame, soglia: float = 0.5) -> pd.Series:
+    """Tendenza ribassista efficiente: KER sotto -0,5. Speculare di F32_KER_TREND_UP."""
+    return df["ker"] < -soglia
+
+
+def filter_ker_range(df: pd.DataFrame, rank_window: int = 500,
+                     entra: float = 0.25, esce: float = 0.50) -> pd.Series:
+    """
+    Mercato inefficiente / laterale: |KER| (senza segno) entra sotto il 25°
+    percentile delle proprie ultime 500 barre e ne esce quando risale sopra
+    il 50° (isteresi, vedi `_stato_isteresi`: toglie lo sfarfallio senza
+    ritardare l'indicatore). Stessi numeri di F25_CHOP_TREND: nessun
+    parametro nuovo.
+
+    Neutro: misura l'efficienza, non il verso. Finestra del percentile (500)
+    molto piu' larga di quella dell'indicatore (10). Riscaldamento: 510 barre.
+
+    Fonte dell'indicatore: Zorba_the_Buddha, "Kaufman Efficiency Ratio (KER)",
+    TradingView, https://www.tradingview.com/script/7imltc5K-Kaufman-Efficiency-Ratio-KER/
+    (open source, nessuna licenza specifica). Regola: docs/51 §3, R1; scelte
+    di Mattia del 15/10/2026.
+    """
+    return _stato_isteresi(ts_rank(df["ker"].abs(), rank_window), entra, esce, basso=True)
 
 
 # --- F30: segno del momentum dello Squeeze (docs/51, M1) -----------------
@@ -990,6 +1035,9 @@ FILTRI = {
     "F29_RVOL_LOW":              (filter_rvol_low, 0, None),
     "F30_SQZ_MOM_POSITIVE":      (filter_sqz_mom_positive, 1, "SQZ_MOM"),
     "F30_SQZ_MOM_NEGATIVE":      (filter_sqz_mom_negative, -1, "SQZ_MOM"),
+    "F32_KER_TREND_UP":          (filter_ker_trend_up, 1, "KER_TREND"),
+    "F32_KER_TREND_DOWN":        (filter_ker_trend_down, -1, "KER_TREND"),
+    "F32_KER_RANGE":             (filter_ker_range, 0, None),
     "F31_WT_ABOVE_SIGNAL":       (filter_wt_above_signal, 1, "WAVETREND"),
     "F31_WT_BELOW_SIGNAL":       (filter_wt_below_signal, -1, "WAVETREND"),
     # F27: OPZIONALE, togli il "#" solo se approvato (conta 1 prova in piu')
