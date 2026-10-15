@@ -215,10 +215,14 @@ def esegui() -> int:
     reg = set(R.list_filters())
     check("D3. dopo registra_filtri() i tre filtri sono nel motore, neutri e senza coppia",
           all(k in reg and R.get_filter_direction(k) == 0 and R.get_filter_pair(k) is None for k in attesi))
+    # coppie entrate dopo il 9/10 con gli indicatori TradingView (docs/51):
+    # ammesse qui, ma solo queste; i filtri di regime non ne hanno aggiunte
+    coppie_docs51 = {"VFI_SIGN"}   # SQZ_MOM, WAVETREND, KER_TREND spenti: doppioni  # F29 (V2) e' neutro, senza coppia
     check("D4. nessuna coppia nuova: le coppie di prima non sono cambiate",
-          {c[0] for c in R.list_filter_pairs()} == {"MACD_SIGNAL", "TREND_CONTEXT", "TREND_CONVICTION",
-                                                   "EXTENDED_FROM_MEAN", "VWAP_POSITION", "RANGE_POSITION",
-                                                   "OVERNIGHT_RETURN", "TWO_BARS"},
+          {c[0] for c in R.list_filter_pairs()} - coppie_docs51
+          == {"MACD_SIGNAL", "TREND_CONTEXT", "TREND_CONVICTION",
+              "EXTENDED_FROM_MEAN", "VWAP_POSITION", "RANGE_POSITION",
+              "OVERNIGHT_RETURN", "TWO_BARS"},
           f"{sorted(c[0] for c in R.list_filter_pairs())}")
 
     # =====================================================================

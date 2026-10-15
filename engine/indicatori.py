@@ -387,13 +387,406 @@ def variance_ratio(close: pd.Series, orizzonte: int = 4, finestra: int = 192) ->
     return vr.where(~(var_1 == 0), 1.0)
 
 
+# =========================================================================
+# Indicatori tradotti da script TradingView (docs/51_INDICATORI_TRADINGVIEW.md)
+# Traduzione riga per riga del Pine; fedelta' verificata con PineTS
+# (test_indicatori_tradingview.py).
+# =========================================================================
+def volume_flow(df: pd.DataFrame, lunghezza: int = 130, coef: float = 0.2,
+                vcoef: float = 2.5) -> pd.Series:
+    """
+    Volume Flow Indicator (VFI): il volume delle ultime `lunghezza` barre,
+    contato col segno del movimento del prezzo tipico, diviso per il volume
+    medio. Sopra zero prevale il volume che accompagna i rialzi.
+
+    Riga per riga dallo script (smoothVFI = false, il default):
+      tipico  = (H + L + C) / 3
+      cutoff  = coef x dev. std. (di popolazione, come Pine) su 30 barre dei
+                rendimenti log del tipico x Close
+      vave    = media del volume su `lunghezza` barre, fino alla barra PRIMA
+      vc      = volume, tagliato a vcoef x vave
+      vcp     = +vc se il tipico sale piu' di cutoff, -vc se scende piu' di
+                cutoff, altrimenti 0 (finche' cutoff non esiste vale 0, come
+                in Pine dove un confronto con na e' falso)
+      VFI     = somma di vcp su `lunghezza` barre / vave
+    Usa solo la barra corrente e le precedenti. Riscaldamento: le prime
+    2 x `lunghezza` - 1 barre sono NaN (261 con il default).
+    Volume medio nullo (dati senza volume): vale 0 ("nessun flusso") invece
+    di NaN, perche' `aggiungi_indicatori` toglie le righe con un NaN.
+
+    VOLUME: dipende dalla qualita' del volume. Su MT5 (forex, CFD) e' il
+    tick volume del broker, sugli exchange crypto e' volume reale: il codice
+    non assume ne' l'uno ne' l'altro.
+
+    Parametri: i default dello script (130, 0.2, 2.5), mai provati in varianti.
+
+    Fonte: LazyBear, "Volume Flow Indicator [LazyBear]", TradingView,
+    https://www.tradingview.com/script/MhlDpfdS-Volume-Flow-Indicator-LazyBear/
+    Licenza: nessuna dichiarata nell'header (script open source della
+    community; l'autore chiede solo una segnalazione se lo si riusa).
+    L'indicatore e' di Markos Katsanos (2004).
+    """
+    n = int(lunghezza)
+    tipico = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    volume = df["Volume"].astype(float)
+    inter = np.log(tipico).diff()
+    cutoff = coef * inter.rolling(30).std(ddof=0) * df["Close"]
+    vave = volume.rolling(n).mean().shift(1)
+    vmax = vave * vcoef
+    vc = volume.where(volume < vmax, vmax)
+    mf = tipico.diff()
+    vcp = np.where(mf > cutoff, vc, np.where(mf < -cutoff, -vc, 0.0))
+    # somma rifatta da capo su ogni finestra: la somma mobile di pandas
+    # (aggiungi l'ultima, togli la piu' vecchia) lascia residui di 1e-16
+    # dove la somma vera e' zero, e il segno di VFI deciderebbe a caso
+    somma = np.full(len(vcp), np.nan)
+    if len(vcp) >= n:
+        somma[n - 1:] = sliding_window_view(vcp, n).sum(axis=1)
+    vfi = pd.Series(somma, index=df.index) / vave.where(vave > 0)
+    return vfi.where(~(vave == 0), 0.0)
+
+
+def volume_relativo(volume: pd.Series, barre: int = 30) -> pd.Series:
+    """
+    RVOL: il volume della barra diviso per la media del volume delle `barre`
+    barre PRECEDENTI (la barra corrente non entra nella media). 1 = volume
+    normale, 2 = il doppio del solito.
+
+    Riga per riga dallo script (array dei volumi da volume[1] a volume[30],
+    poi rvol = volume / array.avg). Nelle prime `barre` barre lo script fa la
+    media dei soli valori gia' esistenti; qui vale NaN finche' la storia non
+    e' completa (le condizioni restano false). Riscaldamento: 30 barre.
+    Media nulla (dati senza volume): vale 1 ("normale") invece di NaN o
+    infinito, perche' `aggiungi_indicatori` toglie le righe con un NaN.
+
+    Non e' il "Relative Volume at Time" di TradingView (che confronta la
+    stessa ora dei giorni passati): non tiene conto dell'ora del giorno, quindi
+    all'apertura delle sessioni il volume risulta "alto" per costruzione.
+    Scelta di Mattia del 15/10/2026: il codice di ta.relativeVolume non e'
+    disponibile.
+
+    VOLUME: dipende dalla qualita' del volume. Su MT5 (forex, CFD) e' il
+    tick volume del broker, sugli exchange crypto e' volume reale: il codice
+    non assume ne' l'uno ne' l'altro.
+
+    Parametro: il default dello script (30), mai provato in varianti.
+
+    Fonte: veryfid, "Relative Volume" (RVOL), TradingView. Licenza: Mozilla
+    Public License 2.0 (https://mozilla.org/MPL/2.0/), dichiarata
+    nell'header: questa traduzione della riga di calcolo resta sotto MPL 2.0.
+    """
+    v = volume.astype(float)
+    media = v.shift(1).rolling(int(barre)).mean()
+    rvol = v / media.where(media > 0)
+    return rvol.where(~(media == 0), 1.0)
+
+
+def squeeze_momentum(df: pd.DataFrame, bb: int = 20, mult: float = 2.0,
+                     kc: int = 20, mult_kc: float = 1.5) -> pd.DataFrame:
+    """
+    Squeeze Momentum di LazyBear: lo "squeeze" (le bande di Bollinger stanno
+    dentro il canale di Keltner, cioe' la volatilita' si e' compressa) e
+    l'istogramma del momentum.
+
+    Riga per riga dallo script (useTrueRange = true, il default):
+      Bollinger  media semplice di Close su `bb` barre +- mult x dev. std.
+                 (di popolazione, come Pine)
+      Keltner    media semplice di Close su `kc` barre +- mult_kc x media
+                 semplice del true range (ta.tr: manca sulla prima barra)
+      sqz_on     1 se Bollinger inferiore > Keltner inferiore E Bollinger
+                 superiore < Keltner superiore, altrimenti 0
+      sqz_mom    valore sulla barra corrente della retta di regressione (su
+                 `kc` barre) di Close - media fra [(massimo + minimo delle
+                 `kc` barre) / 2] e la media semplice di Close: e'
+                 l'istogramma "a regressione lineare" di LazyBear, non il
+                 momentum semplice di J. Carter.
+    Colonne: sqz_on (0/1) e sqz_mom. Usa solo la barra corrente e le
+    precedenti. Riscaldamento: sqz_on dalla barra `kc` (serve il true
+    range), sqz_mom dalla barra 2 x `kc` - 2 (38 col default): prima NaN.
+
+    CORREZIONE NOSTRA (docs/51 §2): nel sorgente pubblicato su TradingView la
+    deviazione delle Bollinger usa il moltiplicatore del Keltner (1.5) e
+    l'input "BB MultFactor" (2.0) resta inutilizzato; qui si usa `mult`, come
+    nella versione aggiornata dell'autore (link pastebin nella pagina, non
+    raggiungibile il 15/10/2026). E' l'unica riga diversa dallo script.
+
+    Parametri: i default dello script (20, 2.0, 20, 1.5), mai provati in
+    varianti.
+
+    Fonte: LazyBear, "Squeeze Momentum Indicator [LazyBear]", TradingView,
+    https://www.tradingview.com/script/nqQ1DT5a-Squeeze-Momentum-Indicator-LazyBear/
+    Licenza: nessuna dichiarata nell'header (script open source della
+    community). Idea dello squeeze: John Carter, "Mastering the Trade", TTM
+    Squeeze.
+    """
+    close, high, low = df["Close"], df["High"], df["Low"]
+    base = close.rolling(int(bb)).mean()
+    dev = mult * close.rolling(int(bb)).std(ddof=0)
+    bb_sup, bb_inf = base + dev, base - dev
+    chiusura_prima = close.shift(1)
+    true_range = pd.concat([high - low, (high - chiusura_prima).abs(),
+                            (low - chiusura_prima).abs()], axis=1).max(axis=1, skipna=False)
+    media_kc = close.rolling(int(kc)).mean()
+    ampiezza = true_range.rolling(int(kc)).mean()
+    kc_sup, kc_inf = media_kc + ampiezza * mult_kc, media_kc - ampiezza * mult_kc
+    pronto = bb_inf.notna() & kc_inf.notna()
+    sqz_on = ((bb_inf > kc_inf) & (bb_sup < kc_sup)).astype(float).where(pronto)
+    centro = ((high.rolling(int(kc)).max() + low.rolling(int(kc)).min()) / 2 + media_kc) / 2
+    sqz_mom = _fine_regressione(close - centro, int(kc))
+    return pd.DataFrame({"sqz_on": sqz_on, "sqz_mom": sqz_mom}, index=df.index)
+
+
+def efficienza_kaufman(close: pd.Series, barre: int = 10) -> pd.Series:
+    """
+    Kaufman Efficiency Ratio (KER) CON SEGNO: quanto del cammino fatto dal
+    prezzo nelle ultime `barre` barre e' spostamento netto, e in che verso.
+
+        KER = (Close - Close di `barre` barre fa)
+              / somma di |Close - Close precedente| sulle ultime `barre` barre
+
+    Da -1 (discesa in linea retta) a +1 (salita in linea retta); vicino a 0
+    il prezzo va avanti e indietro. Lo script calcola il valore assoluto del
+    numeratore (da 0 a 1): qui si tiene il segno, come chiede docs/51 §3 R1;
+    |KER| coincide con lo script.
+
+    Usa la barra corrente e le precedenti. Riscaldamento: le prime `barre`
+    barre sono NaN. Prezzo fermo per `barre` barre (cammino nullo): vale 0
+    ("nessuna efficienza") invece di NaN, perche' `aggiungi_indicatori` toglie
+    le righe con un NaN. La somma del cammino e' rifatta da capo su ogni
+    finestra (vedi volume_flow): niente residui di 1e-16 vicino alle soglie.
+
+    Parametro: il default dello script (10, il valore di Kaufman), mai
+    provato in varianti.
+
+    Fonte: Zorba_the_Buddha, "Kaufman Efficiency Ratio (KER)", TradingView,
+    30/10/2023, https://www.tradingview.com/script/7imltc5K-Kaufman-Efficiency-Ratio-KER/
+    Licenza: "open-source script" secondo le regole di TradingView, nessuna
+    licenza specifica dichiarata. Indicatore di Perry Kaufman ("Smarter
+    Trading", 1995).
+    """
+    n = int(barre)
+    c = close.to_numpy(dtype=float)
+    passi = np.abs(np.diff(c, prepend=np.nan))
+    cammino = np.full(len(c), np.nan)
+    if len(c) > n:
+        cammino[n:] = sliding_window_view(passi[1:], n).sum(axis=1)
+    netto = close - close.shift(n)
+    cammino = pd.Series(cammino, index=close.index)
+    ker = netto / cammino.where(cammino > 0)
+    return ker.where(~(cammino == 0), 0.0)
+
+
+def _ema_pine(serie: pd.Series, barre: int) -> pd.Series:
+    """
+    Media esponenziale come `ta.ema` di Pine: alpha = 2 / (barre + 1), il
+    primo valore e' la media semplice delle prime `barre` barre valide (prima
+    e' NaN), poi la ricorsione. Diversa da `ewm(span=...)` di pandas, che
+    parte dal primo valore. I NaN iniziali della serie (riscaldamento di un
+    indicatore a monte) si saltano; la serie non deve avere NaN dopo.
+    """
+    n = int(barre)
+    v = serie.to_numpy(dtype=float)
+    esito = np.full(len(v), np.nan)
+    valide = np.flatnonzero(np.isfinite(v))
+    if len(valide) >= n:
+        inizio = valide[0] + n - 1
+        semi = v[inizio:].copy()
+        semi[0] = v[valide[0]:inizio + 1].mean()
+        esito[inizio:] = pd.Series(semi).ewm(alpha=2.0 / (n + 1), adjust=False).mean().to_numpy()
+    return pd.Series(esito, index=serie.index)
+
+
+def hurst_rs(close: pd.Series, barre: int = 100, lisciatura: int = 5) -> pd.Series:
+    """
+    Esponente di Hurst con la stima R/S semplificata dello script PhenLabs,
+    lisciato con una ema di Pine. Sopra 0,5 i movimenti tendono a proseguire,
+    sotto 0,5 a rientrare, 0,5 = cammino casuale.
+
+    Riga per riga dallo script, a ogni barra:
+      r      = log(Close / Close precedente) (0 sulla prima barra)
+      finestra = gli ultimi `barre` rendimenti (barra corrente compresa)
+      S      = deviazione standard (di popolazione, array.stdev di Pine)
+      profilo = somme cumulate degli scarti dalla media, dal piu' vecchio
+      R      = massimo - minimo del profilo
+      H      = log(R / S) / log(`barre`)  (0,5 se S o R/S <= 1e-9)
+      hurst  = ema di Pine (`_ema_pine`) di H su `lisciatura` barre
+    Usa solo la barra corrente e le precedenti. Riscaldamento: H dalla barra
+    `barre` - 1, hurst dalla barra `barre` + `lisciatura` - 2 (103 col
+    default). Il primo rendimento (0) entra nella prima finestra come nello
+    script.
+
+    LIMITI DELLA STIMA (docs/51 §3 R2): log(R/S)/log(n) su una sola finestra
+    e' distorta verso l'alto su finestre corte: su un cammino casuale con
+    n = 100 vale in media circa 0,55-0,6 invece di 0,5 (correzione di
+    Anis-Lloyd, non applicata dallo script). Sotto ~100 barre la stima e'
+    poco affidabile. Le soglie dello script (0,6 e 0,4) non tengono conto di
+    questa distorsione: si usano comunque come dichiarate.
+
+    Parametri: i default dello script (100, 5), mai provati in varianti.
+
+    Fonte: PhenLabs, "Hurst Exponent Oscillator [PhenLabs]", TradingView.
+    LICENZA: CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/),
+    dichiarata nell'header: NON COMMERCIALE. Tradotta per uso personale e di
+    ricerca, scelta di Mattia del 13/10/2026; questa funzione resta sotto la
+    stessa licenza (attribuzione a PhenLabs, non commerciale, stessa licenza).
+    """
+    n = int(barre)
+    c = close.to_numpy(dtype=float)
+    r = np.zeros(len(c))
+    if len(c) > 1:
+        prima = c[:-1]
+        ok = np.isfinite(prima) & (prima > 0) & (c[1:] > 0)
+        r[1:] = np.where(ok, np.log(np.where(ok, c[1:] / np.where(ok, prima, 1.0), 1.0)), 0.0)
+    h = np.full(len(c), np.nan)
+    blocco = 20000                                   # finestre per volta (memoria)
+    for inizio in range(n - 1, len(c), blocco):
+        fine = min(inizio + blocco, len(c))
+        w = sliding_window_view(r[inizio - n + 1:fine], n)      # una riga per barra
+        s = w.std(axis=1)
+        profilo = np.cumsum(w - w.mean(axis=1, keepdims=True), axis=1)
+        ampiezza = profilo.max(axis=1) - profilo.min(axis=1)
+        rs = ampiezza / np.where(s > 1e-9, s, 1.0)
+        valido = (s > 1e-9) & (rs > 1e-9)
+        h[inizio:fine] = np.where(valido, np.log(np.where(valido, rs, 1.0)) / np.log(n), 0.5)
+    h = pd.Series(h, index=close.index)
+    return _ema_pine(h, lisciatura) if int(lisciatura) > 1 else h
+
+
+def _rma_pine(serie: pd.Series, barre: int) -> pd.Series:
+    """
+    Media di Wilder come `ta.rma` di Pine: alpha = 1 / barre, il primo valore
+    e' la media semplice delle prime `barre` barre valide (prima NaN), poi la
+    ricorsione. Stessa partenza di `_ema_pine`, cambia solo alpha.
+    """
+    n = int(barre)
+    v = serie.to_numpy(dtype=float)
+    esito = np.full(len(v), np.nan)
+    valide = np.flatnonzero(np.isfinite(v))
+    if len(valide) >= n:
+        inizio = valide[0] + n - 1
+        semi = v[inizio:].copy()
+        semi[0] = v[valide[0]:inizio + 1].mean()
+        esito[inizio:] = pd.Series(semi).ewm(alpha=1.0 / n, adjust=False).mean().to_numpy()
+    return pd.Series(esito, index=serie.index)
+
+
+def _atr_pine(df: pd.DataFrame, barre: int) -> pd.Series:
+    """`ta.atr` di Pine: rma del true range, con ta.tr(true) (sulla prima barra massimo - minimo)."""
+    chiusura_prima = df["Close"].shift(1)
+    tr = pd.concat([df["High"] - df["Low"], (df["High"] - chiusura_prima).abs(),
+                    (df["Low"] - chiusura_prima).abs()], axis=1).max(axis=1)   # skipna: prima barra H - L
+    return _rma_pine(tr, barre)
+
+
+def filtri_jdehorty(df: pd.DataFrame, atr_breve: int = 1, atr_lungo: int = 10) -> pd.DataFrame:
+    """
+    Le grandezze dei due filtri `filter_volatility` e `regime_filter` della
+    libreria MLExtensions di jdehorty (usati da "Machine Learning: Lorentzian
+    Classification"). Il classificatore e `filter_adx` NON sono tradotti
+    (docs/51 §3 R3: l'ADX e' gia' nel progetto).
+
+    Colonne:
+      jdh_atr_diff  ta.atr(1) - ta.atr(10): sopra zero la volatilita' recente
+                    supera quella storica (filter_volatility: recentAtr >
+                    historicalAtr). ATR di Pine: rma del true range, che parte
+                    dalla media semplice; dalla barra `atr_lungo` - 1.
+      jdh_regime    "normalized_slope_decline" di regime_filter, sul prezzo
+                    ohlc4, riga per riga:
+                      value1 = 0,2 x (src - src prec.) + 0,8 x value1 prec.
+                      value2 = 0,1 x (massimo - minimo) + 0,8 x value2 prec.
+                      omega  = |value1 / value2|
+                      alpha  = (-omega^2 + sqrt(omega^4 + 16 omega^2)) / 8
+                      klmf   = alpha x src + (1 - alpha) x klmf prec.
+                      pend.  = |klmf - klmf prec.|
+                      jdh_regime = (pend. - ema200(pend.)) / ema200(pend.)
+                    con nz() di Pine (il valore precedente mancante vale 0:
+                    klmf parte da zero e sale verso il prezzo) e la ema di
+                    Pine (`_ema_pine`). Dalla barra 201.
+    Usa solo la barra corrente e le precedenti. Le ricorsioni dipendono dal
+    punto di partenza dei dati, con un peso che si dimezza ogni ~70 barre
+    (ema a 200): dopo ~3000 barre la differenza e' sotto 1e-9. Attenzione:
+    il salto iniziale di klmf (da 0 al prezzo, come nello script) entra nella
+    ema a 200 e tiene jdh_regime artificialmente basso per ~1000 barre
+    dall'inizio dei dati (taglio di riscaldamento dei motori: da verificare).
+    Prezzo fermo (ema della pendenza nulla): jdh_regime vale 0 invece di NaN.
+
+    Parametri: i default usati dallo script Lorentzian (1, 10; ema 200 fissa
+    nella libreria), mai provati in varianti.
+
+    Fonte: jdehorty, libreria "MLExtensions" e indicatore "Machine Learning:
+    Lorentzian Classification", TradingView. Licenza: Mozilla Public License
+    2.0 (https://mozilla.org/MPL/2.0/): questa traduzione resta sotto MPL 2.0.
+    """
+    atr_diff = _atr_pine(df, atr_breve) - _atr_pine(df, atr_lungo)
+    src = ((df["Open"] + df["High"] + df["Low"] + df["Close"]) / 4.0).to_numpy(dtype=float)
+    ampiezza = (df["High"] - df["Low"]).to_numpy(dtype=float)
+    n = len(src)
+    klmf = np.full(n, np.nan)
+    v1 = v2 = k = np.nan
+    for i in range(n):
+        v1 = 0.2 * (src[i] - (src[i - 1] if i > 0 else np.nan)) + 0.8 * (0.0 if np.isnan(v1) else v1)
+        v2 = 0.1 * ampiezza[i] + 0.8 * (0.0 if np.isnan(v2) else v2)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            omega = abs(v1 / v2)
+        alpha = (-omega ** 2 + np.sqrt(omega ** 4 + 16 * omega ** 2)) / 8
+        k = alpha * src[i] + (1 - alpha) * (0.0 if np.isnan(k) else k)
+        klmf[i] = k
+    klmf = pd.Series(klmf, index=df.index)
+    pendenza = (klmf - klmf.shift(1)).abs()
+    media = _ema_pine(pendenza, 200)
+    regime = (pendenza - media) / media.where(media > 0)
+    regime = regime.where(~(media == 0), 0.0)
+    return pd.DataFrame({"jdh_atr_diff": atr_diff, "jdh_regime": regime}, index=df.index)
+
+
+def wavetrend(df: pd.DataFrame, canale: int = 10, media: int = 21) -> pd.DataFrame:
+    """
+    WaveTrend Oscillator di LazyBear: un CCI lisciato sul prezzo tipico.
+
+    Riga per riga dallo script:
+      ap   = (H + L + C) / 3
+      esa  = ema(ap, canale)
+      d    = ema(|ap - esa|, canale)
+      ci   = (ap - esa) / (0.015 x d)
+      wt1  = ema(ci, media)
+      wt2  = media semplice di wt1 su 4 barre
+    con le ema di Pine (`_ema_pine`: partono dalla media semplice). Colonne
+    wt1 e wt2. Usa solo la barra corrente e le precedenti. Riscaldamento:
+    wt1 dalla barra 2 x `canale` + `media` - 3 (38 col default), wt2 tre barre
+    dopo (41). Le ema sono ricorsive: il valore dipende un poco dal punto di
+    partenza dei dati, con un peso che si dimezza ogni ~7 barre (media 21),
+    quindi dopo qualche centinaio di barre la differenza e' sotto 1e-9.
+    Prezzo fermo (d = 0): ci vale 0 invece di NaN/inf.
+
+    Parametri: i default dello script (10, 21), mai provati in varianti. Le
+    soglie dello script (+-60, +-53) NON si usano: le condizioni usano un
+    percentile rolling (docs/50 §5, scelta di Mattia del 15/10/2026).
+
+    Fonte: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
+    https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/
+    Licenza: nessuna dichiarata nell'header (script open source della
+    community; l'autore chiede solo una segnalazione se lo si riusa).
+    """
+    ap = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    esa = _ema_pine(ap, canale)
+    d = _ema_pine((ap - esa).abs(), canale)
+    ci = ((ap - esa) / (0.015 * d.where(d > 0))).where(~(d == 0), 0.0)
+    wt1 = _ema_pine(ci, media)
+    wt2 = wt1.rolling(4).mean()
+    return pd.DataFrame({"wt1": wt1, "wt2": wt2}, index=df.index)
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
 
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
-        ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix
+        ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
+        chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker, hurst,
+        jdh_atr_diff, jdh_regime
+        (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
+        R2 103, R3 201)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -428,6 +821,19 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["iix"] = intraday_intensity(df)
     df["chop"] = indice_choppiness(df)
     df["vr"] = variance_ratio(df["Close"])
+    df["vfi"] = volume_flow(df)
+    df["rvol"] = volume_relativo(df["Volume"])
+    squeeze = squeeze_momentum(df)
+    df["sqz_on"] = squeeze["sqz_on"]
+    df["sqz_mom"] = squeeze["sqz_mom"]
+    df["ker"] = efficienza_kaufman(df["Close"])
+    df["hurst"] = hurst_rs(df["Close"])
+    jdh = filtri_jdehorty(df)
+    df["jdh_atr_diff"] = jdh["jdh_atr_diff"]
+    df["jdh_regime"] = jdh["jdh_regime"]
+    onda = wavetrend(df)
+    df["wt1"] = onda["wt1"]
+    df["wt2"] = onda["wt2"]
     return df.dropna()
 
 
@@ -436,5 +842,6 @@ COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
-    "chop", "vr",
+    "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2", "ker", "hurst",
+    "jdh_atr_diff", "jdh_regime",
 )

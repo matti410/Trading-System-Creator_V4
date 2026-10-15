@@ -338,6 +338,52 @@ def entry_short_vsa_bearish(df: pd.DataFrame) -> pd.Series:
     return _evento(figure["climax_sell"] | figure["no_demand"])
 
 
+# ------------------------------------------------------------ E28 --------
+def entry_short_vfi_cross_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Il Volume Flow Indicator (colonna `vfi`) passa sotto lo zero -> short.
+    Speculare di E28_VFI_CROSS_UP.
+
+    Fonte dell'indicatore: LazyBear, "Volume Flow Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/MhlDpfdS-Volume-Flow-Indicator-LazyBear/
+    (nessuna licenza dichiarata). Regola d'ingresso: docs/51 §3, V1.
+    """
+    zero = pd.Series(0.0, index=df.index)
+    return _evento(_cross_down(df["vfi"], zero))
+
+
+# ------------------------------------------------------------ E29 --------
+def entry_short_squeeze_release_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Rilascio dello squeeze con momentum negativo -> short. Speculare di
+    E29_SQUEEZE_RELEASE_UP (stesso rilascio, `sqz_mom` sotto zero).
+
+    Fonte dell'indicatore: LazyBear, "Squeeze Momentum Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/nqQ1DT5a-Squeeze-Momentum-Indicator-LazyBear/
+    (nessuna licenza dichiarata; moltiplicatore BB corretto, vedi
+    engine.indicatori.squeeze_momentum). Regola: docs/51 §3, M1.
+    """
+    rilascio = (df["sqz_on"].shift(1) == 1) & (df["sqz_on"] == 0)
+    return _evento(rilascio & (df["sqz_mom"] < 0))
+
+
+# ------------------------------------------------------------ E30 --------
+def entry_short_wavetrend_cross_down(df: pd.DataFrame, rank_window: int = 500,
+                                     percentile: float = 0.90) -> pd.Series:
+    """
+    WaveTrend: WT1 incrocia sotto WT2 mentre WT1 e' in ipercomprato (nel 10%
+    piu' alto delle proprie ultime 500 barre) -> short. Speculare di
+    E30_WAVETREND_CROSS_UP.
+
+    Fonte dell'indicatore: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
+    https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/
+    (nessuna licenza dichiarata). Regola: docs/51 §3, M2; soglia a percentile
+    rolling al posto di +-60 (traduzione nostra, scelta di Mattia il 15/10/2026).
+    """
+    ipercomprato = _ts_rank(df["wt1"], rank_window) >= percentile
+    return _evento(_cross_down(df["wt1"], df["wt2"]) & ipercomprato)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -374,6 +420,9 @@ TRIGGER_SHORT = {
     "E24_SHORT_CYCLE_TURN_DOWN": entry_short_cycle_turn_down,
     "E25_SHORT_ATC_PVO_SETUP_DOWN": entry_short_atc_pvo_setup_down,    "E26_SHORT_SUPERTREND_IIX_SETUP_DOWN": entry_short_supertrend_iix_setup_down,
     "E27_SHORT_VSA_BEARISH": entry_short_vsa_bearish,
+    "E28_SHORT_VFI_CROSS_DOWN": entry_short_vfi_cross_down,
+    "E29_SHORT_SQUEEZE_RELEASE_DOWN": entry_short_squeeze_release_down,
+    "E30_SHORT_WAVETREND_CROSS_DOWN": entry_short_wavetrend_cross_down,
 }
 
 

@@ -382,6 +382,64 @@ def entry_vsa_bullish(df: pd.DataFrame) -> pd.Series:
     return _evento(figure["stopping_volume"] | figure["no_supply"])
 
 
+# ------------------------------------------------------------ E28 --------
+def entry_vfi_cross_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Il Volume Flow Indicator (colonna `vfi`, 130 barre) passa sopra lo zero
+    -> long. Evento: la barra in cui va da <= 0 a > 0.
+
+    Dipende dalla qualita' del volume (tick volume su MT5). Riscaldamento:
+    261 barre.
+
+    Fonte dell'indicatore: LazyBear, "Volume Flow Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/MhlDpfdS-Volume-Flow-Indicator-LazyBear/
+    (nessuna licenza dichiarata). Regola d'ingresso: docs/51 §3, V1.
+    """
+    zero = pd.Series(0.0, index=df.index)
+    return _evento(_cross_up(df["vfi"], zero))
+
+
+# ------------------------------------------------------------ E29 --------
+def entry_squeeze_release_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Rilascio dello squeeze con momentum positivo -> long: sulla barra
+    precedente le Bollinger erano dentro il Keltner (`sqz_on` = 1), su questa
+    non piu' (`sqz_on` = 0), e l'istogramma `sqz_mom` e' sopra zero.
+
+    Evento per costruzione (lo squeeze si spegne una volta per episodio).
+    Riscaldamento: 38 barre.
+
+    Fonte dell'indicatore: LazyBear, "Squeeze Momentum Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/nqQ1DT5a-Squeeze-Momentum-Indicator-LazyBear/
+    (nessuna licenza dichiarata; moltiplicatore BB corretto, vedi
+    engine.indicatori.squeeze_momentum). Regola: docs/51 §3, M1.
+    """
+    rilascio = (df["sqz_on"].shift(1) == 1) & (df["sqz_on"] == 0)
+    return _evento(rilascio & (df["sqz_mom"] > 0))
+
+
+# ------------------------------------------------------------ E30 --------
+def entry_wavetrend_cross_up(df: pd.DataFrame, rank_window: int = 500,
+                             percentile: float = 0.10) -> pd.Series:
+    """
+    WaveTrend: WT1 incrocia sopra WT2 mentre WT1 e' in ipervenduto -> long.
+
+    Ipervenduto = WT1, sulla barra dell'incrocio, nel 10% piu' basso delle
+    proprie ultime 500 barre (percentile rolling al posto della soglia fissa
+    -60 dello script). La finestra (500) e' molto piu' larga di quella
+    dell'indicatore (~40 barre) e resta usabile su H4 e D1 (scelta di Mattia
+    del 15/10/2026: 2000 barre erano 8 anni in D1). Parametri fissati a
+    priori, mai provati in varianti. Riscaldamento: circa 540 barre.
+
+    Fonte dell'indicatore: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
+    https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/
+    (nessuna licenza dichiarata). Regola: docs/51 §3, M2; soglia a percentile
+    rolling al posto di +-60 (traduzione nostra, scelta di Mattia il 15/10/2026).
+    """
+    ipervenduto = _ts_rank(df["wt1"], rank_window) <= percentile
+    return _evento(_cross_up(df["wt1"], df["wt2"]) & ipervenduto)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -418,6 +476,9 @@ TRIGGER_LONG = {
     "E24_CYCLE_TURN_UP": entry_cycle_turn_up,
     "E25_ATC_PVO_SETUP_UP": entry_atc_pvo_setup_up,    "E26_SUPERTREND_IIX_SETUP_UP": entry_supertrend_iix_setup_up,
     "E27_VSA_BULLISH": entry_vsa_bullish,
+    "E28_VFI_CROSS_UP": entry_vfi_cross_up,
+    "E29_SQUEEZE_RELEASE_UP": entry_squeeze_release_up,
+    "E30_WAVETREND_CROSS_UP": entry_wavetrend_cross_up,
 }
 
 

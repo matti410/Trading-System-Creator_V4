@@ -851,6 +851,229 @@ def filter_regime_trend_composite(df: pd.DataFrame, voti_minimi: int = 2) -> pd.
     return voti >= int(voti_minimi)
 
 
+# --- F28: segno del Volume Flow Indicator (docs/51, V1) -------------------
+# Coppia direzionale: il volume dei rialzi prevale (sopra zero) o no.
+
+def filter_vfi_positive(df: pd.DataFrame) -> pd.Series:
+    """
+    Volume Flow Indicator (colonna `vfi`, 130 barre) sopra lo zero: nelle
+    ultime 130 barre il volume dei rialzi supera quello dei ribassi.
+    Dipende dalla qualita' del volume (tick volume su MT5). Riscaldamento:
+    261 barre.
+
+    Fonte dell'indicatore: LazyBear, "Volume Flow Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/MhlDpfdS-Volume-Flow-Indicator-LazyBear/
+    (nessuna licenza dichiarata). Regola del filtro: docs/51 §3, V1.
+    """
+    return df["vfi"] > 0
+
+
+def filter_vfi_negative(df: pd.DataFrame) -> pd.Series:
+    """Volume Flow Indicator sotto lo zero. Speculare di F28_VFI_POSITIVE."""
+    return df["vfi"] < 0
+
+
+# --- F29: volume relativo alto / basso (docs/51, V2) ---------------------
+# Due filtri neutri a se', non una coppia: misurano l'intensita' del volume,
+# non un verso. Mai veri insieme; nella zona di mezzo entrambi falsi.
+
+def filter_rvol_high(df: pd.DataFrame, rank_window: int = 500,
+                     percentile: float = 0.75) -> pd.Series:
+    """
+    Volume relativo ALTO: RVOL (colonna `rvol`, volume / media delle 30 barre
+    precedenti) nel 25% piu' alto delle proprie ultime 500 barre.
+
+    SPENTO nel dizionario FILTRI: e' un doppione di F3_VOLUME_ABOVE_AVG
+    (contenuto al 100% su EURUSD in-sample, controllo del 15/10/2026).
+
+    Neutro. La finestra del percentile (500, scelta di Mattia del 15/10/2026
+    perche' resti usabile su H4 e D1) e' molto piu' larga di quella
+    dell'indicatore (30). Parametri fissati a priori, mai provati in
+    varianti. Riscaldamento: 530 barre.
+    Dipende dalla qualita' del volume (tick volume su MT5).
+
+    Fonte dell'indicatore: veryfid, "Relative Volume" (RVOL), TradingView,
+    licenza MPL 2.0 (vedi engine.indicatori.volume_relativo). Regola: docs/51
+    §3, V2 (solo filtri, neutri); soglie a percentile rolling: traduzione
+    nostra (lo script non ne ha).
+    """
+    return ts_rank(df["rvol"], rank_window) >= percentile
+
+
+def filter_rvol_low(df: pd.DataFrame, rank_window: int = 500,
+                    percentile: float = 0.25) -> pd.Series:
+    """Volume relativo BASSO: RVOL nel 25% piu' basso delle ultime 500 barre. Vedi F29_RVOL_HIGH."""
+    return ts_rank(df["rvol"], rank_window) <= percentile
+
+
+# --- F32: efficienza del movimento, Kaufman (docs/51, R1) ----------------
+# Coppia direzionale TREND_UP/TREND_DOWN (soglia +-0,5, la linea "Efficient"
+# dello script: il KER ha una scala teorica) e un filtro neutro a se', il
+# laterale, con percentile e isteresi come F25.
+
+def filter_ker_trend_up(df: pd.DataFrame, soglia: float = 0.5) -> pd.Series:
+    """
+    SPENTO nel dizionario FILTRI: doppione di F4 MACD, F8 contesto, F16 VWAP (docs/50 §7.5,
+    controllo del 15/10/2026).
+
+    Tendenza rialzista efficiente: KER con segno (colonna `ker`, 10 barre)
+    sopra +0,5, cioe' piu' di meta' del cammino delle ultime 10 barre e'
+    salita netta. Riscaldamento: 10 barre.
+
+    Fonte dell'indicatore: Zorba_the_Buddha, "Kaufman Efficiency Ratio (KER)",
+    TradingView, https://www.tradingview.com/script/7imltc5K-Kaufman-Efficiency-Ratio-KER/
+    (open source, nessuna licenza specifica). Regola: docs/51 §3, R1; scelte
+    di Mattia del 15/10/2026.
+    """
+    return df["ker"] > soglia
+
+
+def filter_ker_trend_down(df: pd.DataFrame, soglia: float = 0.5) -> pd.Series:
+    """Tendenza ribassista efficiente: KER sotto -0,5. Speculare di F32_KER_TREND_UP."""
+    return df["ker"] < -soglia
+
+
+def filter_ker_range(df: pd.DataFrame, rank_window: int = 500,
+                     entra: float = 0.25, esce: float = 0.50) -> pd.Series:
+    """
+    Mercato inefficiente / laterale: |KER| (senza segno) entra sotto il 25°
+    percentile delle proprie ultime 500 barre e ne esce quando risale sopra
+    il 50° (isteresi, vedi `_stato_isteresi`: toglie lo sfarfallio senza
+    ritardare l'indicatore). Stessi numeri di F25_CHOP_TREND: nessun
+    parametro nuovo.
+
+    Neutro: misura l'efficienza, non il verso. Finestra del percentile (500)
+    molto piu' larga di quella dell'indicatore (10). Riscaldamento: 510 barre.
+
+    Fonte dell'indicatore: Zorba_the_Buddha, "Kaufman Efficiency Ratio (KER)",
+    TradingView, https://www.tradingview.com/script/7imltc5K-Kaufman-Efficiency-Ratio-KER/
+    (open source, nessuna licenza specifica). Regola: docs/51 §3, R1; scelte
+    di Mattia del 15/10/2026.
+    """
+    return _stato_isteresi(ts_rank(df["ker"].abs(), rank_window), entra, esce, basso=True)
+
+
+# --- F33: esponente di Hurst (docs/51, R2) -------------------------------
+# Due filtri neutri a se' (non una coppia): persistenza e ritorno alla media
+# non sono due versi dello stesso movimento. Mai veri insieme.
+
+def filter_hurst_persistent(df: pd.DataFrame, soglia: float = 0.6) -> pd.Series:
+    """
+    Regime PERSISTENTE: esponente di Hurst (colonna `hurst`, R/S su 100
+    barre, ema a 5) sopra 0,6, la linea "Strong Trending" dello script.
+
+    Neutro: la persistenza non dice il verso. ATTENZIONE: la stima R/S su
+    100 barre e' distorta verso l'alto (su un cammino casuale vale in media
+    circa 0,53 e supera 0,6 nel ~6% delle barre): la soglia dello script non
+    ne tiene conto. Riscaldamento: 103 barre.
+
+    Fonte dell'indicatore: PhenLabs, "Hurst Exponent Oscillator [PhenLabs]",
+    TradingView. LICENZA CC BY-NC-SA 4.0, NON COMMERCIALE: uso personale e di
+    ricerca (scelta di Mattia del 13/10/2026), vedi engine.indicatori.hurst_rs.
+    Regola: docs/51 §3, R2; soglie 0,6 / 0,4 = le linee dello script.
+    """
+    return df["hurst"] > soglia
+
+
+def filter_hurst_mean_reverting(df: pd.DataFrame, soglia: float = 0.4) -> pd.Series:
+    """
+    Regime di RITORNO ALLA MEDIA: esponente di Hurst sotto 0,4, la linea
+    "Strong Mean-Reverting" dello script. Neutro. Per la distorsione verso
+    l'alto della stima (vedi F33_HURST_PERSISTENT) e' raro: su un cammino
+    casuale meno dell'1% delle barre. Riscaldamento: 103 barre.
+
+    Fonte dell'indicatore: PhenLabs, "Hurst Exponent Oscillator [PhenLabs]",
+    TradingView. LICENZA CC BY-NC-SA 4.0, NON COMMERCIALE: uso personale e di
+    ricerca (scelta di Mattia del 13/10/2026), vedi engine.indicatori.hurst_rs.
+    Regola: docs/51 §3, R2; soglie 0,6 / 0,4 = le linee dello script.
+    """
+    return df["hurst"] < soglia
+
+
+# --- F34, F35: i filtri di jdehorty (docs/51, R3) -------------------------
+# Neutri, a se'. Il classificatore Lorentzian e filter_adx non sono tradotti.
+
+def filter_jdh_volatility(df: pd.DataFrame) -> pd.Series:
+    """
+    SPENTO nel dizionario FILTRI: doppione di F3_VOLUME_ABOVE_AVG e F6
+    (docs/50 §7.5, controllo del 15/10/2026).
+
+    Volatilita' in espansione (filter_volatility di jdehorty): ATR a 1 barra
+    (il true range della barra) sopra l'ATR a 10 barre (colonna
+    `jdh_atr_diff` > 0). Neutro. Cambia stato quasi a ogni barra: e' il
+    filtro dello script, senza lisciature aggiunte. Riscaldamento: 10 barre.
+
+    Fonte: jdehorty, libreria "MLExtensions" (usata da "Machine Learning:
+    Lorentzian Classification"), TradingView, licenza MPL 2.0; vedi
+    engine.indicatori.filtri_jdehorty. Regola: docs/51 §3, R3; default dello
+    script Lorentzian.
+    """
+    return df["jdh_atr_diff"] > 0
+
+
+def filter_jdh_regime_trend(df: pd.DataFrame, soglia: float = -0.1) -> pd.Series:
+    """
+    Regime di tendenza (regime_filter di jdehorty): la pendenza della curva
+    lisciata `klmf` non e' scesa piu' del 10% sotto la sua media a 200 barre
+    (colonna `jdh_regime` >= -0,1). Falso quando il movimento si sta
+    spegnendo rispetto al recente. Neutro. Riscaldamento: 201 barre; la
+    media a 200 rende il valore dipendente dal punto di partenza per qualche
+    migliaio di barre (vedi filtri_jdehorty).
+
+    Fonte: jdehorty, libreria "MLExtensions" (usata da "Machine Learning:
+    Lorentzian Classification"), TradingView, licenza MPL 2.0; vedi
+    engine.indicatori.filtri_jdehorty. Regola: docs/51 §3, R3; default dello
+    script Lorentzian.
+    """
+    return df["jdh_regime"] >= soglia
+
+
+# --- F30: segno del momentum dello Squeeze (docs/51, M1) -----------------
+
+def filter_sqz_mom_positive(df: pd.DataFrame) -> pd.Series:
+    """
+    SPENTO nel dizionario FILTRI: doppione di F4 MACD, F8 contesto, F16 VWAP (docs/50 §7.5,
+    controllo del 15/10/2026).
+
+    Istogramma dello Squeeze Momentum (colonna `sqz_mom`, regressione su 20
+    barre) sopra lo zero: il prezzo sta sopra il centro del suo range
+    recente. Riscaldamento: 38 barre.
+
+    Fonte dell'indicatore: LazyBear, "Squeeze Momentum Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/nqQ1DT5a-Squeeze-Momentum-Indicator-LazyBear/
+    (nessuna licenza dichiarata; moltiplicatore BB corretto, vedi
+    engine.indicatori.squeeze_momentum). Regola del filtro: docs/51 §3, M1.
+    """
+    return df["sqz_mom"] > 0
+
+
+def filter_sqz_mom_negative(df: pd.DataFrame) -> pd.Series:
+    """Istogramma dello Squeeze Momentum sotto lo zero. Speculare di F30_SQZ_MOM_POSITIVE."""
+    return df["sqz_mom"] < 0
+
+
+# --- F31: WaveTrend sopra/sotto la sua media (docs/51, M2) ---------------
+
+def filter_wt_above_signal(df: pd.DataFrame) -> pd.Series:
+    """
+    SPENTO nel dizionario FILTRI: doppione di F4 MACD (docs/50 §7.5,
+    controllo del 15/10/2026).
+
+    WaveTrend: WT1 sopra WT2 (la sua media a 4 barre), cioe' l'oscillatore
+    sta salendo. Riscaldamento: 41 barre.
+
+    Fonte dell'indicatore: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
+    https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/
+    (nessuna licenza dichiarata). Regola del filtro: docs/51 §3, M2.
+    """
+    return df["wt1"] > df["wt2"]
+
+
+def filter_wt_below_signal(df: pd.DataFrame) -> pd.Series:
+    """WaveTrend: WT1 sotto WT2. Speculare di F31_WT_ABOVE_SIGNAL."""
+    return df["wt1"] < df["wt2"]
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -887,6 +1110,32 @@ FILTRI = {
     "F25_CHOP_TREND":            (filter_chop_trend, 0, None),
     "F25_CHOP_RANGE":            (filter_chop_range, 0, None),
     "F26_VARIANCE_RATIO_TREND":  (filter_variance_ratio_trend, 0, None),
+    "F28_VFI_POSITIVE":          (filter_vfi_positive, 1, "VFI_SIGN"),
+    "F28_VFI_NEGATIVE":          (filter_vfi_negative, -1, "VFI_SIGN"),
+    # F29_RVOL_HIGH: SPENTO, doppione (docs/50 §7.5): su EURUSD in-sample sta
+    # al 100% dentro F3_VOLUME_ABOVE_AVG e al 91% dentro F6. Togli il "#" solo
+    # se Mattia lo decide (conta 1 prova in piu').
+    # "F29_RVOL_HIGH":             (filter_rvol_high, 0, None),
+    "F29_RVOL_LOW":              (filter_rvol_low, 0, None),
+    "F33_HURST_PERSISTENT":      (filter_hurst_persistent, 0, None),
+    "F33_HURST_MEAN_REVERTING":  (filter_hurst_mean_reverting, 0, None),
+    #   F34: SPENTO, doppione (75% dentro F3_VOLUME_ABOVE_AVG = 1,64 volte il caso,
+    #   72% dentro F6 = 1,53 volte; regola di docs/50 §7.5 del 15/10/2026)
+    # "F34_JDH_VOLATILITY":        (filter_jdh_volatility, 0, None),
+    "F35_JDH_REGIME_TREND":      (filter_jdh_regime_trend, 0, None),
+    # Doppioni SPENTI (regola di docs/50 §7.5 alla lettera, decisione di Mattia
+    # del 15/10/2026): contenuti al 70% o piu' in filtri gia' presenti, su
+    # EURUSD in-sample. Togli il "#" solo se Mattia lo decide (1 prova a coppia).
+    #   F30: 72-76% dentro F4 MACD, F8/F9 contesto, F16/F17 VWAP (e viceversa)
+    # "F30_SQZ_MOM_POSITIVE":      (filter_sqz_mom_positive, 1, "SQZ_MOM"),
+    # "F30_SQZ_MOM_NEGATIVE":      (filter_sqz_mom_negative, -1, "SQZ_MOM"),
+    #   F32 trend: 88-96% dentro F4 MACD, F8/F9, F16/F17
+    # "F32_KER_TREND_UP":          (filter_ker_trend_up, 1, "KER_TREND"),
+    # "F32_KER_TREND_DOWN":        (filter_ker_trend_down, -1, "KER_TREND"),
+    "F32_KER_RANGE":             (filter_ker_range, 0, None),
+    #   F31: 75% dentro F4 MACD (e viceversa) -- SPENTO, doppione
+    # "F31_WT_ABOVE_SIGNAL":       (filter_wt_above_signal, 1, "WAVETREND"),
+    # "F31_WT_BELOW_SIGNAL":       (filter_wt_below_signal, -1, "WAVETREND"),
     # F27: OPZIONALE, togli il "#" solo se approvato (conta 1 prova in piu')
     # "F27_REGIME_TREND_COMPOSITE": (filter_regime_trend_composite, 0, None),
 }
