@@ -904,6 +904,230 @@ def sentiment_giornaliero(df: pd.DataFrame, giorni_media: int = 30,
     return pd.DataFrame(valori, index=df.index, columns=colonne)
 
 
+# =========================================================================
+# Multi timeframe (docs/50 §10, riga 12; schede approvate da Mattia il
+# 15/10/2026): candele superiori costruite dalle M15, e le colonne di
+# F37 (continuita' dei timeframe), E31 (Triple Screen), F38 (accordo di tre
+# orizzonti), F39 (giorno inside).
+# =========================================================================
+
+REGOLE_PERIODO = ("H1", "H4", "D", "W", "M")
+
+
+def id_periodo(df: pd.DataFrame, regola: str) -> np.ndarray:
+    """
+    Numero progressivo del periodo superiore di ogni barra (0, 1, 2, ...):
+    cresce di uno a ogni periodo nuovo PRESENTE nei dati (un periodo senza
+    barre, es. il weekend, non ha numero).
+
+        H1  l'ora (i confini orari coincidono in UTC e a New York)
+        H4  blocchi di 4 ore ancorati al rollover delle 17:00 di New York:
+            17, 21, 01, 05, 09, 13 (ora di New York, con l'ora legale)
+        D   la giornata FX (17:00 NY -> 17:00 NY): identica a giorno_fx
+        W   la settimana FX: inizia domenica alle 17:00 NY (giornata FX del lunedi')
+        M   il mese della data FX
+
+    Serve l'indice con fuso orario. I confini vengono dal calendario puro,
+    senza quarantena (come range_finestra).
+    """
+    idx = pd.DatetimeIndex(df.index)
+    if regola == "H1":
+        chiave = idx.floor("h").asi8
+    else:
+        # +7 ore all'ora DA OROLOGIO di New York: le 17:00 diventano la mezzanotte
+        # della data FX. Si somma all'ora locale senza fuso: sommando a un orario
+        # con fuso, la notte del cambio d'ora i blocchi H4 si spostavano di un'ora
+        # (la data FX resta la stessa di giorno_fx: il cambio d'ora e' alle 2:00)
+        loc = idx.tz_convert("America/New_York").tz_localize(None) + pd.Timedelta(hours=7)
+        # giorni dal 1/1/1970 della data FX (conversione esplicita: l'unita'
+        # interna delle date cambia fra pandas 2 e 3)
+        giorni = loc.to_numpy().astype("datetime64[D]").astype(np.int64)
+        if regola == "H4":
+            chiave = giorni * 6 + loc.hour // 4
+        elif regola == "D":
+            chiave = giorni
+        elif regola == "W":
+            chiave = giorni - (giorni + 3) % 7          # il lunedi' FX della settimana (1/1/1970 = giovedi')
+        elif regola == "M":
+            chiave = loc.year.to_numpy() * 12 + loc.month.to_numpy()
+        else:
+            raise ValueError(f"regola {regola!r} sconosciuta: usa una di {REGOLE_PERIODO}")
+    chiave = np.asarray(chiave)
+    nuovo = np.ones(len(chiave), dtype=np.int64)
+    nuovo[1:] = chiave[1:] != chiave[:-1]
+    return np.cumsum(nuovo) - 1
+
+
+def barre_superiori(df: pd.DataFrame, regola: str) -> tuple[pd.DataFrame, np.ndarray]:
+    """
+    Le candele del timeframe superiore `regola` (vedi id_periodo), costruite
+    dalle barre M15 NON in quarantena: Open della prima barra utile, High e Low
+    estremi, Close dell'ultima, Volume (tick) sommato. Un periodo senza barre
+    utili ha NaN.
+
+    Restituisce (candele indicizzate dal numero del periodo, numero del
+    periodo di ogni barra M15). Per leggere una candela da una barra M15 usa
+    `al_periodo_chiuso`: SOLO l'ultimo periodo gia' chiuso.
+    """
+    from engine.livelli import quarantena_cached
+
+    pid = id_periodo(df, regola)
+    utile = ~quarantena_cached(df)["totale"].reindex(df.index).fillna(False).to_numpy(dtype=bool)
+    b = pd.DataFrame({c: df[c].to_numpy(dtype=float)[utile] for c in ("Open", "High", "Low", "Close", "Volume")})
+    b["pid"] = pid[utile]
+    candele = b.groupby("pid").agg(Open=("Open", "first"), High=("High", "max"), Low=("Low", "min"),
+                                   Close=("Close", "last"), Volume=("Volume", "sum"))
+    n = int(pid[-1]) + 1 if len(pid) else 0
+    return candele.reindex(np.arange(n)), pid
+
+
+def al_periodo_chiuso(pid: np.ndarray, valori, indice) -> pd.Series:
+    """
+    Porta su ogni barra M15 il valore del periodo superiore PRECEDENTE al suo
+    (pid - 1): l'ultimo gia' chiuso. Una candela superiore diventa visibile
+    dalla prima barra M15 del periodo dopo, mai prima (stessa regola di F36:
+    al massimo una barra di ritardo, nessun dato del periodo in corso).
+    """
+    v = np.asarray(valori, dtype=float)
+    esito = np.full(len(pid), np.nan)
+    ok = pid >= 1
+    esito[ok] = v[pid[ok] - 1]
+    return pd.Series(esito, index=indice)
+
+
+def _apertura_periodo_in_corso(df: pd.DataFrame, regola: str) -> pd.Series:
+    """
+    Apertura del periodo IN CORSO nota alla barra: l'Open della prima barra
+    utile del periodo, da quella barra in poi (NaN sulle barre in quarantena
+    che la precedono: a quel punto l'apertura non si conosce ancora).
+    """
+    from engine.livelli import quarantena_cached
+
+    pid = id_periodo(df, regola)
+    utile = ~quarantena_cached(df)["totale"].reindex(df.index).fillna(False).to_numpy(dtype=bool)
+    utili_prima = pd.Series(utile.astype(int)).groupby(pid).cumsum().to_numpy()
+    prima = utile & (utili_prima == 1)
+    aperture = pd.Series(np.where(prima, df["Open"].to_numpy(dtype=float), np.nan))
+    return pd.Series(aperture.groupby(pid).ffill().to_numpy(), index=df.index)
+
+
+def continuita_timeframe(df: pd.DataFrame, periodi=("H1", "D", "W", "M")) -> pd.Series:
+    """
+    "Full timeframe continuity" (The Strat): +1 se la chiusura della barra e'
+    SOPRA l'apertura del periodo in corso di tutti i `periodi` (ora, giornata
+    FX, settimana FX, mese), -1 se e' SOTTO tutte, 0 altrimenti; NaN finche'
+    un'apertura non e' nota.
+
+    Usa il periodo IN CORSO, non quello chiuso: e' causale, perche'
+    l'apertura si conosce dalla prima barra del periodo (eccezione voluta alla
+    regola "solo candela chiusa", scheda B).
+
+    Parametri: i quattro periodi indicati dalla fonte come i piu' comuni,
+    nessuna soglia. Fonte: LuxAlgo, "The Strat" (concetto di Rob Smith),
+    https://www.luxalgo.com/library/concept/the-strat/ (letto il 15/10/2026).
+    """
+    close = df["Close"].to_numpy(dtype=float)
+    aperture = np.vstack([_apertura_periodo_in_corso(df, r).to_numpy() for r in periodi])
+    nota = ~np.isnan(aperture).any(axis=0)
+    sopra = (close > aperture).all(axis=0)
+    sotto = (close < aperture).all(axis=0)
+    esito = np.where(sopra, 1.0, np.where(sotto, -1.0, 0.0))
+    return pd.Series(np.where(nota, esito, np.nan), index=df.index)
+
+
+def triple_screen_colonne(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Le grandezze del Triple Screen di Elder, sul timeframe superiore e lette
+    SOLO dall'ultima candela chiusa (al_periodo_chiuso):
+
+      mtf_h4_macdh_pend  schermo 1: pendenza del MACD-Histogram (12/26/9)
+                         sulle H4: +1 se l'ultima barra e' piu' alta della
+                         precedente, -1 se piu' bassa, 0 se uguali
+      mtf_h1_force       schermo 2: Force Index sulle H1, (Close - Close
+                         precedente) x tick volume, lisciato con EMA a 2 periodi
+      mtf_h1_high        schermo 3: massimo e minimo dell'ultima H1 chiusa
+      mtf_h1_low
+
+    Timeframe: H4 / H1 per l'ingresso su M15 (fattore 4, vicino al "fattore
+    5" del libro); oscillatore Force Index (l'esempio guidato del libro);
+    scelte di Mattia del 15/10/2026. Parametri del libro, mai provati in varianti.
+
+    Fonte: A. Elder, "Trading for a Living", Wiley 1993, cap. 43 (Triple
+    Screen, pp. 235-243), cap. 42 (Force Index), cap. 26 (MACD-Histogram).
+    """
+    h4, pid4 = barre_superiori(df, "H4")
+    c4 = h4["Close"].dropna()
+    pend = pd.Series(np.nan, index=h4.index)
+    if len(c4) > 34:
+        _, _, istogramma = ta.MACD(c4.to_numpy(dtype=float), fastperiod=12, slowperiod=26, signalperiod=9)
+        pend.loc[c4.index] = np.sign(pd.Series(istogramma).diff().to_numpy())
+    h1, pid1 = barre_superiori(df, "H1")
+    v1 = h1.dropna(subset=["Close"])
+    forza_grezza = (v1["Close"] - v1["Close"].shift(1)) * v1["Volume"]
+    forza = forza_grezza.ewm(span=2, adjust=False).mean().reindex(h1.index)
+    return pd.DataFrame({
+        "mtf_h4_macdh_pend": al_periodo_chiuso(pid4, pend.to_numpy(), df.index),
+        "mtf_h1_force": al_periodo_chiuso(pid1, forza.to_numpy(), df.index),
+        "mtf_h1_high": al_periodo_chiuso(pid1, h1["High"].to_numpy(), df.index),
+        "mtf_h1_low": al_periodo_chiuso(pid1, h1["Low"].to_numpy(), df.index),
+    }, index=df.index)
+
+
+def accordo_orizzonti(df: pd.DataFrame, orizzonti=(1, 5, 21)) -> pd.Series:
+    """
+    Accordo di tre orizzonti (time-series momentum): sull'ultima giornata FX
+    CHIUSA, +1 se il rendimento dalla chiusura di 1, 5 e 21 giornate prima e'
+    positivo su tutti e tre, -1 se negativo su tutti e tre, 0 altrimenti.
+    Le giornate sono quelle presenti nei dati (chiusura dell'ultima barra
+    utile); ogni barra vede la giornata g-1, come F36.
+
+    Traduzione nostra (approvata da Mattia il 15/10/2026): la fonte usa 1, 3
+    e 12 MESI su dati mensili e somma le tre posizioni; qui giornate (giorno,
+    settimana, mese) e "tutti e tre d'accordo".
+
+    Fonte: Hurst, Ooi, Pedersen, "A Century of Evidence on Trend-Following
+    Investing", J. of Portfolio Management, autunno 2017, sezione
+    "Constructing the time-series momentum strategy".
+    """
+    giorni, pid = barre_superiori(df, "D")
+    c = giorni["Close"].dropna()
+    c = c[c > 0]
+    segni = np.vstack([np.sign((c / c.shift(k) - 1.0).to_numpy()) for k in orizzonti])
+    definito = ~np.isnan(segni).any(axis=0)
+    esito = np.where((segni > 0).all(axis=0), 1.0, np.where((segni < 0).all(axis=0), -1.0, 0.0))
+    per_g = pd.Series(np.where(definito, esito, np.nan), index=c.index).reindex(giorni.index)
+    return al_periodo_chiuso(pid, per_g.to_numpy(), df.index)
+
+
+def giorno_inside(df: pd.DataFrame) -> pd.Series:
+    """
+    1 se l'ultima giornata FX CHIUSA e' "inside" rispetto a quella prima
+    (massimo <= massimo precedente e minimo >= minimo precedente, barre in
+    quarantena escluse: barra di "tipo 1" della Strat), 0 altrimenti, NaN se
+    manca una delle due giornate. Il valore vale per tutta la giornata dopo.
+
+    Fonte: LuxAlgo, "The Strat", https://www.luxalgo.com/library/concept/the-strat/
+    """
+    giorni, pid = barre_superiori(df, "D")
+    v = giorni.dropna(subset=["High", "Low"])
+    dentro = ((v["High"] <= v["High"].shift(1)) & (v["Low"] >= v["Low"].shift(1))).astype(float)
+    dentro.iloc[:1] = np.nan
+    return al_periodo_chiuso(pid, dentro.reindex(giorni.index).to_numpy(), df.index)
+
+
+COLONNE_MULTI_TIMEFRAME = ("ftfc", "mtf_h4_macdh_pend", "mtf_h1_force", "mtf_h1_high",
+                           "mtf_h1_low", "tsmom", "inside_day")
+
+
+def colonne_multi_timeframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Le sette colonne multi timeframe (vedi le funzioni qui sopra), in un DataFrame."""
+    esito = triple_screen_colonne(df)
+    esito.insert(0, "ftfc", continuita_timeframe(df))
+    esito["tsmom"] = accordo_orizzonti(df)
+    esito["inside_day"] = giorno_inside(df)
+    return esito[list(COLONNE_MULTI_TIMEFRAME)]
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
@@ -912,9 +1136,12 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         atr, realized_vol, adx, vwap,
         ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
         chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker, hurst,
-        jdh_atr_diff, jdh_regime, sentiment_score, sentiment_classe
+        jdh_atr_diff, jdh_regime, sentiment_score, sentiment_classe,
+        ftfc, mtf_h4_macdh_pend, mtf_h1_force, mtf_h1_high, mtf_h1_low,
+        tsmom, inside_day
         (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
-        R2 103, R3 201)
+        R2 103, R3 201; multi timeframe: vedi colonne_multi_timeframe, al
+        massimo un mese, aggiunte come il sentiment dopo il taglio)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -972,10 +1199,16 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     # cosa che verifica_degenerazione segnala
     if getattr(df.index, "tz", None) is None:
         sentiment = pd.DataFrame(np.nan, index=df.index, columns=["sentiment_score", "sentiment_classe"])
+        mtf = pd.DataFrame(np.nan, index=df.index, columns=list(COLONNE_MULTI_TIMEFRAME))
     else:
         sentiment = sentiment_giornaliero(df)
+        mtf = colonne_multi_timeframe(df)
     df["sentiment_score"] = sentiment["sentiment_score"]
     df["sentiment_classe"] = sentiment["sentiment_classe"]
+    # multi timeframe (F37, E31, F38, F39): come il sentiment, dopo il taglio,
+    # NaN nel loro riscaldamento senza togliere righe
+    for c in COLONNE_MULTI_TIMEFRAME:
+        df[c] = mtf[c]
     return df
 
 
@@ -986,4 +1219,5 @@ COLONNE_INDICATORI = (
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
     "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2", "ker", "hurst",
     "jdh_atr_diff", "jdh_regime", "sentiment_score", "sentiment_classe",
+    "ftfc", "mtf_h4_macdh_pend", "mtf_h1_force", "mtf_h1_high", "mtf_h1_low", "tsmom", "inside_day",
 )

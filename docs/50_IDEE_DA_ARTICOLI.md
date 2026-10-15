@@ -1,6 +1,6 @@
 # 50 · Idee da fonti testuali — come trascriverle in condizioni
  
-**Data:** 7 ottobre 2026 (registro aggiornato l'8/10 e il 15/10, filtro di sentiment F36 in §10 ter; regola dei setup composti in §4 e riordino del 9/10; **il 10/10 fuso con l'ex `51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`**)
+**Data:** 7 ottobre 2026 (registro aggiornato l'8/10 e il 15/10, filtro di sentiment F36 in §10 ter, multi timeframe in §10 quater; regola dei setup composti in §4 e riordino del 9/10; **il 10/10 fuso con l'ex `51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`**)
 **Stato:** metodo concordato con Mattia; esteso il 7/10 da articoli a **video YouTube (trascrizione incollata da Mattia) e libri**. Al 10/10/2026 trascritti 9 articoli (7 con candidate nel catalogo), **17 prove**: vedi il registro in §10. L'esempio guidato del primo articolo (Fourier, Kaabar) resta in §11. Repo di destinazione predefinito: V4 (confermato il 7/10).
 **Fusione con 51 (10/10/2026):** il documento `51` (consegna "a parti", registro dei filtri di regime, lavoro in locale) è entrato qui e non esiste più. Dove i due documenti dicevano cose diverse valeva il 51, e qui è già applicato: regola di consegna in §9, registro in §10, filtri di regime in §10 bis, lavoro in locale con Claude Code in §12.
 **Nota sul nome:** il file resta `50_IDEE_DA_ARTICOLI.md` perché altri documenti lo citano; vale per qualunque fonte testuale.
@@ -304,10 +304,11 @@ Una riga per fonte (nei libri, per capitolo). Serve a due cose: sapere cosa è g
 | 9 | articolo | 9/10/2026 | articolo Mellin (trasformata) | — | — | scartato: FFT per barra, nessuna regola in condizione | — | no | 0 |
 | 10 | script TradingView | 13–15/10/2026 | 7 script della community (`51_INDICATORI_TRADINGVIEW.md`): VFI, Squeeze Momentum, WaveTrend di LazyBear; Relative Volume di veryfid; KER di Zorba_the_Buddha; Hurst di PhenLabs (CC BY-NC-SA, uso personale); filtri MLExtensions di jdehorty | traduzione riga per riga del Pine, fedeltà verificata con PineTS | entry E28 (VFI), E29 (squeeze), E30 (WaveTrend a percentile); filtri F28 (VFI, coppia), F29_RVOL_LOW, F32_KER_RANGE, F33 (Hurst ×2), F35 (regime jdehorty). **Spenti come doppioni:** F29_RVOL_HIGH, F30, F31, F32_KER_TREND, F34 | piano approvato il 13/10, scelte del 13–15/10 (`51` §7.1) | superato 15/10 (`test_indicatori_tradingview.py` 143/143) | sì | 12 (+5 se si riattivano i doppioni) |
 | 11 | concetto (indice esterno) | 15/10/2026 | Crypto Fear & Greed Index di alternative.me (https://alternative.me/crypto/fear-and-greed-index/), solo come **idea**: formula, dati e nome non usati, codice nostro senza licenze di terzi (prodotto commerciale) | sentiment giornaliero dai soli prezzi e tick volume: 4 componenti (volatilità, drawdown, momentum, volume con segno) a 30 giorni, percentile a 365 giornate, punteggio 0–100 e 5 quintili; aggiornato a fine giornata FX, ogni barra vede solo l'ultima giornata chiusa | filtri F36_SENT_EXTREME_FEAR (+1) / F36_SENT_EXTREME_GREED (−1), coppia SENTIMENT, **contrarian** (paura sul long); colonne `sentiment_score`, `sentiment_classe` | approvata 15/10 (solo la versione contrarian; no versione momentum e no filtro neutro) | superato 15/10 (`test_sentiment.py` 53/53) | sì | 1 |
+| 12 | ricerca (libro, paper, articolo) | 15/10/2026 | multi timeframe: Elder, «Trading for a Living», Wiley 1993, cap. 43 (Triple Screen, pp. 235–243); Hurst, Ooi, Pedersen, «A Century of Evidence on Trend-Following Investing», JPM 2017; LuxAlgo, «The Strat» (Rob Smith) | candele superiori H1/H4/giorno/settimana/mese costruite dalle M15 (H4 ancorato alle 17:00 NY), lette solo se chiuse; continuità dei timeframe; Triple Screen H4/H1/M15 con Force Index; accordo di 1, 5, 21 giornate; giorno inside | filtro F39_INSIDE_DAY (neutro); entry E31_TRIPLE_SCREEN_UP / E31_SHORT_TRIPLE_SCREEN_DOWN (setup unico, §4) | approvata 15/10 (B, C, D, F; no al filtro trend giornaliero e all'uscita); scelte su C e D in §10 quater | superato 15/10 (`test_multi_timeframe.py` 38/38) | E31, F39 sì; **F37 (coppia FTFC) e F38 (coppia TSMOM) spenti come doppioni** | 3 (+2 se si riattivano F37 e F38) |
  
 Non letti per scelta di Mattia: articoli su HMM / UMAP (modelli addestrati: rischio lookahead e calcolo pesante). Restano in elenco in `GUIDA_ANALISI_FONTI.md` §11.2 (Range Index, Vertical Horizontal Filter, change point bayesiano…).
  
-**Prove da fonti testuali al 15/10/2026: 30** (articoli 17, script TradingView 12, indice di sentiment 1, video 0, libri 0), con **F27 e i doppioni di `51` spenti**; **31** se si attiva F27, **+5** se si riattivano i doppioni di `51`. Prima di F36 (15/10) erano 29. Al 10/10/2026 erano 17. Storia del conteggio: 17 all'8/10; 14 il 9/10, quando i setup degli articoli 2 e 3 sono stati riscritti come entry uniche (§4) e i filtri estratti PVO e IIX sono stati tolti; 17 dal 9/10 con i filtri di regime F25 (2) e F26 (1).
+**Prove da fonti testuali al 15/10/2026: 33** (articoli 17, script TradingView 12, indice di sentiment 1, ricerca multi timeframe 3 (libro Elder 2, articolo 1), video 0), con F37 e F38 spenti come doppioni (+2 se si riattivano), con **F27 e i doppioni di `51` spenti**; **31** se si attiva F27, **+5** se si riattivano i doppioni di `51`. Prima del multi timeframe (15/10) erano 30, prima di F36 29. Al 10/10/2026 erano 17. Storia del conteggio: 17 all'8/10; 14 il 9/10, quando i setup degli articoli 2 e 3 sono stati riscritti come entry uniche (§4) e i filtri estratti PVO e IIX sono stati tolti; 17 dal 9/10 con i filtri di regime F25 (2) e F26 (1).
  
 Per video e libri la colonna «fonte» riporta canale e titolo (video) o autore, titolo e capitolo (libro), più il riferimento (minuto o pagina).
  
@@ -365,7 +366,54 @@ Per video e libri la colonna «fonte» riporta canale e titolo (video) o autore,
 ### Decisioni
 
 1. **Deciso il 15/10/2026 (Mattia): F36 resta acceso** nonostante le sovrapposizioni al limite.
-2. Aperta: riscaldamento più corto, con il percentile delle componenti a 180 giornate invece di 365 (~1,6 anni)? Va deciso prima di guardare i risultati.
+2. **Deciso il 15/10/2026 (Mattia): il percentile resta a 365 giornate** (riscaldamento ~2 anni). Era la proposta: riscaldamento più corto, con il percentile delle componenti a 180 giornate invece di 365 (~1,6 anni)? Va deciso prima di guardare i risultati.
+---
+ 
+## 10 quater · Le condizioni multi timeframe F37, E31, F38, F39 (15/10/2026)
+
+### Come funzionano (per decidere senza codice)
+
+- **Il mattone comune** (`engine/indicatori.py`: `id_periodo`, `barre_superiori`, `al_periodo_chiuso`). Le candele H1, H4, giornata FX, settimana FX e mese sono costruite dalle M15:
+  - H4 ancorato alle 17:00 di New York (blocchi che iniziano alle 17, 21, 01, 05, 09, 13 NY, ora legale compresa);
+  - la settimana parte domenica alle 17:00 NY; il mese segue la data FX;
+  - massimi, minimi e chiusure escludono le barre in quarantena.
+  Una candela superiore è visibile dalla prima barra M15 del periodo dopo: mai dati del periodo in corso.
+- **F37_FTFC_UP / DOWN** (coppia FTFC): chiusura sopra (oppure sotto) l'apertura dell'ora, della giornata, della settimana e del mese in corso, tutte e quattro. **Unica eccezione** alla regola «solo candela chiusa»: l'apertura del periodo in corso si conosce dalla sua prima barra, quindi è causale.
+- **E31_TRIPLE_SCREEN_UP / SHORT_DOWN** (setup unico, §4; scelte di Mattia del 15/10):
+  1. pendenza del MACD-Histogram 12/26/9 sulle H4 chiuse;
+  2. Force Index (EMA a 2) dell'ultima H1 chiusa, sotto zero per il long (sopra per lo short);
+  3. chiusura M15 oltre il massimo (oppure sotto il minimo) dell'ultima H1 chiusa.
+  Omessa la clausola «purché non a un nuovo minimo di più settimane».
+- **F38_TSMOM_ALL_UP / DOWN** (coppia TSMOM): rendimento dell'ultima giornata chiusa rispetto a 1, 5 e 21 giornate prima, con lo stesso segno su tutti e tre gli orizzonti.
+- **F39_INSIDE_DAY** (neutro): la giornata chiusa è rimasta dentro il massimo e il minimo di quella prima.
+
+### Collaudo (15/10/2026)
+
+- **Test:** `test_multi_timeframe.py`, 38/38:
+  - riscrittura indipendente a cicli (forex e crypto sintetici, EURUSD vero);
+  - confini dei periodi, quarantena, specchio long/short, giorno inside costruito a mano;
+  - lookahead con una trappola (punto medio dell'ora in corso) segnata LOOKAHEAD, condizioni nuove OK;
+  - riscaldamento: identiche dopo circa 75 giornate;
+  - 9 symbol;
+  - verifica_degenerazione su EURUSD tutta OK.
+- **Correzione emersa nel collaudo:** le 7 ore vanno sommate all'ora *da orologio* di New York. Sommate a un orario con fuso, nella notte del cambio d'ora i blocchi H4 del crypto si spostavano di un'ora.
+- **Frequenze sui 9 symbol:**
+  - F37: 9–20% delle barre per lato;
+  - F38: 13–32%;
+  - F39: 11–20%;
+  - E31: circa 1.900–2.650 eventi per lato.
+- **Sovrapposizioni** (§7.5, in-sample, EURUSD, BTCUSD e DE40):
+  - **F37 è un doppione chiaro**, non al limite: sta al 88–92% dentro F8/F9 (prezzo sopra/sotto EMA50, 1,7–2,0 volte il caso) e all'81–89% dentro F16/F17 e i filtri VWAP (1,5–1,9 volte). È una versione più stretta del «prezzo sopra la media/VWAP».
+  - **F38 è doppione** dei filtri VWAP «sessione precedente chiusa sopra/sotto» (77–86%, 1,4–1,8 volte) e di F28 VFI (72–81%, 1,4–1,6 volte). Su DE40 l'avidità estrema F36 sta all'82% dentro F38 (2,8 volte).
+  - **E31:** al 65–72% entro 2 barre da E3_SHORT_INTRABAR_STRENGTH_FADE (2,2–2,4 volte il caso). Sopra la soglia solo su EURUSD (72%); al limite.
+  - **F39:** nessuna sovrapposizione sopra il 60% con lift.
+  - Correlazioni tutte sotto 0,40.
+
+### Decisioni
+
+1. **Deciso il 15/10/2026 (Mattia): F37 e F38 spenti come doppioni.** La riga in FILTRI è commentata. Funzioni e colonne restano e si riattivano togliendo il `#` (+2 prove).
+2. **Deciso il 15/10/2026 (Mattia): E31 resta acceso.**
+
 ---
  
 ## 11 · Esempio guidato — l'articolo Fourier (applicazione della lista, non la scheda)
