@@ -913,6 +913,9 @@ def filter_rvol_low(df: pd.DataFrame, rank_window: int = 500,
 
 def filter_ker_trend_up(df: pd.DataFrame, soglia: float = 0.5) -> pd.Series:
     """
+    SPENTO nel dizionario FILTRI: doppione di F4 MACD, F8 contesto, F16 VWAP (docs/50 §7.5,
+    controllo del 15/10/2026).
+
     Tendenza rialzista efficiente: KER con segno (colonna `ker`, 10 barre)
     sopra +0,5, cioe' piu' di meta' del cammino delle ultime 10 barre e'
     salita netta. Riscaldamento: 10 barre.
@@ -950,10 +953,50 @@ def filter_ker_range(df: pd.DataFrame, rank_window: int = 500,
     return _stato_isteresi(ts_rank(df["ker"].abs(), rank_window), entra, esce, basso=True)
 
 
+# --- F33: esponente di Hurst (docs/51, R2) -------------------------------
+# Due filtri neutri a se' (non una coppia): persistenza e ritorno alla media
+# non sono due versi dello stesso movimento. Mai veri insieme.
+
+def filter_hurst_persistent(df: pd.DataFrame, soglia: float = 0.6) -> pd.Series:
+    """
+    Regime PERSISTENTE: esponente di Hurst (colonna `hurst`, R/S su 100
+    barre, ema a 5) sopra 0,6, la linea "Strong Trending" dello script.
+
+    Neutro: la persistenza non dice il verso. ATTENZIONE: la stima R/S su
+    100 barre e' distorta verso l'alto (su un cammino casuale vale in media
+    circa 0,53 e supera 0,6 nel ~6% delle barre): la soglia dello script non
+    ne tiene conto. Riscaldamento: 103 barre.
+
+    Fonte dell'indicatore: PhenLabs, "Hurst Exponent Oscillator [PhenLabs]",
+    TradingView. LICENZA CC BY-NC-SA 4.0, NON COMMERCIALE: uso personale e di
+    ricerca (scelta di Mattia del 13/10/2026), vedi engine.indicatori.hurst_rs.
+    Regola: docs/51 §3, R2; soglie 0,6 / 0,4 = le linee dello script.
+    """
+    return df["hurst"] > soglia
+
+
+def filter_hurst_mean_reverting(df: pd.DataFrame, soglia: float = 0.4) -> pd.Series:
+    """
+    Regime di RITORNO ALLA MEDIA: esponente di Hurst sotto 0,4, la linea
+    "Strong Mean-Reverting" dello script. Neutro. Per la distorsione verso
+    l'alto della stima (vedi F33_HURST_PERSISTENT) e' raro: su un cammino
+    casuale meno dell'1% delle barre. Riscaldamento: 103 barre.
+
+    Fonte dell'indicatore: PhenLabs, "Hurst Exponent Oscillator [PhenLabs]",
+    TradingView. LICENZA CC BY-NC-SA 4.0, NON COMMERCIALE: uso personale e di
+    ricerca (scelta di Mattia del 13/10/2026), vedi engine.indicatori.hurst_rs.
+    Regola: docs/51 §3, R2; soglie 0,6 / 0,4 = le linee dello script.
+    """
+    return df["hurst"] < soglia
+
+
 # --- F30: segno del momentum dello Squeeze (docs/51, M1) -----------------
 
 def filter_sqz_mom_positive(df: pd.DataFrame) -> pd.Series:
     """
+    SPENTO nel dizionario FILTRI: doppione di F4 MACD, F8 contesto, F16 VWAP (docs/50 §7.5,
+    controllo del 15/10/2026).
+
     Istogramma dello Squeeze Momentum (colonna `sqz_mom`, regressione su 20
     barre) sopra lo zero: il prezzo sta sopra il centro del suo range
     recente. Riscaldamento: 38 barre.
@@ -975,6 +1018,9 @@ def filter_sqz_mom_negative(df: pd.DataFrame) -> pd.Series:
 
 def filter_wt_above_signal(df: pd.DataFrame) -> pd.Series:
     """
+    SPENTO nel dizionario FILTRI: doppione di F4 MACD (docs/50 §7.5,
+    controllo del 15/10/2026).
+
     WaveTrend: WT1 sopra WT2 (la sua media a 4 barre), cioe' l'oscillatore
     sta salendo. Riscaldamento: 41 barre.
 
@@ -1033,13 +1079,21 @@ FILTRI = {
     # se Mattia lo decide (conta 1 prova in piu').
     # "F29_RVOL_HIGH":             (filter_rvol_high, 0, None),
     "F29_RVOL_LOW":              (filter_rvol_low, 0, None),
-    "F30_SQZ_MOM_POSITIVE":      (filter_sqz_mom_positive, 1, "SQZ_MOM"),
-    "F30_SQZ_MOM_NEGATIVE":      (filter_sqz_mom_negative, -1, "SQZ_MOM"),
-    "F32_KER_TREND_UP":          (filter_ker_trend_up, 1, "KER_TREND"),
-    "F32_KER_TREND_DOWN":        (filter_ker_trend_down, -1, "KER_TREND"),
+    "F33_HURST_PERSISTENT":      (filter_hurst_persistent, 0, None),
+    "F33_HURST_MEAN_REVERTING":  (filter_hurst_mean_reverting, 0, None),
+    # Doppioni SPENTI (regola di docs/50 §7.5 alla lettera, decisione di Mattia
+    # del 15/10/2026): contenuti al 70% o piu' in filtri gia' presenti, su
+    # EURUSD in-sample. Togli il "#" solo se Mattia lo decide (1 prova a coppia).
+    #   F30: 72-76% dentro F4 MACD, F8/F9 contesto, F16/F17 VWAP (e viceversa)
+    # "F30_SQZ_MOM_POSITIVE":      (filter_sqz_mom_positive, 1, "SQZ_MOM"),
+    # "F30_SQZ_MOM_NEGATIVE":      (filter_sqz_mom_negative, -1, "SQZ_MOM"),
+    #   F32 trend: 88-96% dentro F4 MACD, F8/F9, F16/F17
+    # "F32_KER_TREND_UP":          (filter_ker_trend_up, 1, "KER_TREND"),
+    # "F32_KER_TREND_DOWN":        (filter_ker_trend_down, -1, "KER_TREND"),
     "F32_KER_RANGE":             (filter_ker_range, 0, None),
-    "F31_WT_ABOVE_SIGNAL":       (filter_wt_above_signal, 1, "WAVETREND"),
-    "F31_WT_BELOW_SIGNAL":       (filter_wt_below_signal, -1, "WAVETREND"),
+    #   F31: 75% dentro F4 MACD (e viceversa) -- SPENTO, doppione
+    # "F31_WT_ABOVE_SIGNAL":       (filter_wt_above_signal, 1, "WAVETREND"),
+    # "F31_WT_BELOW_SIGNAL":       (filter_wt_below_signal, -1, "WAVETREND"),
     # F27: OPZIONALE, togli il "#" solo se approvato (conta 1 prova in piu')
     # "F27_REGIME_TREND_COMPOSITE": (filter_regime_trend_composite, 0, None),
 }

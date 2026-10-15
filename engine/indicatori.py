@@ -596,6 +596,62 @@ def _ema_pine(serie: pd.Series, barre: int) -> pd.Series:
     return pd.Series(esito, index=serie.index)
 
 
+def hurst_rs(close: pd.Series, barre: int = 100, lisciatura: int = 5) -> pd.Series:
+    """
+    Esponente di Hurst con la stima R/S semplificata dello script PhenLabs,
+    lisciato con una ema di Pine. Sopra 0,5 i movimenti tendono a proseguire,
+    sotto 0,5 a rientrare, 0,5 = cammino casuale.
+
+    Riga per riga dallo script, a ogni barra:
+      r      = log(Close / Close precedente) (0 sulla prima barra)
+      finestra = gli ultimi `barre` rendimenti (barra corrente compresa)
+      S      = deviazione standard (di popolazione, array.stdev di Pine)
+      profilo = somme cumulate degli scarti dalla media, dal piu' vecchio
+      R      = massimo - minimo del profilo
+      H      = log(R / S) / log(`barre`)  (0,5 se S o R/S <= 1e-9)
+      hurst  = ema di Pine (`_ema_pine`) di H su `lisciatura` barre
+    Usa solo la barra corrente e le precedenti. Riscaldamento: H dalla barra
+    `barre` - 1, hurst dalla barra `barre` + `lisciatura` - 2 (103 col
+    default). Il primo rendimento (0) entra nella prima finestra come nello
+    script.
+
+    LIMITI DELLA STIMA (docs/51 §3 R2): log(R/S)/log(n) su una sola finestra
+    e' distorta verso l'alto su finestre corte: su un cammino casuale con
+    n = 100 vale in media circa 0,55-0,6 invece di 0,5 (correzione di
+    Anis-Lloyd, non applicata dallo script). Sotto ~100 barre la stima e'
+    poco affidabile. Le soglie dello script (0,6 e 0,4) non tengono conto di
+    questa distorsione: si usano comunque come dichiarate.
+
+    Parametri: i default dello script (100, 5), mai provati in varianti.
+
+    Fonte: PhenLabs, "Hurst Exponent Oscillator [PhenLabs]", TradingView.
+    LICENZA: CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/),
+    dichiarata nell'header: NON COMMERCIALE. Tradotta per uso personale e di
+    ricerca, scelta di Mattia del 13/10/2026; questa funzione resta sotto la
+    stessa licenza (attribuzione a PhenLabs, non commerciale, stessa licenza).
+    """
+    n = int(barre)
+    c = close.to_numpy(dtype=float)
+    r = np.zeros(len(c))
+    if len(c) > 1:
+        prima = c[:-1]
+        ok = np.isfinite(prima) & (prima > 0) & (c[1:] > 0)
+        r[1:] = np.where(ok, np.log(np.where(ok, c[1:] / np.where(ok, prima, 1.0), 1.0)), 0.0)
+    h = np.full(len(c), np.nan)
+    blocco = 20000                                   # finestre per volta (memoria)
+    for inizio in range(n - 1, len(c), blocco):
+        fine = min(inizio + blocco, len(c))
+        w = sliding_window_view(r[inizio - n + 1:fine], n)      # una riga per barra
+        s = w.std(axis=1)
+        profilo = np.cumsum(w - w.mean(axis=1, keepdims=True), axis=1)
+        ampiezza = profilo.max(axis=1) - profilo.min(axis=1)
+        rs = ampiezza / np.where(s > 1e-9, s, 1.0)
+        valido = (s > 1e-9) & (rs > 1e-9)
+        h[inizio:fine] = np.where(valido, np.log(np.where(valido, rs, 1.0)) / np.log(n), 0.5)
+    h = pd.Series(h, index=close.index)
+    return _ema_pine(h, lisciatura) if int(lisciatura) > 1 else h
+
+
 def wavetrend(df: pd.DataFrame, canale: int = 10, media: int = 21) -> pd.DataFrame:
     """
     WaveTrend Oscillator di LazyBear: un CCI lisciato sul prezzo tipico.
@@ -640,8 +696,8 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
         ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
-        chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker
-        (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10)
+        chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker, hurst
+        (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10, R2 103)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -682,6 +738,7 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["sqz_on"] = squeeze["sqz_on"]
     df["sqz_mom"] = squeeze["sqz_mom"]
     df["ker"] = efficienza_kaufman(df["Close"])
+    df["hurst"] = hurst_rs(df["Close"])
     onda = wavetrend(df)
     df["wt1"] = onda["wt1"]
     df["wt2"] = onda["wt2"]
@@ -693,5 +750,5 @@ COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
-    "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2", "ker",
+    "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2", "ker", "hurst",
 )

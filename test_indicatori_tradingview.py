@@ -7,6 +7,7 @@ Suite di validazione degli indicatori tradotti da script TradingView
     M1  Squeeze Momentum [LazyBear]        E29 (trigger), F30 (filtri)
     M2  WaveTrend [LazyBear]               E30 (trigger), F31 (filtri)
     R1  Kaufman Efficiency Ratio           F32 (filtri)
+    R2  Hurst Exponent Oscillator [PhenLabs]  F33 (filtri neutri; licenza CC BY-NC-SA)
 
 Per ogni indicatore, i quattro test obbligatori di docs/51 §4:
 
@@ -50,12 +51,18 @@ from engine import registry as R
 from engine.collaudo_catalogo import (mercato_sintetico, verifica_degenerazione,
                                       verifica_lookahead)
 from engine.indicatori import (COLONNE_INDICATORI, _fine_regressione, aggiungi_indicatori,
-                               efficienza_kaufman, squeeze_momentum, volume_flow,
+                               efficienza_kaufman, hurst_rs, squeeze_momentum, volume_flow,
                                volume_relativo, wavetrend)
 from helpers import _ts_rank
 from entry_long import TRIGGER_LONG, registra_trigger_long
 from entry_short import TRIGGER_SHORT, registra_trigger_short
-from filter_conditions import FILTRI, filter_rvol_high, registra_filtri
+from filter_conditions import (FILTRI, filter_ker_trend_down, filter_ker_trend_up, filter_rvol_high,
+                               filter_sqz_mom_negative, filter_sqz_mom_positive,
+                               filter_wt_above_signal, filter_wt_below_signal, registra_filtri)
+
+# filtri scritti ma SPENTI perche' doppioni (docs/50 §7.5, decisione del 15/10/2026)
+SPENTI = ("F29_RVOL_HIGH", "F30_SQZ_MOM_POSITIVE", "F30_SQZ_MOM_NEGATIVE", "F31_WT_ABOVE_SIGNAL",
+          "F31_WT_BELOW_SIGNAL", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN")
 
 CARTELLA = os.path.dirname(os.path.abspath(__file__))
 DATI = os.path.join(CARTELLA, "dati")
@@ -85,6 +92,10 @@ TOLLERANZA = 1e-6             # |py - pine| <= TOLLERANZA x max(|pine|, mediana 
 #   pine_trasforma  funzione applicata alla colonna Python prima del confronto
 #                (es. valore assoluto, quando lo script non ha il segno)
 #   valore_dove_pine_nan  dove Pine da' na (0/0) la colonna Python vale questo
+#   possono_mancare  {condizione: (timeframe, motivo)}: dove puo' restare sempre
+#                falsa per un limite noto e dichiarato (nel test E e' una nota)
+#   soglie       soglie delle condizioni: lo stato sopra/sotto deve coincidere con
+#                PineTS, salvo le barre a meno di 1e-6 (relativo) dalla soglia
 # ---------------------------------------------------------------------------
 def _trappola_vfi(df):
     """Somma del volume col segno del tipico, CENTRATA sulla barra (65 barre avanti)."""
@@ -117,6 +128,11 @@ def _trappola_ker(df):
     return (c.shift(-10) - c) / c.diff().abs().rolling(10).sum().shift(-10)
 
 
+def _trappola_hurst(df):
+    """Hurst calcolato sulle 100 barre DOPO la barra corrente."""
+    return hurst_rs(df["Close"]).shift(-100) - 0.5
+
+
 INDICATORI = {
     "V1": dict(
         colonne={"vfi": volume_flow},
@@ -145,8 +161,8 @@ INDICATORI = {
         pine=("M1_squeeze_v5.pine", {"sqz_on": "sqzOn", "sqz_mom": "val"}),
         riscaldamento=2 * 20 - 2,
         entry={"E29_SQUEEZE_RELEASE_UP": 1, "E29_SHORT_SQUEEZE_RELEASE_DOWN": -1},
-        filtri={"F30_SQZ_MOM_POSITIVE": 1, "F30_SQZ_MOM_NEGATIVE": -1},
-        coppie=[("SQZ_MOM", "F30_SQZ_MOM_POSITIVE", "F30_SQZ_MOM_NEGATIVE")],
+        filtri={},                        # F30 spento: doppione
+        coppie=[],
         trappola=_trappola_squeeze,
         funzioni_engine=("squeeze_momentum",),
     ),
@@ -159,8 +175,8 @@ INDICATORI = {
         riscaldamento_condizioni={"E30_WAVETREND_CROSS_UP": 541, "E30_SHORT_WAVETREND_CROSS_DOWN": 541},
         pinets_ema_10_decimali=True,
         entry={"E30_WAVETREND_CROSS_UP": 1, "E30_SHORT_WAVETREND_CROSS_DOWN": -1},
-        filtri={"F31_WT_ABOVE_SIGNAL": 1, "F31_WT_BELOW_SIGNAL": -1},
-        coppie=[("WAVETREND", "F31_WT_ABOVE_SIGNAL", "F31_WT_BELOW_SIGNAL")],
+        filtri={},                        # F31 spento: doppione
+        coppie=[],
         trappola=_trappola_wavetrend,
         funzioni_engine=("wavetrend",),
     ),
@@ -172,10 +188,25 @@ INDICATORI = {
         riscaldamento=10,
         riscaldamento_condizioni={"F32_KER_RANGE": 510},
         entry={},
-        filtri={"F32_KER_TREND_UP": 1, "F32_KER_TREND_DOWN": -1, "F32_KER_RANGE": 0},
-        coppie=[("KER_TREND", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN")],
+        filtri={"F32_KER_RANGE": 0},      # F32_KER_TREND spento: doppione
+        coppie=[],
         trappola=_trappola_ker,
         funzioni_engine=("efficienza_kaufman",),
+    ),
+    "R2": dict(
+        colonne={"hurst": lambda d: hurst_rs(d["Close"])},
+        pine=("R2_hurst.pine", {"hurst": "Hurst Exponent (Smoothed)"}),
+        soglie={"hurst": (0.6, 0.4)},
+        possono_mancare={"F33_HURST_MEAN_REVERTING": (
+            ("D1",), "H < 0,4 e' raro per la distorsione verso l'alto della stima R/S (su un cammino "
+                     "casuale ~0,3% delle barre) e in D1 ci sono meno di 2.400 barre")},
+        riscaldamento=103,
+        convergenza=400,
+        entry={},
+        filtri={"F33_HURST_PERSISTENT": 0, "F33_HURST_MEAN_REVERTING": 0},
+        coppie=[],
+        trappola=_trappola_hurst,
+        funzioni_engine=("hurst_rs",),
     ),
 }
 
@@ -421,7 +452,7 @@ def main() -> int:
               bool(d["sqz_on"].iloc[60:200].eq(1).all()) and len(ev) == 1 and 200 <= ev[0] < 205
               and not FUNZIONI[opposto](d).any(), f"evento alla barra {ev}")
     d = mercato.join(sq)
-    pos, neg = FUNZIONI["F30_SQZ_MOM_POSITIVE"](d), FUNZIONI["F30_SQZ_MOM_NEGATIVE"](d)
+    pos, neg = filter_sqz_mom_positive(d), filter_sqz_mom_negative(d)
     ril = (d["sqz_on"].shift(1) == 1) & (d["sqz_on"] == 0)
     su, giu = FUNZIONI["E29_SQUEEZE_RELEASE_UP"](d), FUNZIONI["E29_SHORT_SQUEEZE_RELEASE_DOWN"](d)
     check("A11. filtri mai veri insieme; ogni rilascio e' un long o uno short secondo il segno del momentum",
@@ -460,7 +491,7 @@ def main() -> int:
           "nessun segnale nelle prime 540 barre",
           bool(su.sum() > 30 and (incrocio_su & (rango <= 0.10))[su].all() and not su.iloc[:540].any()
                and (su == (incrocio_su & (rango <= 0.10))).all()), f"{int(su.sum())} long")
-    sopra, sotto = FUNZIONI["F31_WT_ABOVE_SIGNAL"](d_o), FUNZIONI["F31_WT_BELOW_SIGNAL"](d_o)
+    sopra, sotto = filter_wt_above_signal(d_o), filter_wt_below_signal(d_o)
     check("A16. filtri F31 mai veri insieme, falsi nel riscaldamento", not (sopra & sotto).any()
           and not sopra.iloc[:41].any() and not sotto.iloc[:41].any())
 
@@ -488,13 +519,63 @@ def main() -> int:
     seq = np.r_[base.to_numpy(), ultimo + 0.0004 * (np.arange(1, 61) % 2), ultimo + 0.0004 + 0.0008 * np.arange(1, 61)]
     prezzo = pd.Series(seq, index=pd.date_range("2024-01-01", periods=len(seq), freq="15min", tz="UTC"))
     dk = pd.DataFrame({"Close": prezzo}).assign(ker=efficienza_kaufman(prezzo))
-    lat, su_k, giu_k = (FUNZIONI[n](dk) for n in ("F32_KER_RANGE", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN"))
+    lat, su_k, giu_k = FUNZIONI["F32_KER_RANGE"](dk), filter_ker_trend_up(dk), filter_ker_trend_down(dk)
     check("A23. laterale acceso in tutto lo zig-zag (dalla barra 11), spento nella salita; "
           "trend su acceso nella salita, trend giu' mai insieme al trend su",
           bool(lat.iloc[1511:1560].all() and not lat.iloc[1570:].any() and su_k.iloc[1575:].all()
                and not (su_k & giu_k).any()))
     check("A24. laterale falso nelle prime 509 barre (percentile su 500 barre di |KER|)",
           not FUNZIONI["F32_KER_RANGE"](mercato.assign(ker=ker)).iloc[:509].any())
+
+    # =====================================================================
+    print("\nA · R2 HURST (R/S): FORMULA E CASI A RISULTATO NOTO\n" + "-" * 70)
+    corto = mercato.iloc[:1500]
+    hu = hurst_rs(corto["Close"])
+    Cc = corto["Close"].to_numpy(dtype=float)
+    r = np.r_[0.0, np.log(Cc[1:] / Cc[:-1])]
+    grezzo = np.full(len(r), np.nan)
+    for i in range(99, len(r)):
+        w = list(r[i - 99:i + 1])
+        media = sum(w) / 100
+        s = (sum((x - media) ** 2 for x in w) / 100) ** 0.5
+        cum, profilo = 0.0, []
+        for x in w:
+            cum += x - media
+            profilo.append(cum)
+        rs = (max(profilo) - min(profilo)) / s if s > 1e-9 else 0.0
+        grezzo[i] = np.log(rs) / np.log(100) if s > 1e-9 and rs > 1e-9 else 0.5
+    rif_h = np.full(len(r), np.nan)
+    rif_h[103] = grezzo[99:104].mean()
+    for i in range(104, len(r)):
+        rif_h[i] = 2 / 6 * grezzo[i] + 4 / 6 * rif_h[i - 1]
+    scarto_h = np.nanmax(np.abs(hu.to_numpy() - rif_h))
+    check("A25. NaN nelle prime 103 barre, poi uguale alla riscrittura a mano (cicli puri, ema di Pine)",
+          bool(hu.iloc[:103].isna().all() and hu.iloc[103:].notna().all()) and scarto_h < 1e-12,
+          f"scarto massimo {scarto_h:.1e}")
+    idx = pd.date_range("2024-01-01", periods=300, freq="15min", tz="UTC")
+    fermo = hurst_rs(pd.Series(1.1, index=idx))
+    alterno = hurst_rs(pd.Series(1.1 * np.exp(0.001 * (np.arange(300) % 2)), index=idx))
+    # rendimenti +x per 50 barre e -x per 50: profilo a triangolo, R = 50x,
+    # S = x, R/S = 50, H = log 50 / log 100 = 0,849 su ogni finestra di 100
+    passi = np.where((np.arange(1, 400) // 50) % 2 == 0, 0.001, -0.001)
+    blocchi = hurst_rs(pd.Series(1.1 * np.exp(np.r_[0.0, np.cumsum(passi)]),
+                                 index=pd.date_range("2024-01-01", periods=400, freq="15min", tz="UTC")))
+    teorico = np.log(50) / np.log(100)
+    check("A26. prezzo fermo: 0,5 (deviazione nulla); zig-zag perfetto: molto sotto 0,4; "
+          "50 barre su e 50 giu': vicino a log 50 / log 100 = 0,85 (persistente)",
+          bool(np.allclose(fermo.iloc[103:], 0.5) and (alterno.iloc[200:] < 0.4).all()
+               and (blocchi.iloc[200:] > 0.6).all() and abs(float(blocchi.iloc[200:].median()) - teorico) < 0.02),
+          f"zig-zag {float(alterno.iloc[-1]):.2f}, blocchi mediana {float(blocchi.iloc[200:].median()):.3f} "
+          f"(teorico {teorico:.3f})")
+    lungo_h = hurst_rs(mercato_sintetico("2023-01-01", "2025-01-01", seme=2)["Close"]).dropna()
+    print(f"      (solo informativo) cammino casuale: H medio {lungo_h.mean():.3f}, "
+          f"sopra 0,6 nel {(lungo_h > 0.6).mean():.1%}, sotto 0,4 nel {(lungo_h < 0.4).mean():.1%} delle barre "
+          "(distorsione della stima R/S su 100 barre)")
+    dh = mercato.assign(hurst=hurst_rs(mercato["Close"]))
+    per, rit = FUNZIONI["F33_HURST_PERSISTENT"](dh), FUNZIONI["F33_HURST_MEAN_REVERTING"](dh)
+    check("A27. F33: persistente = hurst > 0,6, ritorno = hurst < 0,4, mai veri insieme, falsi nel riscaldamento",
+          bool((per == (dh["hurst"] > 0.6)).all() and (rit == (dh["hurst"] < 0.4)).all()
+               and not (per & rit).any() and not (per | rit).iloc[:103].any()))
 
     # =====================================================================
     print("\nB · FEDELTA' A TRADINGVIEW (PineTS sul codice Pine originale)\n" + "-" * 70)
@@ -549,6 +630,16 @@ def main() -> int:
                         check(f"B. {chiave} {col} su {symbol}{modo} ({len(py)} barre dopo il riscaldamento)",
                               nan_diversi == 0 and scarto <= TOLLERANZA and segni == 0 and incroci == 0,
                               f"scarto rel. max {scarto:.1e}, segni diversi {segni}, incroci diversi {incroci}")
+                    for col, valori in spec.get("soglie", {}).items():
+                        py, pn = py_tutto[col].iloc[w:], pine[plot_di[col]].iloc[w:]
+                        diversi, vicini = 0, 0
+                        for s in valori:
+                            diverso = (py > s) != (pn > s)
+                            pareggio = (pn - s).abs() <= TOLLERANZA * abs(s)
+                            diversi += int((diverso & ~pareggio).sum())
+                            vicini += int(pareggio.sum())
+                        check(f"B. {chiave} {col} su {symbol}: sopra/sotto le soglie {valori} come PineTS",
+                              diversi == 0, f"{diversi} barre diverse, {vicini} barre a meno di 1e-6 da una soglia")
                     if spec.get("pinets_ema_10_decimali"):
                         for col in spec["colonne"]:
                             pn = pine[plot_di[col]].iloc[w:]
@@ -638,6 +729,7 @@ def main() -> int:
     tutte_ok = True
     storia = {k: v for s in INDICATORI.values() for k, v in s.get("riscaldamento_condizioni", {}).items()}
     non_esercitabili = []
+    mancare = {k: v for s in INDICATORI.values() for k, v in s.get("possono_mancare", {}).items()}
     for symbol, tf, df in insiemi:
         try:
             d = _con_colonne(df)
@@ -646,8 +738,11 @@ def main() -> int:
                 s = FUNZIONI[nome](d).fillna(False).astype(bool)
                 riga[nome] = int(s.sum())
                 if len(d) < storia.get(nome, 0) + 100:
-                    non_esercitabili.append(f"{nome} su {symbol} {tf} ({len(d)} barre, ne servono {storia[nome]})")
+                    non_esercitabili.append(f"{nome} su {symbol} {tf}: storia piu' corta del riscaldamento "
+                                            f"({len(d)} barre, ne servono {storia[nome]})")
                     tutte_ok &= bool(s.sum() == 0)
+                elif nome in mancare and tf in mancare[nome][0] and s.sum() == 0:
+                    non_esercitabili.append(f"{nome} su {symbol} {tf}: sempre falsa ({mancare[nome][1]})")
                 elif nome in nuove_entry:
                     tutte_ok &= bool(s.sum() > 0 and not (s & s.shift(1, fill_value=False)).any())
                 else:
@@ -660,9 +755,9 @@ def main() -> int:
     with pd.option_context("display.width", 200, "display.max_columns", 20):
         print(tabella.to_string())
     for riga in non_esercitabili:
-        print(f"  nota: storia piu' corta del riscaldamento, la condizione non puo' scattare: {riga}")
+        print(f"  nota: {riga}")
     check("E. gira ovunque; entry sono eventi e scattano; filtri ne' sempre veri ne' sempre falsi "
-          "(salvo storia piu' corta del riscaldamento, dove sono sempre false)",
+          "(salvo storia piu' corta del riscaldamento e limiti dichiarati: vedi le note)",
           tutte_ok and len(righe) == len(insiemi))
     if reali["EURUSD"] is not None:
         R.clear_registry()
@@ -690,8 +785,8 @@ def main() -> int:
     coppie = R.list_filter_pairs()
     check("F3. le coppie di filtri sono riconosciute dalla ricerca dei filtri",
           all(c in coppie for s in INDICATORI.values() for c in s["coppie"]))
-    check("F3b. F29_RVOL_HIGH non e' registrato (spento: doppione di F3)",
-          "F29_RVOL_HIGH" not in filtri and "F29_RVOL_HIGH" not in FILTRI)
+    check("F3b. i doppioni spenti non sono registrati: " + ", ".join(SPENTI),
+          not any(k in filtri or k in FILTRI for k in SPENTI))
     check("F4. le colonne nuove sono nell'elenco che il collaudo verifica",
           set(nuove_colonne) <= set(COLONNE_INDICATORI))
     if reali["EURUSD"] is not None:
