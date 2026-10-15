@@ -367,6 +367,23 @@ def entry_short_squeeze_release_down(df: pd.DataFrame) -> pd.Series:
     return _evento(rilascio & (df["sqz_mom"] < 0))
 
 
+# ------------------------------------------------------------ E30 --------
+def entry_short_wavetrend_cross_down(df: pd.DataFrame, rank_window: int = 2000,
+                                     percentile: float = 0.90) -> pd.Series:
+    """
+    WaveTrend: WT1 incrocia sotto WT2 mentre WT1 e' in ipercomprato (nel 10%
+    piu' alto delle proprie ultime 2000 barre) -> short. Speculare di
+    E30_WAVETREND_CROSS_UP.
+
+    Fonte dell'indicatore: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
+    https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/
+    (nessuna licenza dichiarata). Regola: docs/51 §3, M2; soglia a percentile
+    rolling al posto di +-60 (traduzione nostra, scelta di Mattia il 15/10/2026).
+    """
+    ipercomprato = _ts_rank(df["wt1"], rank_window) >= percentile
+    return _evento(_cross_down(df["wt1"], df["wt2"]) & ipercomprato)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -405,6 +422,7 @@ TRIGGER_SHORT = {
     "E27_SHORT_VSA_BEARISH": entry_short_vsa_bearish,
     "E28_SHORT_VFI_CROSS_DOWN": entry_short_vfi_cross_down,
     "E29_SHORT_SQUEEZE_RELEASE_DOWN": entry_short_squeeze_release_down,
+    "E30_SHORT_WAVETREND_CROSS_DOWN": entry_short_wavetrend_cross_down,
 }
 
 

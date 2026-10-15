@@ -4,6 +4,7 @@ Suite di validazione degli indicatori tradotti da script TradingView
 
     V1  Volume Flow Indicator [LazyBear]   E28 (trigger), F28 (filtri)
     M1  Squeeze Momentum [LazyBear]        E29 (trigger), F30 (filtri)
+    M2  WaveTrend [LazyBear]               E30 (trigger), F31 (filtri)
 
 Per ogni indicatore, i quattro test obbligatori di docs/51 §4:
 
@@ -47,7 +48,8 @@ from engine import registry as R
 from engine.collaudo_catalogo import (mercato_sintetico, verifica_degenerazione,
                                       verifica_lookahead)
 from engine.indicatori import (COLONNE_INDICATORI, _fine_regressione, aggiungi_indicatori,
-                               squeeze_momentum, volume_flow)
+                               squeeze_momentum, volume_flow, wavetrend)
+from helpers import _ts_rank
 from entry_long import TRIGGER_LONG, registra_trigger_long
 from entry_short import TRIGGER_SHORT, registra_trigger_short
 from filter_conditions import FILTRI, registra_filtri
@@ -69,6 +71,14 @@ TOLLERANZA = 1e-6             # |py - pine| <= TOLLERANZA x max(|pine|, mediana 
 #   trappola     la stessa grandezza calcolata con il difetto tipico (guarda
 #                avanti): verifica_lookahead la deve segnare LOOKAHEAD
 #   funzioni_engine  le funzioni di engine/indicatori.py chiamate da aggiungi_indicatori
+#   (facoltativi)
+#   confronti    coppie di colonne di cui confrontare con PineTS anche gli incroci
+#   convergenza  barre dopo le quali il valore non dipende dal punto di partenza
+#                (indicatori ricorsivi, ema); se manca vale `riscaldamento`
+#   riscaldamento_condizioni  condizioni con una storia piu' lunga (percentili):
+#                dove i dati sono piu' corti, nel test E non si pretende che scattino
+#   pinets_ema_10_decimali  PineTS restituisce ta.ema arrotondata a 10 decimali:
+#                il confronto "alla PineTS" arrotonda allo stesso modo (solo nel test)
 # ---------------------------------------------------------------------------
 def _trappola_vfi(df):
     """Somma del volume col segno del tipico, CENTRATA sulla barra (65 barre avanti)."""
@@ -81,6 +91,12 @@ def _trappola_squeeze(df):
     c = df["Close"]
     centro = ((df["High"].rolling(20).max() + df["Low"].rolling(20).min()) / 2 + c.rolling(20).mean()) / 2
     return _fine_regressione(c - centro, 20).shift(-10)
+
+
+def _trappola_wavetrend(df):
+    """WT1 meno WT1 di 3 barre DOPO (usa il futuro)."""
+    wt1 = wavetrend(df)["wt1"]
+    return wt1 - wt1.shift(-3)
 
 
 INDICATORI = {
@@ -104,6 +120,20 @@ INDICATORI = {
         coppie=[("SQZ_MOM", "F30_SQZ_MOM_POSITIVE", "F30_SQZ_MOM_NEGATIVE")],
         trappola=_trappola_squeeze,
         funzioni_engine=("squeeze_momentum",),
+    ),
+    "M2": dict(
+        colonne={"wt1": lambda d: wavetrend(d)["wt1"], "wt2": lambda d: wavetrend(d)["wt2"]},
+        pine=("M2_wavetrend_v5.pine", {"wt1": "wt1", "wt2": "wt2"}),
+        riscaldamento=2 * 10 + 21 - 3 + 3,
+        convergenza=600,
+        confronti=[("wt1", "wt2")],
+        riscaldamento_condizioni={"E30_WAVETREND_CROSS_UP": 2041, "E30_SHORT_WAVETREND_CROSS_DOWN": 2041},
+        pinets_ema_10_decimali=True,
+        entry={"E30_WAVETREND_CROSS_UP": 1, "E30_SHORT_WAVETREND_CROSS_DOWN": -1},
+        filtri={"F31_WT_ABOVE_SIGNAL": 1, "F31_WT_BELOW_SIGNAL": -1},
+        coppie=[("WAVETREND", "F31_WT_ABOVE_SIGNAL", "F31_WT_BELOW_SIGNAL")],
+        trappola=_trappola_wavetrend,
+        funzioni_engine=("wavetrend",),
     ),
 }
 
@@ -220,6 +250,29 @@ def _squeeze_riferimento(df: pd.DataFrame, n: int = 20, mult: float = 2.0,
     return sqz, mom
 
 
+def _wavetrend_riferimento(df: pd.DataFrame, n1: int = 10, n2: int = 21) -> tuple[np.ndarray, np.ndarray]:
+    """WaveTrend con le ema di Pine scritte a mano: partono dalla media semplice delle prime n."""
+    def ema(x, n):
+        out = np.full(len(x), np.nan)
+        ok = np.flatnonzero(np.isfinite(x))
+        if len(ok) < n:
+            return out
+        i0 = ok[0] + n - 1
+        out[i0] = x[ok[0]:i0 + 1].mean()
+        a = 2.0 / (n + 1)
+        for i in range(i0 + 1, len(x)):
+            out[i] = a * x[i] + (1 - a) * out[i - 1]
+        return out
+    ap = ((df["High"] + df["Low"] + df["Close"]) / 3).to_numpy(dtype=float)
+    esa = ema(ap, n1)
+    d = ema(np.abs(ap - esa), n1)
+    wt1 = ema((ap - esa) / (0.015 * d), n2)
+    wt2 = np.full(len(wt1), np.nan)
+    for i in range(3, len(wt1)):
+        wt2[i] = wt1[i - 3:i + 1].mean()
+    return wt1, wt2
+
+
 def main() -> int:
     ESITI: list[bool] = []
 
@@ -306,6 +359,42 @@ def main() -> int:
           and ((su | giu) == (ril & d["sqz_mom"].notna() & (d["sqz_mom"] != 0))).all())
 
     # =====================================================================
+    print("\nA · M2 WAVETREND: FORMULA E CASI A RISULTATO NOTO\n" + "-" * 70)
+    wt = wavetrend(mercato)
+    rif1, rif2 = _wavetrend_riferimento(mercato)
+    check("A12. wt1 dalla barra 38, wt2 dalla 41, poi nessun NaN",
+          bool(wt["wt1"].iloc[:38].isna().all() and wt["wt1"].iloc[38:].notna().all()
+               and wt["wt2"].iloc[:41].isna().all() and wt["wt2"].iloc[41:].notna().all()))
+    s1 = np.nanmax(np.abs(wt["wt1"].to_numpy() - rif1))
+    s2 = np.nanmax(np.abs(wt["wt2"].to_numpy() - rif2))
+    check("A13. uguale alla riscrittura a mano (ema di Pine barra per barra)",
+          s1 < 1e-9 and s2 < 1e-9 and np.array_equal(np.isnan(rif1), wt["wt1"].isna().to_numpy()),
+          f"scarto massimo {max(s1, s2):.1e}")
+    # prezzo specchiato (C - prezzo, massimo e minimo scambiati): WT cambia
+    # segno, quindi il long sul prezzo specchiato e' lo short sull'originale
+    lungo_m = mercato_sintetico("2023-06-01", "2024-07-01", seme=8)
+    k = 2 * float(lungo_m["Close"].mean())
+    specchio = pd.DataFrame({"Open": k - lungo_m["Open"], "High": k - lungo_m["Low"],
+                             "Low": k - lungo_m["High"], "Close": k - lungo_m["Close"],
+                             "Volume": lungo_m["Volume"]}, index=lungo_m.index)
+    d_o, d_s = lungo_m.join(wavetrend(lungo_m)), specchio.join(wavetrend(specchio))
+    lo, ls = FUNZIONI["E30_WAVETREND_CROSS_UP"](d_s), FUNZIONI["E30_SHORT_WAVETREND_CROSS_DOWN"](d_o)
+    diverse = int((lo != ls).sum())
+    check("A14. il long sul prezzo specchiato coincide con lo short sull'originale (salvo pareggi nei ranghi)",
+          int(ls.sum()) > 30 and diverse <= max(2, int(0.02 * ls.sum())),
+          f"{int(ls.sum())} short, {diverse} barre diverse")
+    rango = _ts_rank(d_o["wt1"], 2000)
+    su = FUNZIONI["E30_WAVETREND_CROSS_UP"](d_o)
+    incrocio_su = (d_o["wt1"] > d_o["wt2"]) & (d_o["wt1"].shift(1) <= d_o["wt2"].shift(1))
+    check("A15. ogni long: incrocio di WT1 sopra WT2 con WT1 nel 10% piu' basso delle ultime 2000 barre; "
+          "nessun segnale nelle prime 2040 barre",
+          bool(su.sum() > 30 and (incrocio_su & (rango <= 0.10))[su].all() and not su.iloc[:2040].any()
+               and (su == (incrocio_su & (rango <= 0.10))).all()), f"{int(su.sum())} long")
+    sopra, sotto = FUNZIONI["F31_WT_ABOVE_SIGNAL"](d_o), FUNZIONI["F31_WT_BELOW_SIGNAL"](d_o)
+    check("A16. filtri F31 mai veri insieme, falsi nel riscaldamento", not (sopra & sotto).any()
+          and not sopra.iloc[:41].any() and not sotto.iloc[:41].any())
+
+    # =====================================================================
     print("\nB · FEDELTA' A TRADINGVIEW (PineTS sul codice Pine originale)\n" + "-" * 70)
     if not _pinets_disponibile():
         saltato("B. confronto con PineTS", "manca Node.js o strumenti_pinets/node_modules")
@@ -320,9 +409,21 @@ def main() -> int:
                         continue
                     pezzo = df.tail(BARRE_PINETS)
                     pine = _pinets(pezzo, file_pine, tmp)
-                    for col, f in spec["colonne"].items():
-                        py = f(pezzo).iloc[w:]
-                        pn = pine[plot_di[col]].iloc[w:]
+                    esatto = {c: f(pezzo) for c, f in spec["colonne"].items()}
+                    py_tutto = esatto
+                    if spec.get("pinets_ema_10_decimali"):
+                        import engine.indicatori as I
+                        originale = I._ema_pine
+                        try:
+                            I._ema_pine = lambda s, n: originale(s, n).round(10)
+                            py_tutto = {c: f(pezzo) for c, f in spec["colonne"].items()}
+                        finally:
+                            I._ema_pine = originale
+                    serie = [(col, py_tutto[col], pine[plot_di[col]]) for col in spec["colonne"]]
+                    serie += [(f"{a}-{b}", py_tutto[a] - py_tutto[b], pine[plot_di[a]] - pine[plot_di[b]])
+                              for a, b in spec.get("confronti", [])]
+                    for col, py, pn in serie:
+                        py, pn = py.iloc[w:], pn.iloc[w:]
                         nan_diversi = int((py.isna() != pn.isna()).sum())
                         scala = np.maximum(pn.abs(), float(pn.abs().median()) or 1.0)
                         scarto = float(((py - pn).abs() / scala).max())
@@ -332,9 +433,16 @@ def main() -> int:
                                        ((pn > zero) & (pn.shift(1) <= zero))).iloc[1:].sum()
                                       + (((py < zero) & (py.shift(1) >= zero)) !=
                                          ((pn < zero) & (pn.shift(1) >= zero))).iloc[1:].sum())
-                        check(f"B. {chiave} {col} su {symbol} ({len(py)} barre dopo il riscaldamento)",
+                        modo = " (ema arrotondate come PineTS)" if py_tutto is not esatto else ""
+                        check(f"B. {chiave} {col} su {symbol}{modo} ({len(py)} barre dopo il riscaldamento)",
                               nan_diversi == 0 and scarto <= TOLLERANZA and segni == 0 and incroci == 0,
                               f"scarto rel. max {scarto:.1e}, segni diversi {segni}, incroci diversi {incroci}")
+                    if py_tutto is not esatto:
+                        for col in spec["colonne"]:
+                            pn = pine[plot_di[col]].iloc[w:]
+                            scala = np.maximum(pn.abs(), float(pn.abs().median()) or 1.0)
+                            print(f"      (solo informativo) {col} a precisione piena contro PineTS: scarto rel. max "
+                                  f"{float(((esatto[col].iloc[w:] - pn).abs() / scala).max()):.1e}")
 
     # =====================================================================
     print("\nC · LOOKAHEAD (per troncamento)\n" + "-" * 70)
@@ -400,9 +508,9 @@ def main() -> int:
             peggio = 0.0
             for partenza in (700, 4001, 9050):
                 parziale = f(lungo.iloc[partenza:])
-                da = partenza + spec["riscaldamento"]
+                da = partenza + spec.get("convergenza", spec["riscaldamento"])
                 peggio = max(peggio, float((parziale.loc[lungo.index[da:]] - intero.iloc[da:]).abs().max()))
-            check(f"D. {col}: identico dopo {spec['riscaldamento']} barre da 3 partenze diverse",
+            check(f"D. {col}: identico dopo {spec.get('convergenza', spec['riscaldamento'])} barre da 3 partenze diverse",
                   peggio < 1e-9, f"scarto massimo {peggio:.1e}")
 
     # =====================================================================
@@ -416,6 +524,8 @@ def main() -> int:
                     (symbol, "D1", _ricampiona(df, "1D"))]
     righe = []
     tutte_ok = True
+    storia = {k: v for s in INDICATORI.values() for k, v in s.get("riscaldamento_condizioni", {}).items()}
+    non_esercitabili = []
     for symbol, tf, df in insiemi:
         try:
             d = _con_colonne(df)
@@ -423,7 +533,10 @@ def main() -> int:
             for nome in list(nuove_entry) + list(nuovi_filtri):
                 s = FUNZIONI[nome](d).fillna(False).astype(bool)
                 riga[nome] = int(s.sum())
-                if nome in nuove_entry:
+                if len(d) < storia.get(nome, 0) + 100:
+                    non_esercitabili.append(f"{nome} su {symbol} {tf} ({len(d)} barre, ne servono {storia[nome]})")
+                    tutte_ok &= bool(s.sum() == 0)
+                elif nome in nuove_entry:
                     tutte_ok &= bool(s.sum() > 0 and not (s & s.shift(1, fill_value=False)).any())
                 else:
                     tutte_ok &= bool(0 < s.sum() < len(s))
@@ -434,7 +547,10 @@ def main() -> int:
     tabella = pd.DataFrame(righe).set_index(["symbol", "tf"])
     with pd.option_context("display.width", 200, "display.max_columns", 20):
         print(tabella.to_string())
-    check("E. gira ovunque; entry sono eventi e scattano; filtri ne' sempre veri ne' sempre falsi",
+    for riga in non_esercitabili:
+        print(f"  nota: storia piu' corta del riscaldamento, la condizione non puo' scattare: {riga}")
+    check("E. gira ovunque; entry sono eventi e scattano; filtri ne' sempre veri ne' sempre falsi "
+          "(salvo storia piu' corta del riscaldamento, dove sono sempre false)",
           tutte_ok and len(righe) == len(insiemi))
     if reali["EURUSD"] is not None:
         R.clear_registry()

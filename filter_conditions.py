@@ -894,6 +894,25 @@ def filter_sqz_mom_negative(df: pd.DataFrame) -> pd.Series:
     return df["sqz_mom"] < 0
 
 
+# --- F31: WaveTrend sopra/sotto la sua media (docs/51, M2) ---------------
+
+def filter_wt_above_signal(df: pd.DataFrame) -> pd.Series:
+    """
+    WaveTrend: WT1 sopra WT2 (la sua media a 4 barre), cioe' l'oscillatore
+    sta salendo. Riscaldamento: 41 barre.
+
+    Fonte dell'indicatore: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
+    https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/
+    (nessuna licenza dichiarata). Regola del filtro: docs/51 §3, M2.
+    """
+    return df["wt1"] > df["wt2"]
+
+
+def filter_wt_below_signal(df: pd.DataFrame) -> pd.Series:
+    """WaveTrend: WT1 sotto WT2. Speculare di F31_WT_ABOVE_SIGNAL."""
+    return df["wt1"] < df["wt2"]
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -934,6 +953,8 @@ FILTRI = {
     "F28_VFI_NEGATIVE":          (filter_vfi_negative, -1, "VFI_SIGN"),
     "F30_SQZ_MOM_POSITIVE":      (filter_sqz_mom_positive, 1, "SQZ_MOM"),
     "F30_SQZ_MOM_NEGATIVE":      (filter_sqz_mom_negative, -1, "SQZ_MOM"),
+    "F31_WT_ABOVE_SIGNAL":       (filter_wt_above_signal, 1, "WAVETREND"),
+    "F31_WT_BELOW_SIGNAL":       (filter_wt_below_signal, -1, "WAVETREND"),
     # F27: OPZIONALE, togli il "#" solo se approvato (conta 1 prova in piu')
     # "F27_REGIME_TREND_COMPOSITE": (filter_regime_trend_composite, 0, None),
 }

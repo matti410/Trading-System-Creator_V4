@@ -418,6 +418,28 @@ def entry_squeeze_release_up(df: pd.DataFrame) -> pd.Series:
     return _evento(rilascio & (df["sqz_mom"] > 0))
 
 
+# ------------------------------------------------------------ E30 --------
+def entry_wavetrend_cross_up(df: pd.DataFrame, rank_window: int = 2000,
+                             percentile: float = 0.10) -> pd.Series:
+    """
+    WaveTrend: WT1 incrocia sopra WT2 mentre WT1 e' in ipervenduto -> long.
+
+    Ipervenduto = WT1, sulla barra dell'incrocio, nel 10% piu' basso delle
+    proprie ultime 2000 barre (percentile rolling al posto della soglia fissa
+    -60 dello script). La finestra (2000) e' molto piu' larga di quella
+    dell'indicatore (~40 barre). Parametri fissati a priori, mai provati in
+    varianti. Riscaldamento: circa 2040 barre (su D1 sono 8 anni: con i dati
+    dal 2020 non scatta mai).
+
+    Fonte dell'indicatore: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
+    https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/
+    (nessuna licenza dichiarata). Regola: docs/51 §3, M2; soglia a percentile
+    rolling al posto di +-60 (traduzione nostra, scelta di Mattia il 15/10/2026).
+    """
+    ipervenduto = _ts_rank(df["wt1"], rank_window) <= percentile
+    return _evento(_cross_up(df["wt1"], df["wt2"]) & ipervenduto)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -456,6 +478,7 @@ TRIGGER_LONG = {
     "E27_VSA_BULLISH": entry_vsa_bullish,
     "E28_VFI_CROSS_UP": entry_vfi_cross_up,
     "E29_SQUEEZE_RELEASE_UP": entry_squeeze_release_up,
+    "E30_WAVETREND_CROSS_UP": entry_wavetrend_cross_up,
 }
 
 

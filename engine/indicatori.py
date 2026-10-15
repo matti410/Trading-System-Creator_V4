@@ -501,6 +501,63 @@ def squeeze_momentum(df: pd.DataFrame, bb: int = 20, mult: float = 2.0,
     return pd.DataFrame({"sqz_on": sqz_on, "sqz_mom": sqz_mom}, index=df.index)
 
 
+def _ema_pine(serie: pd.Series, barre: int) -> pd.Series:
+    """
+    Media esponenziale come `ta.ema` di Pine: alpha = 2 / (barre + 1), il
+    primo valore e' la media semplice delle prime `barre` barre valide (prima
+    e' NaN), poi la ricorsione. Diversa da `ewm(span=...)` di pandas, che
+    parte dal primo valore. I NaN iniziali della serie (riscaldamento di un
+    indicatore a monte) si saltano; la serie non deve avere NaN dopo.
+    """
+    n = int(barre)
+    v = serie.to_numpy(dtype=float)
+    esito = np.full(len(v), np.nan)
+    valide = np.flatnonzero(np.isfinite(v))
+    if len(valide) >= n:
+        inizio = valide[0] + n - 1
+        semi = v[inizio:].copy()
+        semi[0] = v[valide[0]:inizio + 1].mean()
+        esito[inizio:] = pd.Series(semi).ewm(alpha=2.0 / (n + 1), adjust=False).mean().to_numpy()
+    return pd.Series(esito, index=serie.index)
+
+
+def wavetrend(df: pd.DataFrame, canale: int = 10, media: int = 21) -> pd.DataFrame:
+    """
+    WaveTrend Oscillator di LazyBear: un CCI lisciato sul prezzo tipico.
+
+    Riga per riga dallo script:
+      ap   = (H + L + C) / 3
+      esa  = ema(ap, canale)
+      d    = ema(|ap - esa|, canale)
+      ci   = (ap - esa) / (0.015 x d)
+      wt1  = ema(ci, media)
+      wt2  = media semplice di wt1 su 4 barre
+    con le ema di Pine (`_ema_pine`: partono dalla media semplice). Colonne
+    wt1 e wt2. Usa solo la barra corrente e le precedenti. Riscaldamento:
+    wt1 dalla barra 2 x `canale` + `media` - 3 (38 col default), wt2 tre barre
+    dopo (41). Le ema sono ricorsive: il valore dipende un poco dal punto di
+    partenza dei dati, con un peso che si dimezza ogni ~7 barre (media 21),
+    quindi dopo qualche centinaio di barre la differenza e' sotto 1e-9.
+    Prezzo fermo (d = 0): ci vale 0 invece di NaN/inf.
+
+    Parametri: i default dello script (10, 21), mai provati in varianti. Le
+    soglie dello script (+-60, +-53) NON si usano: le condizioni usano un
+    percentile rolling (docs/50 §5, scelta di Mattia del 15/10/2026).
+
+    Fonte: LazyBear, "WaveTrend Oscillator [WT]", TradingView,
+    https://www.tradingview.com/script/2KE8wTuF-Indicator-WaveTrend-Oscillator-WT/
+    Licenza: nessuna dichiarata nell'header (script open source della
+    community; l'autore chiede solo una segnalazione se lo si riusa).
+    """
+    ap = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    esa = _ema_pine(ap, canale)
+    d = _ema_pine((ap - esa).abs(), canale)
+    ci = ((ap - esa) / (0.015 * d.where(d > 0))).where(~(d == 0), 0.0)
+    wt1 = _ema_pine(ci, media)
+    wt2 = wt1.rolling(4).mean()
+    return pd.DataFrame({"wt1": wt1, "wt2": wt2}, index=df.index)
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
@@ -508,7 +565,8 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
         ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
-        chop, vr, vfi, sqz_on, sqz_mom (docs/51: V1 riscaldamento 261 barre, M1 38)
+        chop, vr, vfi, sqz_on, sqz_mom, wt1, wt2
+        (docs/51: riscaldamento V1 261 barre, M1 38, M2 41)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -547,6 +605,9 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     squeeze = squeeze_momentum(df)
     df["sqz_on"] = squeeze["sqz_on"]
     df["sqz_mom"] = squeeze["sqz_mom"]
+    onda = wavetrend(df)
+    df["wt1"] = onda["wt1"]
+    df["wt2"] = onda["wt2"]
     return df.dropna()
 
 
@@ -555,5 +616,5 @@ COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
-    "chop", "vr", "vfi", "sqz_on", "sqz_mom",
+    "chop", "vr", "vfi", "sqz_on", "sqz_mom", "wt1", "wt2",
 )
