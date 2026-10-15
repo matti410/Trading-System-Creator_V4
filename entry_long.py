@@ -399,6 +399,25 @@ def entry_vfi_cross_up(df: pd.DataFrame) -> pd.Series:
     return _evento(_cross_up(df["vfi"], zero))
 
 
+# ------------------------------------------------------------ E29 --------
+def entry_squeeze_release_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Rilascio dello squeeze con momentum positivo -> long: sulla barra
+    precedente le Bollinger erano dentro il Keltner (`sqz_on` = 1), su questa
+    non piu' (`sqz_on` = 0), e l'istogramma `sqz_mom` e' sopra zero.
+
+    Evento per costruzione (lo squeeze si spegne una volta per episodio).
+    Riscaldamento: 38 barre.
+
+    Fonte dell'indicatore: LazyBear, "Squeeze Momentum Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/nqQ1DT5a-Squeeze-Momentum-Indicator-LazyBear/
+    (nessuna licenza dichiarata; moltiplicatore BB corretto, vedi
+    engine.indicatori.squeeze_momentum). Regola: docs/51 §3, M1.
+    """
+    rilascio = (df["sqz_on"].shift(1) == 1) & (df["sqz_on"] == 0)
+    return _evento(rilascio & (df["sqz_mom"] > 0))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -436,6 +455,7 @@ TRIGGER_LONG = {
     "E25_ATC_PVO_SETUP_UP": entry_atc_pvo_setup_up,    "E26_SUPERTREND_IIX_SETUP_UP": entry_supertrend_iix_setup_up,
     "E27_VSA_BULLISH": entry_vsa_bullish,
     "E28_VFI_CROSS_UP": entry_vfi_cross_up,
+    "E29_SQUEEZE_RELEASE_UP": entry_squeeze_release_up,
 }
 
 

@@ -3,6 +3,7 @@ Suite di validazione degli indicatori tradotti da script TradingView
 (docs/51_INDICATORI_TRADINGVIEW.md). Cresce un indicatore alla volta:
 
     V1  Volume Flow Indicator [LazyBear]   E28 (trigger), F28 (filtri)
+    M1  Squeeze Momentum [LazyBear]        E29 (trigger), F30 (filtri)
 
 Per ogni indicatore, i quattro test obbligatori di docs/51 §4:
 
@@ -45,7 +46,8 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 from engine import registry as R
 from engine.collaudo_catalogo import (mercato_sintetico, verifica_degenerazione,
                                       verifica_lookahead)
-from engine.indicatori import COLONNE_INDICATORI, aggiungi_indicatori, volume_flow
+from engine.indicatori import (COLONNE_INDICATORI, _fine_regressione, aggiungi_indicatori,
+                               squeeze_momentum, volume_flow)
 from entry_long import TRIGGER_LONG, registra_trigger_long
 from entry_short import TRIGGER_SHORT, registra_trigger_short
 from filter_conditions import FILTRI, registra_filtri
@@ -56,7 +58,7 @@ PINETS = os.path.join(CARTELLA, "strumenti_pinets")
 PINE = os.path.join(CARTELLA, "pine_sources")
 SYMBOL_PROVA = ("EURUSD", "BTCUSD", "DE40")
 BARRE_PINETS = 20000          # ultime barre M15 di ogni symbol date a PineTS
-TOLLERANZA = 1e-6             # |py - pine| <= TOLLERANZA x max(1, |pine|)
+TOLLERANZA = 1e-6             # |py - pine| <= TOLLERANZA x max(|pine|, mediana di |pine|)
 
 # ---------------------------------------------------------------------------
 # Gli indicatori sotto collaudo. Per aggiungerne uno: una voce qui.
@@ -64,7 +66,23 @@ TOLLERANZA = 1e-6             # |py - pine| <= TOLLERANZA x max(1, |pine|)
 #   pine         file Pine v5 per PineTS e, per ogni colonna, il nome del plot
 #   riscaldamento barre dopo le quali il valore e' completo
 #   entry/filtri nomi nei dizionari (direction)
+#   trappola     la stessa grandezza calcolata con il difetto tipico (guarda
+#                avanti): verifica_lookahead la deve segnare LOOKAHEAD
+#   funzioni_engine  le funzioni di engine/indicatori.py chiamate da aggiungi_indicatori
 # ---------------------------------------------------------------------------
+def _trappola_vfi(df):
+    """Somma del volume col segno del tipico, CENTRATA sulla barra (65 barre avanti)."""
+    tip = (df["High"] + df["Low"] + df["Close"]) / 3
+    return (np.sign(tip.diff()).fillna(0.0) * df["Volume"]).rolling(130, center=True).sum()
+
+
+def _trappola_squeeze(df):
+    """Retta di regressione del momentum letta 10 barre DOPO la barra corrente."""
+    c = df["Close"]
+    centro = ((df["High"].rolling(20).max() + df["Low"].rolling(20).min()) / 2 + c.rolling(20).mean()) / 2
+    return _fine_regressione(c - centro, 20).shift(-10)
+
+
 INDICATORI = {
     "V1": dict(
         colonne={"vfi": volume_flow},
@@ -73,6 +91,19 @@ INDICATORI = {
         entry={"E28_VFI_CROSS_UP": 1, "E28_SHORT_VFI_CROSS_DOWN": -1},
         filtri={"F28_VFI_POSITIVE": 1, "F28_VFI_NEGATIVE": -1},
         coppie=[("VFI_SIGN", "F28_VFI_POSITIVE", "F28_VFI_NEGATIVE")],
+        trappola=_trappola_vfi,
+        funzioni_engine=("volume_flow",),
+    ),
+    "M1": dict(
+        colonne={"sqz_on": lambda d: squeeze_momentum(d)["sqz_on"],
+                 "sqz_mom": lambda d: squeeze_momentum(d)["sqz_mom"]},
+        pine=("M1_squeeze_v5.pine", {"sqz_on": "sqzOn", "sqz_mom": "val"}),
+        riscaldamento=2 * 20 - 2,
+        entry={"E29_SQUEEZE_RELEASE_UP": 1, "E29_SHORT_SQUEEZE_RELEASE_DOWN": -1},
+        filtri={"F30_SQZ_MOM_POSITIVE": 1, "F30_SQZ_MOM_NEGATIVE": -1},
+        coppie=[("SQZ_MOM", "F30_SQZ_MOM_POSITIVE", "F30_SQZ_MOM_NEGATIVE")],
+        trappola=_trappola_squeeze,
+        funzioni_engine=("squeeze_momentum",),
     ),
 }
 
@@ -164,6 +195,31 @@ def _vfi_riferimento(df: pd.DataFrame, n: int = 130, coef: float = 0.2, vcoef: f
     return esito
 
 
+def _squeeze_riferimento(df: pd.DataFrame, n: int = 20, mult: float = 2.0,
+                         mult_kc: float = 1.5) -> tuple[np.ndarray, np.ndarray]:
+    H, L, C = (df[c].to_numpy(dtype=float) for c in ("High", "Low", "Close"))
+    N = len(df)
+    tr = np.full(N, np.nan)
+    for i in range(1, N):
+        tr[i] = max(H[i] - L[i], abs(H[i] - C[i - 1]), abs(L[i] - C[i - 1]))
+    sqz = np.full(N, np.nan)
+    scarto = np.full(N, np.nan)          # Close - centro del range
+    for i in range(n - 1, N):
+        w = C[i - n + 1:i + 1]
+        bb_sup, bb_inf = w.mean() + mult * w.std(), w.mean() - mult * w.std()
+        if i >= n:
+            amp = tr[i - n + 1:i + 1].mean()
+            kc_sup, kc_inf = w.mean() + mult_kc * amp, w.mean() - mult_kc * amp
+            sqz[i] = float(bb_inf > kc_inf and bb_sup < kc_sup)
+        centro = ((H[i - n + 1:i + 1].max() + L[i - n + 1:i + 1].min()) / 2 + w.mean()) / 2
+        scarto[i] = C[i] - centro
+    mom = np.full(N, np.nan)
+    for i in range(2 * n - 2, N):
+        pendenza, intercetta = np.polyfit(np.arange(n), scarto[i - n + 1:i + 1], 1)
+        mom[i] = intercetta + pendenza * (n - 1)
+    return sqz, mom
+
+
 def main() -> int:
     ESITI: list[bool] = []
 
@@ -214,6 +270,42 @@ def main() -> int:
           bool((volume_flow(piatto).iloc[259:] == 0).all()))
 
     # =====================================================================
+    print("\nA · M1 SQUEEZE MOMENTUM: FORMULA E CASI A RISULTATO NOTO\n" + "-" * 70)
+    sq = squeeze_momentum(mercato)
+    rif_on, rif_mom = _squeeze_riferimento(mercato)
+    check("A8. sqz_on dalla barra 20, sqz_mom dalla barra 38, poi nessun NaN",
+          bool(sq["sqz_on"].iloc[:20].isna().all() and sq["sqz_on"].iloc[20:].notna().all()
+               and sq["sqz_mom"].iloc[:38].isna().all() and sq["sqz_mom"].iloc[38:].notna().all()))
+    scarto_mom = np.nanmax(np.abs(sq["sqz_mom"].to_numpy() - rif_mom))
+    check("A9. uguale alla riscrittura indipendente (np.std, np.polyfit) barra per barra",
+          np.array_equal(sq["sqz_on"].to_numpy(), rif_on, equal_nan=True) and scarto_mom < 1e-12,
+          f"scarto massimo del momentum {scarto_mom:.1e}")
+
+    # 200 barre ferme (oscillazione minima: Bollinger strette, squeeze acceso),
+    # poi 60 barre in salita (o in discesa) forte: lo squeeze si spegne
+    def _quiete_poi(passo):
+        c = np.r_[1.1 + 0.00005 * (np.arange(200) % 2), 1.10005 + passo * np.arange(1, 61)]
+        return pd.DataFrame({"Open": np.r_[c[0], c[:-1]], "High": c + 0.00005, "Low": c - 0.00005,
+                             "Close": c, "Volume": 100.0},
+                            index=pd.date_range("2024-01-01", periods=len(c), freq="15min", tz="UTC"))
+    for verso, passo, lato, opposto in (("salita", 0.001, "E29_SQUEEZE_RELEASE_UP", "E29_SHORT_SQUEEZE_RELEASE_DOWN"),
+                                        ("discesa", -0.001, "E29_SHORT_SQUEEZE_RELEASE_DOWN", "E29_SQUEEZE_RELEASE_UP")):
+        d = _quiete_poi(passo)
+        d = d.join(squeeze_momentum(d))
+        ev = list(np.flatnonzero(FUNZIONI[lato](d).to_numpy()))
+        check(f"A10. quiete poi {verso}: squeeze acceso nella quiete, {lato} scatta una volta sola "
+              f"entro 5 barre dall'inizio del movimento, {opposto} mai",
+              bool(d["sqz_on"].iloc[60:200].eq(1).all()) and len(ev) == 1 and 200 <= ev[0] < 205
+              and not FUNZIONI[opposto](d).any(), f"evento alla barra {ev}")
+    d = mercato.join(sq)
+    pos, neg = FUNZIONI["F30_SQZ_MOM_POSITIVE"](d), FUNZIONI["F30_SQZ_MOM_NEGATIVE"](d)
+    ril = (d["sqz_on"].shift(1) == 1) & (d["sqz_on"] == 0)
+    su, giu = FUNZIONI["E29_SQUEEZE_RELEASE_UP"](d), FUNZIONI["E29_SHORT_SQUEEZE_RELEASE_DOWN"](d)
+    check("A11. filtri mai veri insieme; ogni rilascio e' un long o uno short secondo il segno del momentum",
+          not (pos & neg).any() and not (su & giu).any()
+          and ((su | giu) == (ril & d["sqz_mom"].notna() & (d["sqz_mom"] != 0))).all())
+
+    # =====================================================================
     print("\nB · FEDELTA' A TRADINGVIEW (PineTS sul codice Pine originale)\n" + "-" * 70)
     if not _pinets_disponibile():
         saltato("B. confronto con PineTS", "manca Node.js o strumenti_pinets/node_modules")
@@ -232,7 +324,8 @@ def main() -> int:
                         py = f(pezzo).iloc[w:]
                         pn = pine[plot_di[col]].iloc[w:]
                         nan_diversi = int((py.isna() != pn.isna()).sum())
-                        scarto = float(((py - pn).abs() / np.maximum(1.0, pn.abs())).max())
+                        scala = np.maximum(pn.abs(), float(pn.abs().median()) or 1.0)
+                        scarto = float(((py - pn).abs() / scala).max())
                         segni = int(((py > 0) != (pn > 0)).sum() + ((py < 0) != (pn < 0)).sum())
                         zero = pd.Series(0.0, index=py.index)
                         incroci = int((((py > zero) & (py.shift(1) <= zero)) !=
@@ -249,23 +342,20 @@ def main() -> int:
     nuovi_filtri = {k: v for s in INDICATORI.values() for k, v in s["filtri"].items()}
     nuove_colonne = [c for s in INDICATORI.values() for c in s["colonne"]]
 
-    def _vfi_centrato(df):
-        # la trappola: la stessa somma ma CENTRATA sulla barra (guarda 65 barre avanti)
-        tip = (df["High"] + df["Low"] + df["Close"]) / 3
-        segno = np.sign(tip.diff()).fillna(0.0)
-        return (segno * df["Volume"]).rolling(130, center=True).sum() > 0
+    trappole = {f"T_{k}": s["trappola"] for k, s in INDICATORI.items()}
 
     R.clear_registry()
     for k, v in nuove_entry.items():
         R.register_entry(k, v)(FUNZIONI[k])
     for k, v in nuovi_filtri.items():
         R.register_filter(k, direction=v)(FUNZIONI[k])
-    R.register_filter("T_VFI_CENTRATO")(_vfi_centrato)
+    for nome, f in trappole.items():
+        R.register_filter(nome)(lambda df, f=f: f(df) > 0)
 
     def prepara(df):
         d = aggiungi_indicatori(df)
-        tip = (d["High"] + d["Low"] + d["Close"]) / 3
-        d["vfi_centrato"] = (np.sign(tip.diff()).fillna(0.0) * d["Volume"]).rolling(130, center=True).sum()
+        for nome, f in trappole.items():
+            d[nome.lower()] = f(d)
         return d
 
     for nome_dati, dati in [("mercato sintetico", mercato),
@@ -275,8 +365,9 @@ def main() -> int:
             saltato(f"C. lookahead su {nome_dati}", "manca il file di dati")
             continue
         rep = verifica_lookahead(dati, prepara=prepara, verbose=False).set_index("nome")["esito"]
-        check(f"C. {nome_dati}: la trappola (somma centrata) e' segnata LOOKAHEAD",
-              rep["T_VFI_CENTRATO"] == "LOOKAHEAD" and rep["vfi_centrato"] == "LOOKAHEAD")
+        for nome in trappole:
+            check(f"C. {nome_dati}: la trappola {nome} ({trappole[nome].__doc__.strip()}) e' segnata LOOKAHEAD",
+                  rep[nome] == "LOOKAHEAD" and rep[nome.lower()] == "LOOKAHEAD")
         non_ok = {k: rep[k] for k in list(nuove_entry) + list(nuovi_filtri) + nuove_colonne if rep[k] != "OK"}
         check(f"C. {nome_dati}: condizioni e colonne nuove OK (esercitate, nessun lookahead)",
               not non_ok, str(non_ok) if non_ok else "")
@@ -377,15 +468,14 @@ def main() -> int:
         import engine.indicatori as I
         pezzo = reali["EURUSD"].head(5000)
         con = aggiungi_indicatori(pezzo)
-        originali = {c: getattr(I, f.__name__) for s in INDICATORI.values()
-                     for c, f in s["colonne"].items()}
-        try:   # le funzioni nuove sostituite da una colonna senza NaN: le righe di prima
-            for f in originali.values():
-                setattr(I, f.__name__, lambda df: pd.Series(0.0, index=df.index))
+        originali = {nome: getattr(I, nome) for s in INDICATORI.values() for nome in s["funzioni_engine"]}
+        try:   # le funzioni nuove senza NaN: le righe che toglierebbero gli indicatori di prima
+            for nome, f in originali.items():
+                setattr(I, nome, lambda *a, f=f, **k: f(*a, **k).fillna(0.0))
             senza = I.aggiungi_indicatori(pezzo)
         finally:
-            for f in originali.values():
-                setattr(I, f.__name__, f)
+            for nome, f in originali.items():
+                setattr(I, nome, f)
         check("F5. le righe tolte dal riscaldamento non cambiano con le colonne nuove",
               con.index.equals(senza.index), f"{len(con)} righe contro {len(senza)}")
 

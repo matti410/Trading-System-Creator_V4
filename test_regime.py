@@ -217,7 +217,7 @@ def esegui() -> int:
           all(k in reg and R.get_filter_direction(k) == 0 and R.get_filter_pair(k) is None for k in attesi))
     # coppie entrate dopo il 9/10 con gli indicatori TradingView (docs/51):
     # ammesse qui, ma solo queste; i filtri di regime non ne hanno aggiunte
-    coppie_docs51 = {"VFI_SIGN"}
+    coppie_docs51 = {"VFI_SIGN", "SQZ_MOM"}
     check("D4. nessuna coppia nuova: le coppie di prima non sono cambiate",
           {c[0] for c in R.list_filter_pairs()} - coppie_docs51
           == {"MACD_SIGNAL", "TREND_CONTEXT", "TREND_CONVICTION",

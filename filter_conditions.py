@@ -873,6 +873,27 @@ def filter_vfi_negative(df: pd.DataFrame) -> pd.Series:
     return df["vfi"] < 0
 
 
+# --- F30: segno del momentum dello Squeeze (docs/51, M1) -----------------
+
+def filter_sqz_mom_positive(df: pd.DataFrame) -> pd.Series:
+    """
+    Istogramma dello Squeeze Momentum (colonna `sqz_mom`, regressione su 20
+    barre) sopra lo zero: il prezzo sta sopra il centro del suo range
+    recente. Riscaldamento: 38 barre.
+
+    Fonte dell'indicatore: LazyBear, "Squeeze Momentum Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/nqQ1DT5a-Squeeze-Momentum-Indicator-LazyBear/
+    (nessuna licenza dichiarata; moltiplicatore BB corretto, vedi
+    engine.indicatori.squeeze_momentum). Regola del filtro: docs/51 §3, M1.
+    """
+    return df["sqz_mom"] > 0
+
+
+def filter_sqz_mom_negative(df: pd.DataFrame) -> pd.Series:
+    """Istogramma dello Squeeze Momentum sotto lo zero. Speculare di F30_SQZ_MOM_POSITIVE."""
+    return df["sqz_mom"] < 0
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -911,6 +932,8 @@ FILTRI = {
     "F26_VARIANCE_RATIO_TREND":  (filter_variance_ratio_trend, 0, None),
     "F28_VFI_POSITIVE":          (filter_vfi_positive, 1, "VFI_SIGN"),
     "F28_VFI_NEGATIVE":          (filter_vfi_negative, -1, "VFI_SIGN"),
+    "F30_SQZ_MOM_POSITIVE":      (filter_sqz_mom_positive, 1, "SQZ_MOM"),
+    "F30_SQZ_MOM_NEGATIVE":      (filter_sqz_mom_negative, -1, "SQZ_MOM"),
     # F27: OPZIONALE, togli il "#" solo se approvato (conta 1 prova in piu')
     # "F27_REGIME_TREND_COMPOSITE": (filter_regime_trend_composite, 0, None),
 }

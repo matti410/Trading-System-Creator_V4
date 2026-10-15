@@ -446,6 +446,61 @@ def volume_flow(df: pd.DataFrame, lunghezza: int = 130, coef: float = 0.2,
     return vfi.where(~(vave == 0), 0.0)
 
 
+def squeeze_momentum(df: pd.DataFrame, bb: int = 20, mult: float = 2.0,
+                     kc: int = 20, mult_kc: float = 1.5) -> pd.DataFrame:
+    """
+    Squeeze Momentum di LazyBear: lo "squeeze" (le bande di Bollinger stanno
+    dentro il canale di Keltner, cioe' la volatilita' si e' compressa) e
+    l'istogramma del momentum.
+
+    Riga per riga dallo script (useTrueRange = true, il default):
+      Bollinger  media semplice di Close su `bb` barre +- mult x dev. std.
+                 (di popolazione, come Pine)
+      Keltner    media semplice di Close su `kc` barre +- mult_kc x media
+                 semplice del true range (ta.tr: manca sulla prima barra)
+      sqz_on     1 se Bollinger inferiore > Keltner inferiore E Bollinger
+                 superiore < Keltner superiore, altrimenti 0
+      sqz_mom    valore sulla barra corrente della retta di regressione (su
+                 `kc` barre) di Close - media fra [(massimo + minimo delle
+                 `kc` barre) / 2] e la media semplice di Close: e'
+                 l'istogramma "a regressione lineare" di LazyBear, non il
+                 momentum semplice di J. Carter.
+    Colonne: sqz_on (0/1) e sqz_mom. Usa solo la barra corrente e le
+    precedenti. Riscaldamento: sqz_on dalla barra `kc` (serve il true
+    range), sqz_mom dalla barra 2 x `kc` - 2 (38 col default): prima NaN.
+
+    CORREZIONE NOSTRA (docs/51 §2): nel sorgente pubblicato su TradingView la
+    deviazione delle Bollinger usa il moltiplicatore del Keltner (1.5) e
+    l'input "BB MultFactor" (2.0) resta inutilizzato; qui si usa `mult`, come
+    nella versione aggiornata dell'autore (link pastebin nella pagina, non
+    raggiungibile il 15/10/2026). E' l'unica riga diversa dallo script.
+
+    Parametri: i default dello script (20, 2.0, 20, 1.5), mai provati in
+    varianti.
+
+    Fonte: LazyBear, "Squeeze Momentum Indicator [LazyBear]", TradingView,
+    https://www.tradingview.com/script/nqQ1DT5a-Squeeze-Momentum-Indicator-LazyBear/
+    Licenza: nessuna dichiarata nell'header (script open source della
+    community). Idea dello squeeze: John Carter, "Mastering the Trade", TTM
+    Squeeze.
+    """
+    close, high, low = df["Close"], df["High"], df["Low"]
+    base = close.rolling(int(bb)).mean()
+    dev = mult * close.rolling(int(bb)).std(ddof=0)
+    bb_sup, bb_inf = base + dev, base - dev
+    chiusura_prima = close.shift(1)
+    true_range = pd.concat([high - low, (high - chiusura_prima).abs(),
+                            (low - chiusura_prima).abs()], axis=1).max(axis=1, skipna=False)
+    media_kc = close.rolling(int(kc)).mean()
+    ampiezza = true_range.rolling(int(kc)).mean()
+    kc_sup, kc_inf = media_kc + ampiezza * mult_kc, media_kc - ampiezza * mult_kc
+    pronto = bb_inf.notna() & kc_inf.notna()
+    sqz_on = ((bb_inf > kc_inf) & (bb_sup < kc_sup)).astype(float).where(pronto)
+    centro = ((high.rolling(int(kc)).max() + low.rolling(int(kc)).min()) / 2 + media_kc) / 2
+    sqz_mom = _fine_regressione(close - centro, int(kc))
+    return pd.DataFrame({"sqz_on": sqz_on, "sqz_mom": sqz_mom}, index=df.index)
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
@@ -453,7 +508,7 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
         ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
-        chop, vr, vfi (vfi: docs/51, V1, riscaldamento 261 barre)
+        chop, vr, vfi, sqz_on, sqz_mom (docs/51: V1 riscaldamento 261 barre, M1 38)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -489,6 +544,9 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["chop"] = indice_choppiness(df)
     df["vr"] = variance_ratio(df["Close"])
     df["vfi"] = volume_flow(df)
+    squeeze = squeeze_momentum(df)
+    df["sqz_on"] = squeeze["sqz_on"]
+    df["sqz_mom"] = squeeze["sqz_mom"]
     return df.dropna()
 
 
@@ -497,5 +555,5 @@ COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
-    "chop", "vr", "vfi",
+    "chop", "vr", "vfi", "sqz_on", "sqz_mom",
 )

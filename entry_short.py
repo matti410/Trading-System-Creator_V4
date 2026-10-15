@@ -352,6 +352,21 @@ def entry_short_vfi_cross_down(df: pd.DataFrame) -> pd.Series:
     return _evento(_cross_down(df["vfi"], zero))
 
 
+# ------------------------------------------------------------ E29 --------
+def entry_short_squeeze_release_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Rilascio dello squeeze con momentum negativo -> short. Speculare di
+    E29_SQUEEZE_RELEASE_UP (stesso rilascio, `sqz_mom` sotto zero).
+
+    Fonte dell'indicatore: LazyBear, "Squeeze Momentum Indicator [LazyBear]",
+    TradingView, https://www.tradingview.com/script/nqQ1DT5a-Squeeze-Momentum-Indicator-LazyBear/
+    (nessuna licenza dichiarata; moltiplicatore BB corretto, vedi
+    engine.indicatori.squeeze_momentum). Regola: docs/51 §3, M1.
+    """
+    rilascio = (df["sqz_on"].shift(1) == 1) & (df["sqz_on"] == 0)
+    return _evento(rilascio & (df["sqz_mom"] < 0))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -389,6 +404,7 @@ TRIGGER_SHORT = {
     "E25_SHORT_ATC_PVO_SETUP_DOWN": entry_short_atc_pvo_setup_down,    "E26_SHORT_SUPERTREND_IIX_SETUP_DOWN": entry_short_supertrend_iix_setup_down,
     "E27_SHORT_VSA_BEARISH": entry_short_vsa_bearish,
     "E28_SHORT_VFI_CROSS_DOWN": entry_short_vfi_cross_down,
+    "E29_SHORT_SQUEEZE_RELEASE_DOWN": entry_short_squeeze_release_down,
 }
 
 
