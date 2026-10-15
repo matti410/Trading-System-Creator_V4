@@ -873,6 +873,38 @@ def filter_vfi_negative(df: pd.DataFrame) -> pd.Series:
     return df["vfi"] < 0
 
 
+# --- F29: volume relativo alto / basso (docs/51, V2) ---------------------
+# Due filtri neutri a se', non una coppia: misurano l'intensita' del volume,
+# non un verso. Mai veri insieme; nella zona di mezzo entrambi falsi.
+
+def filter_rvol_high(df: pd.DataFrame, rank_window: int = 2000,
+                     percentile: float = 0.75) -> pd.Series:
+    """
+    Volume relativo ALTO: RVOL (colonna `rvol`, volume / media delle 30 barre
+    precedenti) nel 25% piu' alto delle proprie ultime 2000 barre.
+
+    SPENTO nel dizionario FILTRI: e' un doppione di F3_VOLUME_ABOVE_AVG
+    (contenuto al 100% su EURUSD in-sample, controllo del 15/10/2026).
+
+    Neutro. La finestra del percentile (2000) e' molto piu' larga di quella
+    dell'indicatore (30). Parametri fissati a priori, mai provati in
+    varianti. Riscaldamento: 2030 barre (su D1 piu' dei dati dal 2020).
+    Dipende dalla qualita' del volume (tick volume su MT5).
+
+    Fonte dell'indicatore: veryfid, "Relative Volume" (RVOL), TradingView,
+    licenza MPL 2.0 (vedi engine.indicatori.volume_relativo). Regola: docs/51
+    §3, V2 (solo filtri, neutri); soglie a percentile rolling: traduzione
+    nostra (lo script non ne ha).
+    """
+    return ts_rank(df["rvol"], rank_window) >= percentile
+
+
+def filter_rvol_low(df: pd.DataFrame, rank_window: int = 2000,
+                    percentile: float = 0.25) -> pd.Series:
+    """Volume relativo BASSO: RVOL nel 25% piu' basso delle ultime 2000 barre. Vedi F29_RVOL_HIGH."""
+    return ts_rank(df["rvol"], rank_window) <= percentile
+
+
 # --- F30: segno del momentum dello Squeeze (docs/51, M1) -----------------
 
 def filter_sqz_mom_positive(df: pd.DataFrame) -> pd.Series:
@@ -951,6 +983,11 @@ FILTRI = {
     "F26_VARIANCE_RATIO_TREND":  (filter_variance_ratio_trend, 0, None),
     "F28_VFI_POSITIVE":          (filter_vfi_positive, 1, "VFI_SIGN"),
     "F28_VFI_NEGATIVE":          (filter_vfi_negative, -1, "VFI_SIGN"),
+    # F29_RVOL_HIGH: SPENTO, doppione (docs/50 §7.5): su EURUSD in-sample sta
+    # al 100% dentro F3_VOLUME_ABOVE_AVG e al 91% dentro F6. Togli il "#" solo
+    # se Mattia lo decide (conta 1 prova in piu').
+    # "F29_RVOL_HIGH":             (filter_rvol_high, 0, None),
+    "F29_RVOL_LOW":              (filter_rvol_low, 0, None),
     "F30_SQZ_MOM_POSITIVE":      (filter_sqz_mom_positive, 1, "SQZ_MOM"),
     "F30_SQZ_MOM_NEGATIVE":      (filter_sqz_mom_negative, -1, "SQZ_MOM"),
     "F31_WT_ABOVE_SIGNAL":       (filter_wt_above_signal, 1, "WAVETREND"),

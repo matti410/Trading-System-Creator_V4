@@ -3,6 +3,7 @@ Suite di validazione degli indicatori tradotti da script TradingView
 (docs/51_INDICATORI_TRADINGVIEW.md). Cresce un indicatore alla volta:
 
     V1  Volume Flow Indicator [LazyBear]   E28 (trigger), F28 (filtri)
+    V2  Relative Volume [veryfid]          F29 (filtri neutri)
     M1  Squeeze Momentum [LazyBear]        E29 (trigger), F30 (filtri)
     M2  WaveTrend [LazyBear]               E30 (trigger), F31 (filtri)
 
@@ -48,11 +49,11 @@ from engine import registry as R
 from engine.collaudo_catalogo import (mercato_sintetico, verifica_degenerazione,
                                       verifica_lookahead)
 from engine.indicatori import (COLONNE_INDICATORI, _fine_regressione, aggiungi_indicatori,
-                               squeeze_momentum, volume_flow, wavetrend)
+                               squeeze_momentum, volume_flow, volume_relativo, wavetrend)
 from helpers import _ts_rank
 from entry_long import TRIGGER_LONG, registra_trigger_long
 from entry_short import TRIGGER_SHORT, registra_trigger_short
-from filter_conditions import FILTRI, registra_filtri
+from filter_conditions import FILTRI, filter_rvol_high, registra_filtri
 
 CARTELLA = os.path.dirname(os.path.abspath(__file__))
 DATI = os.path.join(CARTELLA, "dati")
@@ -86,6 +87,12 @@ def _trappola_vfi(df):
     return (np.sign(tip.diff()).fillna(0.0) * df["Volume"]).rolling(130, center=True).sum()
 
 
+def _trappola_rvol(df):
+    """Volume diviso per la media CENTRATA su 31 barre (15 barre avanti)."""
+    v = df["Volume"].astype(float)
+    return v / v.rolling(31, center=True).mean() - 1.0
+
+
 def _trappola_squeeze(df):
     """Retta di regressione del momentum letta 10 barre DOPO la barra corrente."""
     c = df["Close"]
@@ -109,6 +116,17 @@ INDICATORI = {
         coppie=[("VFI_SIGN", "F28_VFI_POSITIVE", "F28_VFI_NEGATIVE")],
         trappola=_trappola_vfi,
         funzioni_engine=("volume_flow",),
+    ),
+    "V2": dict(
+        colonne={"rvol": lambda d: volume_relativo(d["Volume"])},
+        pine=("V2_rvol_veryfid_v5.pine", {"rvol": "rvol"}),
+        riscaldamento=30,
+        riscaldamento_condizioni={"F29_RVOL_LOW": 2030},
+        entry={},
+        filtri={"F29_RVOL_LOW": 0},      # F29_RVOL_HIGH spento: doppione di F3
+        coppie=[],
+        trappola=_trappola_rvol,
+        funzioni_engine=("volume_relativo",),
     ),
     "M1": dict(
         colonne={"sqz_on": lambda d: squeeze_momentum(d)["sqz_on"],
@@ -321,6 +339,34 @@ def main() -> int:
     piatto = noto.assign(Volume=0.0)
     check("A7. dati senza volume: VFI = 0 dopo il riscaldamento (nessun NaN)",
           bool((volume_flow(piatto).iloc[259:] == 0).all()))
+
+    # =====================================================================
+    print("\nA · V2 RELATIVE VOLUME: FORMULA E CASI A RISULTATO NOTO\n" + "-" * 70)
+    rv = volume_relativo(mercato["Volume"])
+    V = mercato["Volume"].to_numpy(dtype=float)
+    rif_rv = np.full(len(V), np.nan)
+    for i in range(30, len(V)):
+        rif_rv[i] = V[i] / V[i - 30:i].mean()
+    check("A17. NaN nelle prime 30 barre, poi uguale a volume / media delle 30 precedenti (a mano)",
+          bool(rv.iloc[:30].isna().all()) and np.allclose(rv.to_numpy()[30:], rif_rv[30:], rtol=1e-14, atol=0))
+    costante = pd.Series(100.0, index=pd.date_range("2024-01-01", periods=80, freq="15min", tz="UTC"))
+    picco = costante.copy()
+    picco.iloc[50] = 1000.0
+    r = volume_relativo(picco)
+    check("A18. volume costante: 1; picco di 10 volte: 10 sulla barra, 1/1,3 sulla successiva "
+          "(il picco entra nella media), di nuovo 1 dopo 30 barre",
+          bool(np.allclose(volume_relativo(costante).iloc[30:], 1.0)) and np.isclose(r.iloc[50], 10.0)
+          and np.isclose(r.iloc[51], 1 / 1.3) and np.isclose(r.iloc[79], 1 / 1.3) and np.isclose(r.iloc[49], 1.0))
+    check("A19. dati senza volume: 1 (normale) dopo il riscaldamento, nessun NaN",
+          bool((volume_relativo(costante * 0).iloc[30:] == 1.0).all()))
+    d = mercato.assign(rvol=rv)
+    alto, basso = filter_rvol_high(d), FUNZIONI["F29_RVOL_LOW"](d)
+    rango = _ts_rank(rv, 2000)
+    check("A20. F29: alto = rango >= 0,75, basso = rango <= 0,25 sulle ultime 2000 barre; mai veri insieme; "
+          "falsi nelle prime 2029 barre",
+          bool((alto == (rango >= 0.75)).all() and (basso == (rango <= 0.25)).all()
+               and not (alto & basso).any() and not (alto | basso).iloc[:2029].any()),
+          f"alto {alto.mean():.0%}, basso {basso.mean():.0%} delle barre")
 
     # =====================================================================
     print("\nA · M1 SQUEEZE MOMENTUM: FORMULA E CASI A RISULTATO NOTO\n" + "-" * 70)
@@ -578,6 +624,8 @@ def main() -> int:
     coppie = R.list_filter_pairs()
     check("F3. le coppie di filtri sono riconosciute dalla ricerca dei filtri",
           all(c in coppie for s in INDICATORI.values() for c in s["coppie"]))
+    check("F3b. F29_RVOL_HIGH non e' registrato (spento: doppione di F3)",
+          "F29_RVOL_HIGH" not in filtri and "F29_RVOL_HIGH" not in FILTRI)
     check("F4. le colonne nuove sono nell'elenco che il collaudo verifica",
           set(nuove_colonne) <= set(COLONNE_INDICATORI))
     if reali["EURUSD"] is not None:

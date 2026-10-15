@@ -446,6 +446,41 @@ def volume_flow(df: pd.DataFrame, lunghezza: int = 130, coef: float = 0.2,
     return vfi.where(~(vave == 0), 0.0)
 
 
+def volume_relativo(volume: pd.Series, barre: int = 30) -> pd.Series:
+    """
+    RVOL: il volume della barra diviso per la media del volume delle `barre`
+    barre PRECEDENTI (la barra corrente non entra nella media). 1 = volume
+    normale, 2 = il doppio del solito.
+
+    Riga per riga dallo script (array dei volumi da volume[1] a volume[30],
+    poi rvol = volume / array.avg). Nelle prime `barre` barre lo script fa la
+    media dei soli valori gia' esistenti; qui vale NaN finche' la storia non
+    e' completa (le condizioni restano false). Riscaldamento: 30 barre.
+    Media nulla (dati senza volume): vale 1 ("normale") invece di NaN o
+    infinito, perche' `aggiungi_indicatori` toglie le righe con un NaN.
+
+    Non e' il "Relative Volume at Time" di TradingView (che confronta la
+    stessa ora dei giorni passati): non tiene conto dell'ora del giorno, quindi
+    all'apertura delle sessioni il volume risulta "alto" per costruzione.
+    Scelta di Mattia del 15/10/2026: il codice di ta.relativeVolume non e'
+    disponibile.
+
+    VOLUME: dipende dalla qualita' del volume. Su MT5 (forex, CFD) e' il
+    tick volume del broker, sugli exchange crypto e' volume reale: il codice
+    non assume ne' l'uno ne' l'altro.
+
+    Parametro: il default dello script (30), mai provato in varianti.
+
+    Fonte: veryfid, "Relative Volume" (RVOL), TradingView. Licenza: Mozilla
+    Public License 2.0 (https://mozilla.org/MPL/2.0/), dichiarata
+    nell'header: questa traduzione della riga di calcolo resta sotto MPL 2.0.
+    """
+    v = volume.astype(float)
+    media = v.shift(1).rolling(int(barre)).mean()
+    rvol = v / media.where(media > 0)
+    return rvol.where(~(media == 0), 1.0)
+
+
 def squeeze_momentum(df: pd.DataFrame, bb: int = 20, mult: float = 2.0,
                      kc: int = 20, mult_kc: float = 1.5) -> pd.DataFrame:
     """
@@ -565,8 +600,8 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
         ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
-        chop, vr, vfi, sqz_on, sqz_mom, wt1, wt2
-        (docs/51: riscaldamento V1 261 barre, M1 38, M2 41)
+        chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2
+        (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -602,6 +637,7 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["chop"] = indice_choppiness(df)
     df["vr"] = variance_ratio(df["Close"])
     df["vfi"] = volume_flow(df)
+    df["rvol"] = volume_relativo(df["Volume"])
     squeeze = squeeze_momentum(df)
     df["sqz_on"] = squeeze["sqz_on"]
     df["sqz_mom"] = squeeze["sqz_mom"]
@@ -616,5 +652,5 @@ COLONNE_INDICATORI = (
     "rsi", "macd", "macd_signal", "macd_hist", "ema20", "ema50", "zlema50",
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
-    "chop", "vr", "vfi", "sqz_on", "sqz_mom", "wt1", "wt2",
+    "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2",
 )
