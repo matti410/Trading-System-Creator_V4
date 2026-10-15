@@ -440,6 +440,32 @@ def entry_wavetrend_cross_up(df: pd.DataFrame, rank_window: int = 500,
     return _evento(_cross_up(df["wt1"], df["wt2"]) & ipervenduto)
 
 
+# ------------------------------------------------------------ E31 --------
+def entry_triple_screen_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Triple Screen di Elder, setup completo (tre schermi in AND) -> long.
+
+      1. schermo 1, la marea: la pendenza del MACD-Histogram (12/26/9) delle
+         H4 e' in salita (`mtf_h4_macdh_pend` > 0)
+      2. schermo 2, l'onda contraria: il Force Index (EMA a 2) dell'ultima H1
+         chiusa e' sotto zero (`mtf_h1_force` < 0)
+      3. schermo 3, l'ingresso: la chiusura M15 supera il massimo dell'ultima
+         H1 chiusa (`mtf_h1_high`); evento, prima barra in cui succede
+
+    Tutte le candele superiori sono gia' chiuse (engine.indicatori.
+    triple_screen_colonne). Traduzioni nostre approvate da Mattia il
+    15/10/2026: timeframe H4/H1 per l'ingresso su M15; lo stop d'acquisto "un
+    tick sopra il massimo" diventa la chiusura sopra il massimo (il motore
+    entra all'Open dopo); omessa la clausola "purche' non a un nuovo minimo
+    di piu' settimane".
+
+    Fonte: A. Elder, "Trading for a Living", Wiley 1993, cap. 43 (pp. 235-243).
+    """
+    cond = ((df["mtf_h4_macdh_pend"] > 0) & (df["mtf_h1_force"] < 0)
+            & (df["Close"] > df["mtf_h1_high"]))
+    return _evento(cond)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -479,6 +505,7 @@ TRIGGER_LONG = {
     "E28_VFI_CROSS_UP": entry_vfi_cross_up,
     "E29_SQUEEZE_RELEASE_UP": entry_squeeze_release_up,
     "E30_WAVETREND_CROSS_UP": entry_wavetrend_cross_up,
+    "E31_TRIPLE_SCREEN_UP": entry_triple_screen_up,
 }
 
 

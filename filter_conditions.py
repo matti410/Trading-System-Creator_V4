@@ -1111,6 +1111,62 @@ def filter_sent_extreme_greed(df: pd.DataFrame) -> pd.Series:
     return df["sentiment_classe"] == 5
 
 
+# =========================================================================
+# Filtri multi timeframe entrati il 15/10/2026 (docs/50 §10, riga 12)
+# Le colonne vengono da engine/indicatori.py (colonne_multi_timeframe):
+# candele superiori costruite dalle M15, lette solo se gia' chiuse
+# (eccezione dichiarata: F37 usa l'apertura del periodo in corso).
+# =========================================================================
+
+# --- F37: continuita' dei timeframe (The Strat) -- coppia "FTFC" ---------
+def filter_ftfc_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Continuita' dei timeframe al rialzo: la chiusura della barra e' sopra
+    l'apertura dell'ora, della giornata FX, della settimana FX e del mese in
+    corso, tutte e quattro (`ftfc` = +1, vedi engine.indicatori.continuita_timeframe).
+
+    Fonte: LuxAlgo, "The Strat" (concetto di Rob Smith),
+    https://www.luxalgo.com/library/concept/the-strat/ (15/10/2026).
+    """
+    return df["ftfc"] == 1
+
+
+def filter_ftfc_down(df: pd.DataFrame) -> pd.Series:
+    """Continuita' dei timeframe al ribasso: chiusura sotto le quattro aperture (`ftfc` = -1). Vedi F37_FTFC_UP."""
+    return df["ftfc"] == -1
+
+
+# --- F38: accordo di tre orizzonti (time-series momentum) -- coppia "TSMOM"
+def filter_tsmom_all_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Rendimento positivo su 1, 5 e 21 giornate FX chiuse, tutti e tre
+    (`tsmom` = +1, vedi engine.indicatori.accordo_orizzonti). Il valore cambia
+    solo sulla prima barra della giornata.
+
+    Fonte: Hurst, Ooi, Pedersen, "A Century of Evidence on Trend-Following
+    Investing", J. of Portfolio Management, 2017; orizzonti in giornate e
+    "tutti d'accordo" sono la nostra traduzione (approvata da Mattia il 15/10/2026).
+    """
+    return df["tsmom"] == 1
+
+
+def filter_tsmom_all_down(df: pd.DataFrame) -> pd.Series:
+    """Rendimento negativo su 1, 5 e 21 giornate FX chiuse, tutti e tre (`tsmom` = -1). Vedi F38_TSMOM_ALL_UP."""
+    return df["tsmom"] == -1
+
+
+# --- F39: giorno inside (barra di "tipo 1" della Strat), neutro ---------
+def filter_inside_day(df: pd.DataFrame) -> pd.Series:
+    """
+    La giornata FX chiusa piu' recente e' rimasta dentro il massimo e il
+    minimo di quella prima (`inside_day` = 1): compressione. Vale per tutta la
+    giornata dopo. Neutro: non dice in che direzione si uscira'.
+
+    Fonte: LuxAlgo, "The Strat", https://www.luxalgo.com/library/concept/the-strat/
+    """
+    return df["inside_day"] == 1
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -1163,6 +1219,15 @@ FILTRI = {
     # F36: contrarian, direction = lato su cui si applica (vedi la funzione)
     "F36_SENT_EXTREME_FEAR":     (filter_sent_extreme_fear, 1, "SENTIMENT"),
     "F36_SENT_EXTREME_GREED":    (filter_sent_extreme_greed, -1, "SENTIMENT"),
+    # multi timeframe (docs/50 §10, riga 12; 15/10/2026). F37 e F38 SPENTI come
+    # doppioni (docs/50 §10 quater: F37 dentro F8/F9 e VWAP, F38 dentro VWAP
+    # sessione precedente e F28; decisione di Mattia del 15/10/2026): la
+    # funzione resta, si riattivano togliendo il #
+    # "F37_FTFC_UP":               (filter_ftfc_up, 1, "FTFC"),
+    # "F37_FTFC_DOWN":             (filter_ftfc_down, -1, "FTFC"),
+    # "F38_TSMOM_ALL_UP":          (filter_tsmom_all_up, 1, "TSMOM"),
+    # "F38_TSMOM_ALL_DOWN":        (filter_tsmom_all_down, -1, "TSMOM"),
+    "F39_INSIDE_DAY":            (filter_inside_day, 0, None),
     # Doppioni SPENTI (regola di docs/50 §7.5 alla lettera, decisione di Mattia
     # del 15/10/2026): contenuti al 70% o piu' in filtri gia' presenti, su
     # EURUSD in-sample. Togli il "#" solo se Mattia lo decide (1 prova a coppia).

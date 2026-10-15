@@ -384,6 +384,21 @@ def entry_short_wavetrend_cross_down(df: pd.DataFrame, rank_window: int = 500,
     return _evento(_cross_down(df["wt1"], df["wt2"]) & ipercomprato)
 
 
+# ------------------------------------------------------------ E31 --------
+def entry_short_triple_screen_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Triple Screen di Elder, setup completo -> short. Speculare di
+    E31_TRIPLE_SCREEN_UP, come lo descrive l'autore: pendenza del
+    MACD-Histogram H4 in discesa, Force Index dell'ultima H1 chiusa sopra
+    zero, chiusura M15 sotto il minimo dell'ultima H1 chiusa (evento).
+
+    Fonte: A. Elder, "Trading for a Living", Wiley 1993, cap. 43 (pp. 235-243).
+    """
+    cond = ((df["mtf_h4_macdh_pend"] < 0) & (df["mtf_h1_force"] > 0)
+            & (df["Close"] < df["mtf_h1_low"]))
+    return _evento(cond)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -423,6 +438,7 @@ TRIGGER_SHORT = {
     "E28_SHORT_VFI_CROSS_DOWN": entry_short_vfi_cross_down,
     "E29_SHORT_SQUEEZE_RELEASE_DOWN": entry_short_squeeze_release_down,
     "E30_SHORT_WAVETREND_CROSS_DOWN": entry_short_wavetrend_cross_down,
+    "E31_SHORT_TRIPLE_SCREEN_DOWN": entry_short_triple_screen_down,
 }
 
 
