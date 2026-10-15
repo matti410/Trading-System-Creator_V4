@@ -8,6 +8,7 @@ Suite di validazione degli indicatori tradotti da script TradingView
     M2  WaveTrend [LazyBear]               E30 (trigger), F31 (filtri)
     R1  Kaufman Efficiency Ratio           F32 (filtri)
     R2  Hurst Exponent Oscillator [PhenLabs]  F33 (filtri neutri; licenza CC BY-NC-SA)
+    R3  filtri di jdehorty (MLExtensions)  F34, F35 (filtri neutri)
 
 Per ogni indicatore, i quattro test obbligatori di docs/51 §4:
 
@@ -51,18 +52,19 @@ from engine import registry as R
 from engine.collaudo_catalogo import (mercato_sintetico, verifica_degenerazione,
                                       verifica_lookahead)
 from engine.indicatori import (COLONNE_INDICATORI, _fine_regressione, aggiungi_indicatori,
-                               efficienza_kaufman, hurst_rs, squeeze_momentum, volume_flow,
+                               efficienza_kaufman, filtri_jdehorty, hurst_rs, squeeze_momentum,
+                               volume_flow,
                                volume_relativo, wavetrend)
 from helpers import _ts_rank
 from entry_long import TRIGGER_LONG, registra_trigger_long
 from entry_short import TRIGGER_SHORT, registra_trigger_short
-from filter_conditions import (FILTRI, filter_ker_trend_down, filter_ker_trend_up, filter_rvol_high,
+from filter_conditions import (FILTRI, filter_jdh_volatility, filter_ker_trend_down, filter_ker_trend_up, filter_rvol_high,
                                filter_sqz_mom_negative, filter_sqz_mom_positive,
                                filter_wt_above_signal, filter_wt_below_signal, registra_filtri)
 
 # filtri scritti ma SPENTI perche' doppioni (docs/50 §7.5, decisione del 15/10/2026)
 SPENTI = ("F29_RVOL_HIGH", "F30_SQZ_MOM_POSITIVE", "F30_SQZ_MOM_NEGATIVE", "F31_WT_ABOVE_SIGNAL",
-          "F31_WT_BELOW_SIGNAL", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN")
+          "F31_WT_BELOW_SIGNAL", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN", "F34_JDH_VOLATILITY")
 
 CARTELLA = os.path.dirname(os.path.abspath(__file__))
 DATI = os.path.join(CARTELLA, "dati")
@@ -94,6 +96,7 @@ TOLLERANZA = 1e-6             # |py - pine| <= TOLLERANZA x max(|pine|, mediana 
 #   valore_dove_pine_nan  dove Pine da' na (0/0) la colonna Python vale questo
 #   possono_mancare  {condizione: (timeframe, motivo)}: dove puo' restare sempre
 #                falsa per un limite noto e dichiarato (nel test E e' una nota)
+#   tolleranza   {colonna: tolleranza} al posto di TOLLERANZA, con il motivo nel commento
 #   soglie       soglie delle condizioni: lo stato sopra/sotto deve coincidere con
 #                PineTS, salvo le barre a meno di 1e-6 (relativo) dalla soglia
 # ---------------------------------------------------------------------------
@@ -131,6 +134,13 @@ def _trappola_ker(df):
 def _trappola_hurst(df):
     """Hurst calcolato sulle 100 barre DOPO la barra corrente."""
     return hurst_rs(df["Close"]).shift(-100) - 0.5
+
+
+def _trappola_jdh(df):
+    """True range di DOMANI contro l'ATR a 10 barre di oggi."""
+    tr = pd.concat([df["High"] - df["Low"], (df["High"] - df["Close"].shift(1)).abs(),
+                    (df["Low"] - df["Close"].shift(1)).abs()], axis=1).max(axis=1)
+    return tr.shift(-1) - tr.rolling(10).mean()
 
 
 INDICATORI = {
@@ -207,6 +217,23 @@ INDICATORI = {
         coppie=[],
         trappola=_trappola_hurst,
         funzioni_engine=("hurst_rs",),
+    ),
+    "R3": dict(
+        colonne={"jdh_atr_diff": lambda d: filtri_jdehorty(d)["jdh_atr_diff"],
+                 "jdh_regime": lambda d: filtri_jdehorty(d)["jdh_regime"]},
+        pine=("R3_jdh_filtri_v5.pine", {"jdh_atr_diff": "atr_diff", "jdh_regime": "nsd"}),
+        # jdh_regime divide per una pendenza di ~1e-5: l'arrotondamento a 10
+        # decimali di PineTS sulla curva klmf (~6e-10) diventa ~1e-5 relativo.
+        # In cambio si pretende lo stesso sopra/sotto la soglia su ogni barra.
+        tolleranza={"jdh_regime": 1e-3},
+        soglie={"jdh_regime": (-0.1,), "jdh_atr_diff": (0.0,)},
+        riscaldamento=201,
+        convergenza=3000,
+        entry={},
+        filtri={"F35_JDH_REGIME_TREND": 0},   # F34 spento: doppione di F3
+        coppie=[],
+        trappola=_trappola_jdh,
+        funzioni_engine=("filtri_jdehorty",),
     ),
 }
 
@@ -578,6 +605,43 @@ def main() -> int:
                and not (per & rit).any() and not (per | rit).iloc[:103].any()))
 
     # =====================================================================
+    print("\nA · R3 FILTRI DI JDEHORTY: FORMULA E CASI A RISULTATO NOTO\n" + "-" * 70)
+    jd = filtri_jdehorty(mercato)
+    H_, L_, C_ = (mercato[c].to_numpy(dtype=float) for c in ("High", "Low", "Close"))
+    tr = np.array([H_[0] - L_[0]] + [max(H_[i] - L_[i], abs(H_[i] - C_[i - 1]), abs(L_[i] - C_[i - 1]))
+                                     for i in range(1, len(C_))])
+    atr10 = np.full(len(tr), np.nan)
+    atr10[9] = tr[:10].mean()
+    for i in range(10, len(tr)):
+        atr10[i] = (atr10[i - 1] * 9 + tr[i]) / 10
+    rif_diff = tr - atr10
+    check("A28. jdh_atr_diff = true range - ATR di Wilder a 10 (scritto a mano, parte dalla media "
+          "semplice, prima barra massimo - minimo), NaN nelle prime 9 barre",
+          bool(jd["jdh_atr_diff"].iloc[:9].isna().all())
+          and np.allclose(jd["jdh_atr_diff"].to_numpy()[9:], rif_diff[9:], rtol=1e-10, atol=1e-15))
+    check("A29. jdh_regime: NaN fino alla barra 200, poi nessun NaN",
+          bool(jd["jdh_regime"].iloc[:201].isna().all() and jd["jdh_regime"].iloc[201:].notna().all()))
+    # 1500 barre di salita regolare, poi 300 ferme: la pendenza della curva
+    # crolla rispetto alla sua media a 200 -> il regime di tendenza si spegne.
+    # Le prime ~1000 barre servono a far uscire dalla media il salto iniziale
+    # di klmf (parte da 0 per via di nz(), come nello script)
+    passo = np.r_[np.full(1500, 0.0005), np.full(300, 0.0)]
+    cc = 1.1 + np.cumsum(passo)
+    # niente rumore alterno: farebbe oscillare la pendenza di klmf barra per barra
+    dd = pd.DataFrame({"Open": cc, "High": cc + 0.0002, "Low": cc - 0.0002, "Close": cc},
+                      index=pd.date_range("2024-01-01", periods=1800, freq="15min", tz="UTC"))
+    dd = dd.join(filtri_jdehorty(dd))
+    reg = FUNZIONI["F35_JDH_REGIME_TREND"](dd)
+    check("A30. salita regolare: regime di tendenza acceso (barre 1200-1499); prezzo fermo: spento "
+          "(barre 1520-1799)", bool(reg.iloc[1200:1500].all() and not reg.iloc[1520:].any()),
+          f"valore in salita {float(dd['jdh_regime'].iloc[1499]):.3f}, da fermo {float(dd['jdh_regime'].iloc[-1]):.3f}")
+    picco = mercato.iloc[:300].copy()
+    picco.iloc[250, picco.columns.get_loc("High")] += 0.01
+    vol = filter_jdh_volatility(picco.join(filtri_jdehorty(picco)))
+    check("A31. una barra con un'escursione enorme: volatilita' in espansione su quella barra",
+          bool(vol.iloc[250]) and not vol.iloc[:9].any())
+
+    # =====================================================================
     print("\nB · FEDELTA' A TRADINGVIEW (PineTS sul codice Pine originale)\n" + "-" * 70)
     if not _pinets_disponibile():
         saltato("B. confronto con PineTS", "manca Node.js o strumenti_pinets/node_modules")
@@ -627,15 +691,17 @@ def main() -> int:
                                       + (((py < zero) & (py.shift(1) >= zero)) !=
                                          ((pn < zero) & (pn.shift(1) >= zero))).iloc[1:].sum())
                         modo = " (ema arrotondate come PineTS)" if spec.get("pinets_ema_10_decimali") else ""
-                        check(f"B. {chiave} {col} su {symbol}{modo} ({len(py)} barre dopo il riscaldamento)",
-                              nan_diversi == 0 and scarto <= TOLLERANZA and segni == 0 and incroci == 0,
+                        toll = spec.get("tolleranza", {}).get(col, TOLLERANZA)
+                        check(f"B. {chiave} {col} su {symbol}{modo} ({len(py)} barre dopo il riscaldamento"
+                              + (f", tolleranza {toll:g}" if toll != TOLLERANZA else "") + ")",
+                              nan_diversi == 0 and scarto <= toll and segni == 0 and incroci == 0,
                               f"scarto rel. max {scarto:.1e}, segni diversi {segni}, incroci diversi {incroci}")
                     for col, valori in spec.get("soglie", {}).items():
                         py, pn = py_tutto[col].iloc[w:], pine[plot_di[col]].iloc[w:]
                         diversi, vicini = 0, 0
                         for s in valori:
                             diverso = (py > s) != (pn > s)
-                            pareggio = (pn - s).abs() <= TOLLERANZA * abs(s)
+                            pareggio = (pn - s).abs() <= TOLLERANZA * max(abs(s), float(pn.abs().median()))
                             diversi += int((diverso & ~pareggio).sum())
                             vicini += int(pareggio.sum())
                         check(f"B. {chiave} {col} su {symbol}: sopra/sotto le soglie {valori} come PineTS",

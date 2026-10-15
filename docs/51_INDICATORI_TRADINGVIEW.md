@@ -138,3 +138,90 @@ in questo giro). La decisione su cosa tenere spetta all'utente.
 
 Alla fine, con l'OK dell'utente, salvare il lavoro su GitHub (commit + push) con un messaggio
 chiaro, spiegando in parole semplici cosa è stato salvato.
+
+---
+
+## 7. Esito (13–15/10/2026) — report descrittivo
+
+Lavoro sul ramo `indicatori-tradingview`. Collaudo: `test_indicatori_tradingview.py`
+(143/143 con pandas 3.0.6), più tutte le suite del progetto. Nessun giudizio sui risultati
+di trading: i numeri sotto dicono solo che il codice gira e quante volte scatta ogni condizione.
+
+### 7.1 Decisioni prese strada facendo (Mattia)
+
+| Indicatore | Decisione |
+|---|---|
+| V1 | come da §3 (indicatore di M. Katsanos, script di LazyBear) |
+| V2 | il codice di `ta.relativeVolume` di TradingView non è reperibile: usato **"Relative Volume" di veryfid** (MPL 2.0), solo la riga `volume / media delle 30 barre precedenti`. Non è "at time": non tiene conto dell'ora del giorno |
+| M1 | pastebin non raggiungibile: sorgente di TradingView con **una correzione dichiarata**, `dev = mult * stdev` (BB 2.0, non 1.5) |
+| M2 | soglia ±60 sostituita da **percentile rolling** (10° / 90°) |
+| R1 | KER con segno; trend a ±0,5 (linea "Efficient"); laterale con percentile e isteresi 25°/50° su 500 barre (numeri di F25). Autore: Zorba_the_Buddha |
+| R2 | licenza **CC BY-NC-SA 4.0 (non commerciale)**: tradotto per uso personale e di ricerca; la funzione resta sotto la stessa licenza |
+| R3 | solo `filter_volatility` e `regime_filter` (MPL 2.0) |
+| tutti | finestre dei percentili a **500 barre** (2000 erano 8 anni in D1); doppioni **spenti mettendo tra commenti la riga** del dizionario, regola di docs/50 §7.5 precisata il 15/10 (70% **e** almeno 1,3 volte il caso) |
+
+### 7.2 Condizioni
+
+Test: 1 = lookahead per troncamento (con trappola segnata LOOKAHEAD), 2 = fedeltà a TradingView
+(PineTS sul Pine originale, EURUSD/BTCUSD/DE40, 20.000 barre; più riscrittura a mano e casi noti),
+3 = esecuzione su M5 (sintetico), M15, H1, D1 di EURUSD/BTCUSD/DE40, 4 = registrazione.
+
+| ID | Ind. | Tipo | Lato | Stato | Test 1-4 | Sovrapposizioni (EURUSD in-sample) |
+|---|---|---|---|---|---|---|
+| E28_VFI_CROSS_UP / E28_SHORT_VFI_CROSS_DOWN | V1 | trigger | L / S | attivo | OK | nessuna ≥ 70% |
+| F28_VFI_POSITIVE / F28_VFI_NEGATIVE | V1 | filtro, coppia VFI_SIGN | +1 / −1 | attivo | OK | solo filtri larghissimi (F2_MID, F22), 1,0× il caso |
+| F29_RVOL_LOW | V2 | filtro | neutro | attivo | OK | solo F2_MID (1,08×) |
+| F29_RVOL_HIGH | V2 | filtro | neutro | **spento** | OK | 100% dentro F3 (2,2×), 90% dentro F6 |
+| E29_SQUEEZE_RELEASE_UP / E29_SHORT_SQUEEZE_RELEASE_DOWN | M1 | trigger | L / S | attivo | OK | nessuna ≥ 70% |
+| F30_SQZ_MOM_POSITIVE / NEGATIVE | M1 | filtro, coppia | +1 / −1 | **spento** | OK | 72–76% dentro F4, F8/F9, F16/F17 e viceversa (1,4–1,5×) |
+| E30_WAVETREND_CROSS_UP / E30_SHORT_WAVETREND_CROSS_DOWN | M2 | trigger | L / S | attivo | OK | nessuna ≥ 70% |
+| F31_WT_ABOVE / BELOW_SIGNAL | M2 | filtro, coppia | +1 / −1 | **spento** | OK | 75% dentro F4 e viceversa (1,5×) |
+| F32_KER_RANGE | R1 | filtro | neutro | attivo | OK | solo F2_MID, F22 (1,0×) |
+| F32_KER_TREND_UP / DOWN | R1 | filtro, coppia | +1 / −1 | **spento** | OK | 88–96% dentro F4, F8/F9, F16/F17, F30, F31 (1,8–2,7×) |
+| F33_HURST_PERSISTENT | R2 | filtro | neutro | attivo | OK | 78% dentro F1_ADX (1,25×: sotto 1,3) |
+| F33_HURST_MEAN_REVERTING | R2 | filtro | neutro | attivo | OK | 91% dentro F2_MID (1,21×) |
+| F34_JDH_VOLATILITY | R3 | filtro | neutro | **spento** | OK | 75% dentro F3 (1,64×), 72% dentro F6 (1,53×) |
+| F35_JDH_REGIME_TREND | R3 | filtro | neutro | attivo | OK | 71% dentro F1_ADX (1,14×) |
+
+Sovrapposizioni chieste da §5: R1 contro ADX → KER_TREND al 75–77% dentro F1 (spento per F4/F8/F16);
+correlazione |KER|–ADX 0,18, |KER|–CHOP −0,57. M1 contro i filtri di volatilità: nessuna
+sovrapposizione dei trigger E29. Hurst contro F26 (variance ratio): nessuna ≥ 70%, correlazione 0,39.
+
+### 7.3 Occorrenze (eventi per i trigger, barre vere per i filtri)
+
+| Condizione | EURUSD M15 / H1 / H4 / D1 | BTCUSD M15 / H1 / H4 / D1 | DE40 M15 / H1 / H4 / D1 |
+|---|---|---|---|
+| E28 long | 3035 / 791 / 154 / 24 | 4545 / 1027 / 270 / 37 | 2682 / 677 / 188 / 19 |
+| E28 short | 3035 / 790 / 155 / 25 | 4543 / 1028 / 270 / 37 | 2682 / 677 / 188 / 18 |
+| E29 long | 2837 / 697 / 158 / 27 | 4162 / 1024 / 240 / 31 | 2622 / 685 / 164 / 25 |
+| E29 short | 2805 / 733 / 144 / 29 | 3873 / 912 / 245 / 38 | 2295 / 524 / 128 / 27 |
+| E30 long | 2032 / 506 / 130 / 18 | 2772 / 703 / 163 / 21 | 1912 / 476 / 112 / 16 |
+| E30 short | 2063 / 485 / 119 / 18 | 2701 / 657 / 167 / 19 | 1922 / 483 / 124 / 13 |
+| F28 + | 82951 / 20908 / 4641 / 629 | 113755 / 28625 / 7306 / 1118 | 83787 / 21631 / 5598 / 765 |
+| F28 − | 85447 / 21004 / 5647 / 870 | 109636 / 27216 / 6544 / 987 | 72690 / 17456 / 4504 / 703 |
+| F29 basso | 41887 / 10493 / 2481 / 296 | 55929 / 14008 / 3430 / 446 | 39468 / 9655 / 2424 / 271 |
+| F32 laterale | 63572 / 15650 / 3832 / 463 | 83271 / 20979 / 5108 / 695 | 58993 / 14667 / 3682 / 493 |
+| F33 persistente | 8265 / 759 / 319 / 6 | 7965 / 888 / 572 / 18 | 7348 / 2282 / 438 / 62 |
+| F33 ritorno alla media | 638 / 163 / 14 / **0** | 777 / 84 / 32 / **0** | 669 / 42 / 33 / 3 |
+| F35 regime di tendenza | 57338 / 14315 / 3672 / 514 | 71740 / 17627 / 4643 / 756 | 53936 / 13707 / 3704 / 525 |
+
+F33 ritorno alla media è quasi sempre falso su D1: la stima R/S su 100 barre è distorta verso
+l'alto (su un cammino casuale H medio 0,525, sotto 0,4 nello 0,3% delle barre). Dichiarato nel test.
+
+### 7.4 Cose scoperte nel collaudo
+
+- **PineTS arrotonda a 10 decimali** i risultati di `ta.ema` e di altre funzioni interne. Su
+  EURUSD, dove le differenze di prezzo sono piccole, l'arrotondamento si amplifica (WaveTrend,
+  regime di jdehorty): il codice del progetto resta a precisione piena e il test lo dichiara
+  (WaveTrend confrontato anche con le ema arrotondate; regime confrontato sopra/sotto soglia).
+- **`ta.ema` e `ta.rma` di Pine partono dalla media semplice** delle prime n barre, non dal primo
+  valore come `ewm` di pandas: `_ema_pine` e `_rma_pine` in `engine/indicatori.py`.
+- **Somme mobili rifatte da capo** (VFI, KER): la somma mobile di pandas lascia residui di 1e-16
+  dove la somma vera è zero, e il segno deciderebbe a caso.
+- **Regime di jdehorty:** `klmf` parte da 0 per via di `nz()` e il salto iniziale pesa sulla media
+  a 200 per ~1000 barre dall'inizio dei dati.
+- `test_regime.py` (D4) e `test_vetrina_trigger.py` (14) aggiornati per ammettere la coppia
+  VFI_SIGN e i trigger E28–E30 senza disegno dedicato nella lente del Lab.
+
+**Prove aggiunte: 12** (E28 2, E29 2, E30 2, F28 1, F29_LOW 1, F32_RANGE 1, F33 2, F35 1).
+Riattivando i doppioni: +5 (F29_HIGH, F30, F31, F32_TREND, F34: una per coppia o filtro).

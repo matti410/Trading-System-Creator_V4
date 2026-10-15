@@ -652,6 +652,93 @@ def hurst_rs(close: pd.Series, barre: int = 100, lisciatura: int = 5) -> pd.Seri
     return _ema_pine(h, lisciatura) if int(lisciatura) > 1 else h
 
 
+def _rma_pine(serie: pd.Series, barre: int) -> pd.Series:
+    """
+    Media di Wilder come `ta.rma` di Pine: alpha = 1 / barre, il primo valore
+    e' la media semplice delle prime `barre` barre valide (prima NaN), poi la
+    ricorsione. Stessa partenza di `_ema_pine`, cambia solo alpha.
+    """
+    n = int(barre)
+    v = serie.to_numpy(dtype=float)
+    esito = np.full(len(v), np.nan)
+    valide = np.flatnonzero(np.isfinite(v))
+    if len(valide) >= n:
+        inizio = valide[0] + n - 1
+        semi = v[inizio:].copy()
+        semi[0] = v[valide[0]:inizio + 1].mean()
+        esito[inizio:] = pd.Series(semi).ewm(alpha=1.0 / n, adjust=False).mean().to_numpy()
+    return pd.Series(esito, index=serie.index)
+
+
+def _atr_pine(df: pd.DataFrame, barre: int) -> pd.Series:
+    """`ta.atr` di Pine: rma del true range, con ta.tr(true) (sulla prima barra massimo - minimo)."""
+    chiusura_prima = df["Close"].shift(1)
+    tr = pd.concat([df["High"] - df["Low"], (df["High"] - chiusura_prima).abs(),
+                    (df["Low"] - chiusura_prima).abs()], axis=1).max(axis=1)   # skipna: prima barra H - L
+    return _rma_pine(tr, barre)
+
+
+def filtri_jdehorty(df: pd.DataFrame, atr_breve: int = 1, atr_lungo: int = 10) -> pd.DataFrame:
+    """
+    Le grandezze dei due filtri `filter_volatility` e `regime_filter` della
+    libreria MLExtensions di jdehorty (usati da "Machine Learning: Lorentzian
+    Classification"). Il classificatore e `filter_adx` NON sono tradotti
+    (docs/51 §3 R3: l'ADX e' gia' nel progetto).
+
+    Colonne:
+      jdh_atr_diff  ta.atr(1) - ta.atr(10): sopra zero la volatilita' recente
+                    supera quella storica (filter_volatility: recentAtr >
+                    historicalAtr). ATR di Pine: rma del true range, che parte
+                    dalla media semplice; dalla barra `atr_lungo` - 1.
+      jdh_regime    "normalized_slope_decline" di regime_filter, sul prezzo
+                    ohlc4, riga per riga:
+                      value1 = 0,2 x (src - src prec.) + 0,8 x value1 prec.
+                      value2 = 0,1 x (massimo - minimo) + 0,8 x value2 prec.
+                      omega  = |value1 / value2|
+                      alpha  = (-omega^2 + sqrt(omega^4 + 16 omega^2)) / 8
+                      klmf   = alpha x src + (1 - alpha) x klmf prec.
+                      pend.  = |klmf - klmf prec.|
+                      jdh_regime = (pend. - ema200(pend.)) / ema200(pend.)
+                    con nz() di Pine (il valore precedente mancante vale 0:
+                    klmf parte da zero e sale verso il prezzo) e la ema di
+                    Pine (`_ema_pine`). Dalla barra 201.
+    Usa solo la barra corrente e le precedenti. Le ricorsioni dipendono dal
+    punto di partenza dei dati, con un peso che si dimezza ogni ~70 barre
+    (ema a 200): dopo ~3000 barre la differenza e' sotto 1e-9. Attenzione:
+    il salto iniziale di klmf (da 0 al prezzo, come nello script) entra nella
+    ema a 200 e tiene jdh_regime artificialmente basso per ~1000 barre
+    dall'inizio dei dati (taglio di riscaldamento dei motori: da verificare).
+    Prezzo fermo (ema della pendenza nulla): jdh_regime vale 0 invece di NaN.
+
+    Parametri: i default usati dallo script Lorentzian (1, 10; ema 200 fissa
+    nella libreria), mai provati in varianti.
+
+    Fonte: jdehorty, libreria "MLExtensions" e indicatore "Machine Learning:
+    Lorentzian Classification", TradingView. Licenza: Mozilla Public License
+    2.0 (https://mozilla.org/MPL/2.0/): questa traduzione resta sotto MPL 2.0.
+    """
+    atr_diff = _atr_pine(df, atr_breve) - _atr_pine(df, atr_lungo)
+    src = ((df["Open"] + df["High"] + df["Low"] + df["Close"]) / 4.0).to_numpy(dtype=float)
+    ampiezza = (df["High"] - df["Low"]).to_numpy(dtype=float)
+    n = len(src)
+    klmf = np.full(n, np.nan)
+    v1 = v2 = k = np.nan
+    for i in range(n):
+        v1 = 0.2 * (src[i] - (src[i - 1] if i > 0 else np.nan)) + 0.8 * (0.0 if np.isnan(v1) else v1)
+        v2 = 0.1 * ampiezza[i] + 0.8 * (0.0 if np.isnan(v2) else v2)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            omega = abs(v1 / v2)
+        alpha = (-omega ** 2 + np.sqrt(omega ** 4 + 16 * omega ** 2)) / 8
+        k = alpha * src[i] + (1 - alpha) * (0.0 if np.isnan(k) else k)
+        klmf[i] = k
+    klmf = pd.Series(klmf, index=df.index)
+    pendenza = (klmf - klmf.shift(1)).abs()
+    media = _ema_pine(pendenza, 200)
+    regime = (pendenza - media) / media.where(media > 0)
+    regime = regime.where(~(media == 0), 0.0)
+    return pd.DataFrame({"jdh_atr_diff": atr_diff, "jdh_regime": regime}, index=df.index)
+
+
 def wavetrend(df: pd.DataFrame, canale: int = 10, media: int = 21) -> pd.DataFrame:
     """
     WaveTrend Oscillator di LazyBear: un CCI lisciato sul prezzo tipico.
@@ -696,8 +783,10 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         rsi, macd, macd_signal, macd_hist, ema20, ema50, zlema50,
         atr, realized_vol, adx, vwap,
         ciclo_quota, ciclo_pendenza, atc_regime, pvo_hist, st_dir, iix,
-        chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker, hurst
-        (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10, R2 103)
+        chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker, hurst,
+        jdh_atr_diff, jdh_regime
+        (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
+        R2 103, R3 201)
 
     Le ultime sei vengono da articoli (7-8/10/2026): vedi le funzioni
     ciclo_dominante, canale_adattivo_regime, pvo_istogramma,
@@ -739,6 +828,9 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["sqz_mom"] = squeeze["sqz_mom"]
     df["ker"] = efficienza_kaufman(df["Close"])
     df["hurst"] = hurst_rs(df["Close"])
+    jdh = filtri_jdehorty(df)
+    df["jdh_atr_diff"] = jdh["jdh_atr_diff"]
+    df["jdh_regime"] = jdh["jdh_regime"]
     onda = wavetrend(df)
     df["wt1"] = onda["wt1"]
     df["wt2"] = onda["wt2"]
@@ -751,4 +843,5 @@ COLONNE_INDICATORI = (
     "atr", "realized_vol", "adx", "vwap",
     "ciclo_quota", "ciclo_pendenza", "atc_regime", "pvo_hist", "st_dir", "iix",
     "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2", "ker", "hurst",
+    "jdh_atr_diff", "jdh_regime",
 )

@@ -990,6 +990,44 @@ def filter_hurst_mean_reverting(df: pd.DataFrame, soglia: float = 0.4) -> pd.Ser
     return df["hurst"] < soglia
 
 
+# --- F34, F35: i filtri di jdehorty (docs/51, R3) -------------------------
+# Neutri, a se'. Il classificatore Lorentzian e filter_adx non sono tradotti.
+
+def filter_jdh_volatility(df: pd.DataFrame) -> pd.Series:
+    """
+    SPENTO nel dizionario FILTRI: doppione di F3_VOLUME_ABOVE_AVG e F6
+    (docs/50 §7.5, controllo del 15/10/2026).
+
+    Volatilita' in espansione (filter_volatility di jdehorty): ATR a 1 barra
+    (il true range della barra) sopra l'ATR a 10 barre (colonna
+    `jdh_atr_diff` > 0). Neutro. Cambia stato quasi a ogni barra: e' il
+    filtro dello script, senza lisciature aggiunte. Riscaldamento: 10 barre.
+
+    Fonte: jdehorty, libreria "MLExtensions" (usata da "Machine Learning:
+    Lorentzian Classification"), TradingView, licenza MPL 2.0; vedi
+    engine.indicatori.filtri_jdehorty. Regola: docs/51 §3, R3; default dello
+    script Lorentzian.
+    """
+    return df["jdh_atr_diff"] > 0
+
+
+def filter_jdh_regime_trend(df: pd.DataFrame, soglia: float = -0.1) -> pd.Series:
+    """
+    Regime di tendenza (regime_filter di jdehorty): la pendenza della curva
+    lisciata `klmf` non e' scesa piu' del 10% sotto la sua media a 200 barre
+    (colonna `jdh_regime` >= -0,1). Falso quando il movimento si sta
+    spegnendo rispetto al recente. Neutro. Riscaldamento: 201 barre; la
+    media a 200 rende il valore dipendente dal punto di partenza per qualche
+    migliaio di barre (vedi filtri_jdehorty).
+
+    Fonte: jdehorty, libreria "MLExtensions" (usata da "Machine Learning:
+    Lorentzian Classification"), TradingView, licenza MPL 2.0; vedi
+    engine.indicatori.filtri_jdehorty. Regola: docs/51 §3, R3; default dello
+    script Lorentzian.
+    """
+    return df["jdh_regime"] >= soglia
+
+
 # --- F30: segno del momentum dello Squeeze (docs/51, M1) -----------------
 
 def filter_sqz_mom_positive(df: pd.DataFrame) -> pd.Series:
@@ -1081,6 +1119,10 @@ FILTRI = {
     "F29_RVOL_LOW":              (filter_rvol_low, 0, None),
     "F33_HURST_PERSISTENT":      (filter_hurst_persistent, 0, None),
     "F33_HURST_MEAN_REVERTING":  (filter_hurst_mean_reverting, 0, None),
+    #   F34: SPENTO, doppione (75% dentro F3_VOLUME_ABOVE_AVG = 1,64 volte il caso,
+    #   72% dentro F6 = 1,53 volte; regola di docs/50 §7.5 del 15/10/2026)
+    # "F34_JDH_VOLATILITY":        (filter_jdh_volatility, 0, None),
+    "F35_JDH_REGIME_TREND":      (filter_jdh_regime_trend, 0, None),
     # Doppioni SPENTI (regola di docs/50 §7.5 alla lettera, decisione di Mattia
     # del 15/10/2026): contenuti al 70% o piu' in filtri gia' presenti, su
     # EURUSD in-sample. Togli il "#" solo se Mattia lo decide (1 prova a coppia).
