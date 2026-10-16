@@ -341,3 +341,76 @@ Lettura in sola lettura (`account_info`, `symbol_info`), terminale già aperto, 
 - Giri completi senza errori: Lab su DE40 e BTCUSD, notebook di ricerca su DE40. Su DE40 il lotto minimo di 0,1 fa saltare dei trade alle percentuali più basse, contati nelle tabelle.
 
 **Difetto preesistente trovato, non corretto (fuori da questo lavoro):** con lo stop a 0 la scheda strategia (schermata 6) si ferma: la colonna `SL` dei trade contiene `None` e `engine/giudizio.py` (EV in R multipli) non la gestisce. Succede anche su `main`. Lo stop di calcolo (strada A) è collaudato direttamente sull'adattatore. Da correggere in un ramo a parte, se Mattia lo decide.
+
+---
+
+## 13 · Proposta per la fase 2 (16/10/2026) — da approvare
+
+**Stato:** PROPOSTA. Nessun codice. Tre pezzi, ciascuno da approvare a parte. Come per la fase 1: decisione di Mattia, poi codice, collaudo e identità dei due notebook.
+
+### 13.1 · La tabella di controllo in percentuale (libro, cap. 7, «piano di lavoro»)
+
+**Cosa è.** Con la percentuale già scelta nella sezione 7, il Monte Carlo sull'in-sample dice che drawdown aspettarsi dopo **3, 6 e 12 mesi** di trade. I trade sono contati con la frequenza in-sample, come già si fa per l'orizzonte della regola. Per ogni periodo dà:
+- drawdown tipico (mediana);
+- drawdown "da allarme" (95° percentile);
+- drawdown "da fermarsi" (99° percentile);
+- rendimento tipico e rendimento sfortunato (5° percentile);
+- probabilità di essere in perdita.
+
+**Perché.** L'autore insiste che il drawdown accettabile non è lo stesso nel primo anno e dopo sei anni: chi accetta "il 50% in sei anni" e lo subisce in sei mesi dovrebbe già fermarsi (p. 142–143). Il suo esempio di p. 153–155 è proprio questo: il drawdown del secondo anno (45,9%) era appena sotto il limite calcolato per quel periodo (46,1%), quindi si continua. Lo stress test ha già una tabella così, ma **in pips e a lotti fissi**; con il rischio in percentuale il drawdown va letto in percentuale del conto.
+
+**Cosa vedi.** Una tabella in più nella sezione 7, sotto il grafico del conto. In più, una riga che dice **dove cade l'out-of-sample**: il suo drawdown massimo, confrontato con la riga del periodo più vicino alla sua durata, e in che percentile cade.
+
+**Vantaggio.** Dal vivo sai in anticipo quando un drawdown smette di essere "normale" per la percentuale che usi, senza decidere sotto stress.
+
+**Una scelta tecnica.** L'autore calcola media e deviazione standard dei logaritmi del drawdown (distribuzione log-normale, p. 144) e usa "media ± 2 deviazioni". Propongo i **percentili** veri delle simulazioni, come fa già lo stress test: un solo modo nel tool, e nessuna ipotesi sulla forma della distribuzione. Se preferisci, la versione log-normale si aggiunge come colonna di confronto.
+
+### 13.2 · Avviso sulle perdite a grappoli (z-score, cap. 5.7)
+
+**Cosa è.** Un numero calcolato sulla sequenza in-sample dei trade (vincente / perdente) che misura se i risultati tendono ad alternarsi o ad arrivare in serie (formula di p. 110; esempio del libro: 0,2364 su 964 trade).
+
+**Perché.** Non per scegliere i trade: l'autore stesso non ci crede per quell'uso (p. 250). Serve a un'altra cosa: tutti i Monte Carlo del tool rimescolano i trade come se fossero indipendenti. Con z sotto −1,96 le perdite arrivano a grappoli più del caso, quindi i drawdown simulati sono **ottimisti**: è un avviso da dare.
+
+**Cosa vedi.** Una riga nella tabella "Il rischio dei tuoi trade", per esempio: "z-score −2,4: perdite a grappoli, il drawdown reale può essere peggiore di quello simulato". Sotto i 300 trade il numero si mostra, ma con la nota "poco affidabile" (p. 112).
+
+**Vantaggio.** Sai quando fidarti meno delle tabelle del Monte Carlo, comprese quelle dello stress test.
+
+### 13.3 · Stress test e money management insieme (decisioni 2 e 8)
+
+Oggi ci sono due risposte diverse a "quanti lotti". Lo stress test dà **lotti fissi**, tali che il drawdown sfortunato resti sotto una cifra in dollari, su tutto lo storico. La sezione 7 dà **lotti che cambiano a ogni trade** con la percentuale scelta. Tre strade:
+
+| | come | pro | contro |
+|---|---|---|---|
+| **C1** | lo stress test **prende i numeri della sezione 7**: drawdown in dollari = capitale × drawdown % accettato. Se la sezione 7 non è stata eseguita, usa il suo campo come oggi | un solo posto dove scrivi capitale e drawdown; nessun numero dello stress test cambia a parità di input; modifica piccola | restano due modi di dimensionare, ma con gli stessi input e spiegati uno accanto all'altro |
+| **C2** | i "lotti consigliati" dello stress test spariscono e si rimanda alla sezione 7; restano Monte Carlo e tabella di controllo in pips | una sola risposta a "quanti lotti" | cambia una schermata che conosci; si perde il confronto a lotti fissi, utile a chi non vuole l'interesse composto |
+| **C3** | resta tutto separato, si migliora solo la spiegazione | nessun rischio | i due campi di input possono contraddirsi |
+
+**Consiglio C1.** In più, nello stress test il valore del pip con 1 lotto oggi usa il prezzo dell'ultima barra (§3.4). Con C1 resta così, scritto nella nota; allinearlo al prezzo trade per trade cambierebbe i numeri dello stress test, quindi lo propongo solo se lo chiedi.
+
+Nel notebook di ricerca la stessa cosa: in Sessione 6, `DD_ACCETTABILE_USD = CAPITALE_INIZIALE_USD × DRAWDOWN_MAX_PCT / 100` se la Sessione 5 è stata eseguita.
+
+### 13.4 · Collaudo previsto
+
+- **z-score:** l'esempio del libro (N 964, serie 486, vincenti 473, perdenti 491 → 0,2364); casi costruiti a mano (alternanza perfetta → z molto positivo; due blocchi → z molto negativo).
+- **Tabella di controllo:** i percentili coincidono con quelli di `montecarlo_mm` alla stessa lunghezza e con lo stesso seme; la riga dell'out-of-sample cade nel percentile giusto con un caso costruito.
+- **Stress test (C1):** a parità di input numeri identici a oggi; con la sezione 7 eseguita, drawdown in dollari = capitale × percentuale e lotti di conseguenza; senza la sezione 7, identico a oggi.
+- **Notebook:** identità prima/dopo su EURUSD di tutte le celle esistenti. Con C1 lo stress test cambia solo se cambia il drawdown in dollari che riceve (domanda 4): la prova di identità si fa passandogli lo stesso valore di prima. Giro completo su DE40.
+- Tutte le suite prima del commit.
+
+### 13.5 · Domande per Mattia
+
+1. **Tabella di controllo:** OK ai periodi 3, 6, 12 mesi e ai percentili 50 / 95 / 99? Solo percentili, o anche la colonna log-normale dell'autore?
+2. **z-score:** OK alla sola riga di avviso, con la soglia ±1,96 e la nota sotto i 300 trade?
+3. **Stress test:** C1 (consigliata), C2 o C3?
+4. **Con C1, i valori predefiniti cambiano.** Oggi lo stress test parte da 10.000 $ di drawdown accettato; dalla sezione 7 con 10.000 $ di capitale e il 20% verrebbero 2.000 $, quindi lotti consigliati 5 volte più bassi. Va bene che il valore predefinito diventi questo, o preferisci tenere lo stress test con il suo campo e usare la sezione 7 solo se la compili?
+5. **Ordine:** facciamo i tre pezzi insieme o uno alla volta (consiglio: 13.2 e 13.1 insieme, poi 13.3)?
+
+### 13.6 · Decisioni di Mattia (16/10/2026)
+
+1. Tabella di controllo: periodi 3, 6, 12 mesi; percentili 50 / 95 / 99; solo percentili (niente colonna log-normale).
+2. z-score: sì, solo come riga di avviso (soglia ±1,96, nota sotto i 300 trade).
+3. Stress test: **C1**.
+4. Con C1 il drawdown in dollari dello stress test viene dalla sezione 7 (capitale × drawdown %, es. 10.000 $ × 20% = 2.000 $); senza la sezione 7 lo stress test usa il suo campo come oggi.
+5. Ordine: prima 13.1 e 13.2 insieme, poi 13.3.
+
+Domanda di Mattia sull'accensione/spegnimento delle strategie: nel libro ci sono il filtro sulla curva dei profitti (cap. 5.6, media di 30 trade sulla curva teorica a 1 contratto; freno di emergenza, non miglioramento), il piano di lavoro (cap. 7, abbandono oltre il drawdown previsto per il periodo, campanello anche per profitti troppo alti, p. 251), la pausa naturale del modello a volatilità (cap. 4.5) e la sospensione dopo una perdita con z-score molto negativo (cap. 5.7, che l'autore stesso non usa). Il filtro sulla curva resta nella fase 3: se scelto, va deciso prima di guardare i risultati.
