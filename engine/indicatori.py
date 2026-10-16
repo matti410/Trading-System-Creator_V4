@@ -995,6 +995,32 @@ def al_periodo_chiuso(pid: np.ndarray, valori, indice) -> pd.Series:
     return pd.Series(esito, index=indice)
 
 
+def atr_giornaliero_chiuso(df: pd.DataFrame, giorni: int = 5) -> pd.Series:
+    """
+    ATR giornaliero per il modello a volatilita' del money management
+    (16/10/2026, docs/61 §14; Unger, cap. 4.5, p. 81-84): media SEMPLICE del
+    true range delle ultime `giorni` giornate FX chiuse (come nel libro; non
+    la media di Wilder di TA-Lib).
+
+        true range = max(massimo, chiusura del giorno prima)
+                     - min(minimo, chiusura del giorno prima)
+        (il primo giorno dei dati: massimo - minimo)
+
+    Giornate FX e candele di `barre_superiori` (17:00 New York, senza le barre
+    in quarantena); su ogni barra M15 il valore dell'ultima giornata chiusa
+    (`al_periodo_chiuso`): la giornata in corso non entra mai.
+
+    Non e' in aggiungi_indicatori: le colonne del catalogo non cambiano. Lo
+    chiama engine/mm_adattatore.py. In unita' di prezzo.
+    """
+    g, pid = barre_superiori(df, "D")
+    prima = g["Close"].shift(1)
+    tr = (np.maximum(g["High"], prima) - np.minimum(g["Low"], prima)).where(prima.notna(),
+                                                                           g["High"] - g["Low"])
+    atr = tr.rolling(int(giorni), min_periods=int(giorni)).mean()
+    return al_periodo_chiuso(pid, atr.to_numpy(), df.index)
+
+
 def _apertura_periodo_in_corso(df: pd.DataFrame, regola: str) -> pd.Series:
     """
     Apertura del periodo IN CORSO nota alla barra: l'Open della prima barra

@@ -428,3 +428,101 @@ Domanda di Mattia sull'accensione/spegnimento delle strategie: nel libro ci sono
   - tutte le 20 suite RISULTATO n/n;
   - EURUSD contro `main`: nel Lab cambiano solo la sezione 7 e lo stress test (drawdown 2.000 $ invece di 10.000 $, lotti consigliati 0,03 invece di 0,17); nel notebook di ricerca cambiano solo la Sessione 5 e la cella dei lotti della Sessione 6 (più la riga con la cartella del progetto);
   - giri completi su DE40 per i due notebook.
+
+---
+
+## 14 · Proposta per la fase 3 (16/10/2026) — da approvare
+
+**Stato:** PROPOSTA. Nessun codice. Scelta di Mattia: due alternative, il filtro sulla curva dei profitti e il modello a volatilità. Le scelgo e le descrivo qui **prima** di guardare qualunque risultato.
+
+### 14.1 · Il filtro sulla curva dei profitti (cap. 5.6, p. 103–110; p. 248 e 250)
+
+**La regola del libro, tradotta per il tool:**
+- si segue la **curva teorica a 1 lotto** del sistema: la somma dei pips netti di **tutti** i trade che il sistema fa seguendo le sue regole;
+- prima di ogni trade si guarda il valore della curva dopo l'ultimo trade chiuso. Se è **sotto la media dei suoi ultimi 30 valori**, il trade non si fa con i soldi (0 lotti, contato come "saltato dal filtro"); se è uguale o sopra, si fa normalmente;
+- anche i trade saltati entrano nella curva teorica: è così che il filtro si accorge della ripresa e riaccende il sistema (p. 250: la curva si calcola sui trade teorici, non su quelli fatti);
+- media di **30 trade**, il valore del libro, fissato adesso e senza varianti. La variante "rottura del minimo di 30 trade" non si prova.
+
+**Nessun lookahead:** il trade k guarda solo trade chiusi prima del suo ingresso (una posizione alla volta). Nell'out-of-sample la curva **continua** dall'in-sample: i primi trade out-of-sample usano gli ultimi trade in-sample, che sono già passato.
+
+**Il punto delicato: il Monte Carlo non vede il vantaggio del filtro.** Il filtro funziona solo se le perdite arrivano a periodi: spegne il sistema in un periodo cattivo e lo riaccende in uno buono. Il Monte Carlo del tool rimescola i trade uno per uno, quindi i periodi spariscono: nelle storie simulate il filtro salterebbe trade quasi a caso e sembrerebbe solo un costo. Per questo propongo:
+- la **scelta della percentuale resta senza filtro** (come oggi);
+- il filtro si mostra sulle **storie vere**, in-sample e out-of-sample, con la stessa percentuale: una colonna "con filtro" accanto a "senza filtro" (capitale finale, drawdown massimo, trade saltati dal filtro) e una linea in più nel grafico del conto;
+- lo z-score della fase 2 aiuta a leggerlo: con z molto negativo (perdite a grappoli) il filtro ha più materia su cui lavorare.
+
+**Cosa vedi:** nella sezione 7, una tabella "con e senza filtro" e una linea nel grafico.
+
+**Vantaggio:** è il "freno di emergenza" dell'autore: se il sistema smette di funzionare, il filtro lo spegne prima che consumi i profitti; quando la curva teorica riparte, lo riaccende. Senza decidere niente a caldo.
+
+**Avvertenze del libro:** su sistemi già molto filtrati di solito peggiora lo storico (p. 109–110); serve soprattutto come protezione, non per guadagnare di più.
+
+### 14.2 · Il modello a volatilità (cap. 4.5, p. 81–91; cap. 8 e 10)
+
+**La regola del libro:** lotti = capitale × percentuale ÷ (ATR × valore di 1 punto per 1 lotto). L'ATR è la media delle escursioni giornaliere (true range) degli ultimi giorni. Il trade è dimensionato su **quanto si muove il mercato**, non su dove sta lo stop. Quando la volatilità è troppo alta per il capitale i lotti scendono sotto il minimo e il sistema si ferma da solo, finché la volatilità non cala (p. 84).
+
+**La traduzione per il tool:**
+- **ATR giornaliero:** media semplice del true range delle ultime **5 giornate FX chiuse** (le stesse candele giornaliere del filtro F39, che partono alle 17:00 di New York, senza le barre in quarantena). Il libro indica 5 giorni per sistemi con posizioni brevi e 20 per quelli lunghi (p. 82); i nostri trade durano poche ore, quindi 5. Media semplice come nel libro, non quella di Wilder (TA-Lib).
+- noto **prima** dell'ingresso: la giornata in corso non entra mai.
+- nel modulo puro **non cambia niente**: la colonna del rischio contiene l'ATR invece della distanza dallo stop, e tutte le funzioni (lotti, storia vera, Monte Carlo, scelta della percentuale, tabella di controllo) restano le stesse. Cambia solo l'adattatore.
+- la percentuale si sceglie con la stessa regola del drawdown, sull'in-sample.
+
+**Come mostrarlo — due strade:**
+
+| | come | pro | contro |
+|---|---|---|---|
+| **V1** | un selettore nella cella della sezione 7: modello "rischio fisso" (predefinito) o "volatilità"; tutta la sezione usa il modello scelto | semplice, nessuna tabella in più | per confrontarli bisogna eseguire la cella due volte, e la seconda volta si è già visto l'out-of-sample del primo |
+| **V2** | la sezione 7 calcola **i due modelli sull'in-sample** e mostra un piccolo confronto (percentuale scelta, drawdown e rendimento tipici, trade saltati); poi il selettore decide quale modello va avanti per out-of-sample, tabella di controllo e stress test | il confronto si fa solo sull'in-sample, prima di vedere l'out-of-sample: è il modo corretto di scegliere | mezzo minuto in più e una tabella in più |
+
+**Consiglio V2.** Scegliere un modello guardando il confronto in-sample conta come **una prova in più**: lo annoto nel documento.
+
+**Vantaggio:** nei test del libro, a parità di rendimento il modello a volatilità ha un drawdown più basso del rischio fisso (fig. 4.26, p. 88; portafoglio p. 178–179). È un'informazione sulla fonte, non una promessa per i nostri dati. Con lo stop spento è anche la misura del rischio più naturale.
+
+**Per il live:** ogni mattina si legge l'ATR a 5 giornate e si calcola: lotti = capitale × percentuale ÷ (ATR in pips × valore di 1 pip).
+
+### 14.3 · Come convivono
+
+- Il filtro vale con tutti e due i modelli: decide **se** fare il trade, il modello decide **quanto**.
+- Lo stress test non cambia: prende capitale e drawdown dalla sezione 7, qualunque modello si usi.
+- I notebook: nella cella della sezione 7 del Lab compaiono i due campi nuovi (modello, filtro sì/no); nel notebook di ricerca le due variabili corrispondenti nella Sessione 5. La funzione resta una sola.
+
+### 14.4 · Collaudo previsto
+
+- **Modello a volatilità, esempi del libro:**
+  - p. 82–83: 100.000 al 2% con ATR 1.500 per contratto → 1 contratto;
+  - p. 221 (Mediaset): 100.000 allo 0,5% con ATR 0,1230 → 4.065 azioni;
+  - p. 240–241 (DAX): 100.000 allo 0,5% con ATR di 53,6 punti × 25 → 0 contratti; con 500.000 → 1.
+- **ATR giornaliero:** confronto con una riscrittura indipendente giornata per giornata; troncamento (la giornata in corso non entra); barre in quarantena escluse.
+- **Filtro:** casi costruiti a mano (curva che scende sotto la media → trade saltati; risale → riaccensione; i trade saltati entrano nella curva teorica); troncamento; continuità dall'in-sample all'out-of-sample; con il filtro spento tutto identico alla fase 2.
+- **Identità:** con modello "rischio fisso" e filtro spento, i due notebook danno gli stessi numeri di oggi. Giro completo su DE40 con il modello a volatilità e il filtro acceso.
+
+### 14.5 · Domande per Mattia
+
+1. **Filtro:** OK a mostrarlo sulle storie vere (in-sample e out-of-sample) con la percentuale scelta senza filtro, perché il Monte Carlo non può valutarlo?
+2. **Filtro, i primi 30 trade:** finché la media non esiste si opera normalmente (consigliato), oppure si resta fermi?
+3. **Filtro, valore predefinito nella cella:** acceso o spento? Consiglio **spento**: lo accendi tu se lo vuoi usare dal vivo, deciso prima di guardare l'out-of-sample.
+4. **Modello a volatilità:** OK all'ATR giornaliero a 5 giornate FX chiuse, media semplice?
+5. **V1 o V2?** Consiglio V2.
+6. **Ordine:** prima il modello a volatilità (tocca solo l'adattatore) e poi il filtro, o insieme? Consiglio prima la volatilità.
+
+### 14.6 · Decisioni di Mattia (16/10/2026)
+
+- **Interruttore sulla curva dei profitti: non si fa per ora.** Nel backtest sarebbe semplice; dal vivo richiede i "trade ombra" (seguire anche i trade non eseguiti per tenere la curva teorica), memoria su disco e ricostruzione dopo un fermo del bot. Scelta di semplificare. Resta riapribile. (Nota di lessico: nei §14.1 e §14.3 "filtro" va letto "interruttore". Non è un filtro di ingresso del setup: i filtri della schermata 5 fanno già parte dei trade su cui lavora il money management.)
+- **Fase 3 = solo il modello a volatilità**, con:
+  1. ATR giornaliero a 5 giornate FX chiuse, media semplice (sì);
+  2. **V2**: la sezione 7 calcola i due modelli sull'in-sample e li confronta, poi il selettore decide quale va avanti;
+  3. **modello predefinito nella cella: volatilità**.
+- Scegliere il modello guardando il confronto in-sample conta come **una prova in più** (annotata qui; il conteggio delle prove del catalogo in docs/50 §10 riguarda le condizioni e non cambia).
+
+### 14.7 · Fase 3: cosa è stato fatto (16/10/2026)
+
+- `engine/indicatori.py`: `atr_giornaliero_chiuso(df, giorni=5)`, media semplice del true range delle ultime 5 giornate FX chiuse (candele di `barre_superiori`, senza quarantena; lettura con `al_periodo_chiuso`). Non è in `aggiungi_indicatori`: le colonne del catalogo non cambiano.
+- `engine/mm_adattatore.py`: `misura="volatilita"`, dove il rischio è l'ATR alla barra del segnale, in pips, senza costi. L'ATR si può passare già calcolato sullo storico completo, così l'out-of-sample non riparte da zero. Colonna nuova `atr_pips`.
+- `engine/money_management.py`: invariato.
+- `engine/vetrina.py`: la sezione 7 calibra i due modelli sull'in-sample e mostra la tabella "I due modelli a confronto"; il parametro `modello` (predefinito "volatilità") decide quale va avanti. Nel Lab c'è il selettore nella cella 7; nel notebook di ricerca `MODELLO_MM` in Sessione 5 (con `storia=df`).
+- **Collaudo:**
+  - `test_money_management.py` 67/67: esempi del libro SPMIB p. 82–83, Mediaset p. 221, DAX p. 240–241; ATR contro una riscrittura indipendente; troncamento; quarantena; storico completo;
+  - `test_vetrina.py` 66/66;
+  - tutte le 20 suite RISULTATO n/n.
+- **Notebook:**
+  - Lab EURUSD con "rischio fisso" contro `main`: numeri identici, si aggiungono solo il confronto e i nomi delle tabelle; stress test identico;
+  - giri completi con "volatilità" su EURUSD e DE40 per i due notebook.

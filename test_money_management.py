@@ -389,6 +389,75 @@ def esegui() -> int:
           abs(mm.percentile_drawdown(t_noz, 10_000, 0.01, 100, q90, n_sim=2_000, limiti=lim_on) - 90) < 0.1
           and mm.percentile_drawdown(t_noz, 10_000, 0.01, 100, 1e9, n_sim=500, limiti=lim_on) == 100.0)
 
+    # ----------------------------------------------------------- fase 3 --
+    print("\nL · Fase 3: modello a volatilita' (docs/61 §14)")
+    from engine.indicatori import atr_giornaliero_chiuso
+    from engine.livelli import quarantena_cached
+    check("53. p. 82-83: 100.000 al 2 % con ATR di 300 punti x 5 (1.500 per contratto) -> 1 contratto",
+          mm.lotti_rischio_fisso(100_000, 0.02, 300, 5, contratti)[0] == 1)
+    check("54. Mediaset (p. 221): 100.000 allo 0,5 % con ATR 0,1230 -> 4.065 azioni",
+          mm.lotti_rischio_fisso(100_000, 0.005, 0.1230, 1, {"passo": 1})[0] == 4065)
+    check("55. DAX (p. 240-241): ATR 53,6 punti x 25 allo 0,5 % -> 0 contratti con 100.000, 1 con 500.000",
+          mm.lotti_rischio_fisso(100_000, 0.005, 53.6, 25, contratti) == (0.0, mm.SALTATO_MINIMO)
+          and mm.lotti_rischio_fisso(500_000, 0.005, 53.6, 25, contratti) == (1.0, mm.OK))
+
+    atr = atr_giornaliero_chiuso(eur)
+    # riscrittura indipendente: giornata FX = data di (ora di New York + 7 ore), barre in quarantena escluse
+    ny = pd.DatetimeIndex(eur.index).tz_convert("America/New_York").tz_localize(None) + pd.Timedelta(hours=7)
+    giorno = pd.Series(ny.normalize(), index=eur.index)
+    utile = ~quarantena_cached(eur)["totale"].reindex(eur.index).fillna(False).to_numpy(dtype=bool)
+    ok_b = eur[utile]
+    g = ok_b.groupby(giorno[utile]).agg(H=("High", "max"), L=("Low", "min"), C=("Close", "last"))
+    tutti = pd.Index(giorno.unique())
+    g = g.reindex(tutti)
+    pc = g["C"].shift(1)
+    tr = pd.concat([g["H"], pc], axis=1).max(axis=1, skipna=False) - pd.concat([g["L"], pc], axis=1).min(axis=1, skipna=False)
+    tr = tr.where(pc.notna(), g["H"] - g["L"])
+    atr_g = tr.rolling(5, min_periods=5).mean()
+    prec = pd.Series(atr_g.to_numpy(), index=tutti).shift(1)          # la giornata chiusa prima
+    atr_rif = prec.reindex(giorno.to_numpy()).to_numpy()
+    check("56. ATR giornaliero: identico a una riscrittura indipendente giornata per giornata (EURUSD 2024)",
+          np.allclose(atr.to_numpy(), atr_rif, equal_nan=True) and np.isfinite(atr.to_numpy()[2000:]).all(),
+          f"ATR mediano {np.nanmedian(atr) / 0.0001:.1f} pips")
+    ok = True
+    for k in (1000, 5017, 12345, len(eur) - 7):
+        ok &= np.allclose(atr_giornaliero_chiuso(eur.iloc[:k]).to_numpy(), atr.to_numpy()[:k], equal_nan=True)
+    check("57. ATR giornaliero: troncamento a meta' giornata -> stessi valori (la giornata in corso non entra)", ok)
+    sporco = eur.copy()
+    q = quarantena_cached(eur)["totale"].reindex(eur.index).fillna(False).to_numpy(dtype=bool)
+    sporco.loc[q, "High"] = sporco.loc[q, "High"] * 1.05
+    check("58. ATR giornaliero: barre in quarantena falsate -> nessun effetto",
+          np.allclose(atr_giornaliero_chiuso(sporco).to_numpy(), atr.to_numpy(), equal_nan=True)
+          and q.any())
+    tb_v = tabella_trade(finti, eur, "EURUSD", pip_symbol("EURUSD"), spread_pips=0.8, perc_sl=90,
+                         misura="volatilita")
+    check("59. adattatore, misura volatilita': rischio = ATR alla barra del segnale in pips, senza costi",
+          np.allclose(tb_v["rischio_pips"], atr.to_numpy()[ingressi - 1] / 0.0001)
+          and np.allclose(tb_v["atr_pips"], tb_v["rischio_pips"])
+          and np.allclose(tb_v["pips_netti"], tb["pips_netti"] if len(tb) == len(tb_v) else tb_v["pips_netti"]))
+    coda = eur.iloc[len(eur) // 2:]
+    pos2 = np.array([40, 150, 900, 2500])               # due trade nei primi giorni del periodo
+    ep2 = coda["Open"].to_numpy()[pos2]
+    ft2 = pd.DataFrame({"Size": [1, -1, 1, -1], "EntryBar": pos2, "ExitBar": pos2 + 8,
+                        "EntryPrice": ep2, "ExitPrice": coda["Close"].to_numpy()[pos2 + 8],
+                        "SL": ep2 * (1 - np.array([1, -1, 1, -1]) * 0.004),
+                        "EntryTime": coda.index[pos2], "ExitTime": coda.index[pos2 + 8]})
+    senza = tabella_trade(ft2, coda, "EURUSD", pip_symbol("EURUSD"), perc_sl=90, misura="volatilita")
+    con = tabella_trade(ft2, coda, "EURUSD", pip_symbol("EURUSD"), perc_sl=90, misura="volatilita",
+                        atr=atr_giornaliero_chiuso(eur))
+    check("60. con lo storico completo l'ATR non riparte da zero (trade presto nel periodo misurati); "
+          "dove entrambi esistono i valori coincidono",
+          np.isfinite(con["rischio_pips"]).all() and np.isnan(senza["rischio_pips"].iloc[:2]).all()
+          and np.isfinite(senza["rischio_pips"].iloc[2:]).all()
+          and np.allclose(con["rischio_pips"][np.isfinite(senza["rischio_pips"])],
+                          senza["rischio_pips"][np.isfinite(senza["rischio_pips"])]))
+    try:
+        tabella_trade(finti, eur, "EURUSD", pip_symbol("EURUSD"), misura="altro")
+        fermo = False
+    except ValueError:
+        fermo = True
+    check("61. misura sconosciuta -> errore", fermo)
+
     ok, tot = sum(ESITI), len(ESITI)
     print("\n" + "=" * 70)
     print(f"RISULTATO: {ok}/{tot} test superati  (pandas {pd.__version__})")
