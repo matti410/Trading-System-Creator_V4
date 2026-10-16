@@ -1,13 +1,13 @@
 """
-Vetrina · verifica dei trade (7/10/2026) — schermata 7 del notebook slim.
+Vetrina · verifica dei trade (7/10/2026) — schermata 8 del notebook slim (era la 7 fino al 16/10/2026).
 
 A COSA SERVE
 ------------
 Dopo la scheda della strategia, prima dello stress test: controllare che il
 backtest abbia fatto quello che le regole dicono. Due funzioni.
 
-    verifica_trade(s)     7a · controllo automatico su TUTTI i trade
-    lente(s, numero=...)  7b · un trade sul grafico a candele (dal 9/10/2026
+    verifica_trade(s)     8a · controllo automatico su TUTTI i trade
+    lente(s, numero=...)  8b · un trade sul grafico a candele (dal 9/10/2026
                           disegna anche la regola dei trigger scattati:
                           engine/vetrina_trigger.py)
 
@@ -220,7 +220,7 @@ def registro_trade(s, periodo: str = "out-of-sample") -> pd.DataFrame:
 
 
 # ========================================================================
-# 7a · Il controllo automatico
+# 8a · Il controllo automatico
 # ========================================================================
 
 REGOLE = (
@@ -330,7 +330,7 @@ def controlla_periodo(s, periodo: str) -> dict:
 
 def verifica_trade(s) -> dict:
     """
-    Schermata 7a. Controlla tutti i trade della strategia scelta, in-sample e
+    Schermata 8a. Controlla tutti i trade della strategia scelta, in-sample e
     out-of-sample, contro le condizioni ricalcolate dal registro. Mostra le
     regole (rispettata in X trade su N), come si sono chiusi i trade e dove
     sono finiti i segnali non tradati.
@@ -388,13 +388,13 @@ def verifica_trade(s) -> dict:
         "Ogni riga della prima tabella deve dire OK: vuol dire che il backtest è entrato esattamente dove le tue regole "
         "dicono di entrare, una barra dopo il segnale, mai prima. È normale che molti segnali non diventino trade: "
         "si tiene una posizione alla volta, e un filtro serve proprio a scartarne una parte.",
-        ("Tutto torna. Apri la lente qui sotto per vedere un trade sul grafico, poi vai alla schermata 8." if tutto_ok
+        ("Tutto torna. Apri la lente qui sotto per vedere un trade sul grafico, poi vai alla schermata 9." if tutto_ok
          else "Qualcosa non torna: apri con la lente i trade indicati nella colonna «Trade da guardare»."))
     return {"regole": regole, "uscite": uscite, "segnali": segn, "da_guardare": da_guardare}
 
 
 # ========================================================================
-# 7b · La lente sul trade
+# 8b · La lente sul trade
 # ========================================================================
 
 def indicatori_disponibili(s) -> list[str]:
@@ -444,7 +444,7 @@ def _scegli_trade(registro: pd.DataFrame, numero, data) -> int:
 def lente(s, periodo: str = "out-of-sample", numero=None, data=None, indicatori="",
           barre_prima: int = 40, barre_dopo: int = 20, mostra_trigger: bool = True):
     """
-    Schermata 7b. Un trade sul grafico a candele, con segnale, ingresso,
+    Schermata 8b. Un trade sul grafico a candele, con segnale, ingresso,
     uscita, stop e gli indicatori scelti.
 
     periodo      «in-sample» oppure «out-of-sample»
@@ -639,5 +639,5 @@ def lente(s, periodo: str = "out-of-sample", numero=None, data=None, indicatori=
         "guarda che si incrocino sulla candela del triangolo. L'ingresso deve essere sempre una candela dopo, mai "
         "sulla stessa: è la garanzia che il backtest non usa informazioni che dal vivo non avresti.",
         "Cambia numero o data per guardare altri trade, o lascia il numero a 0 per pescarne uno a caso. "
-        "Puoi confrontare orari e prezzi con il grafico M15 di IC Markets su TradingView. Poi vai alla schermata 8.")
+        "Puoi confrontare orari e prezzi con il grafico M15 di IC Markets su TradingView. Poi vai alla schermata 9.")
     return fig

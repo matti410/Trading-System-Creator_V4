@@ -1,7 +1,7 @@
 # 61 · Proposta: money management nel Trading System Lab
 
 **Data:** 16 ottobre 2026
-**Stato:** APPROVATA da Mattia il 16/10/2026 (decisioni in §10). Fase 0 in corso; la fase 1 parte solo dopo un nuovo OK.
+**Stato:** APPROVATA da Mattia il 16/10/2026 (decisioni in §10). Fase 0 chiusa (§11). Fase 1 consegnata sul ramo `studio-money-management` (§12), in attesa del controllo di Mattia. Fasi 2 e 3 da decidere.
 **Incarico:** `docs/60_MONEY_MANAGEMENT.md`, punto 2.
 **Fonte:** Andrea Unger, *The Successful Trader's Guide to Money Management*, Wiley 2021 (PDF in `dati/libri/`, 313 pagine, letto per intero: 12 capitoli, 4 appendici, indice). Le pagine citate sono quelle del libro stampato.
 **Letti nel repo:** `CLAUDE.md`, `docs/00`, `docs/02`, `docs/50`, `docs/60`, `Trading_System_Lab.ipynb`, `Trading_Grid_Search_v4_backtesting.ipynb` (sessioni 4 e 5), `engine/vetrina.py`, `engine/montecarlo.py`, `engine/metriche.py`, `engine/simboli.py`, `engine/exit_search_bt.py` (stop adattivo), `engine/giudizio.py` (R multipli), `engine/splitting.py`.
@@ -318,3 +318,26 @@ Lettura in sola lettura (`account_info`, `symbol_info`), terminale già aperto, 
 - La leva del demo (1:100) **non è quella di un conto retail europeo reale** (30 sulle valute principali, 20 su oro e indici principali, 2 sul crypto).
 
 **Decisione di Mattia (16/10/2026): schema retail europeo**, scritto a mano nella tabella nuova `LEVA` di `engine/simboli.py`: 30 su EURUSD, GBPUSD, USDJPY; 20 su NZDUSD (coppia non principale), XAUUSD, US500, USTEC, DE40; 2 su BTCUSD. La leva del demo non si usa.
+
+---
+
+## 12 · Fase 1: cosa è stato fatto (16/10/2026)
+
+**File nuovi**
+- `engine/money_management.py`: il modulo puro (solo numpy e pandas, nessun import da `engine/`), da copiare identico nel repo crypto. Contiene: `lotti_rischio_fisso`, `ripercorri` + `sintesi_percorso` (storia vera), `montecarlo_mm`, `calibra` (secure f), `banda`, `kelly`, `optimal_f`, `twr`.
+- `engine/mm_adattatore.py`: dai trade del backtest alla tabella del modulo, con le regole del §3 e del §10. È l'unico pezzo da riscrivere nel repo crypto.
+- `test_money_management.py`: 52 test (esempi del libro, limiti dei lotti, identità con salto e leva spenti, lookahead, backtest vero di EURUSD, valore del pip su USDJPY, DE40, XAUUSD e BTCUSD, portabilità del modulo).
+
+**File modificati**
+- `engine/vetrina.py`: aggiunte `money_management(s, ...)` (schermata 7 del Lab) e `money_management_trade(...)` (stessa funzione con gli argomenti espliciti, usata dal notebook di ricerca). Rinumerati i testi: verifica dei trade 8, stress test 9. Nella sessione c'è `s.mm`.
+- `engine/vetrina_verifica.py`, `engine/vetrina_trigger.py`: solo i numeri delle schermate nei testi (7 → 8, 8 → 9).
+- `Trading_System_Lab.ipynb`: sezione "7 · Money management" (capitale, drawdown accettato, anni); 8 · Verifica i trade, 9 · Stress test; sottotitolo "in nove passi".
+- `Trading_Grid_Search_v4_backtesting.ipynb`: "Sessione 5 · Money management" sui trade del sistema finale (`fs_conf` / `oos_conf`); il Monte Carlo passa a Sessione 6.
+- `test_vetrina.py`: 4 controlli nuovi (il money management non cambia i trade, rispetta la regola del drawdown, lo stress test resta identico, la schermata saltata dà il messaggio giusto): 59 test.
+
+**Collaudo dei notebook** (eseguiti senza Jupyter, cella per cella, con uno script che salta solo le righe di Colab):
+- Lab, EURUSD, prima (`main`) e dopo: tutte le tabelle e i numeri identici; cambiano solo le tre frasi con i numeri delle schermate.
+- Notebook di ricerca, EURUSD, prima e dopo: 43 celle identiche; cambia solo la riga che stampa la cartella del progetto.
+- Giri completi senza errori: Lab su DE40 e BTCUSD, notebook di ricerca su DE40. Su DE40 il lotto minimo di 0,1 fa saltare dei trade alle percentuali più basse, contati nelle tabelle.
+
+**Difetto preesistente trovato, non corretto (fuori da questo lavoro):** con lo stop a 0 la scheda strategia (schermata 6) si ferma: la colonna `SL` dei trade contiene `None` e `engine/giudizio.py` (EV in R multipli) non la gestisce. Succede anche su `main`. Lo stop di calcolo (strada A) è collaudato direttamente sull'adattatore. Da correggere in un ramo a parte, se Mattia lo decide.

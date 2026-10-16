@@ -194,6 +194,27 @@ def esegui() -> int:
     check("19. stress_test: lotti = drawdown accettato / (drawdown al 95° x valore del pip)",
           abs(r["sizing"]["lotti_drawdown"] - 10_000 / (mc["dd_p95"] * 10.0)) < 1e-9)
 
+    # 16/10/2026: schermata 7, money management (docs/61)
+    tr_is_prima, tr_oos_prima = s.trades_is.copy(), s.trades_oos.copy()
+    m = muto(v.money_management, s, 10_000, 20, 1)
+    check("19b. money_management: pips della tabella identici a pips_per_dataset (IS e OOS)",
+          np.array_equal(m["tabella_is"]["pips_netti"].to_numpy(),
+                         pips_per_dataset(s.trades_is, None, fs.pip_size, fs.commission or 0.0, "IS"))
+          and np.array_equal(m["tabella_oos"]["pips_netti"].to_numpy(),
+                             pips_per_dataset(None, s.trades_oos, fs.pip_size, fs.commission or 0.0, "OOS")),
+          f"{len(m['tabella_is'])} + {len(m['tabella_oos'])} trade")
+    cal = m["calibrazione"]
+    regola = (m["f"] is None and cal["drawdown_p95"].iloc[0] > 20) or (
+        m["f"] is not None and (cal.loc[cal["f"] <= m["f"], "drawdown_p95"] <= 20).all())
+    check("19c. money_management: la percentuale scelta rispetta il drawdown accettato (95° percentile)",
+          regola, f"scelta {m['f']}")
+    check("19d. money_management non cambia i trade della scheda e salva il risultato in s.mm",
+          s.trades_is.equals(tr_is_prima) and s.trades_oos.equals(tr_oos_prima) and s.mm is m)
+    r2 = muto(v.stress_test, s, 10_000)
+    check("19e. stress_test dopo il money management: identico a prima",
+          all(r2["montecarlo"][k] == r["montecarlo"][k] for k in mc if not k.startswith("_"))
+          and r2["sizing"] == r["sizing"])
+
     print("\nC · Casi particolari")
     muto(v.scegli_trigger, s, long=None, short=SHORT[0])
     check("20. scegliere di nuovo i trigger azzera le schermate successive",
@@ -201,6 +222,7 @@ def esegui() -> int:
     check("21. schermata saltata -> messaggio che dice quale eseguire",
           errore(lambda: v.trova_strategia(s), RuntimeError)
           and errore(lambda: v.scheda(s), RuntimeError)
+          and errore(lambda: v.money_management(s), RuntimeError)
           and errore(lambda: v.stress_test(s), RuntimeError))
     t = muto(v.imposta_uscite, s, None, 12, 80, 70)
     check("22. un lato solo: una riga «Solo short», barre non indicate = H",
