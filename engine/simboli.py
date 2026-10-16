@@ -34,7 +34,8 @@ MetaTrader5.symbol_info() in sola lettura il 10/10/2026, server
 ICMarketsEU-Demo, conto in USD. Il collaudo `test_simboli.py` li ricontrolla
 contro MT5 quando MT5 c'e' (e salta quel controllo quando non c'e').
 
-Un symbol nuovo = una riga in SIMBOLI. Modulo ADDITIVO.
+Un symbol nuovo = una riga in SIMBOLI (e una in LOTTI, dal 16/10/2026:
+lotto minimo, passo, lotto massimo). Modulo ADDITIVO.
 """
 from __future__ import annotations
 
@@ -77,3 +78,81 @@ def pip_symbol(symbol: str) -> float:
 
 def in_tabella(symbol: str) -> bool:
     return (symbol or "").upper() in SIMBOLI
+
+
+# ------------------------------------------------------------------------
+# Lotti (16/10/2026, fase 0 del money management, docs/61)
+# ------------------------------------------------------------------------
+# Lotto minimo, passo e lotto massimo per ordine, letti con
+# MetaTrader5.symbol_info() in sola lettura il 16/10/2026 (permesso di
+# Mattia), server ICMarketsEU-Demo, conto in USD: campi volume_min,
+# volume_step, volume_max. Tabella separata da SIMBOLI per non cambiare la
+# sua tupla. test_simboli.py li ricontrolla contro MT5 quando MT5 c'e'.
+# Un symbol nuovo = una riga anche qui.
+#
+# nome: (lotto minimo, passo, lotto massimo)
+LOTTI = {
+    "EURUSD": (0.01, 0.01, 200.0),
+    "GBPUSD": (0.01, 0.01, 200.0),
+    "NZDUSD": (0.01, 0.01, 100.0),
+    "USDJPY": (0.01, 0.01, 200.0),
+    "XAUUSD": (0.01, 0.01, 100.0),
+    "US500":  (0.1,  0.1,  250.0),
+    "USTEC":  (0.1,  0.1,  250.0),
+    "DE40":   (0.1,  0.1,  250.0),
+    "BTCUSD": (0.01, 0.01, 10.0),
+}
+
+
+def lotti_symbol(symbol: str) -> dict:
+    """
+    Lotto minimo, passo e lotto massimo del symbol, come dizionario
+    (minimo, passo, massimo). Symbol assente -> KeyError con l'istruzione:
+    i limiti dei lotti non vengono indovinati.
+    """
+    s = (symbol or "").upper()
+    if s not in LOTTI:
+        raise KeyError(
+            f"'{symbol}' non e' nella tabella LOTTI di engine/simboli.py. Aggiungi "
+            "una riga con lotto minimo, passo e lotto massimo (in MT5: tasto destro "
+            "sul symbol -> Specifiche -> Volume minimo / Passo volume / Volume massimo)."
+        )
+    minimo, passo, massimo = LOTTI[s]
+    return {"minimo": minimo, "passo": passo, "massimo": massimo}
+
+
+# ------------------------------------------------------------------------
+# Leva massima (16/10/2026, fase 0 del money management, docs/61)
+# ------------------------------------------------------------------------
+# Leve massime di un conto RETAIL europeo (limiti ESMA, recepiti da tutti i
+# broker UE): 30 sulle coppie principali (solo USD, EUR, JPY, GBP, CAD,
+# CHF), 20 sulle altre coppie, sull'oro e sugli indici principali, 2 sul
+# crypto. Decisione di Mattia del 16/10/2026: si usa questo schema e non la
+# leva del conto demo (1:100), che un conto retail reale non avrebbe. Non si
+# leggono da MT5: con symbol_info la leva per symbol dei CFD non c'e'.
+# Servono al tetto della leva nel calcolo dei lotti (nozionale <= capitale x leva).
+#
+# nome: leva massima
+LEVA = {
+    "EURUSD": 30,
+    "GBPUSD": 30,
+    "USDJPY": 30,
+    "NZDUSD": 20,     # NZD non e' fra le valute principali
+    "XAUUSD": 20,
+    "US500":  20,
+    "USTEC":  20,
+    "DE40":   20,
+    "BTCUSD": 2,
+}
+
+
+def leva_symbol(symbol: str) -> int:
+    """Leva massima retail europea del symbol. Symbol assente -> KeyError."""
+    s = (symbol or "").upper()
+    if s not in LEVA:
+        raise KeyError(
+            f"'{symbol}' non e' nella tabella LEVA di engine/simboli.py. Aggiungi una "
+            "riga con la leva massima retail europea (30 coppie principali; 20 altre "
+            "coppie, oro e indici principali; 10 altre materie prime e indici; 2 crypto)."
+        )
+    return LEVA[s]

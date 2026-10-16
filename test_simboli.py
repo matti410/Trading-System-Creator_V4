@@ -53,7 +53,8 @@ from engine.exit_search_bt import run_exit_search_bt
 from engine.filter_search_bt import run_filter_search_bt
 from engine.montecarlo import valore_pip_lotto
 from engine.registry import clear_registry, register_entry, register_filter
-from engine.simboli import SIMBOLI, info_symbol, pip_symbol
+from engine.simboli import (LEVA, LOTTI, SIMBOLI, info_symbol, leva_symbol, lotti_symbol,
+                            pip_symbol)
 from engine import vetrina as _vetrina
 from engine.vetrina import _punto_da_prezzi, _punto_symbol, proposta_rollover, spread_listino
 from engine.livelli import svuota_cache
@@ -127,6 +128,40 @@ def esegui() -> int:
         fermo = True
     check("5. parametri_backtest su un symbol fuori tabella si ferma", fermo)
 
+    # 16/10/2026: tabella dei lotti (fase 0 del money management, docs/61)
+    attesi_lotti = {"EURUSD": (0.01, 0.01, 200.0), "GBPUSD": (0.01, 0.01, 200.0),
+                    "NZDUSD": (0.01, 0.01, 100.0), "USDJPY": (0.01, 0.01, 200.0),
+                    "XAUUSD": (0.01, 0.01, 100.0), "US500": (0.1, 0.1, 250.0),
+                    "USTEC": (0.1, 0.1, 250.0), "DE40": (0.1, 0.1, 250.0),
+                    "BTCUSD": (0.01, 0.01, 10.0)}
+    check("5b. LOTTI: stessi symbol di SIMBOLI", set(LOTTI) == set(SIMBOLI))
+    check("5c. LOTTI: minimo, passo e massimo dei 9 symbol (letti da MT5 il 16/10)",
+          {s: tuple(lotti_symbol(s).values()) for s in attesi_lotti} == attesi_lotti)
+    coerenti = all(0 < m <= x and p > 0 and np.isclose(m / p, round(m / p))
+                   and np.isclose(x / p, round(x / p)) for m, p, x in LOTTI.values())
+    check("5d. LOTTI coerenti: minimo e massimo sono multipli del passo, minimo <= massimo",
+          coerenti)
+    try:
+        lotti_symbol("XYZABC")
+        fermo, msg = False, ""
+    except KeyError as e:
+        fermo, msg = True, str(e)
+    check("5e. lotti di un symbol sconosciuto -> errore con l'istruzione",
+          fermo and "Aggiungi" in msg)
+    check("5g. LEVA: stessi symbol di SIMBOLI, schema retail europeo 30 / 20 / 2",
+          set(LEVA) == set(SIMBOLI)
+          and {s: leva_symbol(s) for s in LEVA} == {
+              "EURUSD": 30, "GBPUSD": 30, "USDJPY": 30, "NZDUSD": 20, "XAUUSD": 20,
+              "US500": 20, "USTEC": 20, "DE40": 20, "BTCUSD": 2})
+    try:
+        leva_symbol("XYZABC")
+        fermo = False
+    except KeyError:
+        fermo = True
+    check("5h. leva di un symbol sconosciuto -> errore", fermo)
+    check("5f. lotti_symbol legge anche il minuscolo",
+          lotti_symbol("de40") == {"minimo": 0.1, "passo": 0.1, "massimo": 250.0})
+
     # ----------------------------------------------- US500 attraverso 5000 --
     print("\nB · US500 sintetico da 4.000 a 6.000: il pip non cambia con il prezzo")
     df = mercato_sintetico("2024-01-01", "2024-07-01", seme=5, prezzo=4000.0, vol_barra=0.3,
@@ -196,6 +231,12 @@ def esegui() -> int:
                       and i.currency_profit == t["valuta"]
                       and np.isclose(t["pip"], MOLTIPLICATORE[t["classe"]] * 10.0 ** -i.digits),
                       f"MT5: {i.digits} cifre · contratto {i.trade_contract_size:g} · {i.currency_profit}")
+                lt = lotti_symbol(sym)
+                check(f"D {sym}: lotto minimo, passo e massimo come in MT5",
+                      np.isclose(i.volume_min, lt["minimo"])
+                      and np.isclose(i.volume_step, lt["passo"])
+                      and np.isclose(i.volume_max, lt["massimo"]),
+                      f"MT5: {i.volume_min:g} / {i.volume_step:g} / {i.volume_max:g}")
         finally:
             mt5.shutdown()      # chiude la connessione di Python, non il terminale
 

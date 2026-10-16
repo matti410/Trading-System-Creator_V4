@@ -3,7 +3,7 @@ Vetrina — la «facciata» del notebook slim (6/10/2026).
 
 COSA E'
 -------
-Sette funzioni, una per schermata del notebook di presentazione. Ognuna
+Nove schermate, una funzione ciascuna del notebook di presentazione. Ognuna
 richiama i moduli che esistono gia' (event study, ricerca delle uscite,
 ricerca dei filtri, due meta', Out-of-Sample, Monte Carlo) e ne mostra il
 risultato con un riquadro «Come leggerlo» scritto per un trader.
@@ -15,9 +15,10 @@ risultato con un riquadro «Come leggerlo» scritto per un trader.
     imposta_uscite(s, barre_long=10, barre_short=18, sl=90)  4 · Imposta le uscite
     trova_strategia(s)                                       5 · Trova la strategia
     scheda(s, filtro="F1, F2")                               6 · Scheda strategia
-    verifica_trade(s)                                        7 · Verifica i trade
+    money_management(s, capitale=10_000, drawdown_max_pct=20) 7 · Money management
+    verifica_trade(s)                                        8 · Verifica i trade
     lente(s, numero=12, indicatori="ema20, ema50")           (engine/vetrina_verifica.py)
-    stress_test(s, drawdown_max_usd=10_000)                  8 · Stress test
+    stress_test(s, drawdown_max_usd=10_000)                  9 · Stress test
 
 `s` e' la SESSIONE: tiene dati, costi e scelte e passa da una schermata
 all'altra. Le schermate vanno eseguite in ordine; se ne salti una la
@@ -287,6 +288,7 @@ class Sessione:
         self.oos = None
         self.trades_is = self.trades_oos = None
         self.controlli = None
+        self.mm = None                # 16/10/2026: schermata 7, money management
         self.tabelle = {}
 
     def __repr__(self):
@@ -1125,13 +1127,255 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         "Conta la colonna di destra. Una strategia cucita su misura sul passato brilla in-sample e si spegne "
         "out-of-sample; una che ha colto qualcosa di vero tiene numeri simili, anche se un po' più bassi. "
         "Guarda guadagno medio per trade, probabilità che in realtà perda (meglio sotto il 5%) e drawdown.",
-        "Vai alla schermata 7 per controllare che i trade siano entrati dove dicono le tue regole; poi, se la strategia tiene, alla 8 per capire quanto drawdown aspettarti e con quanti lotti partire. "
+        "Vai alla schermata 7 per scegliere quanto rischiare su ogni trade, alla 8 per controllare che i trade siano entrati dove dicono le tue regole e alla 9 per capire quanto drawdown aspettarti e con quanti lotti partire. "
         "L'out-of-sample si guarda una volta sola: se torni indietro a ritoccare finché non ti piace, smette di essere una prova.")
     return tabella
 
 
 # ========================================================================
-# 8 · Stress test
+# 7 · Money management (16/10/2026, fase 1 di docs/61)
+# ========================================================================
+
+SIMULAZIONI_MM = 10_000
+PERCENTILE_MM = 95                 # lo stesso «caso sfortunato» dello stress test
+
+
+def _pct(v, decimali=2):
+    return "—" if v is None or not np.isfinite(v) else f"{_fmt(v * 100, decimali)} %"
+
+
+def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pip: float,
+                           commission: float = 0.0, spread_pips: float = 0.0,
+                           perc_sl: float = 90.0, n_barre_long: int = 25, n_barre_short: int = 25,
+                           finestra: int = FINESTRA, lag: int = LAG, cartella=".",
+                           capitale: float = 10_000.0, drawdown_max_pct: float = 20.0,
+                           anni: float = 1.0, simulazioni: int = SIMULAZIONI_MM,
+                           titolo: str = "") -> dict:
+    """
+    La sezione «Money management» con gli argomenti espliciti: la usa il
+    notebook di ricerca (Sessione 5); il Lab passa da `money_management(s)`.
+    Stesso codice per i due notebook.
+
+    1. tabella dei trade (engine/mm_adattatore.py) in-sample e out-of-sample;
+    2. calibrazione SOLO sull'in-sample: per ogni percentuale di rischio il
+       Monte Carlo su `anni` di trade, scelta la piu' alta il cui drawdown al
+       95° percentile resta entro `drawdown_max_pct` (secure f);
+    3. con la percentuale fissata, la storia vera in-sample e out-of-sample,
+       e la banda che il Monte Carlo in-sample prevedeva per l'out-of-sample.
+
+    Ritorna un dict: f, calibrazione, rischio, sintesi, percorso_is,
+    percorso_oos, banda, tabella_is, tabella_oos, kelly, optimal_f, n_trade.
+    """
+    from . import money_management as mm
+    from .mm_adattatore import limiti_symbol, tabella_trade, trade_per_anno
+
+    kw = dict(symbol=symbol, pip=pip, commission=commission, spread_pips=spread_pips,
+              perc_sl=perc_sl, n_barre_long=n_barre_long, n_barre_short=n_barre_short,
+              finestra=finestra, lag=lag, cartella=cartella)
+    tab_is = tabella_trade(trades_is, df_is, **kw)
+    tab_oos = tabella_trade(trades_oos, df_oos, **kw) if trades_oos is not None else tab_is.iloc[:0]
+    if len(tab_is) < 5:
+        raise ValueError(f"Servono almeno 5 trade in-sample per il money management (ce ne sono {len(tab_is)}).")
+    limiti = limiti_symbol(symbol)
+    n_trade = max(10, int(round(trade_per_anno(trades_is, df_is) * float(anni))))
+    dd_max = float(drawdown_max_pct)
+
+    # --- il rischio dei trade (in-sample) ------------------------------
+    ok = np.isfinite(tab_is["rischio_pips"]) & (tab_is["rischio_pips"] > 0)
+    r = (tab_is["pips_netti"] / tab_is["rischio_pips"])[ok].to_numpy()
+    k = mm.kelly(r)
+    f_opt, _ = mm.optimal_f(r)
+    rischio_usd = (tab_is["rischio_pips"] * tab_is["valore_entrata"])[ok]
+    stop_acceso = bool(perc_sl and perc_sl > 0)
+    tab_rischio = pd.DataFrame({
+        "": ["Trade in-sample", "Rischio mediano per trade (pips, stop + costi)",
+             "Rischio medio per trade (pips)", "Rischio mediano con 1 lotto ($)",
+             "Trade che hanno perso più di 1 R (%)", "Perdita peggiore (in R)",
+             "Kelly (riferimento)", "Optimal f (riferimento)"],
+        " ": [_fmt(len(tab_is)), _fmt(float(tab_is.loc[ok, "rischio_pips"].median()), 1),
+              _fmt(float(tab_is.loc[ok, "rischio_pips"].mean()), 1), f"{_fmt(float(rischio_usd.median()))} $",
+              _fmt(float((r < -1).mean() * 100), 1), _fmt(float(r.min()), 2) if r.size else "—",
+              _pct(k), _pct(f_opt)],
+    })
+
+    # --- la scelta della percentuale (solo in-sample) ------------------
+    with _zitto():
+        cal, f = mm.calibra(tab_is, capitale, dd_max, n_trade, percentile=PERCENTILE_MM,
+                            n_sim=simulazioni, limiti=limiti)
+    col_dd = f"drawdown_p{PERCENTILE_MM}"
+    tab_cal = pd.DataFrame({
+        "Rischio per trade (%)": cal["f"] * 100,
+        "Drawdown tipico (%)": cal["drawdown_p50"],
+        "Drawdown nel caso sfortunato, 1 su 20 (%)": cal[col_dd],
+        "Rendimento tipico (%)": cal["rendimento_p50"],
+        "Probabilità di chiudere in perdita (%)": cal["p_perdita"],
+        "Probabilità di restare bloccati (%)": cal["p_bloccato"],
+        "Trade saltati (%)": cal["saltati_pct"],
+        "Lotti ridotti dalla leva (%)": cal["leva_pct"],
+    })
+    if f is not None:
+        i = int(np.argmin(np.abs(cal["f"].to_numpy() - f)))
+        tab_cal.insert(0, "Scelta", ["◀" if j == i else "" for j in range(len(tab_cal))])
+        oltre = int(np.argmax(cal[col_dd].to_numpy() > dd_max)) if (cal[col_dd] > dd_max).any() else len(cal)
+        tab_cal_vista = tab_cal.iloc[: min(len(cal), max(oltre + 3, i + 3))]
+    else:
+        tab_cal_vista = tab_cal.head(6)
+
+    suff = f" · {titolo}" if titolo else ""
+    _nota(f"Capitale iniziale {_fmt(float(capitale), 0)} $ · drawdown accettato {_fmt(dd_max, 1)} % "
+          f"su {_fmt(float(anni), 1)} anni = circa {n_trade} trade (dalla frequenza in-sample) · "
+          f"caso sfortunato al {PERCENTILE_MM}° percentile · {_fmt(simulazioni)} storie simulate · "
+          f"lotti da {_fmt(limiti['minimo'])} a passi di {_fmt(limiti['passo'])}, massimo {_fmt(limiti['massimo'], 0)}, "
+          f"leva massima {limiti['leva']} · rischio = "
+          + ("distanza dallo stop + costi." if stop_acceso
+             else "stop di calcolo (stop spento: la soglia al 90° percentile, letta come rischio tipico) + costi."))
+    _mostra(("Il rischio dei tuoi trade (in-sample)", tab_rischio),
+            ("La scelta della percentuale (Monte Carlo sull'in-sample)", tab_cal_vista),
+            decimali={"Rischio per trade (%)": 2, "Drawdown tipico (%)": 1,
+                      "Drawdown nel caso sfortunato, 1 su 20 (%)": 1, "Rendimento tipico (%)": 1,
+                      "Probabilità di chiudere in perdita (%)": 1, "Probabilità di restare bloccati (%)": 1,
+                      "Trade saltati (%)": 1, "Lotti ridotti dalla leva (%)": 1})
+
+    import matplotlib.pyplot as plt
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 4.4))
+    x = cal["f"].to_numpy() * 100
+    a1.plot(x, cal[col_dd], lw=2, label="drawdown nel caso sfortunato (1 su 20)")
+    a1.plot(x, cal["drawdown_p50"], lw=1.2, label="drawdown tipico")
+    a1.axhline(dd_max, color="red", ls="--", lw=1, label="il tuo limite")
+    a2.plot(x, cal["rendimento_p50"], lw=2, color="#1f5f99", label="rendimento tipico")
+    for ax in (a1, a2):
+        if f is not None:
+            ax.axvline(f * 100, color="black", lw=1.4, label=f"scelta: {_fmt(f * 100)} %")
+        for nome, v, stile in (("Kelly", k, ":"), ("optimal f", f_opt, "-.")):
+            if v is not None and np.isfinite(v) and 0 < v * 100 <= x.max():
+                ax.axvline(v * 100, color="grey", ls=stile, lw=1.2, label=f"{nome}: {_fmt(v * 100)} %")
+        ax.set_xlabel("rischio per trade (% del capitale)")
+        ax.grid(alpha=.3)
+        ax.legend(fontsize=8)
+    a1.set_ylabel("drawdown (%)")
+    a1.set_title(f"Drawdown su {n_trade} trade{suff}")
+    a2.set_ylabel("rendimento (%)")
+    a2.set_title(f"Rendimento tipico su {n_trade} trade{suff}")
+    plt.tight_layout()
+    plt.show()
+
+    out = {"f": f, "calibrazione": cal, "rischio": tab_rischio, "tabella_is": tab_is,
+           "tabella_oos": tab_oos, "kelly": k, "optimal_f": f_opt, "n_trade": n_trade,
+           "limiti": limiti, "sintesi": None, "percorso_is": None, "percorso_oos": None,
+           "banda": None}
+    if f is None:
+        _riquadro(
+            "Per ogni percentuale di rischio, migliaia di storie simulate con i trade in-sample.",
+            f"Nessuna percentuale della griglia (la più bassa è {_fmt(float(cal['f'].iloc[0]) * 100)} %) tiene il "
+            f"drawdown sfortunato sotto il {_fmt(dd_max, 1)} %: con questi trade e questo capitale il limite che hai "
+            "scelto non si può rispettare.",
+            "Puoi alzare il drawdown accettato, il capitale o l'orizzonte, oppure tornare alla scheda strategia. "
+            "Lo stress test (schermata 9) resta disponibile.")
+        return out
+
+    # --- la storia vera con la percentuale fissata ---------------------
+    p_is = mm.ripercorri(tab_is, capitale, f, limiti)
+    p_oos = mm.ripercorri(tab_oos, capitale, f, limiti) if len(tab_oos) else None
+    s_is = mm.sintesi_percorso(p_is, capitale)
+    s_oos = mm.sintesi_percorso(p_oos, capitale) if p_oos is not None else None
+    voci = [("trade", "Trade", 0), ("fatti", "Trade fatti", 0), ("saltati", "Trade saltati", 0),
+            ("leva_interviene", "Volte in cui interviene la leva", 0),
+            ("capitale_iniziale", "Capitale iniziale ($)", 0), ("capitale_finale", "Capitale finale ($)", 0),
+            ("rendimento_pct", "Rendimento (%)", 1), ("drawdown_max_pct", "Drawdown massimo (%)", 1),
+            ("perdita_peggiore_pct", "Perdita peggiore su un trade (% del conto)", 2),
+            ("lotti_min", "Lotti minimi", 2), ("lotti_medi", "Lotti medi", 2), ("lotti_max", "Lotti massimi", 2)]
+    sintesi = pd.DataFrame({
+        "": [n for _, n, _ in voci],
+        "In-sample (storia vera)": [_fmt(s_is[c], d) for c, _, d in voci],
+        "Out-of-sample": [_fmt(s_oos[c], d) if s_oos else "—" for c, _, d in voci],
+    })
+    _mostra((f"Con il {_fmt(f * 100)} % di rischio per trade", sintesi))
+    out.update(sintesi=sintesi, percorso_is=p_is, percorso_oos=p_oos)
+
+    if p_oos is not None:
+        with _zitto():
+            bd = mm.banda(tab_is, capitale, f, len(tab_oos), n_sim=simulazioni, limiti=limiti)
+        out["banda"] = bd
+        fatti = p_oos["lotti"] > 0
+        lotti0 = float(p_oos.loc[fatti, "lotti"].iloc[0]) if fatti.any() else 0.0
+        fissi = capitale + np.cumsum(lotti0 * tab_oos["pips_netti"] * tab_oos["valore_uscita"])
+        n = np.arange(len(tab_oos) + 1)
+        fig, ax = plt.subplots(figsize=(11, 4.6))
+        ax.fill_between(n, bd["p5"], bd["p95"], alpha=.2, label="banda prevista sull'in-sample (5°–95°)")
+        ax.plot(n, bd["p50"], lw=1, color="grey", label="previsione tipica")
+        ax.plot(n, np.r_[capitale, p_oos["capitale_dopo"].to_numpy()], lw=2, color="#1f5f99",
+                label=f"out-of-sample, {_fmt(f * 100)} % per trade")
+        ax.plot(n, np.r_[capitale, fissi.to_numpy()], lw=1.2, ls="--", color="#c26a1b",
+                label=f"out-of-sample, {_fmt(lotti0)} lotti fissi")
+        ax.axhline(capitale, color="black", lw=.8)
+        ax.set_xlabel("trade out-of-sample")
+        ax.set_ylabel("capitale ($)")
+        ax.set_title(f"Il conto sui dati mai visti{suff}")
+        ax.grid(alpha=.3)
+        ax.legend(fontsize=8)
+        plt.tight_layout()
+        plt.show()
+        capitale_live = s_oos["capitale_finale"]
+    else:
+        _nota("Nessun trade out-of-sample: non c'è una storia da mostrare.")
+        capitale_live = s_is["capitale_finale"]
+
+    rischio_tipico = float(tab_is.loc[ok, "rischio_pips"].median())
+    valore_tipico = float(tab_is.loc[ok, "valore_entrata"].median())
+    lotti_es, _ = mm.lotti_rischio_fisso(capitale_live, f, rischio_tipico, valore_tipico,
+                                         {k2: v for k2, v in limiti.items() if k2 != "leva"})
+    _nota(f"Per il live: lotti = capitale × {_fmt(f * 100)} % ÷ (rischio del trade in pips × valore di 1 pip con "
+          f"1 lotto), arrotondati per difetto al passo di {_fmt(limiti['passo'])}. Esempio: con "
+          f"{_fmt(capitale_live, 0)} $ e un rischio di {_fmt(rischio_tipico, 1)} pips "
+          f"({_fmt(valore_tipico)} $ per pip) sono {_fmt(lotti_es)} lotti. Sotto {_fmt(limiti['minimo'])} lotti il "
+          f"trade si salta; il nozionale non supera {limiti['leva']} volte il capitale.")
+    _riquadro(
+        "Quanto rischiare su ogni trade, in percentuale del conto. Lo strumento prova ogni percentuale su migliaia "
+        "di storie costruite con i soli trade in-sample, con il conto che cresce e cala e i lotti ricalcolati a ogni "
+        "trade, e sceglie la più alta che resta sotto il drawdown che hai detto di accettare. Poi, con quella "
+        "percentuale già fissata, mostra cosa avrebbe fatto il conto sui dati mai visti.",
+        "Kelly e optimal f sono il bordo del precipizio: la percentuale che col senno di poi avrebbe reso di più, "
+        "e oltre la quale il drawdown esplode. Stare molto sotto è normale. Nel grafico del conto guarda se la linea "
+        "blu resta dentro la banda prevista: fuori dal basso vuol dire che i dati mai visti sono andati peggio del "
+        "piano. La linea tratteggiata mostra lo stesso periodo con i lotti fermi a quelli del primo trade.",
+        "Annota la percentuale scelta e non cambiarla dopo aver visto l'out-of-sample: se la ritocchi finché il conto "
+        "ti piace, smette di essere una prova. Poi vai alla schermata 8 (verifica dei trade) e alla 9 (stress test). "
+        "I lotti consigliati dello stress test sono fissi e rispondono a un'altra domanda: per ora le due sezioni "
+        "restano separate.")
+    _nota("Limiti da conoscere: le storie simulate trattano i trade come indipendenti; con lo stop spento il rischio "
+          "è quello tipico, non il massimo; un trade può perdere più di 1 R (gap, stop non attivo sulla barra "
+          "d'ingresso); i costi di swap non sono nel backtest.")
+    return out
+
+
+def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: float = 20.0,
+                     anni: float = 1.0) -> dict:
+    """
+    Schermata 7. Quanto rischiare su ogni trade (rischio fisso in percentuale,
+    docs/61): la percentuale si sceglie sull'in-sample con la tua regola sul
+    drawdown, poi si guarda una volta l'out-of-sample.
+
+    capitale           il conto con cui partiresti, in dollari
+    drawdown_max_pct   il calo massimo dal massimo che accetti, in %
+    anni               su quanto tempo vale la regola del drawdown
+
+    Ritorna il dict di `money_management_trade`, salvato anche in `s.mm`.
+    """
+    s._serve("oos", "6 · Scheda strategia")
+    u = s.uscite
+    out = money_management_trade(
+        s.symbol, s.trades_is, s.df_is, s.trades_oos, s.df_oos, pip=s.fs.pip_size,
+        commission=s.fs.commission or 0.0, spread_pips=s.spread_pips, perc_sl=u["perc_sl"],
+        n_barre_long=u["n_barre_long"], n_barre_short=u["n_barre_short"], finestra=FINESTRA,
+        lag=LAG, cartella=s.cartella, capitale=capitale, drawdown_max_pct=drawdown_max_pct,
+        anni=anni, titolo=f"{s.symbol} · {s.filtro or 'sistema base'}")
+    s.mm = out
+    s.tabelle["money_management"] = {"rischio": out["rischio"], "sintesi": out["sintesi"]}
+    return out
+
+
+# ========================================================================
+# 9 · Stress test
 # ========================================================================
 
 def _cambio_ultima_barra(s: Sessione) -> float | None:
@@ -1154,7 +1398,7 @@ def _cambio_ultima_barra(s: Sessione) -> float | None:
 def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
                 simulazioni: int = 20_000) -> dict:
     """
-    Schermata 8. Monte Carlo sui trade della strategia scelta (in-sample +
+    Schermata 9. Monte Carlo sui trade della strategia scelta (in-sample +
     out-of-sample), tabella di controllo per il live e lotti consigliati.
 
     drawdown_max_usd   il drawdown massimo che accetti sul conto, in dollari
@@ -1210,7 +1454,7 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
 
 
 # ========================================================================
-# 7 · Verifica i trade (in un modulo a parte: engine/vetrina_verifica.py)
+# 8 · Verifica i trade (in un modulo a parte: engine/vetrina_verifica.py)
 # ========================================================================
 # In fondo, perche' quel modulo usa gli strumenti di presentazione definiti qui.
 from .vetrina_verifica import (indicatori_disponibili, lente, registro_trade,  # noqa: E402

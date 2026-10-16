@@ -1,5 +1,5 @@
 """
-Vetrina · cosa disegnare per spiegare un trigger (9/10/2026) — schermata 7b.
+Vetrina · cosa disegnare per spiegare un trigger (9/10/2026) — schermata 8b (era la 7b fino al 16/10/2026).
 
 A COSA SERVE
 ------------
