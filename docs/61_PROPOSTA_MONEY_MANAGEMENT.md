@@ -1,7 +1,7 @@
 # 61 · Proposta: money management nel Trading System Lab
 
 **Data:** 16 ottobre 2026
-**Stato:** PROPOSTA. Nessun codice scritto. Ogni punto aspetta l'OK di Mattia, uno per uno (stessa regola di `docs/50`).
+**Stato:** APPROVATA da Mattia il 16/10/2026 (decisioni in §10). Fase 0 in corso; la fase 1 parte solo dopo un nuovo OK.
 **Incarico:** `docs/60_MONEY_MANAGEMENT.md`, punto 2.
 **Fonte:** Andrea Unger, *The Successful Trader's Guide to Money Management*, Wiley 2021 (PDF in `dati/libri/`, 313 pagine, letto per intero: 12 capitoli, 4 appendici, indice). Le pagine citate sono quelle del libro stampato.
 **Letti nel repo:** `CLAUDE.md`, `docs/00`, `docs/02`, `docs/50`, `docs/60`, `Trading_System_Lab.ipynb`, `Trading_Grid_Search_v4_backtesting.ipynb` (sessioni 4 e 5), `engine/vetrina.py`, `engine/montecarlo.py`, `engine/metriche.py`, `engine/simboli.py`, `engine/exit_search_bt.py` (stop adattivo), `engine/giudizio.py` (R multipli), `engine/splitting.py`.
@@ -49,7 +49,7 @@ Legenda: **SÌ** = da costruire (fase 1); **RIF** = solo come numero di riferime
 | 4.3 | ***secure f*** (Zamansky) | **SÌ (la calibrazione)** | fra tutte le percentuali si prende quella più alta che **non supera il drawdown scelto dal trader**. È esattamente la decisione 3 di `docs/60`. Al posto del drawdown della sola storia vera (una sequenza sola) uso il Monte Carlo (cap. 6), come fa l'autore. |
 | 4.3 | perdita massima storica al posto dello stop (Larry Williams) | **SÌ (come controllo)** | lo stop non è la perdita massima: gap, slippage, stop non attivo sulla barra d'ingresso. Il tool mostra quante volte un trade ha perso più di 1 R e di quanto. Il Monte Carlo usa le perdite vere, quindi ne tiene già conto nel drawdown (p. 135–139). |
 | 4.3 | "un contratto ogni 10.000" | **NO** | è un rischio fisso mascherato, più rozzo: non guarda il rischio del trade. |
-| 4.4 | *fixed ratio* (Ryan Jones) | **DOPO** (consiglio: no) | nasce per i future, dove il contratto non si divide: si parte da 1 contratto e se ne aggiunge uno ogni "delta" di profitto per contratto. Con i lotti da 0,01 il suo vantaggio principale (operare con poco capitale) quasi sparisce (lo dice anche l'appendice III). Non guarda il rischio del trade: con lo stop adattivo darebbe gli stessi lotti a un trade con stop di 10 pips e a uno di 40. Aggiunge un parametro in dollari (delta) da scegliere. Nei test Monte Carlo del libro non dà drawdown migliori (p. 128–133). |
+| 4.4 | *fixed ratio* (Ryan Jones) | **DOPO** (consiglio: no) | nasce per i future, dove il contratto non si divide: si parte da 1 contratto e se ne aggiunge uno ogni "delta" di profitto per contratto. Con i lotti da 0,01 il suo vantaggio principale (operare con poco capitale) quasi sparisce (lo dice anche l'appendice III). Non guarda il rischio del trade: con lo stop adattivo darebbe gli stessi lotti a un trade con stop di 10 pips e a uno di 40. Aggiunge un parametro in dollari (delta) da scegliere. **Sul drawdown il libro gli dà ragione su un sistema singolo** (corretto il 16/10 su segnalazione di Mattia): a parità di rendimento ha il drawdown più basso dei tre metodi (fig. 4.26, p. 88: 38,7% e 62,0% contro 46,5% e 71,3% del rischio fisso); nel Monte Carlo con delta 2.500 i drawdown sono nettamente migliori del rischio fisso al 10% (p. 132–133), con delta 5.000 simili al rischio fisso al 5% ma con qualche caso meno grave (p. 128). Sul portafoglio di tre sistemi invece il drawdown supera il 50% (p. 174–177). Resta "dopo" per i motivi sopra (contratto indivisibile, rischio del trade ignorato), non per il drawdown. |
 | 4.5 | percentuale di volatilità (Van Tharp: lotti = capitale × % ÷ ATR) | **DOPO**, oppure come rischio con stop spento | con lo stop adattivo acceso è quasi un doppione: lo stop del tool **è già** una misura di volatilità (percentile delle escursioni). Diventa utile proprio quando lo stop è spento (vedi §3.3). |
 | 4.6 | tabella "capitale → lotti" | **SÌ (piccola)** | per il live: la formula e un esempio "con il capitale di oggi e uno stop di N pips, i lotti sono…". |
 | 5.2 | *reduced f* (percentuale che scende quando il capitale raddoppia) | **NO per ora** | 4–5 soglie e percentuali scelte a mano: parametri liberi che si finirebbe per scegliere guardando il risultato. L'autore stesso dice che i gradini sono esempi. |
@@ -94,7 +94,7 @@ Con `stop = 0` non esiste una distanza dallo stop. Quattro strade:
 
 | | come | pro | contro |
 |---|---|---|---|
-| **A** | **stop "di calcolo"**: la stessa soglia adattiva del tool (90° percentile delle escursioni contrarie), calcolata ma **non** usata per uscire | nessun parametro nuovo; segue la volatilità del momento (come il modello a volatilità del libro, che nei suoi test dà drawdown migliori a parità di guadagno, p. 88, p. 179); stessa logica del caso con stop acceso | senza stop vero le perdite possono superare R spesso; il Monte Carlo lo vede nel drawdown, ma la percentuale per trade va letta come "rischio tipico", non massimo |
+| **A** | **stop "di calcolo"**: la stessa soglia adattiva del tool (90° percentile delle escursioni contrarie), calcolata ma **non** usata per uscire | nessun parametro nuovo; segue la volatilità del momento (come il modello a volatilità del libro, che nei suoi test dà drawdown più bassi del rischio fisso a parità di guadagno, p. 88, p. 179); stessa logica del caso con stop acceso | senza stop vero le perdite possono superare R spesso; il Monte Carlo lo vede nel drawdown, ma la percentuale per trade va letta come "rischio tipico", non massimo |
 | **B** | perdita peggiore dell'in-sample, in percentuale del prezzo (Larry Williams) | la scelta del libro (p. 66–67, p. 249); semplice | un solo trade estremo (es. marzo 2020) decide tutti i lotti; non segue la volatilità |
 | **C** | ATR come nel modello a volatilità del libro | è il metodo del libro | serve un periodo di ATR su M15 da scegliere (il libro parla di giorni): una traduzione nostra e un parametro in più |
 | **D** | il money management richiede lo stop acceso | niente ambiguità | la sezione non funziona per una parte delle strategie |
@@ -230,7 +230,7 @@ Un file nuovo, `test_money_management.py`, con l'ultima riga `RISULTATO: n/n tes
 
 **2 · Nessun lookahead.** Troncamento come nel resto del tool: si cambiano o si tolgono i trade dopo il k-esimo, e lotti e capitale fino al k-esimo devono restare identici. In più: i lotti usano solo la chiusura della barra del segnale (test con un prezzo d'ingresso falsato: i lotti non cambiano).
 
-**3 · Identità con i risultati già validati.**
+**3 · Identità con i risultati già validati.** In tutti questi test il **salto dei trade sotto il lotto minimo è disattivato** (lotto minimo e tetto della leva spenti), così nessun trade sparisce e il confronto è esatto. Il salto si prova **a parte**, con casi costruiti apposta (tab. 6.3 del libro; capitale che scende sotto il minimo e poi risale; conteggio dei trade saltati). Regola di Mattia del 16/10.
 - il money management **non cambia i trade**: pips netti per trade identici a `pips_per_dataset`; scheda, verifica dei trade e stress test identici prima e dopo;
 - con "lotti fissi" (percentuale ignorata, 1 lotto) il guadagno in dollari è esattamente pips × valore del pip;
 - con passo zero (lotti continui) il capitale finale è esattamente capitale × TWR;
@@ -270,3 +270,51 @@ Un file nuovo, `test_money_management.py`, con l'ultima riga `RISULTATO: n/n tes
 8. **Regola del drawdown:** valori predefiniti nella cella (10.000 $, 20%, 1 anno) e percentile 95 come lo stress test: vanno bene?
 9. **Su quali trade calibrare:** in-sample della strategia scelta (consigliato, con l'avviso del §8 punto 2) o anche la variante prudente sul sistema base senza filtri?
 10. **Kelly e optimal f** come linee di riferimento sul grafico: sì o no?
+
+---
+
+## 10 · Decisioni di Mattia (16/10/2026)
+
+1. Sì alla fase 0 e alla fase 1; le fasi 2 e 3 si decidono dopo.
+2. Stop spento: **strada A** (stop di calcolo), letta come "rischio tipico", non massimo. Stop acceso: **R = distanza dello stop + costo**.
+3. Lettura da MT5 autorizzata **solo in sola lettura**, con `symbol_info` e `account_info`: lotto minimo, passo, lotto massimo, margine e leva dei 9 symbol. Nessun ordine.
+4. Conto retail europeo, ma la leva si legge da MT5. **Sì al tetto della leva**, contando quante volte interviene.
+5. Lotti sotto il minimo: **il trade si salta**.
+6. Valuta del conto: dollari, per ora.
+7. Notebook di ricerca: sessione nuova "Sessione 5 · Money management"; il Monte Carlo passa a Sessione 6.
+8. Sì ai valori predefiniti (10.000 $, 20%, 1 anno, percentile 95); da unificare con lo stress test nella fase 2.
+9. Calibrazione **solo sull'in-sample della strategia scelta**.
+10. Sì a Kelly e optimal f come linee di riferimento sul grafico.
+
+Controlli chiesti prima di partire:
+- **A · fixed ratio e drawdown:** il testo del §2 diceva che nel libro il fixed ratio non dà drawdown migliori. Era sbagliato: su un sistema singolo ha il drawdown più basso a parità di rendimento (p. 88, p. 128–133); peggiore solo sul portafoglio (p. 174–177). Corretto il §2; la proposta "dopo" resta, per gli altri motivi.
+- **B · test di identità:** salto sotto il lotto minimo e tetto della leva disattivati; il salto si prova a parte. Aggiunto al §7.
+
+---
+
+## 11 · Fase 0: cosa è stato letto da MT5 (16/10/2026)
+
+Lettura in sola lettura (`account_info`, `symbol_info`), terminale già aperto, server ICMarketsEU-Demo. Nessun ordine. Login, nome e credenziali non stampati.
+
+**Conto:** valuta USD; `trade_mode` = 0, cioè **conto demo**; leva del conto **1:100**; margin call al 100%, stop out al 50%.
+
+**Lotti** (scritti nella tabella nuova `LOTTI` di `engine/simboli.py`, controllati in `test_simboli.py`):
+
+| symbol | lotto minimo | passo | lotto massimo | calcolo del margine in MT5 |
+|---|---|---|---|---|
+| EURUSD | 0,01 | 0,01 | 200 | Forex (contratto ÷ leva) |
+| GBPUSD | 0,01 | 0,01 | 200 | Forex |
+| USDJPY | 0,01 | 0,01 | 200 | Forex |
+| NZDUSD | 0,01 | 0,01 | 100 | Forex |
+| XAUUSD | 0,01 | 0,01 | 100 | Forex (100 once) |
+| US500 | **0,1** | **0,1** | 250 | CFD |
+| USTEC | **0,1** | **0,1** | 250 | CFD |
+| DE40 | **0,1** | **0,1** | 250 | CFD |
+| BTCUSD | 0,01 | 0,01 | **10** | CFD |
+
+**Leva per symbol: non leggibile con le due funzioni autorizzate.**
+- Forex e oro usano la leva del conto (1:100 sul demo).
+- Indici e BTCUSD sono "CFD": il loro margine dipende da un tasso per symbol che `symbol_info` non dà (il campo `margin_initial` è 0).
+- La leva del demo (1:100) **non è quella di un conto retail europeo reale** (30 sulle valute principali, 20 su oro e indici principali, 2 sul crypto).
+
+**Decisione di Mattia (16/10/2026): schema retail europeo**, scritto a mano nella tabella nuova `LEVA` di `engine/simboli.py`: 30 su EURUSD, GBPUSD, USDJPY; 20 su NZDUSD (coppia non principale), XAUUSD, US500, USTEC, DE40; 2 su BTCUSD. La leva del demo non si usa.
