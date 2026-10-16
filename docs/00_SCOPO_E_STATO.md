@@ -93,8 +93,8 @@ del passo 7).
 | modulo | passo |
 |---|---|
 | `engine/event_study.py` | 1–2, orizzonti e ingressi |
-| `engine/exit_search_bt.py` | 3, uscite |
-| `engine/filter_search_bt.py` | 5, filtri |
+| `engine/exit_search_bt.py` | 3, uscite; `_StrategiaGenerica` è la strategia di tutti i backtest (dal 17/10 legge le colonne per indice, più veloce, stessi trade) |
+| `engine/filter_search_bt.py` | 5, filtri; dal 17/10 i backtest dei filtri girano su più processi (`processi=None` automatico, `1` in sequenza: stessi risultati, `test_velocita.py`) |
 | `engine/due_meta.py` | 5, stabilità sulle due metà |
 | `engine/confidenza.py` | 5, confidenza dei segnali: griglia volatilità × trend, soglia come filtro (dal 25/9, vedi `01` passo 5) |
 | `engine/volatility_features_engineering.py` | file di Mattia, invariato: `confidenza.py` usa `feat_historical_volatility` e `build_labels` |

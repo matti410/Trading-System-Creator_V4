@@ -52,6 +52,17 @@ come un'unica idea) — mai la combinazione di due idee diverse insieme. La
 prima riga e' sempre la BASELINE (nessun filtro): il setup congelato cosi'
 com'e', per il confronto.
 
+PIU' PROCESSI INSIEME (17/10/2026)
+-------------------------------------
+Le righe del piano sono backtest indipendenti: con `processi` (default
+None = automatico) si distribuiscono sui core del computer. Ogni processo
+costruisce il suo Backtest sugli stessi dati e fa girare le righe che gli
+toccano; i risultati tornano nell'ordine del piano, quindi la tabella e i
+trade sono IDENTICI a quelli in sequenza (test_velocita.py). In automatico i
+processi si usano su Linux/Colab (fork) e nei notebook; in uno script su
+Windows si resta in sequenza, perche' li' ogni processo nuovo rieseguirebbe
+lo script dall'inizio. `processi=1` = sempre in sequenza, come prima.
+
 due_meta NON E' QUI
 ---------------------
 La verifica sulle due meta' (Difesa C, Passo 5) non e' in questo modulo:
@@ -61,10 +72,16 @@ RIEPILOGO_CHAT_BACKTESTING_PY.md).
 """
 from __future__ import annotations
 
+import os
+import sys
 import warnings
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 import numpy as np
 import pandas as pd
+import backtesting.backtesting as _libreria_bt
 from backtesting import Backtest
 
 from .registry import (get_entry, get_exit, get_filter, get_filter_direction,
@@ -79,6 +96,93 @@ from .giudizio import (RIFERIMENTO, p_ev_negativo, soglia_rumore, t_stat,
                        tenuti_scartati, verdetto)
 
 BASELINE = "— baseline —"
+
+# le sole voci delle statistiche di backtesting.py che le righe usano
+_VOCI_STATS = ("Return [%]", "Sharpe Ratio", "Max. Drawdown [%]",
+               "Win Rate [%]", "Profit Factor")
+
+
+# ========================================================================
+# Esecuzione delle righe: in sequenza o su piu' processi (17/10/2026)
+# ========================================================================
+
+def _senza_barra(seq, **_):
+    """Al posto della barra di avanzamento di backtesting.py: un backtest dura
+    circa un secondo e la barra costa tempo senza dire nulla di utile."""
+    return seq
+
+
+def _giro(bt, run_kw):
+    """Un backtest: i trade e le cinque statistiche che servono alla riga."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        stats = bt.run(**run_kw)
+    return {"_trades": stats["_trades"], **{k: stats[k] for k in _VOCI_STATS}}
+
+
+_BT_PROCESSO = None   # il Backtest di un processo figlio, costruito una volta
+
+
+def _avvia_processo(df_bt, bt_kw):
+    global _BT_PROCESSO
+    warnings.simplefilter("ignore")
+    _libreria_bt._tqdm = _senza_barra       # nel processo figlio: vale solo li'
+    _BT_PROCESSO = Backtest(df_bt, _StrategiaGenerica, **bt_kw)
+
+
+def _giro_processo(run_kw):
+    return _giro(_BT_PROCESSO, run_kw)
+
+
+def _contesto_processi(esplicito):
+    """Come si avviano i processi figli, o None se non si possono usare.
+
+    fork (Linux, Colab): il figlio parte come copia del processo, sempre
+    lecito. Senza fork (Windows) c'e' solo spawn, che riesegue il file
+    principale: lecito in un notebook (nessun file) o se i processi sono
+    chiesti esplicitamente (lo script deve avere `if __name__ == "__main__":`).
+    """
+    if "fork" in mp.get_all_start_methods():
+        return mp.get_context("fork")
+    principale = sys.modules.get("__main__")
+    if esplicito or getattr(principale, "__file__", None) is None:
+        return mp.get_context("spawn")
+    return None
+
+
+def numero_processi(processi, n_giri):
+    """Quanti processi usare: None = automatico (i core disponibili)."""
+    if processi is not None:
+        return max(1, min(int(processi), n_giri))
+    if n_giri < 4:
+        return 1      # pochi giri: avviare i processi costerebbe piu' del guadagno
+    return max(1, min(os.cpu_count() or 1, n_giri))
+
+
+def esegui_giri(bt, df_bt, bt_kw, giri, processi=None):
+    """
+    Fa girare `giri` (una lista di kwargs per bt.run) e ritorna i risultati
+    di `_giro`, nell'ordine di `giri`. Con piu' processi ognuno costruisce il
+    suo Backtest su `df_bt` / `bt_kw`; se i processi non partono si torna in
+    sequenza su `bt`, con un avviso.
+    """
+    quanti = numero_processi(processi, len(giri))
+    contesto = _contesto_processi(processi is not None) if quanti > 1 else None
+    if contesto is not None:
+        try:
+            with ProcessPoolExecutor(max_workers=quanti, mp_context=contesto,
+                                     initializer=_avvia_processo,
+                                     initargs=(df_bt, bt_kw)) as ex:
+                return list(ex.map(_giro_processo, giri))
+        except (BrokenProcessPool, OSError) as e:
+            print(f"esegui_giri: processi non disponibili ({type(e).__name__}), "
+                  "si prosegue in sequenza.")
+    vecchia = _libreria_bt._tqdm
+    _libreria_bt._tqdm = _senza_barra
+    try:
+        return [_giro(bt, kw) for kw in giri]
+    finally:
+        _libreria_bt._tqdm = vecchia
 
 
 def run_filter_search_bt(
@@ -110,6 +214,7 @@ def run_filter_search_bt(
     n_barre_long=None,
     n_barre_short=None,
     pip_size=None,
+    processi=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -172,6 +277,11 @@ def run_filter_search_bt(
     pip_size (10/10/2026)
         Il pip fisso del symbol, di norma da **costi. None = dedotto dal
         prezzo medio come prima, con un avviso. Vedi run_exit_search_bt.
+
+    processi (17/10/2026)
+        Quanti processi usare per le righe. None (default) = automatico (i
+        core del computer, vedi il docstring del modulo); 1 = in sequenza.
+        I risultati non cambiano.
 
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
@@ -268,7 +378,12 @@ def run_filter_search_bt(
     # --- costruzione di TUTTE le colonne PRIMA di Backtest() -------------
     # Backtest() legge il DataFrame alla costruzione: una colonna aggiunta
     # dopo non e' visibile a bt.run(), va quindi tutto precalcolato qui.
-    df_bt = df.copy()
+    # 17/10/2026: al backtest servono solo i prezzi e le colonne aggiunte qui
+    # sotto (la strategia non legge altro). Senza gli indicatori la tabella
+    # e' molto piu' piccola: costa meno ricostruirla a ogni bt.run e
+    # spedirla ai processi. I trade non cambiano (test_velocita.py).
+    df_bt = df[[c for c in ("Open", "High", "Low", "Close", "Volume")
+                if c in df.columns]].copy()
     df_bt["sl_long"] = soglie["sl_long"]
     df_bt["tp_long"] = soglie["tp_long"]
     df_bt["sl_short"] = soglie["sl_short"]
@@ -312,8 +427,9 @@ def run_filter_search_bt(
 
     # --- backtest, una sola costruzione, riusata per ogni riga ------------
     avviso_capitale(df, cash, margin, close_col, contesto="run_filter_search_bt")  # 25/9: prezzo > capitale
-    bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
-                 commission=commission, margin=margin, exclusive_orders=True)
+    bt_kw = dict(cash=cash, spread=spread, commission=commission, margin=margin,
+                 exclusive_orders=True)
+    bt = Backtest(df_bt, _StrategiaGenerica, **bt_kw)
 
     if pip_size is None:   # 10/10/2026: di norma arriva fisso da **costi
         pip_size = deduci_pip(float(df[close_col].mean()))
@@ -322,21 +438,19 @@ def run_filter_search_bt(
                   "Passa i costi di parametri_backtest per il pip fisso del symbol.")
     pip_size = float(pip_size)
 
+    giri = [dict(long_col=col_long, short_col=col_short, n_barre=n_barre,
+                 n_barre_long=n_long, n_barre_short=n_short,
+                 exit_rule_long_col="__exit_long__" if exit_long_nome is not None else None,
+                 exit_rule_short_col="__exit_short__" if exit_short_nome is not None else None,
+                 inverti_su_opposto=bool(inverti_su_opposto))
+            for (_, _, _, col_long, col_short, _, _) in piano_colonne]
+    tutti_stats = esegui_giri(bt, df_bt, bt_kw, giri, processi=processi)
+
     righe = []
     trades_per_filtro = {}
     maschere_per_filtro = {}
     for (etichetta, filtro_long, filtro_short, col_long, col_short,
-         m_long, m_short) in piano_colonne:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            stats = bt.run(
-                long_col=col_long, short_col=col_short, n_barre=n_barre,
-                n_barre_long=n_long, n_barre_short=n_short,
-                exit_rule_long_col="__exit_long__" if exit_long_nome is not None else None,
-                exit_rule_short_col="__exit_short__" if exit_short_nome is not None else None,
-                inverti_su_opposto=bool(inverti_su_opposto),
-            )
-
+         m_long, m_short), stats in zip(piano_colonne, tutti_stats):
         trades = costo_extra_pips(stats["_trades"], df, quarantena, spread,
                                   spread_rollover_pips, pip_size)
 
