@@ -217,9 +217,19 @@ def esegui() -> int:
               and np.isfinite(m["zscore"]["z"]) and 0 <= m["percentile_oos"] <= 100,
               f"z {m['zscore']['z']:.2f} · out-of-sample al {m['percentile_oos']:.1f}°")
     r2 = muto(v.stress_test, s, 10_000)
-    check("19e. stress_test dopo il money management: identico a prima",
+    # fase 2, C1 (docs/61 §13.3): dopo la schermata 7 il drawdown viene da li'
+    check("19e. stress_test dopo il money management: stesso Monte Carlo, drawdown = 10.000 $ x 20 % = 2.000 $ "
+          "(il campo 10.000 non si usa), lotti di conseguenza",
           all(r2["montecarlo"][k] == r["montecarlo"][k] for k in mc if not k.startswith("_"))
-          and r2["sizing"] == r["sizing"])
+          and r2["drawdown_max_usd"] == 2_000.0
+          and abs(r2["sizing"]["lotti_drawdown"] - 2_000 / (mc["dd_p95"] * 10.0)) < 1e-9)
+    check("19g. stress_test senza la schermata 7: usa il suo campo, numeri identici a prima",
+          r["drawdown_max_usd"] == 10_000.0 and r["sizing"]["lotti_drawdown"] == r["sizing"]["lotti_drawdown"]
+          and abs(r["sizing"]["lotti_drawdown"] - 10_000 / (mc["dd_p95"] * 10.0)) < 1e-9)
+    muto(v.scheda, s, None)
+    r3 = muto(v.stress_test, s, 10_000)
+    check("19h. rifare la scheda azzera la schermata 7: lo stress test torna al suo campo",
+          s.mm is None and r3["drawdown_max_usd"] == 10_000.0 and r3["sizing"] == r["sizing"])
 
     print("\nC · Casi particolari")
     muto(v.scegli_trigger, s, long=None, short=SHORT[0])

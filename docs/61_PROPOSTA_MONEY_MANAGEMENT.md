@@ -414,3 +414,17 @@ Nel notebook di ricerca la stessa cosa: in Sessione 6, `DD_ACCETTABILE_USD = CAP
 5. Ordine: prima 13.1 e 13.2 insieme, poi 13.3.
 
 Domanda di Mattia sull'accensione/spegnimento delle strategie: nel libro ci sono il filtro sulla curva dei profitti (cap. 5.6, media di 30 trade sulla curva teorica a 1 contratto; freno di emergenza, non miglioramento), il piano di lavoro (cap. 7, abbandono oltre il drawdown previsto per il periodo, campanello anche per profitti troppo alti, p. 251), la pausa naturale del modello a volatilità (cap. 4.5) e la sospensione dopo una perdita con z-score molto negativo (cap. 5.7, che l'autore stesso non usa). Il filtro sulla curva resta nella fase 3: se scelto, va deciso prima di guardare i risultati.
+
+### 13.7 · Fase 2: cosa è stato fatto (16/10/2026)
+
+- **13.1 e 13.2** (commit a parte): in `engine/money_management.py` le funzioni `zscore`, `tabella_controllo` (3, 6, 12 mesi; percentili 50 / 95 / 99) e `percentile_drawdown`. Nella sezione 7 compaiono la riga dello z-score nella tabella del rischio, la tabella di controllo per il live e la posizione dell'out-of-sample. Quest'ultima usa il Monte Carlo alla durata esatta dell'out-of-sample, non il periodo più vicino. `test_money_management.py` 58/58: lo z-score del libro risulta 0,23649, che il libro tronca a 0,2364.
+- **13.3 (C1):**
+  - `stress_test` usa capitale × drawdown % della schermata 7 se è stata eseguita su quella scheda, altrimenti il suo campo; una riga dice da dove viene il numero;
+  - rifare la scheda azzera la schermata 7;
+  - nel notebook di ricerca, `DD_ACCETTABILE_USD` della Sessione 6 viene dalla Sessione 5;
+  - il valore del pip dello stress test resta all'ultima barra (§3.4).
+- **Collaudo:**
+  - `test_vetrina.py` 65/65;
+  - tutte le 20 suite RISULTATO n/n;
+  - EURUSD contro `main`: nel Lab cambiano solo la sezione 7 e lo stress test (drawdown 2.000 $ invece di 10.000 $, lotti consigliati 0,03 invece di 0,17); nel notebook di ricerca cambiano solo la Sessione 5 e la cella dei lotti della Sessione 6 (più la riga con la cartella del progetto);
+  - giri completi su DE40 per i due notebook.

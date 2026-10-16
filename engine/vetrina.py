@@ -1085,6 +1085,7 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
     s.filtri_scelti = scelti
     s.filtro = " + ".join(scelti) if scelti else None
     s.trades_is, s.trades_oos = tr_is, tr_oos
+    s.mm = None                     # 16/10/2026: la schermata 7 va rifatta sulla scheda nuova
 
     if len(scelti) > 1:
         tab_passi = pd.DataFrame(passi)
@@ -1281,7 +1282,8 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     out = {"f": f, "calibrazione": cal, "rischio": tab_rischio, "tabella_is": tab_is,
            "tabella_oos": tab_oos, "kelly": k, "optimal_f": f_opt, "n_trade": n_trade,
            "limiti": limiti, "sintesi": None, "percorso_is": None, "percorso_oos": None,
-           "banda": None, "zscore": zs, "controllo": None, "percentile_oos": None}
+           "banda": None, "zscore": zs, "controllo": None, "percentile_oos": None,
+           "capitale": float(capitale), "drawdown_max_pct": dd_max}
     if f is None:
         _riquadro(
             "Per ogni percentuale di rischio, migliaia di storie simulate con i trade in-sample.",
@@ -1393,8 +1395,8 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         "ti piace, smette di essere una prova. Dal vivo tieni accanto la tabella di controllo: se dopo 3, 6 o 12 mesi "
         "il drawdown supera la colonna «da allarme» riduci o metti in pausa, oltre «da fermarsi» fermati e ristudia "
         "la strategia. Poi vai alla schermata 8 (verifica dei trade) e alla 9 (stress test). "
-        "I lotti consigliati dello stress test sono fissi e rispondono a un'altra domanda: per ora le due sezioni "
-        "restano separate.")
+        "Lo stress test prende capitale e drawdown da qui; i suoi lotti consigliati sono fissi e rispondono a "
+        "un'altra domanda: quanti lotti, sempre uguali, per non superare quel drawdown su tutto lo storico.")
     _nota("Limiti da conoscere: le storie simulate trattano i trade come indipendenti; con lo stop spento il rischio "
           "è quello tipico, non il massimo; un trade può perdere più di 1 R (gap, stop non attivo sulla barra "
           "d'ingresso); i costi di swap non sono nel backtest.")
@@ -1454,11 +1456,21 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
     Schermata 9. Monte Carlo sui trade della strategia scelta (in-sample +
     out-of-sample), tabella di controllo per il live e lotti consigliati.
 
-    drawdown_max_usd   il drawdown massimo che accetti sul conto, in dollari
+    drawdown_max_usd   il drawdown massimo che accetti sul conto, in dollari.
+                       16/10/2026 (docs/61 §13.3, scelta C1 di Mattia): se la
+                       schermata 7 e' stata eseguita su questa scheda, il
+                       drawdown viene da li' (capitale x drawdown %) e questo
+                       valore non si usa; altrimenti si usa questo, come prima.
 
     Ritorna {"controllo": tabella, "montecarlo": dict, "sizing": dict}.
     """
     s._serve("oos", "6 · Scheda strategia")
+    if s.mm is not None:
+        drawdown_max_usd = s.mm["capitale"] * s.mm["drawdown_max_pct"] / 100.0
+        origine = (f"dalla schermata 7: {_fmt(s.mm['capitale'], 0)} $ × {_fmt(s.mm['drawdown_max_pct'], 1)} % "
+                   f"= {_fmt(drawdown_max_usd, 0)} $")
+    else:
+        origine = f"dal campo di questa schermata: {_fmt(float(drawdown_max_usd), 0)} $ (schermata 7 non eseguita)"
     pips = pips_per_dataset(s.trades_is, s.trades_oos,
                             s.fs.pip_size, s.fs.commission or 0.0, dataset="FULL")
     with _zitto():
@@ -1486,6 +1498,7 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
               _fmt(sz["lotti_consigliati"])],
     })
     s.tabelle["stress"] = {"controllo": controllo, "sintesi": sintesi}
+    _nota(f"Drawdown che accetti, {origine}.")
     _mostra(("Stress test · in sintesi", sintesi), ("Tabella di controllo per il live", controllo),
             decimali={"Dopo quanti trade": 0, "Risultato tipico (pips)": 0, "Drawdown tipico (pips)": 0,
                       "Drawdown da allarme (pips)": 0, "Probabilità di essere in perdita (%)": 1})
@@ -1503,7 +1516,8 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
         "È il segnale per ridurre i lotti o fermarsi.")
     _nota("Limite da conoscere: le simulazioni trattano i trade come indipendenti e non possono inventare "
           "un trade peggiore del peggiore già visto. Se le perdite arrivano a grappoli, la realtà può essere un po' più dura.")
-    return {"controllo": controllo, "montecarlo": mc, "sizing": sz}
+    return {"controllo": controllo, "montecarlo": mc, "sizing": sz,
+            "drawdown_max_usd": float(drawdown_max_usd)}
 
 
 # ========================================================================
