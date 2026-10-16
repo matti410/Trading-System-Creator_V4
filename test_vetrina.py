@@ -216,6 +216,15 @@ def esegui() -> int:
               list(c["periodo"]) == ["3 mesi", "6 mesi", "12 mesi"]
               and np.isfinite(m["zscore"]["z"]) and 0 <= m["percentile_oos"] <= 100,
               f"z {m['zscore']['z']:.2f} · out-of-sample al {m['percentile_oos']:.1f}°")
+    conf = m["confronto"]
+    mr = muto(v.money_management, s, 10_000, 20, 1, "rischio fisso")
+    check("19i. fase 3: confronto dei due modelli, volatilita' in uso di default; con «rischio fisso» la "
+          "percentuale e' quella del rischio fisso nel confronto e i trade sono gli stessi",
+          m["modello"] == "volatilità" and len(conf) == 2 and conf["Modello"].iloc[0].endswith("in uso")
+          and mr["modello"] == "rischio fisso"
+          and (mr["f"] is None or abs(mr["f"] * 100 - conf["Percentuale scelta (%)"].iloc[1]) < 1e-9)
+          and np.array_equal(mr["tabella_is"]["pips_netti"].to_numpy(), m["tabella_is"]["pips_netti"].to_numpy()))
+    m = muto(v.money_management, s, 10_000, 20, 1)        # torna al modello predefinito per lo stress test
     r2 = muto(v.stress_test, s, 10_000)
     # fase 2, C1 (docs/61 §13.3): dopo la schermata 7 il drawdown viene da li'
     check("19e. stress_test dopo il money management: stesso Monte Carlo, drawdown = 10.000 $ x 20 % = 2.000 $ "

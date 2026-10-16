@@ -1161,44 +1161,96 @@ def _pct(v, decimali=2):
     return "—" if v is None or not np.isfinite(v) else f"{_fmt(v * 100, decimali)} %"
 
 
+MODELLI_MM = {"volatilita": "volatilità", "stop": "rischio fisso"}
+
+
+def _modello(modello: str) -> str:
+    """Da «volatilità» / «rischio fisso» alla misura dell'adattatore."""
+    m = str(modello or "").strip().lower()
+    if m.startswith("volatilit"):
+        return "volatilita"
+    if m in ("rischio fisso", "rischio_fisso", "stop", "fisso"):
+        return "stop"
+    raise ValueError(f"modello sconosciuto: {modello!r}. Usa «volatilità» oppure «rischio fisso».")
+
+
 def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pip: float,
                            commission: float = 0.0, spread_pips: float = 0.0,
                            perc_sl: float = 90.0, n_barre_long: int = 25, n_barre_short: int = 25,
                            finestra: int = FINESTRA, lag: int = LAG, cartella=".",
                            capitale: float = 10_000.0, drawdown_max_pct: float = 20.0,
                            anni: float = 1.0, simulazioni: int = SIMULAZIONI_MM,
-                           titolo: str = "") -> dict:
+                           titolo: str = "", modello: str = "volatilità",
+                           storia: pd.DataFrame | None = None) -> dict:
     """
     La sezione «Money management» con gli argomenti espliciti: la usa il
     notebook di ricerca (Sessione 5); il Lab passa da `money_management(s)`.
     Stesso codice per i due notebook.
 
-    1. tabella dei trade (engine/mm_adattatore.py) in-sample e out-of-sample;
-    2. calibrazione SOLO sull'in-sample: per ogni percentuale di rischio il
-       Monte Carlo su `anni` di trade, scelta la piu' alta il cui drawdown al
-       95° percentile resta entro `drawdown_max_pct` (secure f);
-    3. con la percentuale fissata, la storia vera in-sample e out-of-sample,
-       e la banda che il Monte Carlo in-sample prevedeva per l'out-of-sample.
+    1. tabella dei trade (engine/mm_adattatore.py) in-sample e out-of-sample,
+       per i DUE modelli: rischio fisso (stop + costi) e volatilita' (ATR
+       giornaliero a 5 giornate chiuse; fase 3, docs/61 §14);
+    2. calibrazione SOLO sull'in-sample, per ciascun modello: per ogni
+       percentuale il Monte Carlo su `anni` di trade, scelta la piu' alta il
+       cui drawdown al 95° percentile resta entro `drawdown_max_pct`; tabella
+       di confronto dei due modelli (scelta V2 di Mattia);
+    3. con il `modello` scelto e la sua percentuale: storia vera in-sample e
+       out-of-sample, banda prevista, tabella di controllo.
 
-    Ritorna un dict: f, calibrazione, rischio, sintesi, percorso_is,
-    percorso_oos, banda, tabella_is, tabella_oos, kelly, optimal_f, n_trade.
+    storia   lo storico completo (df) per calcolare l'ATR senza ripartire da
+             zero all'inizio dell'out-of-sample. None = ogni parte per conto suo.
+
+    Ritorna un dict: modello, confronto, f, calibrazione, rischio, sintesi,
+    percorso_is, percorso_oos, banda, tabella_is, tabella_oos, kelly,
+    optimal_f, n_trade, controllo, zscore, percentile_oos, capitale,
+    drawdown_max_pct.
     """
     from . import money_management as mm
+    from .indicatori import atr_giornaliero_chiuso
     from .mm_adattatore import limiti_symbol, tabella_trade, trade_per_anno
 
+    scelto = _modello(modello)
     kw = dict(symbol=symbol, pip=pip, commission=commission, spread_pips=spread_pips,
               perc_sl=perc_sl, n_barre_long=n_barre_long, n_barre_short=n_barre_short,
               finestra=finestra, lag=lag, cartella=cartella)
-    tab_is = tabella_trade(trades_is, df_is, **kw)
-    tab_oos = tabella_trade(trades_oos, df_oos, **kw) if trades_oos is not None else tab_is.iloc[:0]
+    atr = atr_giornaliero_chiuso(storia) if storia is not None else None
+    tabelle = {}
+    for misura in MODELLI_MM:
+        extra = dict(misura=misura, atr=atr)
+        t_is = tabella_trade(trades_is, df_is, **kw, **extra)
+        t_oos = tabella_trade(trades_oos, df_oos, **kw, **extra) if trades_oos is not None else t_is.iloc[:0]
+        tabelle[misura] = (t_is, t_oos)
+    tab_is, tab_oos = tabelle[scelto]
     if len(tab_is) < 5:
         raise ValueError(f"Servono almeno 5 trade in-sample per il money management (ce ne sono {len(tab_is)}).")
     limiti = limiti_symbol(symbol)
     freq = trade_per_anno(trades_is, df_is)                 # trade all'anno, in-sample
     n_trade = max(10, int(round(freq * float(anni))))
     dd_max = float(drawdown_max_pct)
+    col_dd = f"drawdown_p{PERCENTILE_MM}"
 
-    # --- il rischio dei trade (in-sample) ------------------------------
+    # --- la scelta della percentuale, per i due modelli (solo in-sample) ---
+    calibrazioni = {}
+    with _zitto():
+        for misura, (t_is, _) in tabelle.items():
+            calibrazioni[misura] = mm.calibra(t_is, capitale, dd_max, n_trade, percentile=PERCENTILE_MM,
+                                              n_sim=simulazioni, limiti=limiti)
+    cal, f = calibrazioni[scelto]
+    righe_conf = []
+    for misura, (c, fm) in calibrazioni.items():
+        riga = c.iloc[int(np.argmin(np.abs(c["f"].to_numpy() - fm)))] if fm is not None else None
+        righe_conf.append({
+            "Modello": MODELLI_MM[misura] + ("  ◀ in uso" if misura == scelto else ""),
+            "Percentuale scelta (%)": fm * 100 if fm is not None else np.nan,
+            "Drawdown tipico (%)": riga["drawdown_p50"] if riga is not None else np.nan,
+            "Drawdown nel caso sfortunato, 1 su 20 (%)": riga[col_dd] if riga is not None else np.nan,
+            "Rendimento tipico (%)": riga["rendimento_p50"] if riga is not None else np.nan,
+            "Probabilità di chiudere in perdita (%)": riga["p_perdita"] if riga is not None else np.nan,
+            "Trade saltati (%)": riga["saltati_pct"] if riga is not None else np.nan,
+        })
+    tab_confronto = pd.DataFrame(righe_conf)
+
+    # --- il rischio dei trade (in-sample, modello in uso) --------------
     ok = np.isfinite(tab_is["rischio_pips"]) & (tab_is["rischio_pips"] > 0)
     r = (tab_is["pips_netti"] / tab_is["rischio_pips"])[ok].to_numpy()
     k = mm.kelly(r)
@@ -1206,23 +1258,24 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     rischio_usd = (tab_is["rischio_pips"] * tab_is["valore_entrata"])[ok]
     zs = mm.zscore(tab_is["pips_netti"])               # fase 2 (docs/61 §13.2): solo avviso
     stop_acceso = bool(perc_sl and perc_sl > 0)
+    vol = scelto == "volatilita"
+    unita = "ATR" if vol else "R"
     tab_rischio = pd.DataFrame({
-        "": ["Trade in-sample", "Rischio mediano per trade (pips, stop + costi)",
-             "Rischio medio per trade (pips)", "Rischio mediano con 1 lotto ($)",
-             "Trade che hanno perso più di 1 R (%)", "Perdita peggiore (in R)",
+        "": ["Trade in-sample",
+             "Volatilità mediana per trade (ATR a 5 giornate, pips)" if vol
+             else "Rischio mediano per trade (pips, stop + costi)",
+             "Volatilità media per trade (pips)" if vol else "Rischio medio per trade (pips)",
+             "Volatilità mediana con 1 lotto ($)" if vol else "Rischio mediano con 1 lotto ($)",
+             f"Trade che hanno perso più di 1 {unita} (%)", f"Perdita peggiore (in {unita})",
+             "Trade senza misura (saltati)",
              "Kelly (riferimento)", "Optimal f (riferimento)",
              "Trade a grappoli? (z-score)"],
         " ": [_fmt(len(tab_is)), _fmt(float(tab_is.loc[ok, "rischio_pips"].median()), 1),
               _fmt(float(tab_is.loc[ok, "rischio_pips"].mean()), 1), f"{_fmt(float(rischio_usd.median()))} $",
               _fmt(float((r < -1).mean() * 100), 1), _fmt(float(r.min()), 2) if r.size else "—",
+              _fmt(int((~ok).sum())),
               _pct(k), _pct(f_opt), _lettura_z(zs)],
     })
-
-    # --- la scelta della percentuale (solo in-sample) ------------------
-    with _zitto():
-        cal, f = mm.calibra(tab_is, capitale, dd_max, n_trade, percentile=PERCENTILE_MM,
-                            n_sim=simulazioni, limiti=limiti)
-    col_dd = f"drawdown_p{PERCENTILE_MM}"
     tab_cal = pd.DataFrame({
         "Rischio per trade (%)": cal["f"] * 100,
         "Drawdown tipico (%)": cal["drawdown_p50"],
@@ -1242,15 +1295,28 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         tab_cal_vista = tab_cal.head(6)
 
     suff = f" · {titolo}" if titolo else ""
+    if vol:
+        misura_txt = ("modello a volatilità: lotti = capitale × percentuale ÷ (ATR giornaliero a 5 giornate chiuse × "
+                      "valore di 1 pip); lo stop non entra nel calcolo.")
+    elif stop_acceso:
+        misura_txt = "rischio fisso: rischio = distanza dallo stop + costi."
+    else:
+        misura_txt = ("rischio fisso: rischio = stop di calcolo (stop spento: la soglia al 90° percentile, letta come "
+                      "rischio tipico) + costi.")
     _nota(f"Capitale iniziale {_fmt(float(capitale), 0)} $ · drawdown accettato {_fmt(dd_max, 1)} % "
           f"su {_fmt(float(anni), 1)} anni = circa {n_trade} trade (dalla frequenza in-sample) · "
           f"caso sfortunato al {PERCENTILE_MM}° percentile · {_fmt(simulazioni)} storie simulate · "
           f"lotti da {_fmt(limiti['minimo'])} a passi di {_fmt(limiti['passo'])}, massimo {_fmt(limiti['massimo'], 0)}, "
-          f"leva massima {limiti['leva']} · rischio = "
-          + ("distanza dallo stop + costi." if stop_acceso
-             else "stop di calcolo (stop spento: la soglia al 90° percentile, letta come rischio tipico) + costi."))
-    _mostra(("Il rischio dei tuoi trade (in-sample)", tab_rischio),
-            ("La scelta della percentuale (Monte Carlo sull'in-sample)", tab_cal_vista),
+          f"leva massima {limiti['leva']} · in uso il {misura_txt}")
+    _mostra(("I due modelli a confronto (Monte Carlo sull'in-sample, stessa regola sul drawdown)", tab_confronto),
+            decimali={"Percentuale scelta (%)": 2, "Drawdown tipico (%)": 1,
+                      "Drawdown nel caso sfortunato, 1 su 20 (%)": 1, "Rendimento tipico (%)": 1,
+                      "Probabilità di chiudere in perdita (%)": 1, "Trade saltati (%)": 1})
+    _nota("Il confronto usa solo l'in-sample. Scegli il modello qui, prima di guardare l'out-of-sample qui sotto: "
+          "cambiarlo dopo averlo visto smette di essere una prova. Scegliere guardando questa tabella conta come una "
+          "prova in più.")
+    _mostra((f"Il rischio dei tuoi trade (in-sample, {MODELLI_MM[scelto]})", tab_rischio),
+            (f"La scelta della percentuale (Monte Carlo sull'in-sample, {MODELLI_MM[scelto]})", tab_cal_vista),
             decimali={"Rischio per trade (%)": 2, "Drawdown tipico (%)": 1,
                       "Drawdown nel caso sfortunato, 1 su 20 (%)": 1, "Rendimento tipico (%)": 1,
                       "Probabilità di chiudere in perdita (%)": 1, "Probabilità di restare bloccati (%)": 1,
@@ -1279,7 +1345,8 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     plt.tight_layout()
     plt.show()
 
-    out = {"f": f, "calibrazione": cal, "rischio": tab_rischio, "tabella_is": tab_is,
+    out = {"modello": MODELLI_MM[scelto], "confronto": tab_confronto,
+           "f": f, "calibrazione": cal, "rischio": tab_rischio, "tabella_is": tab_is,
            "tabella_oos": tab_oos, "kelly": k, "optimal_f": f_opt, "n_trade": n_trade,
            "limiti": limiti, "sintesi": None, "percorso_is": None, "percorso_oos": None,
            "banda": None, "zscore": zs, "controllo": None, "percentile_oos": None,
@@ -1377,16 +1444,20 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     valore_tipico = float(tab_is.loc[ok, "valore_entrata"].median())
     lotti_es, _ = mm.lotti_rischio_fisso(capitale_live, f, rischio_tipico, valore_tipico,
                                          {k2: v for k2, v in limiti.items() if k2 != "leva"})
-    _nota(f"Per il live: lotti = capitale × {_fmt(f * 100)} % ÷ (rischio del trade in pips × valore di 1 pip con "
+    nome_misura = "ATR giornaliero a 5 giornate chiuse" if vol else "rischio del trade"
+    parola = "un ATR" if vol else "un rischio"
+    _nota(f"Per il live: lotti = capitale × {_fmt(f * 100)} % ÷ ({nome_misura} in pips × valore di 1 pip con "
           f"1 lotto), arrotondati per difetto al passo di {_fmt(limiti['passo'])}. Esempio: con "
-          f"{_fmt(capitale_live, 0)} $ e un rischio di {_fmt(rischio_tipico, 1)} pips "
+          f"{_fmt(capitale_live, 0)} $ e {parola} di {_fmt(rischio_tipico, 1)} pips "
           f"({_fmt(valore_tipico)} $ per pip) sono {_fmt(lotti_es)} lotti. Sotto {_fmt(limiti['minimo'])} lotti il "
           f"trade si salta; il nozionale non supera {limiti['leva']} volte il capitale.")
     _riquadro(
-        "Quanto rischiare su ogni trade, in percentuale del conto. Lo strumento prova ogni percentuale su migliaia "
-        "di storie costruite con i soli trade in-sample, con il conto che cresce e cala e i lotti ricalcolati a ogni "
-        "trade, e sceglie la più alta che resta sotto il drawdown che hai detto di accettare. Poi, con quella "
-        "percentuale già fissata, mostra cosa avrebbe fatto il conto sui dati mai visti.",
+        "Quanto rischiare su ogni trade, in percentuale del conto. Due modi di misurare il rischio: «rischio fisso» "
+        "guarda dove sta lo stop, «volatilità» guarda quanto si è mosso il mercato negli ultimi 5 giorni (ATR) e si "
+        "ferma da solo quando è troppo agitato per il capitale. Per ciascuno lo strumento prova ogni percentuale su "
+        "migliaia di storie costruite con i soli trade in-sample, con il conto che cresce e cala e i lotti "
+        "ricalcolati a ogni trade, e sceglie la più alta che resta sotto il drawdown che hai detto di accettare. Poi, "
+        "con il modello in uso e la sua percentuale già fissata, mostra cosa avrebbe fatto il conto sui dati mai visti.",
         "Kelly e optimal f sono il bordo del precipizio: la percentuale che col senno di poi avrebbe reso di più, "
         "e oltre la quale il drawdown esplode. Stare molto sotto è normale. Nel grafico del conto guarda se la linea "
         "blu resta dentro la banda prevista: fuori dal basso vuol dire che i dati mai visti sono andati peggio del "
@@ -1404,7 +1475,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
 
 
 def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: float = 20.0,
-                     anni: float = 1.0) -> dict:
+                     anni: float = 1.0, modello: str = "volatilità") -> dict:
     """
     Schermata 7. Quanto rischiare su ogni trade (rischio fisso in percentuale,
     docs/61): la percentuale si sceglie sull'in-sample con la tua regola sul
@@ -1413,6 +1484,9 @@ def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: 
     capitale           il conto con cui partiresti, in dollari
     drawdown_max_pct   il calo massimo dal massimo che accetti, in %
     anni               su quanto tempo vale la regola del drawdown
+    modello            «volatilità» (predefinito, decisione di Mattia del 16/10)
+                       oppure «rischio fisso»: i due si confrontano comunque
+                       sull'in-sample
 
     Ritorna il dict di `money_management_trade`, salvato anche in `s.mm`.
     """
@@ -1423,7 +1497,7 @@ def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: 
         commission=s.fs.commission or 0.0, spread_pips=s.spread_pips, perc_sl=u["perc_sl"],
         n_barre_long=u["n_barre_long"], n_barre_short=u["n_barre_short"], finestra=FINESTRA,
         lag=LAG, cartella=s.cartella, capitale=capitale, drawdown_max_pct=drawdown_max_pct,
-        anni=anni, titolo=f"{s.symbol} · {s.filtro or 'sistema base'}")
+        anni=anni, titolo=f"{s.symbol} · {s.filtro or 'sistema base'}", modello=modello, storia=s.df)
     s.mm = out
     s.tabelle["money_management"] = {"rischio": out["rischio"], "sintesi": out["sintesi"]}
     return out

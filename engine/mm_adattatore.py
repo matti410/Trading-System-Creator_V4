@@ -23,6 +23,10 @@ LE REGOLE (decisioni di Mattia del 16/10/2026, docs/61 §3 e §10)
   (USDJPY) -> 1 / prezzo; altre valute (DE40 in EUR) -> {valuta}USD dal CSV
   della cartella dei dati. Al segnale per i lotti, all'uscita per il guadagno.
 - Limiti: lotto minimo, passo e massimo da simboli.LOTTI, leva da simboli.LEVA.
+- 16/10/2026, fase 3 (docs/61 §14): misura="volatilita'" = modello a
+  volatilita' del libro (cap. 4.5): il "rischio" e' l'ATR giornaliero a 5
+  giornate FX chiuse (indicatori.atr_giornaliero_chiuso) alla barra del
+  segnale, in pips, senza costi. Il modulo puro non cambia.
 
 Modulo ADDITIVO: legge simboli, metriche, exit_search_bt (soglie_per_lato) e il
 fuso del broker, senza modificarli.
@@ -40,6 +44,8 @@ from .broker_tz_diagnostic import to_utc_index
 from .exit_search_bt import soglie_per_lato
 from .metriche import pips_per_trade
 from .simboli import info_symbol, leva_symbol, lotti_symbol
+
+MISURE = ("stop", "volatilita")
 
 PERC_STOP_CALCOLO = 90.0            # strada A: stesso percentile dello stop di default
 REGOLA_FUSO = "A_US_DST (NY+7h)"
@@ -79,7 +85,8 @@ def _conversione(symbol: str, prezzi: np.ndarray, tempi: pd.DatetimeIndex,
 def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: float,
                   commission: float = 0.0, spread_pips: float = 0.0, perc_sl: float = 90.0,
                   n_barre_long: int = 25, n_barre_short: int = 25, finestra: int = 500,
-                  lag: int = 1, cartella=".") -> pd.DataFrame:
+                  lag: int = 1, cartella=".", misura: str = "stop",
+                  atr: pd.Series | None = None) -> pd.DataFrame:
     """
     La tabella dei trade per engine/money_management.py, in ordine di uscita.
 
@@ -91,14 +98,24 @@ def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: floa
                 gli stessi parametri del backtest: servono allo stop di calcolo
                 quando lo stop e' spento (perc_sl = 0)
     cartella    dove sta {valuta}USD_M15.csv per i symbol non quotati in USD
+    misura      "stop" (rischio fisso: distanza dallo stop + costi) oppure
+                "volatilita" (modello a volatilita': ATR giornaliero in pips)
+    atr         facoltativo, per misura="volatilita": l'ATR gia' calcolato su
+                uno storico piu' lungo che contiene df (cosi' l'out-of-sample
+                non riparte da zero). Senza, si calcola su df.
 
     Colonne: entrata, uscita, lato, pips_netti, costo_pips, frazione_stop,
-    rischio_pips, prezzo_segnale, valore_entrata, valore_uscita, nozionale_lotto.
+    rischio_pips, prezzo_segnale, valore_entrata, valore_uscita, nozionale_lotto,
+    atr_pips (NaN con misura="stop").
     """
+    misura = "volatilita" if str(misura).lower().startswith("volatilit") else str(misura).lower()
+    if misura not in MISURE:
+        raise ValueError(f"misura deve essere 'stop' o 'volatilita', non {misura!r}.")
     if len(trades) == 0:
         return pd.DataFrame(columns=["entrata", "uscita", "lato", "pips_netti", "costo_pips",
                                      "frazione_stop", "rischio_pips", "prezzo_segnale",
-                                     "valore_entrata", "valore_uscita", "nozionale_lotto"])
+                                     "valore_entrata", "valore_uscita", "nozionale_lotto",
+                                     "atr_pips"])
     t = trades.sort_values("ExitTime", kind="mergesort")
     lordi, netti = pips_per_trade(t, pip, commission)
     entrata = pd.DatetimeIndex(t["EntryTime"])
@@ -122,6 +139,12 @@ def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: floa
 
     costo = float(spread_pips) + (lordi - netti).to_numpy(dtype=float)
     rischio = frazione * prezzo_segnale / float(pip) + costo
+    atr_pips = np.full(len(t), np.nan)
+    if misura == "volatilita":
+        from .indicatori import atr_giornaliero_chiuso
+        serie = atr_giornaliero_chiuso(df) if atr is None else atr
+        atr_pips = serie.reindex(tempo_segnale).to_numpy(dtype=float) / float(pip)
+        rischio = atr_pips
 
     info = info_symbol(symbol)
     cambi = None
@@ -143,6 +166,7 @@ def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: floa
         "valore_entrata": contratto * float(pip) * conv_in,
         "valore_uscita": contratto * float(pip) * conv_out,
         "nozionale_lotto": contratto * prezzo_segnale * conv_in,
+        "atr_pips": atr_pips,
     }).reset_index(drop=True)
 
 
