@@ -464,7 +464,11 @@ def scheda_strategia(trades: pd.DataFrame, pip_size: float,
     # EV in R multipli: rischio = distanza dallo stop di quel trade
     ev_r = np.nan
     if "SL" in trades.columns:
-        R = np.abs(trades["EntryPrice"].to_numpy() - trades["SL"].to_numpy()) / pip_size
+        # 16/10/2026: con lo stop spento backtesting.py lascia None nella
+        # colonna SL; letta come numeri diventa NaN e l'EV in R resta NaN
+        # (prima: TypeError e scheda ferma). Con lo stop acceso nulla cambia.
+        R = np.abs(trades["EntryPrice"].to_numpy(dtype=float)
+                   - trades["SL"].to_numpy(dtype=float)) / pip_size
         ok = np.isfinite(R) & (R > 0)
         if ok.any():
             ev_r = float((n[ok] / R[ok]).mean())

@@ -436,6 +436,33 @@ def esegui() -> int:
           {"ema20", "ema50", "rsi", "vwap"} <= set(v.indicatori_disponibili(s))
           and not {"Open", "Close", "Volume", "spread"} & set(v.indicatori_disponibili(s)))
 
+    # 16/10/2026: con lo stop a 0 la scheda si fermava (colonna SL con None,
+    # TypeError in giudizio.scheda_strategia). Il percorso deve arrivare in fondo.
+    print("\nG · Stop spento (stop = 0): il percorso arriva in fondo")
+    from engine.giudizio import scheda_strategia
+    muto(v.imposta_uscite, s, BL, BS, 0.0, 0.0)
+    try:
+        muto(v.trova_strategia, s)
+        muto(v.scheda, s, None)
+        muto(v.verifica_trade, s)
+        muto(v.stress_test, s, 10_000)
+        arriva, motivo = True, ""
+    except Exception as e:                                  # noqa: BLE001
+        arriva, motivo = False, f"{type(e).__name__}: {e}"
+    check("56. stop = 0: trova_strategia, scheda, verifica_trade e stress_test senza errori", arriva, motivo)
+    if arriva:
+        sl_vuoto = s.trades_is["SL"].map(lambda x: x is None or (isinstance(x, float) and np.isnan(x)))
+        k0 = scheda_strategia(s.trades_is, s.fs.pip_size, 0.0, montecarlo=False, verbose=False)
+        check("57. stop = 0: colonna SL vuota e EV in R multipli non disponibile (NaN)",
+              bool(sl_vuoto.all()) and np.isnan(k0["ev_R"]), f"{len(s.trades_is)} trade")
+    finti = pd.DataFrame({"Size": [1, -1, 1], "EntryPrice": [1.1000, 1.2000, 1.3000],
+                          "ExitPrice": [1.1010, 1.1990, 1.2990], "SL": [1.0990, 1.2020, 1.2950],
+                          "EntryBar": [0, 5, 9], "ExitBar": [3, 8, 12]})
+    k1 = scheda_strategia(finti, 0.0001, 0.0, montecarlo=False, verbose=False)
+    atteso = np.mean([10 / 10, 10 / 20, -10 / 50])
+    check("58. stop acceso: EV in R multipli invariato (pips / distanza dallo stop)",
+          abs(k1["ev_R"] - atteso) < 1e-9, f"{k1['ev_R']:.4f}")
+
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
     print(f"RISULTATO: {ok}/{tot} test superati  (pandas {pd.__version__})")
