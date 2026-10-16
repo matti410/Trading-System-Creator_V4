@@ -373,6 +373,76 @@ def calibra(tabella: pd.DataFrame, capitale: float, drawdown_max_pct: float, n_t
     return t, scelta
 
 
+def zscore(risultati) -> dict:
+    """
+    z-score della sequenza dei trade (cap. 5.7, p. 110-112): misura se vincite
+    e perdite tendono ad alternarsi (z positivo) o ad arrivare in serie (z
+    negativo). Una "serie" e' un blocco di trade consecutivi dello stesso esito;
+    i trade a zero contano fra i perdenti, come nel libro.
+
+        z = (N (R - 0,5) - X) / sqrt(X (X - N) / (N - 1)),   X = 2 W L
+
+    Ritorna {z, n, serie, vincenti, perdenti}. z NaN se mancano vincite o
+    perdite. Fase 2 di docs/61: serve solo come AVVISO sul Monte Carlo (con z
+    sotto -1,96 le perdite arrivano a grappoli e i drawdown simulati, che
+    trattano i trade come indipendenti, sono ottimisti).
+    """
+    x = np.asarray(risultati, dtype=float)
+    x = x[np.isfinite(x)]
+    vince = x > 0
+    n = int(x.size)
+    w = int(vince.sum())
+    l = n - w
+    serie = int(1 + np.count_nonzero(vince[1:] != vince[:-1])) if n else 0
+    xx = 2.0 * w * l
+    if n < 2 or w == 0 or l == 0 or xx - n <= 0:
+        z = float("nan")
+    else:
+        z = float((n * (serie - 0.5) - xx) / np.sqrt(xx * (xx - n) / (n - 1)))
+    return {"z": z, "n": n, "serie": serie, "vincenti": w, "perdenti": l}
+
+
+def tabella_controllo(tabella: pd.DataFrame, capitale: float, f: float, orizzonti: dict,
+                      n_sim: int = 10_000, limiti: dict | None = None, seed: int = 0,
+                      percentili=(50, 95, 99)) -> pd.DataFrame:
+    """
+    La tabella di controllo per il live in percentuale (cap. 7, piano di
+    lavoro): con la frazione f, per ogni orizzonte {nome: numero di trade} i
+    percentili del drawdown massimo, il rendimento sfortunato (5°) e tipico
+    (50°) e la probabilita' di essere in perdita. Percentili veri delle
+    simulazioni, come lo stress test (decisione di Mattia, docs/61 §13.6).
+
+    Colonne: periodo, trade, drawdown_p50 ... , rendimento_p5, rendimento_p50,
+    p_perdita.
+    """
+    righe = []
+    for nome, n in orizzonti.items():
+        r = montecarlo_mm(tabella, capitale, [f], int(n), n_sim=n_sim, limiti=limiti,
+                          seed=seed)[float(f)]
+        rend = (r["finale"] / float(capitale) - 1.0) * 100.0
+        riga = {"periodo": nome, "trade": int(n)}
+        for p in percentili:
+            riga[f"drawdown_p{p}"] = float(np.percentile(r["drawdown_pct"], p))
+        riga["rendimento_p5"] = float(np.percentile(rend, 5))
+        riga["rendimento_p50"] = float(np.median(rend))
+        riga["p_perdita"] = float((rend < 0).mean() * 100.0)
+        righe.append(riga)
+    return pd.DataFrame(righe)
+
+
+def percentile_drawdown(tabella: pd.DataFrame, capitale: float, f: float, n_trade: int,
+                        drawdown_pct: float, n_sim: int = 10_000, limiti: dict | None = None,
+                        seed: int = 0) -> float:
+    """
+    In che percentile cade un drawdown osservato (es. quello out-of-sample)
+    fra le sequenze simulate della STESSA lunghezza con la frazione f:
+    quota delle simulazioni con drawdown minore o uguale, in %.
+    """
+    r = montecarlo_mm(tabella, capitale, [f], int(n_trade), n_sim=n_sim, limiti=limiti,
+                      seed=seed)[float(f)]
+    return float((r["drawdown_pct"] <= float(drawdown_pct) + 1e-12).mean() * 100.0)
+
+
 def banda(tabella: pd.DataFrame, capitale: float, f: float, n_trade: int,
           n_sim: int = 10_000, limiti: dict | None = None, seed: int = 0,
           percentili=(5, 50, 95)) -> pd.DataFrame:
