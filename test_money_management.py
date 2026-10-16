@@ -355,6 +355,40 @@ def esegui() -> int:
           all(r.split()[1].split(".")[0] in ("__future__", "numpy", "pandas") for r in import_righe) and pulito,
           " · ".join(import_righe))
 
+    # ----------------------------------------------------------- fase 2 --
+    print("\nI · Fase 2: z-score e tabella di controllo (docs/61 §13)")
+    # sequenza con i numeri del libro: 243 serie vincenti (230 da 2 trade + 13 da 1 = 473)
+    # alternate a 243 serie perdenti (5 da 3 + 238 da 2 = 491): 964 trade, 486 serie
+    vinc = [2] * 230 + [1] * 13
+    perd = [3] * 5 + [2] * 238
+    seq = []
+    for a, b in zip(vinc, perd):
+        seq += [1.0] * a + [-1.0] * b
+    zs = mm.zscore(seq)
+    check("47. z-score del libro (p. 112): N 964, serie 486, W 473, L 491 -> 0,2364",
+          (zs["n"], zs["serie"], zs["vincenti"], zs["perdenti"]) == (964, 486, 473, 491)
+          and round(zs["z"], 4) == 0.2365 and abs(zs["z"] - 0.2364) < 2e-4, f"z = {zs['z']:.4f}")
+    check("48. alternanza perfetta -> z molto positivo; due blocchi -> z molto negativo",
+          mm.zscore([1.0, -1.0] * 200)["z"] > 10 and mm.zscore([1.0] * 200 + [-1.0] * 200)["z"] < -10)
+    check("49. i trade a zero contano fra i perdenti; senza perdite z non disponibile",
+          mm.zscore([1.0, 0.0, 1.0, 0.0])["perdenti"] == 2 and np.isnan(mm.zscore([1.0, 2.0])["z"]))
+    orizz = {"3 mesi": 40, "12 mesi": 160}
+    ctrl = mm.tabella_controllo(t_noz, 10_000, 0.01, orizz, n_sim=2_000, limiti=lim_on, seed=3)
+    rif = mm.montecarlo_mm(t_noz, 10_000, [0.01], 160, n_sim=2_000, limiti=lim_on, seed=3)[0.01]
+    check("50. tabella di controllo: percentili identici a montecarlo_mm alla stessa lunghezza e seme",
+          np.isclose(ctrl.loc[1, "drawdown_p95"], np.percentile(rif["drawdown_pct"], 95))
+          and np.isclose(ctrl.loc[1, "drawdown_p99"], np.percentile(rif["drawdown_pct"], 99))
+          and np.isclose(ctrl.loc[1, "rendimento_p5"], np.percentile((rif["finale"] / 10_000 - 1) * 100, 5)))
+    check("51. tabella di controllo: 50° <= 95° <= 99°, e il drawdown cresce col periodo",
+          (ctrl["drawdown_p50"] <= ctrl["drawdown_p95"]).all()
+          and (ctrl["drawdown_p95"] <= ctrl["drawdown_p99"]).all()
+          and ctrl["drawdown_p95"].is_monotonic_increasing)
+    dd_sim = mm.montecarlo_mm(t_noz, 10_000, [0.01], 100, n_sim=2_000, limiti=lim_on, seed=0)[0.01]["drawdown_pct"]
+    q90 = float(np.percentile(dd_sim, 90))
+    check("52. percentile di un drawdown osservato: il 90° percentile simulato cade al 90 %",
+          abs(mm.percentile_drawdown(t_noz, 10_000, 0.01, 100, q90, n_sim=2_000, limiti=lim_on) - 90) < 0.1
+          and mm.percentile_drawdown(t_noz, 10_000, 0.01, 100, 1e9, n_sim=500, limiti=lim_on) == 100.0)
+
     ok, tot = sum(ESITI), len(ESITI)
     print("\n" + "=" * 70)
     print(f"RISULTATO: {ok}/{tot} test superati  (pandas {pd.__version__})")

@@ -210,6 +210,12 @@ def esegui() -> int:
           regola, f"scelta {m['f']}")
     check("19d. money_management non cambia i trade della scheda e salva il risultato in s.mm",
           s.trades_is.equals(tr_is_prima) and s.trades_oos.equals(tr_oos_prima) and s.mm is m)
+    if m["f"] is not None:
+        c = m["controllo"]
+        check("19f. fase 2: tabella di controllo a 3, 6, 12 mesi, z-score e percentile dell'out-of-sample",
+              list(c["periodo"]) == ["3 mesi", "6 mesi", "12 mesi"]
+              and np.isfinite(m["zscore"]["z"]) and 0 <= m["percentile_oos"] <= 100,
+              f"z {m['zscore']['z']:.2f} · out-of-sample al {m['percentile_oos']:.1f}°")
     r2 = muto(v.stress_test, s, 10_000)
     check("19e. stress_test dopo il money management: identico a prima",
           all(r2["montecarlo"][k] == r["montecarlo"][k] for k in mc if not k.startswith("_"))

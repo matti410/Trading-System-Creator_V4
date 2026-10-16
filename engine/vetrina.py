@@ -1137,7 +1137,23 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
 # ========================================================================
 
 SIMULAZIONI_MM = 10_000
+MESI_CONTROLLO = (3, 6, 12)        # fase 2: periodi della tabella di controllo (docs/61 §13.6)
 PERCENTILE_MM = 95                 # lo stesso «caso sfortunato» dello stress test
+
+
+def _lettura_z(zs: dict) -> str:
+    """La riga dello z-score: il numero e cosa vuol dire per il Monte Carlo."""
+    z = zs["z"]
+    if not np.isfinite(z):
+        return "—"
+    if z < -1.96:
+        testo = "perdite a grappoli: il drawdown vero può essere peggiore di quello simulato"
+    elif z > 1.96:
+        testo = "vincite e perdite si alternano più del caso"
+    else:
+        testo = "nessuna dipendenza fra trade consecutivi"
+    nota = " (poco affidabile: meno di 300 trade)" if zs["n"] < 300 else ""
+    return f"{_fmt(z, 2)} · {testo}{nota}"
 
 
 def _pct(v, decimali=2):
@@ -1177,7 +1193,8 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     if len(tab_is) < 5:
         raise ValueError(f"Servono almeno 5 trade in-sample per il money management (ce ne sono {len(tab_is)}).")
     limiti = limiti_symbol(symbol)
-    n_trade = max(10, int(round(trade_per_anno(trades_is, df_is) * float(anni))))
+    freq = trade_per_anno(trades_is, df_is)                 # trade all'anno, in-sample
+    n_trade = max(10, int(round(freq * float(anni))))
     dd_max = float(drawdown_max_pct)
 
     # --- il rischio dei trade (in-sample) ------------------------------
@@ -1186,16 +1203,18 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     k = mm.kelly(r)
     f_opt, _ = mm.optimal_f(r)
     rischio_usd = (tab_is["rischio_pips"] * tab_is["valore_entrata"])[ok]
+    zs = mm.zscore(tab_is["pips_netti"])               # fase 2 (docs/61 §13.2): solo avviso
     stop_acceso = bool(perc_sl and perc_sl > 0)
     tab_rischio = pd.DataFrame({
         "": ["Trade in-sample", "Rischio mediano per trade (pips, stop + costi)",
              "Rischio medio per trade (pips)", "Rischio mediano con 1 lotto ($)",
              "Trade che hanno perso più di 1 R (%)", "Perdita peggiore (in R)",
-             "Kelly (riferimento)", "Optimal f (riferimento)"],
+             "Kelly (riferimento)", "Optimal f (riferimento)",
+             "Trade a grappoli? (z-score)"],
         " ": [_fmt(len(tab_is)), _fmt(float(tab_is.loc[ok, "rischio_pips"].median()), 1),
               _fmt(float(tab_is.loc[ok, "rischio_pips"].mean()), 1), f"{_fmt(float(rischio_usd.median()))} $",
               _fmt(float((r < -1).mean() * 100), 1), _fmt(float(r.min()), 2) if r.size else "—",
-              _pct(k), _pct(f_opt)],
+              _pct(k), _pct(f_opt), _lettura_z(zs)],
     })
 
     # --- la scelta della percentuale (solo in-sample) ------------------
@@ -1262,7 +1281,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     out = {"f": f, "calibrazione": cal, "rischio": tab_rischio, "tabella_is": tab_is,
            "tabella_oos": tab_oos, "kelly": k, "optimal_f": f_opt, "n_trade": n_trade,
            "limiti": limiti, "sintesi": None, "percorso_is": None, "percorso_oos": None,
-           "banda": None}
+           "banda": None, "zscore": zs, "controllo": None, "percentile_oos": None}
     if f is None:
         _riquadro(
             "Per ogni percentuale di rischio, migliaia di storie simulate con i trade in-sample.",
@@ -1316,9 +1335,41 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         plt.tight_layout()
         plt.show()
         capitale_live = s_oos["capitale_finale"]
+        with _zitto():
+            out["percentile_oos"] = mm.percentile_drawdown(tab_is, capitale, f, len(tab_oos),
+                                                           s_oos["drawdown_max_pct"],
+                                                           n_sim=simulazioni, limiti=limiti)
     else:
         _nota("Nessun trade out-of-sample: non c'è una storia da mostrare.")
         capitale_live = s_is["capitale_finale"]
+
+    # --- la tabella di controllo per il live (fase 2, docs/61 §13.1) ------
+    orizzonti = {f"{m} mesi": max(1, int(round(freq * m / 12))) for m in MESI_CONTROLLO}
+    with _zitto():
+        ctrl = mm.tabella_controllo(tab_is, capitale, f, orizzonti, n_sim=simulazioni, limiti=limiti)
+    out["controllo"] = ctrl
+    tab_ctrl = pd.DataFrame({
+        "Dopo": ctrl["periodo"], "Trade (circa)": ctrl["trade"],
+        "Drawdown tipico (%)": ctrl["drawdown_p50"],
+        "Drawdown da allarme, 1 su 20 (%)": ctrl["drawdown_p95"],
+        "Drawdown da fermarsi, 1 su 100 (%)": ctrl["drawdown_p99"],
+        "Rendimento sfortunato, 1 su 20 (%)": ctrl["rendimento_p5"],
+        "Rendimento tipico (%)": ctrl["rendimento_p50"],
+        "Probabilità di essere in perdita (%)": ctrl["p_perdita"],
+    })
+    _mostra((f"Tabella di controllo per il live, con il {_fmt(f * 100)} % per trade", tab_ctrl),
+            decimali={"Trade (circa)": 0, "Drawdown tipico (%)": 1, "Drawdown da allarme, 1 su 20 (%)": 1,
+                      "Drawdown da fermarsi, 1 su 100 (%)": 1, "Rendimento sfortunato, 1 su 20 (%)": 1,
+                      "Rendimento tipico (%)": 1, "Probabilità di essere in perdita (%)": 1})
+    if out["percentile_oos"] is not None:
+        mesi = (df_oos.index[-1] - df_oos.index[0]).total_seconds() / (365.25 * 86400) * 12
+        q = out["percentile_oos"]
+        zona = ("oltre la soglia «da fermarsi»" if q > 99 else
+                "nella zona «da allarme»" if q > 95 else "dentro il normale")
+        _nota(f"Dove cade l'out-of-sample: {len(tab_oos)} trade in circa {_fmt(mesi, 0)} mesi, drawdown massimo "
+              f"{_fmt(s_oos['drawdown_max_pct'], 1)} %. Nelle storie simulate della stessa lunghezza un drawdown "
+              f"uguale o più basso capita nel {_fmt(q, 1)} % dei casi: {zona} (allarme oltre il 95 %, "
+              f"fermarsi oltre il 99 %).")
 
     rischio_tipico = float(tab_is.loc[ok, "rischio_pips"].median())
     valore_tipico = float(tab_is.loc[ok, "valore_entrata"].median())
@@ -1339,7 +1390,9 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         "blu resta dentro la banda prevista: fuori dal basso vuol dire che i dati mai visti sono andati peggio del "
         "piano. La linea tratteggiata mostra lo stesso periodo con i lotti fermi a quelli del primo trade.",
         "Annota la percentuale scelta e non cambiarla dopo aver visto l'out-of-sample: se la ritocchi finché il conto "
-        "ti piace, smette di essere una prova. Poi vai alla schermata 8 (verifica dei trade) e alla 9 (stress test). "
+        "ti piace, smette di essere una prova. Dal vivo tieni accanto la tabella di controllo: se dopo 3, 6 o 12 mesi "
+        "il drawdown supera la colonna «da allarme» riduci o metti in pausa, oltre «da fermarsi» fermati e ristudia "
+        "la strategia. Poi vai alla schermata 8 (verifica dei trade) e alla 9 (stress test). "
         "I lotti consigliati dello stress test sono fissi e rispondono a un'altra domanda: per ora le due sezioni "
         "restano separate.")
     _nota("Limiti da conoscere: le storie simulate trattano i trade come indipendenti; con lo stop spento il rischio "
