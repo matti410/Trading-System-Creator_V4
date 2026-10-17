@@ -206,16 +206,18 @@ si ferma e indica la riga da aggiungere (`50` §12).
 
 | file | contenuto |
 |---|---|
-| `entry_long.py` / `entry_short.py` | 40 entry per lato (fino a E35) |
+| `entry_long.py` / `entry_short.py` | 30 entry long e 29 short accese (fino a E35); 21 spente nello sfoltimento del 17/10 |
 | `entry_composita.py` | entry composte: più trigger in OR sullo stesso lato |
 | `entry_metro.py` | 5 entry-metro temporali per lato (righello, non candidate) |
-| `filter_conditions.py` | 47 filtri (fino a F40) |
+| `filter_conditions.py` | 35 filtri accesi (fino a F40); 12 spenti nello sfoltimento del 17/10 |
 | `vwap_regime_filter_conditions.py` | 5 filtri di regime VWAP |
 | `exit_long.py` / `exit_short.py` | 5 uscite a regola per lato |
 
-Con tutto registrato (metro short comprese) il registry contiene **152
-condizioni**: 90 entry, 52 filtri, 10 uscite (conteggio del 17/10, dopo
-AlgoXplorer: E32, E33, X4, F40, e VSA Modulo Unico: E34, E35).
+Con tutto registrato (metro short comprese) il registry contiene **117
+condizioni**: 69 entry (59 vere e 10 metro), 38 filtri, 10 uscite (conteggio del
+17/10, dopo lo sfoltimento: un rappresentante per famiglia, `50` §10 septies;
+prima erano 152). Le condizioni spente hanno la riga del dizionario tra
+commenti con il motivo: la funzione resta e si riattiva togliendo il `#`.
 
 I filtri di confidenza (`CONF_…`) non sono nel catalogo: nascono nel notebook,
 da `registra_filtro_confidenza`, dopo il sistema base. Non passano dal collaudo
@@ -378,9 +380,9 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 ## Dove siamo (17/10/2026)
 
-- **Catalogo:** 152 condizioni, collaudate (lookahead e degenerazione) su 9
-  symbol. Dalle fonti testuali: 43 prove al 17/10 (ultime: AlgoXplorer e VSA
-  Modulo Unico, `50` §10 quinquies e sexies), registro in `50` §10.
+- **Catalogo:** 117 condizioni dopo lo sfoltimento del 17/10 (59 entry, 38
+  filtri, 10 uscite, 10 entry-metro), collaudate (lookahead e degenerazione) su
+  9 symbol. Dalle fonti testuali: 41 prove al 17/10, registro in `50` §10.
 - **I due notebook** leggono da `dati/` (o da Drive), con pip fisso per symbol,
   spread dal listino del conto Standard, fuso controllato. Vanno aggiornati
   sempre insieme (`CLAUDE.md`).

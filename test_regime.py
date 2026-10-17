@@ -223,7 +223,8 @@ def esegui() -> int:
     check("D4. nessuna coppia nuova: le coppie di prima non sono cambiate",
           {c[0] for c in R.list_filter_pairs()} - coppie_docs51
           == {"MACD_SIGNAL", "TREND_CONTEXT", "TREND_CONVICTION",
-              "EXTENDED_FROM_MEAN", "VWAP_POSITION", "RANGE_POSITION",
+              # EXTENDED_FROM_MEAN, VWAP_POSITION, RANGE_POSITION spente il 17/10/2026
+              # (sfoltimento, docs/50 §10 septies)
               "OVERNIGHT_RETURN", "TWO_BARS"},
           f"{sorted(c[0] for c in R.list_filter_pairs())}")
 

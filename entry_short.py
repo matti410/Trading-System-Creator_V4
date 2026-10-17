@@ -469,21 +469,21 @@ TRIGGER_SHORT = {
     "E9_SHORT_CLOSING_PATTERN_ONLY_II": entry_short_closing_pattern_only_ii,
     "E10_SHORT_HANGING_MAN": entry_short_hanging_man,
     "E11_SHORT_SHOOTING_STAR": entry_short_shooting_star,
-    "E11_SHORT_SHOOTING_STAR_CONFIRMED": entry_short_shooting_star_confirmed,
+    # "E11_SHORT_SHOOTING_STAR_CONFIRMED": entry_short_shooting_star_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
     "E12_SHORT_ENGULFING": entry_short_engulfing,
-    "E12_SHORT_ENGULFING_CONFIRMED": entry_short_engulfing_confirmed,
+    # "E12_SHORT_ENGULFING_CONFIRMED": entry_short_engulfing_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
     "E13_SHORT_HARAMI": entry_short_harami,
-    "E13_SHORT_HARAMI_CONFIRMED": entry_short_harami_confirmed,
-    "E14_SHORT_HARAMI_CROSS": entry_short_harami_cross,
-    "E14_SHORT_HARAMI_CROSS_CONFIRMED": entry_short_harami_cross_confirmed,
-    "E15_SHORT_DARK_CLOUD_COVER": entry_short_dark_cloud_cover,
+    # "E13_SHORT_HARAMI_CONFIRMED": entry_short_harami_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
+    # "E14_SHORT_HARAMI_CROSS": entry_short_harami_cross,   # SPENTO 17/10/2026, al 100% dentro E13 harami (docs/50 §10 septies)
+    # "E14_SHORT_HARAMI_CROSS_CONFIRMED": entry_short_harami_cross_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
+    # "E15_SHORT_DARK_CLOUD_COVER": entry_short_dark_cloud_cover,   # SPENTO 17/10/2026, rara: 56-99 eventi in-sample (docs/50 §10 septies)
     "E16_SHORT_EVENING_STAR": entry_short_evening_star,
-    "E17_SHORT_THREE_INSIDE": entry_short_three_inside,
-    "E18_SHORT_THREE_OUTSIDE": entry_short_three_outside,
-    "E19_SHORT_THREE_BLACK_CROWS": entry_short_three_black_crows,
-    "E20_SHORT_MARUBOZU": entry_short_marubozu,
+    # "E17_SHORT_THREE_INSIDE": entry_short_three_inside,   # SPENTO 17/10/2026, al 100% dentro E13 harami (docs/50 §10 septies)
+    # "E18_SHORT_THREE_OUTSIDE": entry_short_three_outside,   # SPENTO 17/10/2026, al 100% dentro E12 engulfing (docs/50 §10 septies)
+    # "E19_SHORT_THREE_BLACK_CROWS": entry_short_three_black_crows,   # SPENTO 17/10/2026, rara: 7-25 eventi in-sample (docs/50 §10 septies)
+    # "E20_SHORT_MARUBOZU": entry_short_marubozu,   # SPENTO 17/10/2026, al 100% dentro E21 belt hold (docs/50 §10 septies)
     "E21_SHORT_BELT_HOLD": entry_short_belt_hold,
-    "E21_SHORT_BELT_HOLD_CONFIRMED": entry_short_belt_hold_confirmed,
+    # "E21_SHORT_BELT_HOLD_CONFIRMED": entry_short_belt_hold_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
     "E22_SHORT_ASIAN_RANGE_BREAKDOWN": entry_short_asian_range_breakdown,
     "E23_SHORT_PREV_DAY_LOW_BREAKDOWN": entry_short_prev_day_low_breakdown,
     "E24_SHORT_CYCLE_TURN_DOWN": entry_short_cycle_turn_down,

@@ -548,21 +548,21 @@ TRIGGER_LONG = {
     "E9_CLOSING_PATTERN_ONLY_II": entry_closing_pattern_only_ii,
     "E10_HAMMER": entry_hammer,
     "E11_INVERTED_HAMMER": entry_inverted_hammer,
-    "E11_INVERTED_HAMMER_CONFIRMED": entry_inverted_hammer_confirmed,
+    # "E11_INVERTED_HAMMER_CONFIRMED": entry_inverted_hammer_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
     "E12_ENGULFING": entry_engulfing,
-    "E12_ENGULFING_CONFIRMED": entry_engulfing_confirmed,
+    # "E12_ENGULFING_CONFIRMED": entry_engulfing_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
     "E13_HARAMI": entry_harami,
-    "E13_HARAMI_CONFIRMED": entry_harami_confirmed,
-    "E14_HARAMI_CROSS": entry_harami_cross,
-    "E14_HARAMI_CROSS_CONFIRMED": entry_harami_cross_confirmed,
-    "E15_PIERCING": entry_piercing,
+    # "E13_HARAMI_CONFIRMED": entry_harami_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
+    # "E14_HARAMI_CROSS": entry_harami_cross,   # SPENTO 17/10/2026, al 100% dentro E13 harami (docs/50 §10 septies)
+    # "E14_HARAMI_CROSS_CONFIRMED": entry_harami_cross_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
+    # "E15_PIERCING": entry_piercing,   # SPENTO 17/10/2026, rara: 47-122 eventi in-sample (docs/50 §10 septies)
     "E16_MORNING_STAR": entry_morning_star,
-    "E17_THREE_INSIDE": entry_three_inside,
-    "E18_THREE_OUTSIDE": entry_three_outside,
+    # "E17_THREE_INSIDE": entry_three_inside,   # SPENTO 17/10/2026, al 100% dentro E13 harami (docs/50 §10 septies)
+    # "E18_THREE_OUTSIDE": entry_three_outside,   # SPENTO 17/10/2026, al 100% dentro E12 engulfing (docs/50 §10 septies)
     "E19_THREE_WHITE_SOLDIERS": entry_three_white_soldiers,
-    "E20_MARUBOZU": entry_marubozu,
+    # "E20_MARUBOZU": entry_marubozu,   # SPENTO 17/10/2026, al 100% dentro E21 belt hold (docs/50 §10 septies)
     "E21_BELT_HOLD": entry_belt_hold,
-    "E21_BELT_HOLD_CONFIRMED": entry_belt_hold_confirmed,
+    # "E21_BELT_HOLD_CONFIRMED": entry_belt_hold_confirmed,   # SPENTO 17/10/2026, versione confermata, al 100% dentro la base (docs/50 §10 septies)
     "E22_ASIAN_RANGE_BREAKOUT": entry_asian_range_breakout,
     "E23_PREV_DAY_HIGH_BREAKOUT": entry_prev_day_high_breakout,
     "E24_CYCLE_TURN_UP": entry_cycle_turn_up,

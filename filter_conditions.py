@@ -1186,13 +1186,13 @@ def filter_algox_state_short(df: pd.DataFrame) -> pd.Series:
 
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
-    "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
+    # "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None),   # SPENTO 17/10/2026, dentro F2_MID per costruzione (docs/50 §10 septies)
     "F2_MID_VOLATILITY":         (filter_mid_volatility, 0, None),
     "F2_HIGH_VOLATILITY":        (filter_high_volatility, 0, None),
     "F3_VOLUME_ABOVE_AVG":       (filter_volume_above_avg, 0, None),
-    "F5_TALL_CANDLE":            (filter_tall_candle, 0, None),
-    "F6_VOLUME_ABOVE_AVG_50":    (filter_volume_above_avg_50, 0, None),
-    "F7_VOLUME_CLIMAX":          (filter_volume_climax, 0, None),
+    # "F5_TALL_CANDLE":            (filter_tall_candle, 0, None),   # SPENTO 17/10/2026, famiglia del volume alto: resta F3 (docs/50 §10 septies)
+    # "F6_VOLUME_ABOVE_AVG_50":    (filter_volume_above_avg_50, 0, None),   # SPENTO 17/10/2026, famiglia del volume alto: resta F3 (docs/50 §10 septies)
+    # "F7_VOLUME_CLIMAX":          (filter_volume_climax, 0, None),   # SPENTO 17/10/2026, famiglia del volume alto: resta F3 (docs/50 §10 septies)
     "F14_LOW_DRIFT_REGIME":      (filter_low_drift_regime, 0, None),
     "F15_SHORT_TERM_CONSISTENCY": (filter_short_term_consistency, 0, None),
     "F4_MACD_ABOVE_SIGNAL":      (filter_macd_above_signal, 1, "MACD_SIGNAL"),
@@ -1201,12 +1201,12 @@ FILTRI = {
     "F9_DOWNTREND_CONTEXT":      (filter_downtrend_context, -1, "TREND_CONTEXT"),
     "F10_TREND_CONVICTION_UP":   (filter_trend_conviction_up, 1, "TREND_CONVICTION"),
     "F11_TREND_CONVICTION_DOWN": (filter_trend_conviction_down, -1, "TREND_CONVICTION"),
-    "F12_EXTENDED_UP":           (filter_extended_up, 1, "EXTENDED_FROM_MEAN"),
-    "F13_EXTENDED_DOWN":         (filter_extended_down, -1, "EXTENDED_FROM_MEAN"),
-    "F16_PRICE_ABOVE_VWAP":      (filter_price_above_vwap, 1, "VWAP_POSITION"),
-    "F17_PRICE_BELOW_VWAP":      (filter_price_below_vwap, -1, "VWAP_POSITION"),
-    "F18_HIGH_NEAR_RANGE_TOP":   (filter_high_near_range_top, 1, "RANGE_POSITION"),
-    "F19_LOW_NEAR_RANGE_BOTTOM": (filter_low_near_range_bottom, -1, "RANGE_POSITION"),
+    # "F12_EXTENDED_UP":           (filter_extended_up, 1, "EXTENDED_FROM_MEAN"),   # SPENTO 17/10/2026, famiglia di F4 MACD (docs/50 §10 septies)
+    # "F13_EXTENDED_DOWN":         (filter_extended_down, -1, "EXTENDED_FROM_MEAN"),   # SPENTO 17/10/2026, famiglia di F4 MACD (docs/50 §10 septies)
+    # "F16_PRICE_ABOVE_VWAP":      (filter_price_above_vwap, 1, "VWAP_POSITION"),   # SPENTO 17/10/2026, famiglia di F8/F9 (docs/50 §10 septies)
+    # "F17_PRICE_BELOW_VWAP":      (filter_price_below_vwap, -1, "VWAP_POSITION"),   # SPENTO 17/10/2026, famiglia di F8/F9 (docs/50 §10 septies)
+    # "F18_HIGH_NEAR_RANGE_TOP":   (filter_high_near_range_top, 1, "RANGE_POSITION"),   # SPENTO 17/10/2026, famiglia di F4 MACD (docs/50 §10 septies)
+    # "F19_LOW_NEAR_RANGE_BOTTOM": (filter_low_near_range_bottom, -1, "RANGE_POSITION"),   # SPENTO 17/10/2026, famiglia di F4 MACD (docs/50 §10 septies)
     "F20_SESSION_ASIA":          (filter_session_asia, 0, None),
     "F20_SESSION_EUROPE":        (filter_session_europe, 0, None),
     "F20_SESSION_US":            (filter_session_us, 0, None),
@@ -1227,8 +1227,8 @@ FILTRI = {
     # se Mattia lo decide (conta 1 prova in piu').
     # "F29_RVOL_HIGH":             (filter_rvol_high, 0, None),
     "F29_RVOL_LOW":              (filter_rvol_low, 0, None),
-    "F33_HURST_PERSISTENT":      (filter_hurst_persistent, 0, None),
-    "F33_HURST_MEAN_REVERTING":  (filter_hurst_mean_reverting, 0, None),
+    # "F33_HURST_PERSISTENT":      (filter_hurst_persistent, 0, None),   # SPENTO 17/10/2026, famiglia di F26 variance ratio (docs/50 §10 septies)
+    # "F33_HURST_MEAN_REVERTING":  (filter_hurst_mean_reverting, 0, None),   # SPENTO 17/10/2026, rara: 0,3% delle barre (docs/50 §10 septies)
     #   F34: SPENTO, doppione (75% dentro F3_VOLUME_ABOVE_AVG = 1,64 volte il caso,
     #   72% dentro F6 = 1,53 volte; regola di docs/50 §7.5 del 15/10/2026)
     # "F34_JDH_VOLATILITY":        (filter_jdh_volatility, 0, None),

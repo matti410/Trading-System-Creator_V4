@@ -58,13 +58,16 @@ from engine.indicatori import (COLONNE_INDICATORI, _fine_regressione, aggiungi_i
 from helpers import _ts_rank
 from entry_long import TRIGGER_LONG, registra_trigger_long
 from entry_short import TRIGGER_SHORT, registra_trigger_short
-from filter_conditions import (FILTRI, filter_jdh_volatility, filter_ker_trend_down, filter_ker_trend_up, filter_rvol_high,
+from filter_conditions import (FILTRI, filter_hurst_mean_reverting, filter_hurst_persistent,
+                               filter_jdh_volatility, filter_ker_trend_down, filter_ker_trend_up, filter_rvol_high,
                                filter_sqz_mom_negative, filter_sqz_mom_positive,
                                filter_wt_above_signal, filter_wt_below_signal, registra_filtri)
 
 # filtri scritti ma SPENTI perche' doppioni (docs/50 §7.5, decisione del 15/10/2026)
 SPENTI = ("F29_RVOL_HIGH", "F30_SQZ_MOM_POSITIVE", "F30_SQZ_MOM_NEGATIVE", "F31_WT_ABOVE_SIGNAL",
-          "F31_WT_BELOW_SIGNAL", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN", "F34_JDH_VOLATILITY")
+          "F31_WT_BELOW_SIGNAL", "F32_KER_TREND_UP", "F32_KER_TREND_DOWN", "F34_JDH_VOLATILITY",
+          # sfoltimento del 17/10/2026 (docs/50 §10 septies): famiglia di F26, rara
+          "F33_HURST_PERSISTENT", "F33_HURST_MEAN_REVERTING")
 
 CARTELLA = os.path.dirname(os.path.abspath(__file__))
 DATI = os.path.join(CARTELLA, "dati")
@@ -237,7 +240,9 @@ INDICATORI = {
     ),
 }
 
-FUNZIONI = {**TRIGGER_LONG, **TRIGGER_SHORT, **{k: v[0] for k, v in FILTRI.items()}}
+FUNZIONI = {**TRIGGER_LONG, **TRIGGER_SHORT, **{k: v[0] for k, v in FILTRI.items()},
+            # spenti il 17/10/2026 ma ancora collaudati: la funzione resta
+            "F33_HURST_PERSISTENT": filter_hurst_persistent, "F33_HURST_MEAN_REVERTING": filter_hurst_mean_reverting}
 
 
 def _con_colonne(df: pd.DataFrame, chi=INDICATORI) -> pd.DataFrame:
@@ -846,8 +851,8 @@ def main() -> int:
     entries, filtri = set(R.list_entries()), set(R.list_filters())
     check("F1. le entry nuove sono registrate con il lato giusto",
           all(k in entries and k in R.list_entries(direction=v) for k, v in nuove_entry.items()))
-    check("F2. i filtri nuovi sono registrati con la direction giusta",
-          all(k in filtri and k in R.list_filters(direction=v) for k, v in nuovi_filtri.items()))
+    check("F2. i filtri nuovi accesi sono registrati con la direction giusta (gli spenti a parte, F3b)",
+          all(k in filtri and k in R.list_filters(direction=v) for k, v in nuovi_filtri.items() if k not in SPENTI))
     coppie = R.list_filter_pairs()
     check("F3. le coppie di filtri sono riconosciute dalla ricerca dei filtri",
           all(c in coppie for s in INDICATORI.values() for c in s["coppie"]))
