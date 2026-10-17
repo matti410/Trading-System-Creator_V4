@@ -103,6 +103,9 @@ LOOKAHEAD    dove la fonte guarda al futuro (§6), voce per voce, e come si evit
 DA VERIFICARE   numeri e nomi dubbi (trascrizioni), timeframe e mercato della regola (libri)
 PROVE        quante candidate entrano nel conteggio dei test multipli
 DOPPIONI     condizioni del catalogo con cui si sovrappone probabilmente
+DECORRELAZIONE  dopo il collaudo: in quale famiglia cade (engine/famiglie.py) e la
+             condizione più vicina, con la somiglianza; «famiglia nuova» se apre
+             un'idea che nel catalogo non c'è (regola del 17/10/2026, §7 punto 5)
 SCARTATI     pezzi della fonte lasciati fuori, con il motivo (§8)
 DECISIONE    sì / no / modifica, per candidato — la prende Mattia
 REPO         dove va la condizione (default: V4, confermato da Mattia il 7/10)
@@ -224,6 +227,7 @@ Ogni condizione nuova passa tutto questo prima di arrivare a Mattia, con casi a 
 3. **`verifica_degenerazione`** su EURUSD vero (dal 10/10 si può fare anche sugli altri symbol di `dati/`, §12): copertura, eventi, `STATO`, `RARA`, `SEMPRE_VERA`. Sotto le 30 occorrenze (entry) o 30 barre vere (filtri e uscite) si segnala, non si promuove né si boccia.
 4. **Casi a risultato noto:** serie costruite a mano su cui l'esito è noto (il trigger scatta sulla barra attesa; lo short è lo speculare del long; il filtro cambia stato dove deve).
 5. **Sovrapposizioni con il catalogo:** `diagnostica.sovrapposizioni(df, colonne, finestra, soglia)` (repo ML), solo su `df_is`, filtri a finestra 0 e trigger a finestra 2, soglia 70. Una condizione contenuta al 70% o più in una già presente, o suo contrario esatto, è un doppione: non si aggiunge, a meno che Mattia lo decida. **Precisazione del 15/10/2026 (Mattia):** il 70% conta solo se è almeno **1,3 volte il caso**, cioè la quota contenuta divisa per la copertura della condizione già presente è ≥ 1,3. Contro filtri molto larghi (F2_MID, F22: 75–80% delle barre) il 70% si raggiunge per caso e non fa doppione. I doppioni si **spengono mettendo tra commenti la riga del dizionario** (come F27): la funzione resta, non si calcola, si riattiva togliendo il `#`. Funzione presente nel ramo ML dal 1/10; **nel repo V4 non esiste** (verificato il 9/10): il controllo si fa con uno script a parte, con le stesse regole.
+   **Dal 17/10/2026 lo strumento c'è nel V4:** `engine/famiglie.py` (`sovrapposizioni`, `somiglianze`, `famiglie`, collaudo `test_famiglie.py`). Si passa l'in-sample di EURUSD, BTCUSD e DE40 come dizionario `{symbol: df_is}`: una coppia è doppione se la regola vale su **tutti** e tre. La **somiglianza** fra due condizioni è la quota più alta fra i due versi, contata solo se è almeno 1,3 volte il caso; le **famiglie** raggruppano le condizioni con somiglianza media **≥ 60%** (decisione di Mattia del 17/10/2026). Nella scheda (§3) la riga DECORRELAZIONE riporta la famiglia della condizione nuova: una condizione che apre una famiglia nuova porta informazione nuova; una che cade in una famiglia già piena va motivata, perché costa una prova e aggiunge poco. Usa solo i segnali, non i risultati dei trade: non conta come prova.
 6. **Riscaldamento:** dopo il taglio, la colonna è identica a prescindere dal punto di partenza dei dati (come verificato il 28/9 per le 72 colonne E*/F*).
 7. **Pandas 2.2 e 3.0:** stessi risultati con entrambe.
 8. **Suite da terminale** del progetto e **`Collaudo_Catalogo.ipynb`** rilanciati: da rifare ogni volta che si aggiunge una condizione.
