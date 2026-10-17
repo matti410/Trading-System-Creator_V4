@@ -3,21 +3,20 @@ Ricerca delle uscite con `backtesting.py` (motore event-driven).
 
 DOVE SI COLLOCA
 ---------------
-Alternativa a exit_search.py (VectorBT) per lo stesso passo 3 della
-pipeline: qui l'uscita a tempo e' ESATTA per costruzione (nessuna
-approssimazione da misurare con controllo_durate) e l'ingresso alla open
-della barra successiva e' il comportamento nativo della libreria — non
-serve nessuno shift manuale del segnale.
+Passo 3 della pipeline (uscite), e la strategia `_StrategiaGenerica` qui
+sotto e' quella di TUTTI i backtest del tool (filtri, scheda,
+out-of-sample). Ha preso il posto del primo motore su VectorBT
+(engine/exit_search.py, tolto il 16/9/2026): la' l'uscita a tempo andava
+costruita a mano come maschera di segnali e si disallineava quando uno
+stop chiudeva prima un trade. Qui l'uscita a tempo e' ESATTA per
+costruzione e l'ingresso all'Open della barra successiva e' il
+comportamento nativo della libreria, senza spostare a mano il segnale.
+VectorBT non serve al tool.
 
 LO STOP/TARGET ADATTIVO
 ------------------------
-`soglie_adattive` qui sotto e' IDENTICA, stessa formula e stessa
-causalita' gia' corretta il 16/9/2026, a quella di exit_search.py
-(VectorBT). E' copiata qui invece che importata per non aggiungere
-vectorbt/numba come dipendenza di un motore che non li usa. Se in futuro
-exit_search.py entra a far parte dell'engine minimale, si puo' sostituire
-questa copia con un import — vanno tenute in sincrono a mano nel
-frattempo.
+`soglie_adattive` qui sotto: formula e causalita' corrette il 16/9/2026
+(vedi il suo docstring).
 
 Riassunto della logica (vedi anche il docstring di soglie_adattive):
 per ogni barra si misura quanto sarebbe andato in rosso/verde un trade
@@ -78,8 +77,8 @@ SEGNALI SCARTATI A INIZIO/FINE SERIE
 --------------------------------------
 Dove la soglia non e' ancora calcolabile (avvio della serie, finestra non
 piena) il segnale di ingresso viene disattivato PRIMA di passare i dati a
-backtesting.py — stessa filosofia di exit_search.py: un segnale che non
-puo' avere uno stop/target viene ignorato, non tradato senza protezione.
+backtesting.py: un segnale che non puo' avere uno stop/target viene
+ignorato, non tradato senza protezione.
 Le regole di uscita non hanno questo problema (non dipendono da una
 finestra mobile) e non vengono filtrate.
 
@@ -104,15 +103,28 @@ from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
 
 
 # ========================================================================
-# 1 · Soglie adattive (identica a exit_search.py — vedi docstring sopra)
+# 1 · Soglie adattive
 # ========================================================================
 
 def soglie_adattive(df, n, finestra=500, perc_sl=90.0, perc_tp=90.0,
                     open_col="Open", high_col="High", low_col="Low", lag=0):
     """
     Soglie di SL e TP, barra per barra, come percentile delle escursioni
-    recenti. Identica a exit_search.py — vedi il suo docstring per la
-    spiegazione completa della causalita'.
+    recenti.
+
+    Per ogni barra i si misura l'escursione di un trade ipotetico aperto a
+    Open[i+1] e tenuto n barre:
+        sfavorevole (long) = (Open[i+1] - min Low[i+1..i+n]) / Open[i+1]
+        favorevole  (long) = (max High[i+1..i+n] - Open[i+1]) / Open[i+1]
+    (per lo short le due si scambiano). Lo stop del trade aperto alla barra
+    t e' il percentile richiesto delle ultime `finestra` escursioni.
+
+    CAUSALITA'. L'escursione partita alla barra i si conosce solo alla barra
+    i+n; e lo stop si legge sulla barra d'ingresso t+lag, di cui High e Low
+    non sono ancora noti. Per questo la serie si sposta di n + lag barre
+    PRIMA del percentile mobile: entrano solo escursioni concluse e
+    osservabili (con il solo n l'ultima includeva la barra d'ingresso:
+    un'occhiata nel futuro, corretta il 16/9/2026).
 
     Ritorna un dict con quattro Series (frazioni del prezzo di ingresso):
     sl_long, tp_long, sl_short, tp_short. NaN dove la finestra non e'
@@ -344,9 +356,8 @@ def run_exit_search_bt(
         prescindere dalla coppia di uscita scelta.
 
     n_barre
-        UN SOLO orizzonte di uscita forzata (a differenza di
-        exit_search.py, qui non e' una lista: e' il primo passo di una
-        griglia sulle entry, non ancora sugli orizzonti). Resta il
+        UN SOLO orizzonte di uscita forzata (non una lista: e' una
+        griglia sulle entry, non sugli orizzonti). Resta il
         paracadute finale anche quando una coppia di uscita e' attiva.
 
     exit_rule_pairs
