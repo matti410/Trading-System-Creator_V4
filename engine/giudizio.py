@@ -71,8 +71,8 @@ quel conto. E' un PAVIMENTO, non un tetto.
 
 SCARTARE E' OGGETTIVO, APPROVARE NO
 -------------------------------------
-`ROADMAP_RICERCA.md`, Passo 4: "Nessuna soglia automatica decide se un
-setup ha un edge sfruttabile". Resta vero, e questo modulo non lo viola:
+Passo 4 del metodo (docs/00): nessuna soglia automatica decide se un
+setup ha un edge sfruttabile. Resta vero, e questo modulo non lo viola:
 automatizza solo la BOCCIATURA, che e' verificabile (un EV negativo, un
 t sotto il rumore, dodici trade), e si ferma prima dell'approvazione, che
 dipende da quanto drawdown reggi tu. Da cui i tre esiti:

@@ -21,7 +21,7 @@ Verificato empiricamente su backtesting.py 0.6.6 (non dedotto dal codice):
     identici e PnL diverso.
 
 Quindi `avg_trade` calcolato dai soli prezzi e' NETTO di spread ma LORDO di
-commissione. `ROADMAP_RICERCA.md` affermava il contrario ("con
+commissione. La vecchia roadmap affermava il contrario ("con
 commission > 0, avg_trade e' gia' al netto dei costi"): era sbagliato, e su
 quella frase poggiava il gate economico.
 

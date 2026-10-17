@@ -22,7 +22,8 @@ Si lancia da terminale, dalla cartella del progetto:
 
     python test_money_management.py
 
-Usa EURUSD_M15.csv (nel repo). Dura circa un minuto.
+Usa dati/EURUSD_M15.csv (non e' su GitHub: si scarica con scarica_dati.py);
+senza quel file il test si ferma e lo dice. Dura circa un minuto.
 """
 from __future__ import annotations
 
@@ -217,7 +218,11 @@ def esegui() -> int:
           mm.ripercorri(futuro, 10_000, 0.02, lim_on).iloc[:151][["lotti", "capitale_prima"]]
           .equals(p_tutto.iloc[:151][["lotti", "capitale_prima"]]))
 
-    eur = _carica(QUI / "EURUSD_M15.csv")
+    f_eur = QUI / "dati" / "EURUSD_M15.csv"
+    if not f_eur.exists():
+        print(f"  manca {f_eur}: scaricalo con scarica_dati.py, poi rilancia il test.")
+        return 1
+    eur = _carica(f_eur)
     eur = eur.loc["2024-01-01":"2024-12-31"]
     finti = _trade_finti(eur)
     tb = tabella_trade(finti, eur, "EURUSD", pip_symbol("EURUSD"), spread_pips=0.8, perc_sl=0,

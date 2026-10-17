@@ -85,7 +85,7 @@ def _conversione(symbol: str, prezzi: np.ndarray, tempi: pd.DatetimeIndex,
 def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: float,
                   commission: float = 0.0, spread_pips: float = 0.0, perc_sl: float = 90.0,
                   n_barre_long: int = 25, n_barre_short: int = 25, finestra: int = 500,
-                  lag: int = 1, cartella=".", misura: str = "stop",
+                  lag: int = 1, cartella="dati", misura: str = "stop",
                   atr: pd.Series | None = None) -> pd.DataFrame:
     """
     La tabella dei trade per engine/money_management.py, in ordine di uscita.

@@ -269,7 +269,7 @@ class Sessione:
     def __init__(self):
         self.symbol = None
         self.H = None
-        self.cartella = "."           # 11/10/2026: dove stanno i CSV (anche quello del cambio)
+        self.cartella = "dati"        # dove stanno i CSV (anche quello del cambio); "dati" dal 17/10
         self.df = self.df_is = self.df_oos = None
         self.costi = None
         self.pip = None
@@ -462,7 +462,7 @@ def _tutti_i_filtri() -> list[str]:
 
 
 def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
-            cartella: str = ".") -> Sessione:
+            cartella: str = "dati") -> Sessione:
     """
     Schermata 1. Carica lo storico M15 dal CSV, calcola costi e indicatori,
     divide in-sample / out-of-sample e carica le condizioni dal registro.
@@ -470,8 +470,8 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     symbol            nome dello strumento: serve il file `{symbol}_M15.csv`
     H                 orizzonte di osservazione, in barre (unico per long e short)
     quota_in_sample   parte iniziale dello storico usata per costruire (0.8 = 80%)
-    cartella          dove stanno i CSV. Default "." (cartella principale, come
-                      prima); il Lab passa DATI_DIR: dati/ in locale, Google
+    cartella          dove stanno i CSV. Default "dati" (la cartella dati/ del
+                      progetto, dal 17/10); il Lab passa DATI_DIR: dati/ in locale, Google
                       Drive su Colab.
 
     11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
@@ -1177,7 +1177,7 @@ def _modello(modello: str) -> str:
 def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pip: float,
                            commission: float = 0.0, spread_pips: float = 0.0,
                            perc_sl: float = 90.0, n_barre_long: int = 25, n_barre_short: int = 25,
-                           finestra: int = FINESTRA, lag: int = LAG, cartella=".",
+                           finestra: int = FINESTRA, lag: int = LAG, cartella="dati",
                            capitale: float = 10_000.0, drawdown_max_pct: float = 20.0,
                            anni: float = 1.0, simulazioni: int = SIMULAZIONI_MM,
                            titolo: str = "", modello: str = "volatilità",

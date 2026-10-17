@@ -42,7 +42,7 @@ valida.
 Nota per questo percorso (V4, 18/9): la pipeline Trend Following usa
 `direction` cosi' com'e' (filtro e entry stessa direzione = conferma). La
 pipeline Mean Reverting, quando riparte, la usa rovesciata (filtro
-opposto all'entry) — vedi `ROADMAP_RICERCA.md`, Passo 5.
+opposto all'entry).
 
 
 COPPIE DI FILTRI (`pair`) — AGGIUNTA 18/9/2026

@@ -1,6 +1,6 @@
 # 93 · Quarantena sui trade e costi del conto Standard (5/10/2026)
  
-Chiude i punti 1 e 2 di `92_AUDIT_2026-10-05.md`. Consegnato il 5/10 sera, **da caricare sul repo**.
+Chiude due punti trovati nell'audit del notebook principale del 5/10 (quarantena sui trade, modello dei costi). Sul repo dal 5/10.
  
 ## Decisioni
 - **Ingressi:** maschera unica nei motori (opzione A). Un segnale si scarta se la sua barra, o la barra d'ingresso, è in quarantena.

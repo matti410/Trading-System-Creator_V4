@@ -1,9 +1,9 @@
 # Guida — analisi di fonti testuali (articoli, video, libri) e trascrizione in condizioni
 
-**Per:** Mattia · **Data:** 7 ottobre 2026
-**Dove sta:** nel repo `Trading-System-Creator_V4`. Sostituisce `GUIDA_ANALISI_ARTICOLI_MEDIUM.md` (da cancellare dal repo). Il metodo completo è nel progetto Claude «Metodo Combinatorio», documento `50_IDEE_DA_ARTICOLI.md`: questa guida è la parte pratica, da seguire passo per passo.
+**Per:** Mattia · **Data:** 7 ottobre 2026 · **aggiornata il 17/10/2026** al lavoro in locale con Claude Code
+**Dove sta:** nel repo, `docs/GUIDA_ANALISI_FONTI.md`. Il metodo completo è in `docs/50_IDEE_DA_ARTICOLI.md`: questa guida è la parte pratica, da seguire passo per passo.
 
-In questa fase **non c'è codice da lanciare**. Si leggono le fonti, si scrivono schede in testo e si decide cosa entra nel catalogo. Il codice arriva solo dopo il tuo via libera.
+Si lavora **in locale con Claude Code**, aperto nella cartella del progetto (in VS Code): Claude legge i documenti e il codice del repo da sé. Prima si leggono le fonti, si scrivono schede in testo e si decide cosa entra nel catalogo; il codice arriva solo dopo il tuo via libera.
 
 ---
 
@@ -12,16 +12,16 @@ In questa fase **non c'è codice da lanciare**. Si leggono le fonti, si scrivono
 | fonte | chi porta il testo | cosa serve |
 |---|---|---|
 | **Articolo** (Medium, TradingView, blog) | Claude lo legge dal tuo Chrome | Chrome aperto con l'estensione Claude in Chrome e login a Medium fatto (§2). In alternativa incolli tu il testo |
-| **Video YouTube** | **tu**: estrai la trascrizione e la incolli in chat | trascrizione + titolo, canale, link, data del video (§4) |
+| **Video YouTube** | **tu**: estrai la trascrizione e la incolli nella sessione | trascrizione + titolo, canale, link, data del video (§4) |
 | **Libro** | **tu**: PDF o testo incollato dei capitoli che vuoi analizzare | capitoli indicati con ordine, titolo, autore, edizione (§5) |
 
-La chat va aperta **dentro il progetto «Metodo Combinatorio»**, non fuori: così Claude ha già i documenti di progetto (`00`, `20`, `21`, `32`, `50` e gli altri).
+Le istruzioni di progetto (`CLAUDE.md`) Claude Code le legge da solo all'avvio; i documenti sono in `docs/` (`00`, `02`, `20`, `21`, `50` e gli altri).
 
 ---
 
 ## 2 · Prima di iniziare (solo per gli articoli letti da Chrome)
 
-Controlla queste due cose (servono ogni volta che apri una chat nuova):
+Controlla queste due cose (servono ogni volta che apri una sessione nuova):
 
 1. **Chrome aperto** sul tuo computer, con l'estensione **Claude in Chrome** attiva.
 2. **Login a Medium fatto nello stesso Chrome**, con il tuo abbonamento. Prova: apri un articolo «Member-only» qualsiasi; se lo vedi per intero, è tutto a posto.
@@ -32,13 +32,12 @@ Da telefono non funziona la lettura da Chrome: puoi comunque incollare il testo.
 
 ## 3 · Come si avvia
 
-Apri una **nuova chat nel progetto** e incolla il testo che corrisponde alla fonte. Un solo tipo di fonte per chat va bene; si possono anche mescolare.
+Apri una **nuova sessione di Claude Code** nella cartella del progetto e incolla il testo che corrisponde alla fonte. Un solo tipo di fonte per sessione va bene; si possono anche mescolare.
 
 ### 3.1 Articoli
 
 ```
-Leggi nel progetto il documento 50_IDEE_DA_ARTICOLI.md e segui quel metodo.
-Repo di destinazione: V4.
+Leggi docs/50_IDEE_DA_ARTICOLI.md e segui quel metodo.
 
 Articoli da analizzare, in quest'ordine:
 1. <link>
@@ -53,8 +52,7 @@ Se un articolo non si apre, dimmelo: ti incollo il testo.
 ### 3.2 Video YouTube
 
 ```
-Leggi nel progetto il documento 50_IDEE_DA_ARTICOLI.md e segui quel metodo (§2.2 per i video).
-Repo di destinazione: V4.
+Leggi docs/50_IDEE_DA_ARTICOLI.md e segui quel metodo (§2.2 per i video).
 
 Fonte: video YouTube
 Canale: <nome del canale>
@@ -75,8 +73,7 @@ Se la trascrizione è lunga e non entra in un messaggio, incollala in più parti
 ### 3.3 Libri
 
 ```
-Leggi nel progetto il documento 50_IDEE_DA_ARTICOLI.md e segui quel metodo (§2.3 per i libri).
-Repo di destinazione: V4.
+Leggi docs/50_IDEE_DA_ARTICOLI.md e segui quel metodo (§2.3 per i libri).
 
 Fonte: libro
 Autore: <autore>
@@ -91,7 +88,7 @@ Dimmi a quale mercato e timeframe si riferisce la regola del libro.
 Niente codice finché non ti dico quali candidati approvo.
 ```
 
-**Quante fonti per volta:** da 3 a 5 per chat per gli articoli; **un video o un capitolo alla volta** per le fonti incollate, così la scheda resta leggibile. Se la chat diventa lunga, ne apri un'altra nel progetto con lo stesso testo: il registro (§10 di `50`) dice cosa è già stato fatto.
+**Quante fonti per volta:** da 3 a 5 per sessione per gli articoli; **un video o un capitolo alla volta** per le fonti incollate, così la scheda resta leggibile. Se la sessione diventa lunga, ne apri un'altra con lo stesso testo: il registro (§10 di `50`) dice cosa è già stato fatto.
 
 **Il primo giro suggerito** è il pilota già letto, l'articolo Fourier (§8.1): per quello esiste già un esempio guidato in `50` §11.
 
@@ -122,11 +119,11 @@ Sei tu a farlo, quindi qualche accorgimento che rende la scheda più affidabile:
 
 | passo | chi | cosa |
 |---|---|---|
-| 1 | Claude (articoli) · tu (video, libri) | il testo della fonte arriva in chat: articoli letti da Chrome (solo testo, niente immagini né formule), video e libri incollati da te |
+| 1 | Claude (articoli) · tu (video, libri) | il testo della fonte arriva nella sessione: articoli letti da Chrome (solo testo, niente immagini né formule), video e libri incollati da te |
 | 2 | Claude | ti scrive **una scheda per fonte**: idea, candidati (entry / filtro / uscita), dove la fonte guarda al futuro, doppioni probabili, cosa scartare, e per i video i punti da verificare |
 | 3 | **Tu** | per ogni candidato rispondi **sì / no / modifica**; per i video, conferma i numeri dubbi. Basta una riga, per esempio: «Video 1: sì al filtro, no all'entry; il periodo al minuto 12:40 è 20.» |
-| 4 | Claude | scrive il codice, lo collauda (lookahead, degenerazione, sovrapposizioni con il catalogo) e te lo consegna con le istruzioni |
-| 5 | **Tu** | carichi i file ed esegui i controlli (§8) |
+| 4 | Claude | su un ramo nuovo scrive il codice direttamente nei file, lo collauda (lookahead, degenerazione, sovrapposizioni con il catalogo con uno script a parte, `50` §7) e lancia tutti i test |
+| 5 | **Tu** | dai l'OK a pubblicare il ramo, controlli la Pull request su GitHub e fai il merge (§8) |
 | 6 | Claude | aggiorna il registro delle idee (§10 di `50`) |
 
 Se qualcosa non ti convince in una scheda, dillo prima del via libera: costa una riga, mentre dopo costa codice da rifare.
@@ -158,8 +155,8 @@ Gli scarti non sono un giudizio sull'idea: sono limiti del tool o dei dati di og
 
 Claude ti dice sempre **quali di questi passi servono** e cosa devi vedere alla fine di ognuno.
 
-1. **Applica solo gli interventi indicati da Claude**, file per file, nel punto indicato: di norma sono poche righe da aggiungere o sostituire, e il file intero si riscrive solo se Claude lo chiede esplicitamente. I file nuovi (es. `test_*.py`) si caricano interi: quelli di `engine/…` nella cartella `engine`, gli altri nella cartella principale. **In locale con Claude Code** questo passo lo fa Claude Code: scrive le modifiche direttamente nei file, su un ramo, lancia i test e fa il commit; a te restano Publish Branch e Merge su GitHub (`docs/50_IDEE_DA_ARTICOLI.md`, §9).
-2. **Lancia i test nuovi dal terminale**, aperto nella cartella del progetto: `python test_nome.py` (il nome esatto lo trovi nella consegna). L'ultima riga attesa ha la forma `RISULTATO: n/n test superati`. Se i superati sono meno del totale, copia qui il messaggio.
+1. **Le modifiche le scrive Claude Code nei file**, su un ramo nuovo, lancia tutti i test e fa il commit. Ti mostra l'ultima riga di ogni test: dev'essere `RISULTATO: n/n test superati`. Se lavori in chat invece che in locale, valgono le istruzioni di consegna "a parti" di `50` §9.2.
+2. **Pubblicazione e merge.** Dai l'OK a pubblicare il ramo (o clicchi tu Publish Branch in VS Code); su GitHub apri la Pull request, guardi *Files changed* e fai **Merge pull request → Confirm merge**. Il merge lo fai sempre tu (`CLAUDE.md`).
 3. **Rilancia `Collaudo_Catalogo.ipynb` su Colab**: *Runtime → Esegui tutto*, 2–3 minuti. Attesi: A1 e A2 con tutte le prove superate, **B con 0 LOOKAHEAD e 0 ERRORE**, D ed E superate. La sezione C è una tabella da leggere, senza promosso o bocciato.
 4. **Nel notebook principale** la condizione compare da sola dopo la registrazione: riavvia il runtime e riesegui dall'inizio, così i dizionari si rileggono.
 
@@ -190,7 +187,7 @@ Se un controllo non torna: incolla in chat l'ultima riga o il messaggio in rosso
 | la trascrizione del video è troppo lunga per un messaggio | incollala in più parti numerate («parte 1 di 3») e scrivi «fine» nell'ultima |
 | la trascrizione ha numeri o nomi strani | normale: Claude li segna in «DA VERIFICARE»; controlli tu nel video al minuto indicato |
 | il libro è un PDF scansionato e il testo non si legge | prova a incollare le pagine come testo, oppure allega le immagini delle pagine più importanti |
-| la chat è diventata molto lunga | apri una nuova chat nel progetto con lo stesso testo di avvio |
+| la sessione è diventata molto lunga | apri una nuova sessione di Claude Code con lo stesso testo di avvio |
 | non sai se una fonte è già stata fatta | chiedi a Claude di controllare il registro in `50` §10 |
 
 ---

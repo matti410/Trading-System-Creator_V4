@@ -9,13 +9,13 @@ L'ENTRY E L'USCITA RESTANO CONGELATE
 --------------------------------------
 `entry_long`, `entry_short` e `exit_rule_pair` sono UN SOLO nome ciascuno
 (o None), non liste: qui non si ricerca ne' l'entry ne' l'uscita, si
-ricevono gia' scelte dai passi precedenti (vedi ROADMAP_RICERCA.md, Passo
-5, "L'uscita resta congelata"). L'unica dimensione esplorata e' `filtri`.
+ricevono gia' scelte dai passi precedenti (passo 5 del metodo, docs/00:
+l'uscita resta congelata). L'unica dimensione esplorata e' `filtri`.
 
 COME SI APPLICA UN FILTRO — LA DIRECTION DECIDE IL LATO
 ----------------------------------------------------------
 Ogni filtro ha una `direction` (`get_filter_direction`): +1, -1, o 0.
-Pipeline Trend Following (vedi ROADMAP_RICERCA.md, Passo 5):
+Pipeline Trend Following (filtro e entry nella stessa direzione = conferma):
 
     direction == 0   si applica in AND su ENTRAMBI i lati attivi
     direction == +1  si applica in AND SOLO sul lato long
@@ -67,8 +67,7 @@ due_meta NON E' QUI
 ---------------------
 La verifica sulle due meta' (Difesa C, Passo 5) non e' in questo modulo:
 si richiama a parte, in una cella separata del notebook, sui filtri che
-qui risultano promettenti — decisione presa il 18/9/2026 (vedi
-RIEPILOGO_CHAT_BACKTESTING_PY.md).
+qui risultano promettenti — decisione presa il 18/9/2026.
 """
 from __future__ import annotations
 
@@ -246,9 +245,9 @@ def run_filter_search_bt(
 
     min_trades_giudizio, p_max, alpha
         Soglie del verdetto (vedi engine/giudizio.py). `min_trades_giudizio`
-        separa CAMPIONE CORTO da DA VALUTARE — default 100, la regola gia'
-        scritta in ROADMAP_RICERCA.md, Passo 5 ("sotto il centinaio di
-        trigger filtrati ci si ferma"). `p_max` e' la soglia su P(EV<0),
+        separa CAMPIONE CORTO da DA VALUTARE — default 100, la regola del
+        passo 5 (docs/00): sotto il centinaio di trade filtrati ci si
+        ferma. `p_max` e' la soglia su P(EV<0),
         default 5% (Lezione 9). `alpha` e' il rischio di famiglia della
         soglia sui test multipli. Tutte parametriche: se cambi idea su una
         soglia la passi qui, non riscrivi il modulo.

@@ -27,8 +27,8 @@ Come si lancia (da terminale, dalla cartella del progetto):
 
 Su Colab, in una cella:   !python test_vetrina_trigger.py
 
-Servono BTCUSD_M15.csv ed EURUSD_M15.csv nella cartella del progetto (ci sono
-gia' nel repo) e plotly. Dura circa cinque minuti (il grosso e' la sezione E,
+Servono dati/BTCUSD_M15.csv e dati/EURUSD_M15.csv (non sono su GitHub: si
+scaricano con scarica_dati.py) e plotly. Dura circa cinque minuti (il grosso e' la sezione E,
 che costruisce due volte la strategia). Alla fine stampa
 «RISULTATO: N/N test superati».
 """
@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import sys
 import warnings
 
@@ -147,7 +148,7 @@ def esegui() -> int:
     rng = np.random.default_rng(7)
     sbagliati_dich, sbagliati_fuori, saltati = [], [], []
     for simbolo in ("BTCUSD", "EURUSD"):
-        dati = pd.read_csv(f"{simbolo}_M15.csv", index_col="Date")
+        dati = pd.read_csv(os.path.join("dati", f"{simbolo}_M15.csv"), index_col="Date")
         for nome in ohlc_soltanto:
             dich = distanze_dichiarate(nome)
             fuori = [d for d in range(0, max(dich) + 3) if d not in dich]
