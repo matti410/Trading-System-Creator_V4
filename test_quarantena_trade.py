@@ -9,7 +9,7 @@ Verifica due cose, con casi a risultato noto:
   A-B  i segnali sulla quarantena non aprono trade (nei motori e nell'event study)
   C    i lati di un trade che cadono nel rollover pagano lo spread di quel
        momento, e solo quelli
-  D    sui dati veri (EURUSD_M15.csv): zero ingressi in quarantena, e con
+  D    sui dati veri (dati/EURUSD_M15.csv): zero ingressi in quarantena, e con
        quarantena=False i trade tornano quelli di prima
 """
 from __future__ import annotations
@@ -189,10 +189,10 @@ def esegui() -> int:
           and metriche_per_trade(vecchi, PIP, 0.0)["costo_pips"] == 0.0)
 
     # ---------------------------------------------------------- dati veri --
-    print("\nD · Sui dati veri (EURUSD_M15.csv)")
-    csv = os.path.join(os.path.dirname(os.path.abspath(__file__)), "EURUSD_M15.csv")
+    print("\nD · Sui dati veri (dati/EURUSD_M15.csv)")
+    csv = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dati", "EURUSD_M15.csv")
     if not os.path.exists(csv):
-        print("  [SALTATO] EURUSD_M15.csv non trovato")
+        print("  [SALTATO] dati/EURUSD_M15.csv non trovato")
     else:
         import entry_long, entry_short
         from engine.broker_tz_diagnostic import to_utc_index

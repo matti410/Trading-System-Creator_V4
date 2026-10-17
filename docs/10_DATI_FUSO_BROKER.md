@@ -284,7 +284,7 @@ server, o se il broker modifica la propria politica di fuso.
 ## File collegati
  
 - `engine/broker_tz_diagnostic.py` — diagnostica + `to_utc_index()`
-- `test_broker_tz.py` — suite di validazione (12/12 passati, forex + 24/7)
+- `test_broker_tz.py` — suite di validazione (12/12 passati, forex + 24/7), consegnata in chat il 20/9 e **non presente nel repo**: oggi `to_utc_index` è esercitata dai test che leggono i dati (`test_simboli.py`, `test_quarantena_trade.py`, …)
 ## Prossimi passi
  
 1. **Festivi di borsa**: EURUSD stampa candele il 4 luglio e a Thanksgiving, ma

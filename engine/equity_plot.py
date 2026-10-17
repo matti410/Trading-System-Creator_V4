@@ -8,7 +8,7 @@ backtest.
 RICOSTRUZIONE DELL'EQUITY
 --------------------------
 Il framework impone trade non sovrapposti (nessuna posizione aperta
-mentre un'altra e' in corso — vedi ways-of-working.md), quindi l'equity
+mentre un'altra e' in corso: exclusive_orders=True), quindi l'equity
 al tempo t e' `cash + somma di PnL di tutti i trade gia' chiusi entro t`.
 Verificato su un run reale: combacia (a meno di arrotondamento) con il
 `Return [%]` che la libreria calcola internamente — non e' una stima,

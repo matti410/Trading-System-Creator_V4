@@ -27,8 +27,9 @@ Si lancia da terminale, dalla cartella del progetto:
 
     python test_simboli.py
 
-Usa i CSV EURUSD_M15.csv e BTCUSD_M15.csv della cartella principale (sono nel
-repo). MT5 e la cartella dati/ servono solo a C e D, che si saltano da soli.
+Usa i CSV della cartella dati/ (non sono su GitHub: si scaricano con
+scarica_dati.py). Senza dati/ le parti che li leggono si saltano da sole; MT5
+serve solo a D.
 Richiede backtesting==0.6.6. Dura circa un minuto.
 """
 from __future__ import annotations
@@ -80,7 +81,7 @@ def _uguali(a: pd.DataFrame, b: pd.DataFrame) -> bool:
 
 
 def _carica(nome: str, anno: int) -> pd.DataFrame:
-    df = pd.read_csv(QUI / nome, index_col="Date")
+    df = pd.read_csv(QUI / "dati" / nome, index_col="Date")
     df = _muto(to_utc_index, df, "A_US_DST (NY+7h)", on_dst_gap="drop", verbose=False)
     return df[df.index.year == anno]
 
@@ -245,6 +246,9 @@ def esegui() -> int:
     casi = {"EURUSD": ("EURUSD_M15.csv", 0.8, None),   # 7 $ round-turn: passa dal nozionale
             "BTCUSD": ("BTCUSD_M15.csv", 12.58, None)}
     for sym, (nome, spread_pips, comm) in casi.items():
+        if not (QUI / "dati" / nome).exists():
+            saltato(f"E {sym}", f"manca dati/{nome}")
+            continue
         d = _carica(nome, 2024)
         mediano = float(d["Close"].median())
         prima = _muto(parametri_backtest, sym, bars=d, usa_mt5=False, spread_pips=spread_pips,
@@ -406,11 +410,15 @@ def esegui() -> int:
     except KeyError:
         fermo = True
     check("J1. strumento fuori da engine/simboli.py: prepara si ferma subito", fermo)
-    s_eur = _muto(_vetrina.prepara, "EURUSD", H=25)
-    check("J2. EURUSD dalla cartella principale come prima: 0,8 / 1,5 pips, pip 0,0001, nessun cambio",
-          (s_eur.spread_pips, s_eur.spread_rollover_pips, s_eur.pip) == (0.8, 1.5, 0.0001)
-          and _vetrina._cambio_ultima_barra(s_eur) is None and s_eur.cartella == ".")
     dati = QUI / "dati"
+    if (dati / "EURUSD_M15.csv").exists():
+        s_eur = _muto(_vetrina.prepara, "EURUSD", H=25)
+        check("J2. EURUSD senza indicare la cartella: legge da dati/ (default dal 17/10), "
+              "0,8 / 1,5 pips, pip 0,0001, nessun cambio",
+              (s_eur.spread_pips, s_eur.spread_rollover_pips, s_eur.pip) == (0.8, 1.5, 0.0001)
+              and _vetrina._cambio_ultima_barra(s_eur) is None and s_eur.cartella == "dati")
+    else:
+        saltato("J2", "manca dati/EURUSD_M15.csv")
     if (dati / "DE40_M15.csv").exists() and (dati / "EURUSD_M15.csv").exists():
         s_de = _muto(_vetrina.prepara, "DE40", H=25, cartella=str(dati))
         eur = _carica_dati(dati / "EURUSD_M15.csv")

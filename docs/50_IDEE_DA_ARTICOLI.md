@@ -2,10 +2,10 @@
  
 **Data:** 7 ottobre 2026 (registro aggiornato l'8/10 e il 15/10, filtro di sentiment F36 in §10 ter, multi timeframe in §10 quater; regola dei setup composti in §4 e riordino del 9/10; **il 10/10 fuso con l'ex `51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`**)
 **Stato:** metodo concordato con Mattia; esteso il 7/10 da articoli a **video YouTube (trascrizione incollata da Mattia) e libri**. Al 10/10/2026 trascritti 9 articoli (7 con candidate nel catalogo), **17 prove**: vedi il registro in §10. L'esempio guidato del primo articolo (Fourier, Kaabar) resta in §11. Repo di destinazione predefinito: V4 (confermato il 7/10).
-**Fusione con 51 (10/10/2026):** il documento `51` (consegna "a parti", registro dei filtri di regime, lavoro in locale) è entrato qui e non esiste più. Dove i due documenti dicevano cose diverse valeva il 51, e qui è già applicato: regola di consegna in §9, registro in §10, filtri di regime in §10 bis, lavoro in locale con Claude Code in §12.
+**Fusione con 51 (10/10/2026):** il documento `51` di allora (consegna "a parti", registro dei filtri di regime, lavoro in locale) è entrato qui e non esiste più; l'attuale `51_INDICATORI_TRADINGVIEW.md` è un documento diverso, del 13/10. Dove i due documenti dicevano cose diverse valeva il 51, e qui è già applicato: regola di consegna in §9, registro in §10, filtri di regime in §10 bis, lavoro in locale con Claude Code in §12.
 **Nota sul nome:** il file resta `50_IDEE_DA_ARTICOLI.md` perché altri documenti lo citano; vale per qualunque fonte testuale.
-**Prima di questo:** `00_SCOPO_E_STATO.md`, `02_KPI_E_GIUDIZIO.md`, `20_CONDIZIONI_TEMPO.md`, `21_COLLAUDO_CATALOGO.md`, `32_RIORDINO_CONDIZIONI.md`
-**Guida operativa per la nuova chat:** `GUIDA_ANALISI_FONTI.md` (nel repo, sostituisce `GUIDA_ANALISI_ARTICOLI_MEDIUM.md`), con prompt di avvio per articoli, video e libri ed elenco dei link da leggere.
+**Prima di questo:** `00_SCOPO_E_STATO.md`, `02_KPI_E_GIUDIZIO.md`, `20_CONDIZIONI_TEMPO.md`, `21_COLLAUDO_CATALOGO.md`
+**Guida operativa:** `docs/GUIDA_ANALISI_FONTI.md`, con i passi pratici per articoli, video e libri ed elenco dei link da leggere.
 **Codice:** nessuno qui. Le funzioni stanno sul repo (regola di `00`); qui ci sono il metodo, le convenzioni e il registro delle idee.
  
 ---
@@ -121,9 +121,9 @@ I pezzi scartati si registrano come in `20` («Scartati in questo giro, e perch�
 | una **grandezza continua** (Hurst, entropia, forza del ciclo, pendenza) | **filtro**, dopo averla trasformata in stato con un percentile rolling; oppure **entry** se la regola è «supera il percentile» | senza una regola di trasformazione non è ancora una condizione |
 | una **previsione** | il segno della previsione, calcolata solo sul passato, a un orizzonte dichiarato: **entry** se è il cambio di segno, **filtro direzionale** se è lo stato | |
 | una regola per **chiudere** (indicatore opposto, inversione) | **uscita a regola**: `df -> Series bool`, «chiudi il long» | |
-| uno **stop** o un **target** | non è una condizione: li ricava il tool con i percentili adattivi (`soglie_adattive`) | si annota come idea di uscita; stop e target non si ottimizzano (`01`, passo 3) |
+| uno **stop** o un **target** | non è una condizione: li ricava il tool con i percentili adattivi (`soglie_adattive`) | si annota come idea di uscita; stop e target non si ottimizzano (`00`, il metodo, passo 3) |
 | un'uscita **a tempo** | non è una condizione: è `n_barre` (o `n_barre_long` / `n_barre_short`) | |
-| sizing, gestione del rischio, portafoglio | fuori dal catalogo | passo 7 / livello portafoglio (`33`) |
+| sizing, gestione del rischio, portafoglio | fuori dal catalogo | passo 7 (money management, `61`) o livello portafoglio |
 | un **setup composto**: segnale + conferme in AND («segnale BUY + candela precedente verde + IIX positivo») | **una entry sola**, con tutte le condizioni sulla stessa barra | regola del 9/10/2026, sotto |
  
 ### Setup composti (regola del 9/10/2026)
@@ -147,7 +147,7 @@ Come si scrive:
 - Long e short sono **candidati separati** fino alla validazione; possono non essere speculari.
 - Una versione «confermata» (pattern + una barra dopo) coincide per costruzione con la base: la si aggiunge solo se Mattia lo decide.
 ### Filtri
-Le quattro regole di `01`, passo 5:
+Le quattro regole del passo 5 (`00`, il metodo):
 1. `direction=0` solo se usa davvero la sola magnitudo, mai il segno di una grandezza con segno.
 2. La finestra del percentile rolling dev'essere molto più larga della finestra del valore che classifica.
 3. Mai un filtro in OR su due rami opposti: si tengono separati, uno per direzione.
@@ -185,7 +185,7 @@ Funzione `df -> Series bool`. Il motore esce all'Open della barra successiva al 
 - **Modifiche additive.** Quando non è possibile, si dichiara.
 - **Unità:** costi in pips, non in bp; se serve la conversione si esplicita. Il pip è **fisso per symbol** e viene da `engine/simboli.py` (dal 10/10, §12): mai dedurlo dal prezzo.
 - **Docstring:** una riga che dice cosa fa, più la fonte: articolo (autore, titolo, URL); video (canale, titolo, URL, minuto); libro (autore, titolo, edizione, capitolo, pagina).
-- **Segno nell'event study:** sempre dal punto di vista del trade, mai del prezzo (`40`, §6 bis). Vale anche per le condizioni nuove.
+- **Segno nell'event study:** sempre dal punto di vista del trade, mai del prezzo (per uno short un calo del prezzo è un guadagno). Vale anche per le condizioni nuove.
 ---
  
 ## 6 · Le trappole di lookahead tipiche delle fonti
@@ -198,7 +198,7 @@ Gli esempi degli articoli sono scritti per mostrare un'idea, non per girare in t
 | scomposizioni o ricostruzioni sull'intero campione (FFT e inversa, wavelet, EMD, PCA, SVD) | il punto ricostruito a *t* dipende da tutta la serie | finestra mobile **solo sul passato**, si tiene solo l'ultimo punto; attenzione all'effetto di bordo |
 | z-score, min-max, scaler, percentili calcolati su tutto il campione | media e deviazione includono il futuro | rolling o expanding |
 | pivot, zigzag, swing high/low, `find_peaks`, `argrelextrema`, frattali (barre a destra) | un massimo si conferma solo con barre successive | il segnale esiste dalla barra di **conferma**, non da quella del pivot |
-| etichette e target (`shift(-n)`, `pct_change(-n)`) rimasti nel segnale | il segnale conosce l'esito | via dal segnale; il target sta altrove (`target.py` nel ramo ML) |
+| etichette e target (`shift(-n)`, `pct_change(-n)`) rimasti nel segnale | il segnale conosce l'esito | via dal segnale: l'esito lo misura il tool, non la condizione |
 | modelli di regime addestrati sul campione intero (HMM con Viterbi, GMM, k-means, regressioni, rilevamento di punti di cambio) | l'etichetta a *t* è stimata guardando tutta la sequenza | stima sul passato (filtering, non smoothing), rifit periodico |
 | `bfill`, interpolazione bidirezionale, `resample` con etichetta a destra, unione di timeframe superiori | la barra superiore non è ancora chiusa | `shift(1)` e allineamento alla candela **chiusa** |
 | High / Low / Close del giorno corrente usati durante il giorno | il massimo giornaliero si conosce a fine giornata | livello della giornata FX **precedente** (`livelli.py`) |
@@ -223,7 +223,7 @@ Ogni condizione nuova passa tutto questo prima di arrivare a Mattia, con casi a 
 2. **`verifica_lookahead`** (troncamento: lo storico si taglia alla barra *t*, si ricalcola da zero indicatori compresi, si confrontano tutte le barre fino a *t*). Esito atteso `OK`. `NON_ESERCITATA` non è una promozione: la condizione non era mai vera nel test. Si prova su una serie dove scatta, e con tagli sulle barre in cui la condizione è vera.
 3. **`verifica_degenerazione`** su EURUSD vero (dal 10/10 si può fare anche sugli altri symbol di `dati/`, §12): copertura, eventi, `STATO`, `RARA`, `SEMPRE_VERA`. Sotto le 30 occorrenze (entry) o 30 barre vere (filtri e uscite) si segnala, non si promuove né si boccia.
 4. **Casi a risultato noto:** serie costruite a mano su cui l'esito è noto (il trigger scatta sulla barra attesa; lo short è lo speculare del long; il filtro cambia stato dove deve).
-5. **Sovrapposizioni con il catalogo:** `diagnostica.sovrapposizioni(df, colonne, finestra, soglia)` (`32`), solo su `df_is`, filtri a finestra 0 e trigger a finestra 2, soglia 70. Una condizione contenuta al 70% o più in una già presente, o suo contrario esatto, è un doppione: non si aggiunge, a meno che Mattia lo decida. **Precisazione del 15/10/2026 (Mattia):** il 70% conta solo se è almeno **1,3 volte il caso**, cioè la quota contenuta divisa per la copertura della condizione già presente è ≥ 1,3. Contro filtri molto larghi (F2_MID, F22: 75–80% delle barre) il 70% si raggiunge per caso e non fa doppione. I doppioni si **spengono mettendo tra commenti la riga del dizionario** (come F27): la funzione resta, non si calcola, si riattiva togliendo il `#`. Funzione presente nel ramo ML dal 1/10; **nel repo V4 non esiste** (verificato il 9/10): il controllo si fa con uno script a parte, con le stesse regole.
+5. **Sovrapposizioni con il catalogo:** `diagnostica.sovrapposizioni(df, colonne, finestra, soglia)` (repo ML), solo su `df_is`, filtri a finestra 0 e trigger a finestra 2, soglia 70. Una condizione contenuta al 70% o più in una già presente, o suo contrario esatto, è un doppione: non si aggiunge, a meno che Mattia lo decida. **Precisazione del 15/10/2026 (Mattia):** il 70% conta solo se è almeno **1,3 volte il caso**, cioè la quota contenuta divisa per la copertura della condizione già presente è ≥ 1,3. Contro filtri molto larghi (F2_MID, F22: 75–80% delle barre) il 70% si raggiunge per caso e non fa doppione. I doppioni si **spengono mettendo tra commenti la riga del dizionario** (come F27): la funzione resta, non si calcola, si riattiva togliendo il `#`. Funzione presente nel ramo ML dal 1/10; **nel repo V4 non esiste** (verificato il 9/10): il controllo si fa con uno script a parte, con le stesse regole.
 6. **Riscaldamento:** dopo il taglio, la colonna è identica a prescindere dal punto di partenza dei dati (come verificato il 28/9 per le 72 colonne E*/F*).
 7. **Pandas 2.2 e 3.0:** stessi risultati con entrambe.
 8. **Suite da terminale** del progetto e **`Collaudo_Catalogo.ipynb`** rilanciati: da rifare ogni volta che si aggiunge una condizione.

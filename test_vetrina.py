@@ -16,13 +16,14 @@ Come si lancia (da terminale, dalla cartella del progetto):
 
 Su Colab, in una cella:   !python test_vetrina.py
 
-Serve il file EURUSD_M15.csv nella cartella del progetto (c'e' gia' nel repo).
+Serve il file dati/EURUSD_M15.csv (non e' su GitHub: si scarica con scarica_dati.py).
 Dura uno-due minuti. Alla fine stampa «RISULTATO: N/N test superati».
 """
 from __future__ import annotations
 
 import contextlib
 import io
+import os
 import sys
 import warnings
 
@@ -100,7 +101,7 @@ def esegui() -> int:
           f"{len(s.df_is):,} + {len(s.df_oos):,} barre")
     # il prezzo di riferimento e' la mediana dello storico completo, prima che
     # gli indicatori tolgano le barre di avvio: come nel notebook di lavoro
-    grezzo = pd.read_csv("EURUSD_M15.csv", index_col="Date")
+    grezzo = pd.read_csv(os.path.join("dati", "EURUSD_M15.csv"), index_col="Date")
     with contextlib.redirect_stdout(io.StringIO()):
         from engine.broker_tz_diagnostic import to_utc_index
         grezzo = to_utc_index(grezzo, v.REGOLA_FUSO, on_dst_gap="drop")
