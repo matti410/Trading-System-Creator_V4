@@ -209,25 +209,45 @@ class _StrategiaGenerica(Strategy):
     inverti_su_opposto = False
 
     def init(self):
-        pass
+        # 17/10/2026 — VELOCITA'. Le colonne che next() legge a ogni barra si
+        # prendono qui UNA volta, come array interi, e next() le legge per
+        # indice: col[i] e' lo stesso valore di getattr(self.data, col)[-1],
+        # senza il taglio dell'array che backtesting.py rifa' a ogni barra e
+        # per ogni colonna. Stessi trade di prima (test di identita' in
+        # test_velocita.py).
+        def colonna(nome):
+            return None if nome is None else np.asarray(getattr(self.data, nome))
+        self._col_long = colonna(self.long_col)
+        self._col_short = colonna(self.short_col)
+        self._col_uscita_long = colonna(self.exit_rule_long_col)
+        self._col_uscita_short = colonna(self.exit_rule_short_col)
+        self._soglie = {c: np.asarray(getattr(self.data, c)) for c in
+                        ("sl_long", "tp_long", "sl_short", "tp_short")}
 
     def next(self):
-        if self.position:
-            trade = self.trades[-1]
-            barra_corrente = len(self.data) - 1
+        barra_corrente = len(self.data) - 1
+        # self.trades vuoto = nessuna posizione: stesso significato di
+        # self.position (la cui dimensione e' la somma dei trade aperti),
+        # senza ricalcolarla a ogni barra
+        aperti = self.trades
+        if aperti:
+            trade = aperti[-1]
 
             if trade.entry_bar == barra_corrente:
                 # prima barra in cui il trade e' visibile: e' la barra
                 # d'ingresso stessa. La soglia letta qui e' gia' causale
                 # (soglie_adattive, lag=execution_lag).
+                soglie = self._soglie
                 if trade.is_long:
-                    frac_sl, frac_tp = self.data.sl_long[-1], self.data.tp_long[-1]
+                    frac_sl = soglie["sl_long"][barra_corrente]
+                    frac_tp = soglie["tp_long"][barra_corrente]
                     if not np.isnan(frac_sl):
                         trade.sl = trade.entry_price * (1 - frac_sl)
                     if not np.isnan(frac_tp):
                         trade.tp = trade.entry_price * (1 + frac_tp)
                 else:
-                    frac_sl, frac_tp = self.data.sl_short[-1], self.data.tp_short[-1]
+                    frac_sl = soglie["sl_short"][barra_corrente]
+                    frac_tp = soglie["tp_short"][barra_corrente]
                     if not np.isnan(frac_sl):
                         trade.sl = trade.entry_price * (1 + frac_sl)
                     if not np.isnan(frac_tp):
@@ -242,10 +262,10 @@ class _StrategiaGenerica(Strategy):
             # successiva. Il nuovo trade ha il suo `entry_bar`, quindi stop e
             # timer ripartono da li'.
             if self.inverti_su_opposto:
-                segnale_long = (self.long_col is not None
-                                and bool(getattr(self.data, self.long_col)[-1]))
-                segnale_short = (self.short_col is not None
-                                 and bool(getattr(self.data, self.short_col)[-1]))
+                segnale_long = (self._col_long is not None
+                                and bool(self._col_long[barra_corrente]))
+                segnale_short = (self._col_short is not None
+                                 and bool(self._col_short[barra_corrente]))
                 if trade.is_long and segnale_short and not segnale_long:
                     self.sell()
                     return
@@ -254,8 +274,8 @@ class _StrategiaGenerica(Strategy):
                     return
 
             # regola di uscita: chiude PRIMA del tetto a tempo se scatta
-            col_regola =self.exit_rule_long_col if trade.is_long else self.exit_rule_short_col
-            if col_regola is not None and bool(getattr(self.data, col_regola)[-1]):
+            col_regola = self._col_uscita_long if trade.is_long else self._col_uscita_short
+            if col_regola is not None and bool(col_regola[barra_corrente]):
                 self.position.close()
                 return
 
@@ -268,10 +288,10 @@ class _StrategiaGenerica(Strategy):
                 self.position.close()
             return
 
-        segnale_long = (self.long_col is not None
-                        and bool(getattr(self.data, self.long_col)[-1]))
-        segnale_short = (self.short_col is not None
-                         and bool(getattr(self.data, self.short_col)[-1]))
+        segnale_long = (self._col_long is not None
+                        and bool(self._col_long[barra_corrente]))
+        segnale_short = (self._col_short is not None
+                         and bool(self._col_short[barra_corrente]))
 
         if segnale_long and not segnale_short:
             self.buy()
