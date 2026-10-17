@@ -205,15 +205,16 @@ si ferma e indica la riga da aggiungere (`50` §12).
 
 | file | contenuto |
 |---|---|
-| `entry_long.py` / `entry_short.py` | 36 entry per lato (fino a E31) |
+| `entry_long.py` / `entry_short.py` | 38 entry per lato (fino a E33) |
 | `entry_composita.py` | entry composte: più trigger in OR sullo stesso lato |
 | `entry_metro.py` | 5 entry-metro temporali per lato (righello, non candidate) |
-| `filter_conditions.py` | 45 filtri (fino a F39) |
+| `filter_conditions.py` | 47 filtri (fino a F40) |
 | `vwap_regime_filter_conditions.py` | 5 filtri di regime VWAP |
-| `exit_long.py` / `exit_short.py` | 4 uscite a regola per lato |
+| `exit_long.py` / `exit_short.py` | 5 uscite a regola per lato |
 
-Con tutto registrato (metro short comprese) il registry contiene **140
-condizioni**: 82 entry, 50 filtri, 8 uscite (conteggio del 17/10).
+Con tutto registrato (metro short comprese) il registry contiene **148
+condizioni**: 86 entry, 52 filtri, 10 uscite (conteggio del 17/10, dopo
+AlgoXplorer: E32, E33, X4, F40).
 
 I filtri di confidenza (`CONF_…`) non sono nel catalogo: nascono nel notebook,
 da `registra_filtro_confidenza`, dopo il sistema base. Non passano dal collaudo
@@ -228,7 +229,7 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 
 ### Collaudo
 
-**Suite da terminale (17/10): 21 file `test_*.py`, 861 test, tutti superati**
+**Suite da terminale (17/10): 22 file `test_*.py`, 913 test, tutti superati**
 (pandas 3.0.6, in locale). Si lanciano dalla cartella del progetto, su Windows
 con `PYTHONIOENCODING=utf-8`; l'ultima riga di ognuno dev'essere
 `RISULTATO: n/n test superati`. Alcune parti leggono i CSV di `dati/` e, se
@@ -312,7 +313,7 @@ forex con weekend, prezzo 1,10).
 
 ### 6. Un runner unico dei test
 
-Ventuno suite da terminale più un notebook di collaudo, da lanciare a mano.
+Ventidue suite da terminale più un notebook di collaudo, da lanciare a mano.
 
 ### 7. Etichetta UTC fantasma — origine non confermata
 
@@ -380,8 +381,9 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 ## Dove siamo (17/10/2026)
 
-- **Catalogo:** 140 condizioni, collaudate (lookahead e degenerazione) su 9
-  symbol. Dalle fonti testuali: 33 prove al 15/10, registro in `50` §10.
+- **Catalogo:** 148 condizioni, collaudate (lookahead e degenerazione) su 9
+  symbol. Dalle fonti testuali: 39 prove al 17/10 (ultime: AlgoXplorer,
+  `50` §10 quinquies), registro in `50` §10.
 - **I due notebook** leggono da `dati/` (o da Drive), con pip fisso per symbol,
   spread dal listino del conto Standard, fuso controllato. Vanno aggiornati
   sempre insieme (`CLAUDE.md`).

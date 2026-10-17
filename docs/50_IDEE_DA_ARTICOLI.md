@@ -1,6 +1,6 @@
 # 50 · Idee da fonti testuali — come trascriverle in condizioni
  
-**Data:** 7 ottobre 2026 (registro aggiornato l'8/10 e il 15/10, filtro di sentiment F36 in §10 ter, multi timeframe in §10 quater; regola dei setup composti in §4 e riordino del 9/10; **il 10/10 fuso con l'ex `51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`**)
+**Data:** 7 ottobre 2026 (registro aggiornato l'8/10, il 15/10 e il 17/10 con AlgoXplorer in §10 quinquies, filtro di sentiment F36 in §10 ter, multi timeframe in §10 quater; regola dei setup composti in §4 e riordino del 9/10; **il 10/10 fuso con l'ex `51_CONSEGNA_A_PARTI_E_REGISTRO_REGIME.md`**)
 **Stato:** metodo concordato con Mattia; esteso il 7/10 da articoli a **video YouTube (trascrizione incollata da Mattia) e libri**. Al 10/10/2026 trascritti 9 articoli (7 con candidate nel catalogo), **17 prove**: vedi il registro in §10. L'esempio guidato del primo articolo (Fourier, Kaabar) resta in §11. Repo di destinazione predefinito: V4 (confermato il 7/10).
 **Fusione con 51 (10/10/2026):** il documento `51` di allora (consegna "a parti", registro dei filtri di regime, lavoro in locale) è entrato qui e non esiste più; l'attuale `51_INDICATORI_TRADINGVIEW.md` è un documento diverso, del 13/10. Dove i due documenti dicevano cose diverse valeva il 51, e qui è già applicato: regola di consegna in §9, registro in §10, filtri di regime in §10 bis, lavoro in locale con Claude Code in §12.
 **Nota sul nome:** il file resta `50_IDEE_DA_ARTICOLI.md` perché altri documenti lo citano; vale per qualunque fonte testuale.
@@ -305,10 +305,11 @@ Una riga per fonte (nei libri, per capitolo). Serve a due cose: sapere cosa è g
 | 10 | script TradingView | 13–15/10/2026 | 7 script della community (`51_INDICATORI_TRADINGVIEW.md`): VFI, Squeeze Momentum, WaveTrend di LazyBear; Relative Volume di veryfid; KER di Zorba_the_Buddha; Hurst di PhenLabs (CC BY-NC-SA, uso personale); filtri MLExtensions di jdehorty | traduzione riga per riga del Pine, fedeltà verificata con PineTS | entry E28 (VFI), E29 (squeeze), E30 (WaveTrend a percentile); filtri F28 (VFI, coppia), F29_RVOL_LOW, F32_KER_RANGE, F33 (Hurst ×2), F35 (regime jdehorty). **Spenti come doppioni:** F29_RVOL_HIGH, F30, F31, F32_KER_TREND, F34 | piano approvato il 13/10, scelte del 13–15/10 (`51` §7.1) | superato 15/10 (`test_indicatori_tradingview.py` 143/143) | sì | 12 (+5 se si riattivano i doppioni) |
 | 11 | concetto (indice esterno) | 15/10/2026 | Crypto Fear & Greed Index di alternative.me (https://alternative.me/crypto/fear-and-greed-index/), solo come **idea**: formula, dati e nome non usati, codice nostro senza licenze di terzi (prodotto commerciale) | sentiment giornaliero dai soli prezzi e tick volume: 4 componenti (volatilità, drawdown, momentum, volume con segno) a 30 giorni, percentile a 365 giornate, punteggio 0–100 e 5 quintili; aggiornato a fine giornata FX, ogni barra vede solo l'ultima giornata chiusa | filtri F36_SENT_EXTREME_FEAR (+1) / F36_SENT_EXTREME_GREED (−1), coppia SENTIMENT, **contrarian** (paura sul long); colonne `sentiment_score`, `sentiment_classe` | approvata 15/10 (solo la versione contrarian; no versione momentum e no filtro neutro) | superato 15/10 (`test_sentiment.py` 53/53) | sì | 1 |
 | 12 | ricerca (libro, paper, articolo) | 15/10/2026 | multi timeframe: Elder, «Trading for a Living», Wiley 1993, cap. 43 (Triple Screen, pp. 235–243); Hurst, Ooi, Pedersen, «A Century of Evidence on Trend-Following Investing», JPM 2017; LuxAlgo, «The Strat» (Rob Smith) | candele superiori H1/H4/giorno/settimana/mese costruite dalle M15 (H4 ancorato alle 17:00 NY), lette solo se chiuse; continuità dei timeframe; Triple Screen H4/H1/M15 con Force Index; accordo di 1, 5, 21 giornate; giorno inside | filtro F39_INSIDE_DAY (neutro); entry E31_TRIPLE_SCREEN_UP / E31_SHORT_TRIPLE_SCREEN_DOWN (setup unico, §4) | approvata 15/10 (B, C, D, F; no al filtro trend giornaliero e all'uscita); scelte su C e D in §10 quater | superato 15/10 (`test_multi_timeframe.py` 38/38) | E31, F39 sì; **F37 (coppia FTFC) e F38 (coppia TSMOM) spenti come doppioni** | 3 (+2 se si riattivano F37 e F38) |
+| 13 | script TradingView (nostro) | 17/10/2026 | «AlgoXplorer 0.1c», indicatore Pine v5 scritto da Mattia e da un amico, uso concordato (sorgente in `pine_sources/`, non su GitHub) | candela PVSRA climax + chiusura Heikin Ashi oltre la EMA a 50 di massimi/minimi + rottura della candela HA precedente; segnali alternati Buy/Sell; ingresso "careful" alla rottura del massimo (minimo) HA della candela del segnale | entry E32_ALGOX_CAREFUL_UP / E32_SHORT_ALGOX_CAREFUL_DOWN (con PVSRA), E33_ALGOX_NOVOL_CAREFUL_UP / E33_SHORT_ALGOX_NOVOL_CAREFUL_DOWN (senza PVSRA, interruttore "Forex"); uscite X4_ALGOX_SELL / X4_SHORT_ALGOX_BUY (coppia ALGOX); filtri F40_ALGOX_STATE_LONG / SHORT (coppia ALGOX_STATE) | approvata 17/10 (due versioni su tutti i symbol, careful, Sensibility 2; uscita e filtro solo con PVSRA) | superato 17/10 (`test_algoxplorer.py` 52/52, fedeltà con PineTS) | sì; sovrapposizioni con E3, X3, F8/F9 tenute (decisione di Mattia, 17/10) | 6 |
  
 Non letti per scelta di Mattia: articoli su HMM / UMAP (modelli addestrati: rischio lookahead e calcolo pesante). Restano in elenco in `GUIDA_ANALISI_FONTI.md` §11.2 (Range Index, Vertical Horizontal Filter, change point bayesiano…).
  
-**Prove da fonti testuali al 15/10/2026: 33** (articoli 17, script TradingView 12, indice di sentiment 1, ricerca multi timeframe 3 (libro Elder 2, articolo 1), video 0), con F37 e F38 spenti come doppioni (+2 se si riattivano), con **F27 e i doppioni di `51` spenti**; **31** se si attiva F27, **+5** se si riattivano i doppioni di `51`. Prima del multi timeframe (15/10) erano 30, prima di F36 29. Al 10/10/2026 erano 17. Storia del conteggio: 17 all'8/10; 14 il 9/10, quando i setup degli articoli 2 e 3 sono stati riscritti come entry uniche (§4) e i filtri estratti PVO e IIX sono stati tolti; 17 dal 9/10 con i filtri di regime F25 (2) e F26 (1).
+**Prove da fonti testuali al 17/10/2026: 39** (dal 17/10: +6 di AlgoXplorer, riga 13; prima erano 33). Al 15/10: **33** (articoli 17, script TradingView 12, indice di sentiment 1, ricerca multi timeframe 3 (libro Elder 2, articolo 1), video 0), con F37 e F38 spenti come doppioni (+2 se si riattivano), con **F27 e i doppioni di `51` spenti**; **31** se si attiva F27, **+5** se si riattivano i doppioni di `51`. Prima del multi timeframe (15/10) erano 30, prima di F36 29. Al 10/10/2026 erano 17. Storia del conteggio: 17 all'8/10; 14 il 9/10, quando i setup degli articoli 2 e 3 sono stati riscritti come entry uniche (§4) e i filtri estratti PVO e IIX sono stati tolti; 17 dal 9/10 con i filtri di regime F25 (2) e F26 (1).
  
 Per video e libri la colonna «fonte» riporta canale e titolo (video) o autore, titolo e capitolo (libro), più il riferimento (minuto o pagina).
  
@@ -416,6 +417,39 @@ Per video e libri la colonna «fonte» riporta canale e titolo (video) o autore,
 
 ---
  
+## 10 quinquies · AlgoXplorer 0.1c: E32, E33, X4, F40 (17/10/2026)
+
+### Come funziona (per decidere senza codice)
+
+- **Le candele Heikin Ashi (HA)** (`engine/indicatori.py`: `heikin_ashi`) sono candele lisciate dello stesso timeframe: chiusura = media di O, H, L, C; apertura = media di apertura e chiusura HA della barra prima. Solo passato; l'apertura dipende dalla prima barra dei dati ma la differenza si dimezza a ogni barra.
+- **La candela PVSRA climax** (`pvsra_climax`): tick volume almeno doppio della media delle ultime 10 barre (barra corrente compresa), oppure volume × ampiezza il più alto delle ultime 10. Lime se la candela vera chiude in rialzo, rossa se in ribasso.
+- **Buy:** candela lime, chiusura HA sopra la EMA a 50 dei massimi, massimo HA sopra la chiusura HA, chiusura HA sopra il massimo HA della barra prima. **Sell:** candela rossa, chiusura HA sotto la EMA a 50 dei minimi, massimo HA uguale all'apertura HA (nessuna ombra superiore), chiusura HA sotto il minimo HA della barra prima. Long e short **non sono speculari** (come nello script).
+- **Alternanza:** un Buy conta solo se l'ultimo segnale era un Sell, e viceversa (`algoxplorer`, colonne `algox_segnale` e `algox_stato`).
+- **Ingresso careful** (E32, E33): la prima barra dopo il Buy, prima del Sell, il cui massimo HA supera il massimo HA della candela del Buy; se non succede, nessun ingresso ("Not enter"). Short speculare sul minimo HA. Il motore entra all'Open della barra dopo.
+- **E33** è lo stesso senza la candela PVSRA (interruttore "Forex" dello script), su tutti i symbol.
+- **X4:** chiude il long all'etichetta Sell (e lo short al Buy), versione con PVSRA. **F40:** vero mentre l'ultimo segnale è Buy (long) o Sell (short), la barra verde o rossa dello script.
+- **Scartati:** l'etichetta "Max profit" (massimo guadagno visto col senno di poi, ridisegnata a ogni nuovo massimo); "overridesym" (volume da un altro symbol, spento); la banda EMA e la candela PVSRA come filtri a sé (lo script non le usa da sole, §4).
+
+### Collaudo (17/10/2026)
+
+- `test_algoxplorer.py` (nuovo): 52/52 con pandas 3.0.6.
+  - **Fedeltà:** il Pine fatto girare con PineTS su 20.000 barre di EURUSD, BTCUSD, DE40, con e senza PVSRA. La copia di collaudo (`pine_sources/algoxplorer_0_1c_v5.pine`, `_forex_v5.pine`) cambia solo `request.security`, che PineTS non esegue sui CSV: candele HA con la formula standard, volume del grafico (overridesym è spento). Tutto identico salvo **un pareggio numerico** su EURUSD senza PVSRA (chiusura HA 1,1712600000000002 contro massimo precedente 1,17126: scarto 2e-16), che sposta 4 barre su 784 eventi.
+  - riscrittura indipendente barra per barra con le variabili dello script; candele costruite a mano (Buy, careful, "Not enter", Sell, PVSRA); trappola "sapere al Buy se il careful arriverà" segnata LOOKAHEAD; riscaldamento; 9 symbol; `verifica_degenerazione` su EURUSD tutta OK.
+- Lookahead sull'intero catalogo (sezione B di `Collaudo_Catalogo.ipynb`, rifatta in locale): 148 condizioni, 0 LOOKAHEAD, 0 ERRORE.
+- **Eventi sui 9 symbol (storico intero):** E32 716–1.170 per lato, E33 1.420–1.991, X4 805–1.295; F40 vero sul 52–58% (long) e 42–47% (short) delle barre.
+- **Sovrapposizioni** (§7.5, in-sample 80%, EURUSD, BTCUSD, DE40; trigger a 2 barre, filtri e uscite a 0):
+  - **E32 long** al 83–89% entro 2 barre da E3_SHORT_INTRABAR_STRENGTH_FADE (2,8–3,0 volte il caso); **E32 short** al 76–82% da E3_LONG_INTRABAR_WEAKNESS_FADE (3,7–3,9 volte); **E33 long** al 72–77% da E3_SHORT (2,5 volte); E33 short 67–70% (al limite). È lo stesso fenomeno di E25, E26, E31: E3 scatta dopo quasi ogni barra forte, nel verso opposto. Correlazioni sotto 0,06.
+  - **X4** al 85–95% dentro X3_MACD (1,7–1,9 volte): l'uscita a evento cade quasi sempre in barre dove il MACD è già sotto (sopra) il segnale; X3 è uno stato e chiude di solito prima.
+  - **F40** al 70–75% dentro F8/F9 (contesto di trend, 1,4–1,6 volte), e al 71–72% dentro F28 VFI e i filtri VWAP «prezzo sopra/sotto il fair value» su alcuni symbol. Correlazioni 0,37–0,50. Più debole di F37 (88–92%), spento il 15/10.
+  - E32 ed E33 fra loro: 62–67% (sotto la soglia).
+
+### Decisioni
+
+1. **Deciso il 17/10/2026 (Mattia): E32, E33 e X4 restano accesi** nonostante le sovrapposizioni con E3 (come E31 il 15/10) e con X3 (X3 è uno stato e chiude prima).
+2. **Deciso il 17/10/2026 (Mattia): F40 resta acceso** nonostante il 70–75% dentro F8/F9.
+
+---
+
 ## 11 · Esempio guidato — l'articolo Fourier (applicazione della lista, non la scheda)
  
 Serve a mostrare come si usa §6 su un articolo vero. La scheda completa è il prossimo passo e va approvata da Mattia.

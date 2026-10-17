@@ -1167,6 +1167,23 @@ def filter_inside_day(df: pd.DataFrame) -> pd.Series:
     return df["inside_day"] == 1
 
 
+def filter_algox_state_long(df: pd.DataFrame) -> pd.Series:
+    """
+    AlgoXplorer 0.1c (versione con PVSRA): l'ultimo segnale e' un Buy
+    (colonna `algox_stato` = +1), cioe' la barra verde dello script. Vero
+    dalla barra del Buy fino a quella prima del Sell. Falso prima del primo
+    segnale dei dati.
+
+    Fonte: "AlgoXplorer 0.1c" (Mattia e un amico), docs/50 §10, riga 13.
+    """
+    return df["algox_stato"] == 1
+
+
+def filter_algox_state_short(df: pd.DataFrame) -> pd.Series:
+    """L'ultimo segnale AlgoXplorer e' un Sell (barra rossa). Speculare di F40_ALGOX_STATE_LONG."""
+    return df["algox_stato"] == -1
+
+
 FILTRI = {
     "F1_ADX_ABOVE":              (filter_adx_above, 0, None),
     "F2_LOW_VOLATILITY":         (filter_low_volatility, 0, None), #
@@ -1228,6 +1245,9 @@ FILTRI = {
     # "F38_TSMOM_ALL_UP":          (filter_tsmom_all_up, 1, "TSMOM"),
     # "F38_TSMOM_ALL_DOWN":        (filter_tsmom_all_down, -1, "TSMOM"),
     "F39_INSIDE_DAY":            (filter_inside_day, 0, None),
+    # AlgoXplorer 0.1c (docs/50 §10, riga 13; 17/10/2026)
+    "F40_ALGOX_STATE_LONG":      (filter_algox_state_long, 1, "ALGOX_STATE"),
+    "F40_ALGOX_STATE_SHORT":     (filter_algox_state_short, -1, "ALGOX_STATE"),
     # Doppioni SPENTI (regola di docs/50 §7.5 alla lettera, decisione di Mattia
     # del 15/10/2026): contenuti al 70% o piu' in filtri gia' presenti, su
     # EURUSD in-sample. Togli il "#" solo se Mattia lo decide (1 prova a coppia).

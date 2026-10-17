@@ -62,6 +62,8 @@ ECCEZIONI_ATTESE = {          # trigger che hanno per scelta solo nome + candela
     "E29_SQUEEZE_RELEASE_UP", "E29_SHORT_SQUEEZE_RELEASE_DOWN",   # docs/51, M1
     "E30_WAVETREND_CROSS_UP", "E30_SHORT_WAVETREND_CROSS_DOWN",   # docs/51, M2
     "E31_TRIPLE_SCREEN_UP", "E31_SHORT_TRIPLE_SCREEN_DOWN",       # docs/50 §10 quater (15/10/2026)
+    "E32_ALGOX_CAREFUL_UP", "E32_SHORT_ALGOX_CAREFUL_DOWN",       # AlgoXplorer, docs/50 §10 (17/10/2026)
+    "E33_ALGOX_NOVOL_CAREFUL_UP", "E33_SHORT_ALGOX_NOVOL_CAREFUL_DOWN",
 }
 W = 60                        # candele di contesto per il test delle candele
 N_RILEVAZIONI = 40

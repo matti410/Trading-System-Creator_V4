@@ -219,6 +219,7 @@ def esegui() -> int:
     # ammesse qui, ma solo queste; i filtri di regime non ne hanno aggiunte
     coppie_docs51 = {"VFI_SIGN"}   # SQZ_MOM, WAVETREND, KER_TREND spenti: doppioni  # F29 (V2) e' neutro, senza coppia
     coppie_docs51 |= {"SENTIMENT"}  # F36, sentiment contrarian (docs/50 §10 ter, 15/10/2026)
+    coppie_docs51 |= {"ALGOX_STATE"}  # F40, AlgoXplorer (docs/50 §10, riga 13, 17/10/2026)
     check("D4. nessuna coppia nuova: le coppie di prima non sono cambiate",
           {c[0] for c in R.list_filter_pairs()} - coppie_docs51
           == {"MACD_SIGNAL", "TREND_CONTEXT", "TREND_CONVICTION",

@@ -466,6 +466,39 @@ def entry_triple_screen_up(df: pd.DataFrame) -> pd.Series:
     return _evento(cond)
 
 
+def entry_algox_careful_up(df: pd.DataFrame) -> pd.Series:
+    """
+    AlgoXplorer 0.1c, setup completo con ingresso "careful" -> long.
+
+      1. etichetta Buy: candela PVSRA climax rialzista, chiusura Heikin Ashi
+         sopra la EMA a 50 dei massimi, massimo HA sopra la chiusura HA,
+         chiusura HA sopra il massimo HA della barra prima; l'ultimo
+         segnale non era gia' un Buy
+      2. ingresso: prima barra dopo il Buy, prima del Sell, il cui massimo HA
+         supera il massimo HA della candela del Buy (nessun ingresso se non
+         succede: "Not enter")
+
+    Colonna `algox_careful` (engine.indicatori.algoxplorer). Parametri dello
+    script: Sensibility 2 (EMA 50), strategia careful.
+
+    Fonte: "AlgoXplorer 0.1c", indicatore Pine v5 scritto da Mattia e da un
+    amico, uso concordato (docs/50 §10, riga 13; 17/10/2026).
+    """
+    return _evento(df["algox_careful"] == 1)
+
+
+def entry_algox_novol_careful_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Come E32_ALGOX_CAREFUL_UP ma senza la candela PVSRA (interruttore
+    "Forex" dello script acceso): il Buy non chiede il volume climax. Uguale
+    su tutti i symbol (decisione di Mattia del 17/10/2026). Colonna
+    `algox_nv_careful`.
+
+    Fonte: "AlgoXplorer 0.1c" (Mattia e un amico), docs/50 §10, riga 13.
+    """
+    return _evento(df["algox_nv_careful"] == 1)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -506,6 +539,8 @@ TRIGGER_LONG = {
     "E29_SQUEEZE_RELEASE_UP": entry_squeeze_release_up,
     "E30_WAVETREND_CROSS_UP": entry_wavetrend_cross_up,
     "E31_TRIPLE_SCREEN_UP": entry_triple_screen_up,
+    "E32_ALGOX_CAREFUL_UP": entry_algox_careful_up,
+    "E33_ALGOX_NOVOL_CAREFUL_UP": entry_algox_novol_careful_up,
 }
 
 

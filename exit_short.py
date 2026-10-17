@@ -45,6 +45,16 @@ def exit_short_macd_bullish(df: pd.DataFrame) -> pd.Series:
     return df["macd"] > df["macd_signal"]
 
 
+def exit_short_algox_buy(df: pd.DataFrame) -> pd.Series:
+    """
+    Compare l'etichetta Buy di AlgoXplorer 0.1c (versione con PVSRA) ->
+    chiudi lo short. Speculare di X4_ALGOX_SELL.
+
+    Fonte: "AlgoXplorer 0.1c" (Mattia e un amico), docs/50 §10, riga 13.
+    """
+    return df["algox_segnale"] == 1
+
+
 def exit_none_short(df: pd.DataFrame) -> pd.Series:
     """Segnaposto: nessuna regola di uscita, sempre False. Vedi X0_NO_EXIT in exit_long.py."""
     return pd.Series(False, index=df.index)
@@ -55,6 +65,7 @@ EXIT_SHORT = {
     "X1_SHORT_CYCLE_TURN_UP":     (exit_short_cycle_turn_up, "CYCLE_TURN"),
     "X2_SHORT_VSA_BULLISH":       (exit_short_vsa_bullish,   "VSA"),
     "X3_SHORT_MACD_BULLISH":      (exit_short_macd_bullish, "MACD_CROSS"),
+    "X4_SHORT_ALGOX_BUY":         (exit_short_algox_buy,    "ALGOX"),
     "X0_SHORT_NO_EXIT":           (exit_none_short,         "NO_EXIT"),
 }
 
