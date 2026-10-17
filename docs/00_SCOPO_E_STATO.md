@@ -157,6 +157,7 @@ gennaio 2025).
 | `engine/giudizio.py` | 4, t, P(EV<0), soglia rumore, scheda, verdetto |
 | `engine/filter_search_bt.py` | 5, filtri; dal 17/10 i backtest girano su più processi (`processi=None` automatico, `1` in sequenza: stessi risultati, `test_velocita.py`) |
 | `engine/due_meta.py` | 5, stabilità sulle due metà |
+| `engine/famiglie.py` | collaudo e scelta delle condizioni: sovrapposizioni, somiglianze, famiglie (dal 17/10) |
 | `engine/confidenza.py` | 5, confidenza dei segnali: griglia volatilità × trend, soglia come filtro |
 | `engine/volatility_features_engineering.py` | file di Mattia, invariato: `confidenza.py` usa `feat_historical_volatility` e `build_labels` |
 | `engine/montecarlo.py` | 7, yardstick 10/20/40/100 trade, Monte Carlo, sizing, grafici |
@@ -229,7 +230,7 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 
 ### Collaudo
 
-**Suite da terminale (17/10): 23 file `test_*.py`, 943 test, tutti superati**
+**Suite da terminale (17/10): 24 file `test_*.py`, 958 test, tutti superati**
 (pandas 3.0.6, in locale). Si lanciano dalla cartella del progetto, su Windows
 con `PYTHONIOENCODING=utf-8`; l'ultima riga di ognuno dev'essere
 `RISULTATO: n/n test superati`. Alcune parti leggono i CSV di `dati/` e, se
@@ -281,18 +282,14 @@ Tarate su entry casuali: sezione E del notebook di collaudo, vedi `21`.
 filtri → confidenza). Ogni soglia è un pavimento. Per le idee che arrivano da
 fonti testuali il conto cumulato lo tiene a mano il registro di `50` (§10).
 
-### 4. Le sovrapposizioni fra condizioni — non ancora nel V4
+### ~~4. Le sovrapposizioni fra condizioni~~ — FATTO il 17/10
 
-`verifica_degenerazione` risponde a *quante occorrenze, che copertura, che
-direzione, quali sono degeneri, quanto sono a grappolo*. Non dice se **due
-condizioni scattano quasi sulle stesse barre**: in quel caso sono una prova
-sola travestita da due, e pesano sul conteggio di `k`.
-
-Una funzione per misurarlo (`diagnostica.sovrapposizioni`: una riga per coppia,
-con contenimento reciproco e correlazione) esiste solo nel repo ML, dove l'1/10
-ha portato a togliere i doppioni. **Nel V4 non c'è**: finché non viene portata,
-il passo «sovrapposizioni con il catalogo» del collaudo di `50` §7 si fa a mano
-o si salta, dichiarandolo.
+`verifica_degenerazione` non dice se **due condizioni scattano quasi sulle
+stesse barre**: in quel caso sono una prova sola travestita da due. Dal 17/10
+lo misura `engine/famiglie.py`: `sovrapposizioni` (una riga per coppia, quota
+e quante volte il caso, regola dei doppioni di `50` §7.5), `somiglianze` e
+`famiglie` (condizioni raggruppate a somiglianza media ≥ 60%). Usa solo i
+segnali, mai i risultati dei trade. Collaudo: `test_famiglie.py`.
 
 ### 5. Portabilità multi-asset — fatta su 9 symbol
 
@@ -313,7 +310,7 @@ forex con weekend, prezzo 1,10).
 
 ### 6. Un runner unico dei test
 
-Ventitré suite da terminale più un notebook di collaudo, da lanciare a mano.
+Ventiquattro suite da terminale più un notebook di collaudo, da lanciare a mano.
 
 ### 7. Etichetta UTC fantasma — origine non confermata
 
@@ -399,7 +396,7 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   solo se servirà.
 
 **Aperti, per scelta di Mattia:** money management sul repo crypto, interruttore
-sulla curva dei profitti. **Aperti nel tool:** sovrapposizioni nel V4 (punto 4),
+sulla curva dei profitti. **Aperti nel tool:**
 baseline oraria (punto 8), runner unico (punto 6).
 
 ---
