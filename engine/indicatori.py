@@ -1263,6 +1263,193 @@ def algoxplorer(df: pd.DataFrame, barre_ema: int = 50, con_volume: bool = True) 
     return pd.DataFrame({"segnale": segnale, "stato": stato, "careful": careful}, index=df.index)
 
 
+# ---------------------------------------------------------------------------
+# VSA · Modulo Unico (docs/50 §10, riga 14; scheda approvata da Mattia il
+# 17/10/2026). Script Pine v6 scritto da Mattia, nessun vincolo. Traduzione
+# riga per riga dei rami usati (motore d'asta, scanner VSA, trend following,
+# Stop & Reverse); fedelta' verificata con PineTS su una copia di collaudo
+# (pine_sources/vsa_modulo_unico.pine: tolte grafica, pannello e alert).
+# ---------------------------------------------------------------------------
+def _percentrank_pine(x: np.ndarray, barre: int) -> np.ndarray:
+    """`ta.percentrank`: quota delle `barre` barre PRECEDENTI <= della barra corrente, x 100."""
+    esito = np.full(len(x), np.nan)
+    if len(x) > barre:
+        finestre = sliding_window_view(x[:-1], barre)
+        esito[barre:] = (finestre <= x[barre:, None]).sum(axis=1) / barre * 100
+    return esito
+
+
+def _percentile_pine(x: np.ndarray, barre: int, percento: float) -> np.ndarray:
+    """`ta.percentile_linear_interpolation`: sulle ultime `barre` barre (corrente compresa),
+    posizione n * p - 0,5 nei valori ordinati, interpolazione lineare (verificato con PineTS)."""
+    esito = np.full(len(x), np.nan)
+    if len(x) >= barre:
+        ordinati = np.sort(sliding_window_view(x, barre), axis=1)
+        pos = min(max(barre * percento / 100.0 - 0.5, 0.0), barre - 1.0)
+        basso = int(np.floor(pos))
+        alto = min(basso + 1, barre - 1)
+        esito[barre - 1:] = ordinati[:, basso] + (pos - basso) * (ordinati[:, alto] - ordinati[:, basso])
+    return esito
+
+
+def vsa_modulo_unico(df: pd.DataFrame, pct_corpo: float = 50, barre_stat: int = 100,
+                     min_barre_gamba: int = 2, pct_alto: float = 70, pct_basso: float = 30,
+                     soglia_forza: float = 1.0, zona_morta: float = 20.0, attesa_max: int = 3,
+                     pct_conferma: float = 50, k_livello: float = 2.0,
+                     pct_pieno: float = 65) -> pd.DataFrame:
+    """
+    Lo script "VSA · Modulo Unico" con i suoi default ("Corpo (accettazione)",
+    "Percentile", "Reversal (classica)", gamba in corso nel momentum), SENZA
+    filtro di sessione (decisione di Mattia del 17/10/2026). Quattro colonne:
+
+      asta  +1 / -1 asta confermata (almeno 2 BOS di fila nello stesso verso), 0 no
+      bias  segnale VSA della barra: assorbimento (volume >= 70° percentile,
+            corpo <= 30°) o esaurimento (volume <= 30°, corpo >= 70°), sempre
+            contrario al colore della candela; 0 se nessuno o doji
+      go    +1 / -1 sulla barra del GO trend following (Step 12-17)
+      sr    +1 / -1 sulla barra dello Stop & Reverse (Step 24)
+
+    Motore d'asta: zig-zag sui corpi; uno swing si conferma quando il prezzo
+    torna indietro di almeno la mediana dei corpi (ultime 100 barre) e sono
+    passate almeno 2 barre dall'ultimo pivot. Il livello esiste dalla barra
+    di conferma. BOS = prima chiusura oltre l'ultimo swing; CHoCH = BOS contrario
+    a un'asta confermata. Forza di una gamba = ampiezza / (barre x mediana corpi).
+
+    GO trend (spunte dello script che filtrano davvero):
+      1. asta confermata               2. momentum (forza delle due gambe, scarto
+      3. forza massima >= 1               di almeno il 20%) nel verso dell'asta
+      4. una candela di incongruenza VSA nel verso dell'asta nelle 3 barre prima
+      5. il minimo (long) o il massimo (short) di quella candela a non piu' di 2
+         mediane dei corpi da uno degli ultimi 24 swing
+      6. candela di conferma: del colore dell'asta, corpo >= 50° percentile
+    Le spunte 7 (stop), 8 (R:R >= 2) e 10 (rischio) con i default sono sempre
+    vere (la cascata dei target finisce nella "proiezione R"): non entrano.
+
+    Stop & Reverse: CHoCH chiuso da una candela del verso nuovo con corpo >= 65°
+    percentile.
+
+    Tutto a barra chiusa, solo passato. I prezzi si arrotondano a 10 decimali:
+    nei CSV di MT5 due corpi "uguali" differiscono di 1e-16 e il rango
+    percentile deciderebbe a caso; per la stessa ragione si arrotondano a 10
+    decimali le differenze di prezzo (corpo, ampiezza della gamba, distanza
+    dal livello), lo scarto del momentum e la forza prima delle soglie. Tick volume. Le barre in quarantena entrano
+    nel calcolo, come nello script. Il ramo RANGE non c'e': con i default non
+    puo' scattare (docs/50 §10 sexies).
+    """
+    o, h, l, c = (np.round(df[k].to_numpy(dtype=float), 10) for k in ("Open", "High", "Low", "Close"))
+    v = df["Volume"].to_numpy(dtype=float)
+    n = len(df)
+    corpo = np.round(np.abs(c - o), 10)
+    su = c > o
+    giu = c < o
+    doji = corpo == 0
+    alto_c, basso_c = np.maximum(o, c), np.minimum(o, c)
+    mediana = np.round(_percentile_pine(corpo, barre_stat, pct_corpo), 10)
+    rango_v = _percentrank_pine(v, barre_stat)
+    rango_c = _percentrank_pine(corpo, barre_stat)
+    pronto = ~np.isnan(rango_v) & ~np.isnan(rango_c) & (np.arange(n) > barre_stat)
+    assorb = ~doji & pronto & (rango_v >= pct_alto) & (rango_c <= pct_basso)
+    esaur = ~doji & pronto & (rango_v <= pct_basso) & (rango_c >= pct_alto)
+    bias = np.where(assorb | esaur, np.where(su, -1, 1), 0)
+    rc = np.nan_to_num(rango_c, nan=-1.0)
+
+    asta = np.zeros(n)
+    go = np.zeros(n)
+    sr = np.zeros(n)
+    nan = float("nan")
+    gamba = 1
+    piv_h, piv_h_bar = (alto_c[0], 0) if n else (nan, 0)
+    piv_l, piv_l_bar = (basso_c[0], 0) if n else (nan, 0)
+    ultimo_bar, ultimo_px = 0, nan
+    sw_h = sw_l = nan
+    sw_h_rotto = sw_l_rotto = False
+    serie = 0
+    forza_su = forza_giu = nan
+    livelli_h, livelli_l = [], []
+    seg_bar, seg_dir, dist_liv = None, 0, nan
+    for i in range(n):
+        mb = mediana[i]
+        soglia_ok = not np.isnan(mb) and mb > 0
+        prima = 1 if serie >= 2 else (-1 if serie <= -2 else 0)
+        bos_su = bos_giu = choch_su = choch_giu = False
+        if soglia_ok:
+            hs, ls = alto_c[i], basso_c[i]
+            if gamba == 1:
+                if np.isnan(piv_h) or hs > piv_h:
+                    piv_h, piv_h_bar, piv_l, piv_l_bar = hs, i, ls, i
+                else:
+                    if ls < piv_l:
+                        piv_l, piv_l_bar = ls, i
+                    if round(piv_h - piv_l, 10) >= mb and i - ultimo_bar >= min_barre_gamba:
+                        lunghezza = max(piv_h_bar - ultimo_bar, 1)
+                        if not np.isnan(ultimo_px):
+                            forza_su = abs(piv_h - ultimo_px) / (lunghezza * mb)
+                        ultimo_bar, ultimo_px = piv_h_bar, piv_h
+                        sw_h, sw_h_rotto = piv_h, False
+                        livelli_h.append(piv_h)
+                        del livelli_h[:-24]
+                        gamba = -1
+                        piv_h, piv_h_bar = hs, i
+            else:
+                if np.isnan(piv_l) or ls < piv_l:
+                    piv_l, piv_l_bar, piv_h, piv_h_bar = ls, i, hs, i
+                else:
+                    if hs > piv_h:
+                        piv_h, piv_h_bar = hs, i
+                    if round(piv_h - piv_l, 10) >= mb and i - ultimo_bar >= min_barre_gamba:
+                        lunghezza = max(piv_l_bar - ultimo_bar, 1)
+                        if not np.isnan(ultimo_px):
+                            forza_giu = abs(ultimo_px - piv_l) / (lunghezza * mb)
+                        ultimo_bar, ultimo_px = piv_l_bar, piv_l
+                        sw_l, sw_l_rotto = piv_l, False
+                        livelli_l.append(piv_l)
+                        del livelli_l[:-24]
+                        gamba = 1
+                        piv_l, piv_l_bar = ls, i
+            if not np.isnan(sw_h) and not sw_h_rotto and c[i] > sw_h:
+                bos_su, sw_h_rotto = True, True
+            if not np.isnan(sw_l) and not sw_l_rotto and c[i] < sw_l:
+                bos_giu, sw_l_rotto = True, True
+            if bos_su and not bos_giu:
+                serie = serie + 1 if serie > 0 else 1
+                choch_su = prima == -1
+            elif bos_giu and not bos_su:
+                serie = serie - 1 if serie < 0 else -1
+                choch_giu = prima == 1
+        a = 1 if serie >= 2 else (-1 if serie <= -2 else 0)
+        asta[i] = a
+        # momentum (Step 3), con la gamba in corso
+        dal_pivot = i - ultimo_bar
+        in_corso = abs(piv_h - ultimo_px) if gamba == 1 else abs(ultimo_px - piv_l)
+        viva = in_corso / (dal_pivot * mb) if (dal_pivot >= 2 and soglia_ok and not np.isnan(in_corso)) else nan
+        f_su = viva if (gamba == 1 and not np.isnan(viva)) else forza_su
+        f_giu = viva if (gamba == -1 and not np.isnan(viva)) else forza_giu
+        forza_max = round(max(0.0 if np.isnan(f_su) else f_su, 0.0 if np.isnan(f_giu) else f_giu), 10)
+        if np.isnan(f_su) or np.isnan(f_giu):
+            momento = 0
+        else:
+            scarto = round(abs(f_su - f_giu) / max(f_su, f_giu, 0.0001), 10)
+            momento = 0 if scarto < zona_morta / 100.0 else (1 if f_su > f_giu else -1)
+        # trend following (Step 12-17)
+        if bias[i] != 0 and a != 0 and bias[i] == a:
+            seg_bar, seg_dir = i, int(bias[i])
+            ancora = l[i] if seg_dir == 1 else h[i]
+            distanze = [round(abs(x - ancora), 10) for x in livelli_h + livelli_l]
+            dist_liv = min(distanze) if distanze else nan
+        vivo = seg_bar is not None and 1 <= i - seg_bar <= attesa_max and seg_dir != 0
+        conferma = (vivo and seg_dir == a and rc[i] >= pct_conferma
+                    and (su[i] if seg_dir == 1 else giu[i]))
+        if (conferma and a != 0 and momento == a and forza_max >= soglia_forza
+                and not np.isnan(dist_liv) and soglia_ok and dist_liv <= mb * k_livello):
+            go[i] = seg_dir
+        # Stop & Reverse (Step 24)
+        if choch_su and su[i] and rc[i] >= pct_pieno:
+            sr[i] = 1
+        elif choch_giu and giu[i] and rc[i] >= pct_pieno:
+            sr[i] = -1
+    return pd.DataFrame({"asta": asta, "bias": bias.astype(float), "go": go, "sr": sr}, index=df.index)
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
@@ -1274,8 +1461,10 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         jdh_atr_diff, jdh_regime, sentiment_score, sentiment_classe,
         ftfc, mtf_h4_macdh_pend, mtf_h1_force, mtf_h1_high, mtf_h1_low,
         tsmom, inside_day, ha_open, ha_high, ha_low, ha_close, pvsra,
-        algox_segnale, algox_stato, algox_careful, algox_nv_careful
-        (AlgoXplorer: vedi algoxplorer, riscaldamento 50 barre)
+        algox_segnale, algox_stato, algox_careful, algox_nv_careful,
+        vsa_asta, vsa_bias, vsa_go, vsa_sr
+        (AlgoXplorer: vedi algoxplorer, riscaldamento 50 barre; VSA: vedi
+        vsa_modulo_unico, riscaldamento 100 barre piu' gli swing)
         (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
         R2 103, R3 201; multi timeframe: vedi colonne_multi_timeframe, al
         massimo un mese, aggiunte come il sentiment dopo il taglio)
@@ -1337,6 +1526,10 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     df["algox_stato"] = algox["stato"]
     df["algox_careful"] = algox["careful"]
     df["algox_nv_careful"] = algoxplorer(df, con_volume=False)["careful"]
+    # VSA Modulo Unico (E34, E35): nessun NaN, non tolgono righe
+    vsa = vsa_modulo_unico(df)
+    for k in ("asta", "bias", "go", "sr"):
+        df[f"vsa_{k}"] = vsa[k]
     df = df.dropna()
     # dopo il taglio: il sentiment ha ~2 anni di riscaldamento (NaN) e non deve
     # togliere righe alle altre condizioni; un filtro su NaN e' semplicemente falso.
@@ -1368,4 +1561,5 @@ COLONNE_INDICATORI = (
     "ftfc", "mtf_h4_macdh_pend", "mtf_h1_force", "mtf_h1_high", "mtf_h1_low", "tsmom", "inside_day",
     "ha_open", "ha_high", "ha_low", "ha_close", "pvsra",
     "algox_segnale", "algox_stato", "algox_careful", "algox_nv_careful",
+    "vsa_asta", "vsa_bias", "vsa_go", "vsa_sr",
 )
