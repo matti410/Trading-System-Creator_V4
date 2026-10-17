@@ -1154,6 +1154,115 @@ def colonne_multi_timeframe(df: pd.DataFrame) -> pd.DataFrame:
     return esito[list(COLONNE_MULTI_TIMEFRAME)]
 
 
+# ---------------------------------------------------------------------------
+# AlgoXplorer 0.1c (docs/50 §10, riga 13; scheda approvata da Mattia il
+# 17/10/2026). Script Pine v5 scritto da Mattia e da un amico, uso concordato.
+# Traduzione riga per riga; fedelta' verificata con PineTS su una copia di
+# collaudo (pine_sources/algoxplorer_0_1c_v5.pine) che sostituisce solo
+# request.security: candele HA con la formula standard, volume del grafico.
+# ---------------------------------------------------------------------------
+def heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Candele Heikin Ashi dello stesso timeframe, come `ticker.heikinashi` di
+    TradingView: chiusura = (O + H + L + C) / 4; apertura = media di apertura
+    e chiusura HA della barra prima (prima barra dei dati: (O + C) / 2);
+    massimo = max(High, apertura HA, chiusura HA), minimo = min(Low, ...).
+
+    Solo barre passate. L'apertura e' ricorsiva: dipende dalla prima barra
+    dei dati, ma la differenza si dimezza a ogni barra (sparita dopo ~60).
+    Le barre in quarantena entrano nel calcolo, come nello script.
+    """
+    o, h, l, c = (df[k].to_numpy(dtype=float) for k in ("Open", "High", "Low", "Close"))
+    ha_c = (o + h + l + c) / 4
+    ha_o = np.empty(len(df))
+    if len(df):
+        ha_o[0] = (o[0] + c[0]) / 2
+    for i in range(1, len(df)):
+        ha_o[i] = (ha_o[i - 1] + ha_c[i - 1]) / 2
+    ha_h = np.maximum(h, np.maximum(ha_o, ha_c))
+    ha_l = np.minimum(l, np.minimum(ha_o, ha_c))
+    return pd.DataFrame({"ha_open": ha_o, "ha_high": ha_h, "ha_low": ha_l, "ha_close": ha_c},
+                        index=df.index)
+
+
+def pvsra_climax(df: pd.DataFrame, barre: int = 10, multiplo: float = 2.0) -> pd.Series:
+    """
+    Candela "climax" del PVSRA come nello script AlgoXplorer: volume almeno
+    `multiplo` volte la media delle ultime `barre` barre (barra corrente
+    compresa, `math.sum(volume, 10) / 10`), oppure volume x (High - Low) il
+    piu' alto delle ultime `barre`. +1 se la candela vera chiude sopra
+    l'apertura (colore lime), -1 altrimenti (rosso), 0 se non e' climax.
+    Usa il tick volume di MT5. Riscaldamento: `barre` - 1 barre (0).
+    """
+    v = df["Volume"].astype(float)
+    media = v.rolling(barre).sum() / barre
+    v2 = v * (df["High"] - df["Low"])
+    climax = (v >= media * multiplo) | (v2 >= v2.rolling(barre).max())
+    rialzo = df["Close"] > df["Open"]
+    return pd.Series(np.where(climax, np.where(rialzo, 1, -1), 0), index=df.index, dtype=float)
+
+
+def algoxplorer(df: pd.DataFrame, barre_ema: int = 50, con_volume: bool = True) -> pd.DataFrame:
+    """
+    La macchina dello script AlgoXplorer 0.1c ("Sensibility" 2 = EMA a 50
+    barre, strategia "careful"). Restituisce tre colonne, una riga per barra:
+
+      segnale  +1 sull'etichetta Buy, -1 sull'etichetta Sell, 0 altrove
+      stato    +1 dopo l'ultimo Buy, -1 dopo l'ultimo Sell, 0 prima del primo
+      careful  +1 sulla barra dell'ingresso long "careful", -1 short, 0 altrove
+
+    Setup (sulla stessa barra; HA = Heikin Ashi, `heikin_ashi`):
+      BUY   1. candela PVSRA climax rialzista (`pvsra_climax` = +1)
+            2. chiusura HA sopra la EMA dei massimi (`_ema_pine`, come ta.ema)
+            3. massimo HA sopra la chiusura HA
+            4. chiusura HA sopra il massimo HA della barra prima
+      SELL  1. candela PVSRA climax ribassista (-1)
+            2. chiusura HA sotto la EMA dei minimi
+            3. massimo HA uguale all'apertura HA (nessuna ombra superiore)
+            4. chiusura HA sotto il minimo HA della barra prima
+    Long e short non sono speculari (punto 3): come nello script.
+    `con_volume=False` toglie il punto 1 (interruttore "Forex" dello script).
+
+    Alternanza: l'etichetta Buy compare solo se lo stato della barra prima non
+    e' gia' long (Sell lo stesso). Buy e Sell non possono cadere sulla stessa
+    barra (chiusura HA sopra la EMA dei massimi e sotto quella dei minimi).
+
+    Careful: al Buy il livello e' il massimo HA della candela del segnale;
+    l'ingresso long e' la PRIMA barra successiva, ancora in stato long e
+    prima del Sell, il cui massimo HA supera il livello (nello script: la
+    prima etichetta "Max profit", "massimi" da 1 a 2). Se non succede prima
+    del Sell, nessun ingresso ("Not enter"). Short: minimo HA sotto il minimo
+    HA della candela del Sell. Il motore entra all'Open della barra dopo.
+    """
+    ha = heikin_ashi(df)
+    ha_o, ha_h, ha_l, ha_c = (ha[k].to_numpy() for k in ("ha_open", "ha_high", "ha_low", "ha_close"))
+    ema_h = _ema_pine(df["High"], barre_ema).to_numpy()
+    ema_l = _ema_pine(df["Low"], barre_ema).to_numpy()
+    ha_h1 = np.r_[np.nan, ha_h[:-1]]
+    ha_l1 = np.r_[np.nan, ha_l[:-1]]
+    buy = (ha_c > ema_h) & (ha_h > ha_c) & (ha_c > ha_h1)
+    sell = (ha_c < ema_l) & (ha_h == ha_o) & (ha_c < ha_l1)
+    if con_volume:
+        colore = pvsra_climax(df).to_numpy()
+        buy &= colore == 1
+        sell &= colore == -1
+    n = len(df)
+    segnale, stato, careful = np.zeros(n), np.zeros(n), np.zeros(n)
+    st, livello, entrato = 0, np.nan, True
+    for i in range(n):
+        prima = st
+        if buy[i] and prima != 1:
+            segnale[i], st, livello, entrato = 1, 1, ha_h[i], False
+        elif sell[i] and prima != -1:
+            segnale[i], st, livello, entrato = -1, -1, ha_l[i], False
+        elif not entrato and prima == 1 and ha_h[i] > livello:
+            careful[i], entrato = 1, True
+        elif not entrato and prima == -1 and ha_l[i] < livello:
+            careful[i], entrato = -1, True
+        stato[i] = st
+    return pd.DataFrame({"segnale": segnale, "stato": stato, "careful": careful}, index=df.index)
+
+
 def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggiunge al DataFrame di mercato le colonne usate dalle condizioni:
@@ -1164,7 +1273,9 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         chop, vr, vfi, rvol, sqz_on, sqz_mom, wt1, wt2, ker, hurst,
         jdh_atr_diff, jdh_regime, sentiment_score, sentiment_classe,
         ftfc, mtf_h4_macdh_pend, mtf_h1_force, mtf_h1_high, mtf_h1_low,
-        tsmom, inside_day
+        tsmom, inside_day, ha_open, ha_high, ha_low, ha_close, pvsra,
+        algox_segnale, algox_stato, algox_careful, algox_nv_careful
+        (AlgoXplorer: vedi algoxplorer, riscaldamento 50 barre)
         (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
         R2 103, R3 201; multi timeframe: vedi colonne_multi_timeframe, al
         massimo un mese, aggiunte come il sentiment dopo il taglio)
@@ -1217,6 +1328,15 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     onda = wavetrend(df)
     df["wt1"] = onda["wt1"]
     df["wt2"] = onda["wt2"]
+    # AlgoXplorer (E32, E33, X4, F40): nessun NaN, non tolgono righe
+    for k, v in heikin_ashi(df).items():
+        df[k] = v
+    df["pvsra"] = pvsra_climax(df)
+    algox = algoxplorer(df)
+    df["algox_segnale"] = algox["segnale"]
+    df["algox_stato"] = algox["stato"]
+    df["algox_careful"] = algox["careful"]
+    df["algox_nv_careful"] = algoxplorer(df, con_volume=False)["careful"]
     df = df.dropna()
     # dopo il taglio: il sentiment ha ~2 anni di riscaldamento (NaN) e non deve
     # togliere righe alle altre condizioni; un filtro su NaN e' semplicemente falso.
@@ -1246,4 +1366,6 @@ COLONNE_INDICATORI = (
     "chop", "vr", "vfi", "rvol", "sqz_on", "sqz_mom", "wt1", "wt2", "ker", "hurst",
     "jdh_atr_diff", "jdh_regime", "sentiment_score", "sentiment_classe",
     "ftfc", "mtf_h4_macdh_pend", "mtf_h1_force", "mtf_h1_high", "mtf_h1_low", "tsmom", "inside_day",
+    "ha_open", "ha_high", "ha_low", "ha_close", "pvsra",
+    "algox_segnale", "algox_stato", "algox_careful", "algox_nv_careful",
 )

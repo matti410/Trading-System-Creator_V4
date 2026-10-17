@@ -399,6 +399,37 @@ def entry_short_triple_screen_down(df: pd.DataFrame) -> pd.Series:
     return _evento(cond)
 
 
+def entry_short_algox_careful_down(df: pd.DataFrame) -> pd.Series:
+    """
+    AlgoXplorer 0.1c, setup completo con ingresso "careful" -> short. Come
+    lo scrive lo script, NON speculare del long al punto 3:
+
+      1. etichetta Sell: candela PVSRA climax ribassista, chiusura Heikin
+         Ashi sotto la EMA a 50 dei minimi, massimo HA uguale all'apertura
+         HA (nessuna ombra superiore), chiusura HA sotto il minimo HA della
+         barra prima; l'ultimo segnale non era gia' un Sell
+      2. ingresso: prima barra dopo il Sell, prima del Buy, il cui minimo HA
+         scende sotto il minimo HA della candela del Sell
+
+    Colonna `algox_careful` (engine.indicatori.algoxplorer).
+
+    Fonte: "AlgoXplorer 0.1c", indicatore Pine v5 scritto da Mattia e da un
+    amico, uso concordato (docs/50 §10, riga 13; 17/10/2026).
+    """
+    return _evento(df["algox_careful"] == -1)
+
+
+def entry_short_algox_novol_careful_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Come E32_SHORT_ALGOX_CAREFUL_DOWN ma senza la candela PVSRA
+    (interruttore "Forex" acceso), su tutti i symbol. Colonna
+    `algox_nv_careful`.
+
+    Fonte: "AlgoXplorer 0.1c" (Mattia e un amico), docs/50 §10, riga 13.
+    """
+    return _evento(df["algox_nv_careful"] == -1)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -439,6 +470,8 @@ TRIGGER_SHORT = {
     "E29_SHORT_SQUEEZE_RELEASE_DOWN": entry_short_squeeze_release_down,
     "E30_SHORT_WAVETREND_CROSS_DOWN": entry_short_wavetrend_cross_down,
     "E31_SHORT_TRIPLE_SCREEN_DOWN": entry_short_triple_screen_down,
+    "E32_SHORT_ALGOX_CAREFUL_DOWN": entry_short_algox_careful_down,
+    "E33_SHORT_ALGOX_NOVOL_CAREFUL_DOWN": entry_short_algox_novol_careful_down,
 }
 
 

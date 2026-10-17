@@ -404,9 +404,10 @@ def esegui() -> int:
           ("CYCLE_TURN", "X1_CYCLE_TURN_DOWN", "X1_SHORT_CYCLE_TURN_UP") in coppie_x
           and ("VSA", "X2_VSA_BEARISH", "X2_SHORT_VSA_BULLISH") in coppie_x)
     uscite = set(R.list_exits())
-    check("D5. uscite: X0 e X3 come prima, X1 sul ciclo, X2 sulla VSA; RSI ed EMA non ci sono piu'",
+    check("D5. uscite: X0 e X3 come prima, X1 sul ciclo, X2 sulla VSA, X4 AlgoXplorer (17/10); RSI ed EMA non ci sono piu'",
           {"X0_NO_EXIT", "X0_SHORT_NO_EXIT", "X1_CYCLE_TURN_DOWN", "X1_SHORT_CYCLE_TURN_UP",
-           "X2_VSA_BEARISH", "X2_SHORT_VSA_BULLISH", "X3_MACD_BEARISH", "X3_SHORT_MACD_BULLISH"} == uscite,
+           "X2_VSA_BEARISH", "X2_SHORT_VSA_BULLISH", "X3_MACD_BEARISH", "X3_SHORT_MACD_BULLISH",
+           "X4_ALGOX_SELL", "X4_SHORT_ALGOX_BUY"} == uscite,
           f"{sorted(uscite)}")
     check("D6. i sei indicatori nuovi sono nell'elenco che il collaudo verifica",
           set(NUOVI_INDICATORI) <= set(COLONNE_INDICATORI))

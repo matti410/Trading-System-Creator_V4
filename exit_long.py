@@ -59,6 +59,17 @@ def exit_macd_bearish(df: pd.DataFrame) -> pd.Series:
     return df["macd"] < df["macd_signal"]
 
 
+def exit_algox_sell(df: pd.DataFrame) -> pd.Series:
+    """
+    Compare l'etichetta Sell di AlgoXplorer 0.1c (versione con PVSRA) ->
+    chiudi il long. E' l'uscita implicita dello script: al Sell lo stato
+    passa a short (stop and reverse). Evento: colonna `algox_segnale` = -1.
+
+    Fonte: "AlgoXplorer 0.1c" (Mattia e un amico), docs/50 §10, riga 13.
+    """
+    return df["algox_segnale"] == -1
+
+
 def exit_none_long(df: pd.DataFrame) -> pd.Series:
     """
     Segnaposto: nessuna regola di uscita, sempre False. Usala quando vuoi
@@ -73,6 +84,7 @@ EXIT_LONG = {
     "X1_CYCLE_TURN_DOWN":   (exit_cycle_turn_down, "CYCLE_TURN"),
     "X2_VSA_BEARISH":       (exit_vsa_bearish,     "VSA"),
     "X3_MACD_BEARISH":      (exit_macd_bearish,   "MACD_CROSS"),
+    "X4_ALGOX_SELL":        (exit_algox_sell,     "ALGOX"),
     "X0_NO_EXIT":           (exit_none_long,      "NO_EXIT"),
 }
 
