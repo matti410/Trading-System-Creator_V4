@@ -430,6 +430,29 @@ def entry_short_algox_novol_careful_down(df: pd.DataFrame) -> pd.Series:
     return _evento(df["algox_nv_careful"] == -1)
 
 
+def entry_short_vsa_trend_go_down(df: pd.DataFrame) -> pd.Series:
+    """
+    VSA · Modulo Unico, GO trend following -> short. Speculare di
+    E34_VSA_TREND_GO_UP: asta ribassista confermata, momentum ribassista,
+    forza >= 1, incongruenza VSA ribassista nelle 3 barre prima con il
+    massimo a non piu' di 2 corpi mediani da uno swing, candela di conferma
+    ribassista con corpo >= 50° percentile. Senza sessione. Colonna `vsa_go`.
+
+    Fonte: "VSA · Modulo Unico" (Mattia), docs/50 §10, riga 14.
+    """
+    return _evento(df["vsa_go"] == -1)
+
+
+def entry_short_vsa_stop_reverse_down(df: pd.DataFrame) -> pd.Series:
+    """
+    VSA · Modulo Unico, Stop & Reverse -> short: CHoCH al ribasso chiuso da
+    una candela ribassista con corpo >= 65° percentile. Colonna `vsa_sr`.
+
+    Fonte: "VSA · Modulo Unico" (Mattia), docs/50 §10, riga 14.
+    """
+    return _evento(df["vsa_sr"] == -1)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -472,6 +495,8 @@ TRIGGER_SHORT = {
     "E31_SHORT_TRIPLE_SCREEN_DOWN": entry_short_triple_screen_down,
     "E32_SHORT_ALGOX_CAREFUL_DOWN": entry_short_algox_careful_down,
     "E33_SHORT_ALGOX_NOVOL_CAREFUL_DOWN": entry_short_algox_novol_careful_down,
+    "E34_SHORT_VSA_TREND_GO_DOWN": entry_short_vsa_trend_go_down,
+    "E35_SHORT_VSA_STOP_REVERSE_DOWN": entry_short_vsa_stop_reverse_down,
 }
 
 

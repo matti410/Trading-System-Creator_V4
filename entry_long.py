@@ -499,6 +499,39 @@ def entry_algox_novol_careful_up(df: pd.DataFrame) -> pd.Series:
     return _evento(df["algox_nv_careful"] == 1)
 
 
+def entry_vsa_trend_go_up(df: pd.DataFrame) -> pd.Series:
+    """
+    VSA · Modulo Unico, GO trend following (Step 12-17), setup completo -> long:
+
+      1. asta rialzista confermata (almeno 2 BOS di fila al rialzo)
+      2. momentum rialzista: la gamba al rialzo e' piu' forte di quella al
+         ribasso di almeno il 20%
+      3. forza d'asta >= 1 corpo mediano per candela
+      4. nelle 3 barre prima, una candela di incongruenza VSA rialzista
+         (assorbimento o esaurimento contrario al colore della candela)
+      5. il minimo di quella candela a non piu' di 2 corpi mediani da uno swing
+      6. candela di conferma rialzista con corpo >= 50° percentile
+
+    Senza filtro di sessione (decisione di Mattia del 17/10/2026). Colonna
+    `vsa_go` (engine.indicatori.vsa_modulo_unico).
+
+    Fonte: "VSA · Modulo Unico", indicatore Pine v6 scritto da Mattia
+    (docs/50 §10, riga 14).
+    """
+    return _evento(df["vsa_go"] == 1)
+
+
+def entry_vsa_stop_reverse_up(df: pd.DataFrame) -> pd.Series:
+    """
+    VSA · Modulo Unico, Stop & Reverse (Step 24) -> long: CHoCH al rialzo (il
+    primo BOS rialzista dopo un'asta ribassista confermata), chiuso da una
+    candela rialzista con corpo >= 65° percentile. Colonna `vsa_sr`.
+
+    Fonte: "VSA · Modulo Unico" (Mattia), docs/50 §10, riga 14.
+    """
+    return _evento(df["vsa_sr"] == 1)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -541,6 +574,8 @@ TRIGGER_LONG = {
     "E31_TRIPLE_SCREEN_UP": entry_triple_screen_up,
     "E32_ALGOX_CAREFUL_UP": entry_algox_careful_up,
     "E33_ALGOX_NOVOL_CAREFUL_UP": entry_algox_novol_careful_up,
+    "E34_VSA_TREND_GO_UP": entry_vsa_trend_go_up,
+    "E35_VSA_STOP_REVERSE_UP": entry_vsa_stop_reverse_up,
 }
 
 
