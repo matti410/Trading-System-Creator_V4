@@ -43,7 +43,16 @@ COME SI COSTRUISCE
 Si passa SOLO l'in-sample. L'orizzonte H e' quello scelto prima (passo 1 del
 notebook di ricerca, passo 2 del Lab): la rosa non sceglie orizzonti.
 
-Modulo ADDITIVO: non modifica nessun file esistente dell'engine.
+LA BASELINE ORARIA (18/10/2026, decisione di Mattia)
+----------------------------------------------------
+Con baseline="oraria" (il predefinito) la linea del mercato di ogni trigger
+e' la media della SUA fascia oraria (engine/stagionalita.py), non quella di
+tutte le barre: un trigger che scatta sempre alla stessa ora non viene
+premiato, o punito, per l'ora. Per i sistemi si toglie a ogni trade la
+deriva tipica delle fasce orarie in cui e' rimasto aperto. L'incertezza
+include il rumore della media di fascia. Il confronto con la media di tutte
+le barre resta visibile (scarto_globale_pips, t_globale); baseline="globale"
+ridà esattamente i numeri di prima.
 """
 from __future__ import annotations
 
@@ -59,6 +68,8 @@ from .giudizio import t_stat
 from .livelli import giorno_fx
 from .metriche import pips_per_trade
 from .quarantena_trade import maschera_segnali_puliti
+from .stagionalita import (FUSO_PREDEFINITO, deriva_per_barra_oraria, fasce_orarie,
+                           scarto_orario)
 
 Q_ROSA = 0.20
 RHO_MAX = 0.30
@@ -154,6 +165,12 @@ def _gruppo(tabella: pd.DataFrame, serie: dict, rho_max: float) -> pd.DataFrame:
     return t
 
 
+def _controlla_baseline(baseline: str) -> str:
+    if baseline not in ("oraria", "globale"):
+        raise ValueError("baseline deve essere 'oraria' o 'globale'.")
+    return baseline
+
+
 def _ordina(t: pd.DataFrame) -> pd.DataFrame:
     return (t.sort_values(["nella_rosa", "candidata", "t_netto"], ascending=False)
             .reset_index(drop=True))
@@ -166,7 +183,8 @@ def _ordina(t: pd.DataFrame) -> pd.DataFrame:
 def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
                q: float = Q_ROSA, soglia_famiglia: float = SOGLIA_FAMIGLIA,
                rho_max: float = RHO_MAX, min_eventi: int = MIN_EVENTI,
-               quarantena=True) -> pd.DataFrame:
+               quarantena=True, baseline: str = "oraria",
+               fuso: str = FUSO_PREDEFINITO) -> pd.DataFrame:
     """
     La rosa delle entry sull'in-sample, a orizzonte H. Stessa convenzione
     dell'event study: trigger sulla barra i, ingresso a Open[i+1], misura a
@@ -179,6 +197,9 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
                  le metro e le composite in OR
     min_eventi   sotto questa soglia l'entry non si misura (come MIN_TRADES
                  dell'event study)
+    baseline     "oraria" (predefinito): il mercato e' la media della fascia
+                 oraria di ogni trigger; "globale": la media di tutte le barre
+    fuso         il fuso delle fasce (engine/stagionalita.fuso_profilo(symbol))
 
     Una riga per entry misurata:
         candidato, direction, eventi
@@ -192,8 +213,13 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         rho_max        |rho| piu' alto con gli altri membri della rosa
         perche         perche' e' fuori dalla rosa: il primo controllo non superato,
                        oppure la famiglia o la correlazione con un membro
-    In .attrs: k (entry misurate), q, rho_max, H, scartate (sotto min_eventi).
+        scarto_globale_pips, t_globale
+                       (solo con baseline oraria) lo stesso confronto con la media
+                       di tutte le barre, per vedere quanto conta l'ora
+    In .attrs: k (entry misurate), q, rho_max, H, scartate (sotto min_eventi),
+    baseline, fuso.
     """
+    oraria = _controlla_baseline(baseline) == "oraria"
     H = int(H)
     if H < 1:
         raise ValueError("H deve essere almeno 1 barra.")
@@ -220,6 +246,10 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     mercato_meta = (float(np.nanmean(fwd[:meta])), float(np.nanmean(fwd[meta:])))
     giorno = np.asarray(giorno_fx(df_is))
     uscita = np.minimum(np.arange(n) + H, n - 1)
+    if oraria:
+        codici, _ = fasce_orarie(df_is.index, fuso)
+        usa = valido & pulito
+        usa_meta = (usa & prima, usa & ~prima)
 
     righe, serie, scartate = [], {}, []
     for nome in nomi:
@@ -234,19 +264,31 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         scarto = float(v.mean()) - d * mercato
         t = scarto / se if (np.isfinite(se) and se > 0) else np.nan
         a, b = prima[pos], ~prima[pos]
-        dm = bool(a.any() and b.any()
-                  and v[a].mean() - d * mercato_meta[0] > 0
-                  and v[b].mean() - d * mercato_meta[1] > 0)
-        righe.append({"candidato": nome, "direction": d, "eventi": int(pos.size),
-                      "scarto_pips": scarto, "t_netto": t, "p": _p_una_coda(t),
-                      "due_meta": dm})
+        riga = {"candidato": nome, "direction": d, "eventi": int(pos.size)}
+        if oraria:
+            riga.update(scarto_globale_pips=scarto, t_globale=t)
+            scarto, se_o = scarto_orario(fwd, codici, usa, pos, d, H)
+            t = scarto / se_o if (np.isfinite(se_o) and se_o > 0) else np.nan
+            dm = bool(a.any() and b.any()
+                      and scarto_orario(fwd, codici, usa_meta[0], pos[a], d, H)[0] > 0
+                      and scarto_orario(fwd, codici, usa_meta[1], pos[b], d, H)[0] > 0)
+        else:
+            dm = bool(a.any() and b.any()
+                      and v[a].mean() - d * mercato_meta[0] > 0
+                      and v[b].mean() - d * mercato_meta[1] > 0)
+        riga.update(scarto_pips=scarto, t_netto=t, p=_p_una_coda(t), due_meta=dm)
+        righe.append(riga)
         serie[nome] = pd.Series(v, index=giorno[uscita[pos]]).groupby(level=0).sum()
 
     colonne = ["candidato", "direction", "eventi", "scarto_pips", "t_netto", "p", "bh",
                "due_meta", "candidata", "famiglia", "nella_rosa", "rho_max", "perche"]
+    if oraria:
+        colonne += ["scarto_globale_pips", "t_globale"]
+    info = dict(q=q, rho_max=rho_max, H=H, scartate=scartate,
+                baseline=baseline, fuso=fuso if oraria else None)
     if not righe:
         vuota = pd.DataFrame(columns=colonne)
-        vuota.attrs.update(k=0, q=q, rho_max=rho_max, H=H, scartate=scartate)
+        vuota.attrs.update(k=0, **info)
         return vuota
     t = pd.DataFrame(righe)
     t["bh"] = benjamini_hochberg(t["p"].to_numpy(), q)
@@ -254,7 +296,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     fam = famiglie(df_is, "entry", nomi=list(t["candidato"]), soglia=soglia_famiglia)
     t["famiglia"] = t["candidato"].map(fam.set_index("nome")["famiglia"]).astype(int)
     t = _ordina(_gruppo(t, serie, rho_max))[colonne]
-    t.attrs.update(k=len(t), q=q, rho_max=rho_max, H=H, scartate=scartate)
+    t.attrs.update(k=len(t), **info)
     return t
 
 
@@ -309,7 +351,8 @@ def _famiglia_sistemi(df_is, risultati: pd.DataFrame, soglia: float) -> pd.Serie
 
 def rosa_sistemi(es, df_is: pd.DataFrame, pip: float, commission: float = 0.0,
                  q: float = Q_ROSA, soglia_famiglia: float = SOGLIA_FAMIGLIA,
-                 rho_max: float = RHO_MAX, min_trades: int | None = None) -> pd.DataFrame:
+                 rho_max: float = RHO_MAX, min_trades: int | None = None,
+                 baseline: str = "oraria", fuso: str = FUSO_PREDEFINITO) -> pd.DataFrame:
     """
     La rosa dei sistemi completi, sui trade veri di una ricerca delle uscite
     (`run_exit_search_bt` sull'IN-SAMPLE). Ogni combinazione e' un sistema.
@@ -321,6 +364,10 @@ def rosa_sistemi(es, df_is: pd.DataFrame, pip: float, commission: float = 0.0,
     commission   come nei costi del backtest (i pips sono NETTI)
     min_trades   sotto questa soglia il sistema non si misura (conta comunque
                  fra le prove, con p = 1); None = quella della ricerca
+    baseline     "oraria" (predefinito): la deriva tolta a ogni trade e' quella
+                 tipica delle fasce orarie in cui e' rimasto aperto; "globale":
+                 la variazione media di una barra, uguale a ogni ora
+    fuso         il fuso delle fasce (engine/stagionalita.fuso_profilo(symbol))
 
     Lo scarto di ogni trade e' il suo guadagno netto meno la deriva del
     mercato nel suo verso per le barre in cui e' rimasto aperto (deriva = la
@@ -331,6 +378,7 @@ def rosa_sistemi(es, df_is: pd.DataFrame, pip: float, commission: float = 0.0,
     Colonne come rosa_entry, con `combinazione` al posto di `candidato`,
     `trades` al posto di `eventi` e `famiglia` nella forma «L2·S5·X1».
     """
+    oraria = _controlla_baseline(baseline) == "oraria"
     if pip is None or not float(pip) > 0:
         raise ValueError("pip obbligatorio: il pip fisso del symbol (engine/simboli.py).")
     pip = float(pip)
@@ -338,6 +386,9 @@ def rosa_sistemi(es, df_is: pd.DataFrame, pip: float, commission: float = 0.0,
     min_trades = es.min_trades if min_trades is None else int(min_trades)
     open_ = df_is["Open"].to_numpy(dtype=float)
     deriva = float(np.nanmean(np.diff(open_))) / pip       # pips per barra, verso long
+    if oraria:
+        # deriva cumulata per fascia oraria: D[j] = somma delle derive delle barre < j
+        cumulata = np.concatenate([[0.0], np.cumsum(deriva_per_barra_oraria(df_is, pip, fuso))])
     meta = df_is.index[len(df_is) // 2]
     giorno = pd.Series(np.asarray(giorno_fx(df_is)), index=df_is.index)
 
@@ -347,12 +398,20 @@ def rosa_sistemi(es, df_is: pd.DataFrame, pip: float, commission: float = 0.0,
         tr = es.trades(comb)
         riga = {"candidato": comb, "trades": int(len(tr)), "scarto_pips": np.nan,
                 "t_netto": np.nan, "p": 1.0, "due_meta": False}
+        if oraria:
+            riga.update(scarto_globale_pips=np.nan, t_globale=np.nan)
         if len(tr) >= max(min_trades, 2):
             _, netti = pips_per_trade(tr, pip, commission)
             segno = np.where(tr["Size"].to_numpy() > 0, 1, -1)
             barre = (tr["ExitBar"] - tr["EntryBar"]).to_numpy(dtype=float)
             x = netti.to_numpy(dtype=float) - segno * deriva * barre
             t = t_stat(x)
+            if oraria:
+                riga.update(scarto_globale_pips=float(np.mean(x)), t_globale=t)
+                ing = tr["EntryBar"].to_numpy(dtype=int)
+                usc = tr["ExitBar"].to_numpy(dtype=int)
+                x = netti.to_numpy(dtype=float) - segno * (cumulata[usc] - cumulata[ing])
+                t = t_stat(x)
             ingresso = pd.DatetimeIndex(tr["EntryTime"])
             a, b = x[ingresso < meta], x[ingresso >= meta]
             riga.update(scarto_pips=float(np.mean(x)), t_netto=t, p=_p_una_coda(t),
@@ -363,9 +422,12 @@ def rosa_sistemi(es, df_is: pd.DataFrame, pip: float, commission: float = 0.0,
 
     colonne = ["candidato", "trades", "scarto_pips", "t_netto", "p", "bh", "due_meta",
                "candidata", "famiglia", "nella_rosa", "rho_max", "perche"]
+    if oraria:
+        colonne += ["scarto_globale_pips", "t_globale"]
+    info = dict(q=q, rho_max=rho_max, baseline=baseline, fuso=fuso if oraria else None)
     if not righe:
         vuota = pd.DataFrame(columns=colonne)
-        vuota.attrs.update(k=0, q=q, rho_max=rho_max)
+        vuota.attrs.update(k=0, **info)
         return vuota.rename(columns={"candidato": "combinazione"})
     t = pd.DataFrame(righe)
     t["p"] = t["p"].fillna(1.0)
@@ -373,5 +435,5 @@ def rosa_sistemi(es, df_is: pd.DataFrame, pip: float, commission: float = 0.0,
     t["candidata"] = (t["t_netto"] > 0) & t["bh"] & t["due_meta"]
     t["famiglia"] = _famiglia_sistemi(df_is, risultati, soglia_famiglia).to_numpy()
     t = _ordina(_gruppo(t, serie, rho_max))[colonne]
-    t.attrs.update(k=len(t), q=q, rho_max=rho_max)
+    t.attrs.update(k=len(t), **info)
     return t.rename(columns={"candidato": "combinazione"})

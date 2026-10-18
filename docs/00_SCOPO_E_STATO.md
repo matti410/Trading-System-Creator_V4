@@ -166,6 +166,7 @@ gennaio 2025).
 | `engine/due_meta.py` | 5, stabilità sulle due metà |
 | `engine/famiglie.py` | collaudo e scelta delle condizioni: sovrapposizioni, somiglianze, famiglie (dal 17/10) |
 | `engine/rosa.py` | 2–3, la rosa dei candidati: entry dopo l'event study, sistemi dopo le uscite (dal 18/10) |
+| `engine/stagionalita.py` | 1–3, profilo orario e baseline oraria della rosa; fasce larghe una barra, per ogni timeframe (dal 18/10) |
 | `engine/confidenza.py` | 5, confidenza dei segnali: griglia volatilità × trend, soglia come filtro |
 | `engine/volatility_features_engineering.py` | file di Mattia, invariato: `confidenza.py` usa `feat_historical_volatility` e `build_labels` |
 | `engine/montecarlo.py` | 7, yardstick 10/20/40/100 trade, Monte Carlo, sizing, grafici |
@@ -240,7 +241,7 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 
 ### Collaudo
 
-**Suite da terminale (18/10): 25 file `test_*.py`, 986 test, tutti superati**
+**Suite da terminale (18/10): 26 file `test_*.py`, 1010 test, tutti superati**
 (pandas 3.0.6, in locale). Si lanciano dalla cartella del progetto, su Windows
 con `PYTHONIOENCODING=utf-8`; l'ultima riga di ognuno dev'essere
 `RISULTATO: n/n test superati`. Alcune parti leggono i CSV di `dati/` e, se
@@ -331,8 +332,6 @@ notebook principale) non c'è più.
 
 ### 8. Metodologia non ancora costruita
 
-- **Baseline oraria nell'event study** — automatizza il «t netto» oggi fatto a mano
-- **Profilo stagionale** ora × giorno della settimana
 - **Diagnostica delle pause sistematiche** per simbolo
 - **Festivi di borsa**: decisione rimandata, serve al filtro NYSE
 - **Money management sul repo crypto** e **interruttore sulla curva dei
@@ -340,7 +339,8 @@ notebook principale) non c'è più.
 
 Fatti: incertezza dell'event study corretta per i grappoli (24/9), confidenza
 dei segnali (25/9), yardstick e sizing (26/9), money management fasi 0–3
-(16/10, `61`).
+(16/10, `61`), profilo orario e baseline oraria (18/10, `02`; il giorno della
+settimana lasciato fuori per scelta di Mattia).
 
 ---
 
@@ -396,7 +396,9 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   sempre insieme (`CLAUDE.md`).
 - **La rosa dei candidati (18/10):** il tool suggerisce un gruppo di entry
   (dopo l'event study) e di sistemi (dopo le uscite), positivi e diversi fra
-  loro; sceglie Mattia (`02`, «La rosa dei candidati»).
+  loro; sceglie Mattia (`02`, «La rosa dei candidati»). Dal 18/10 ogni
+  candidato si confronta con il mercato **della stessa ora** (baseline oraria),
+  e il profilo orario è nel passo 2 del Lab e in 1.2 bis della ricerca.
 - **Lab in nove passi:** configura, esplora, trigger, uscite, trova la
   strategia, scheda (out-of-sample), money management, verifica dei trade,
   stress test.
@@ -410,7 +412,9 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 **Aperti, per scelta di Mattia:** money management sul repo crypto, interruttore
 sulla curva dei profitti. **Aperti nel tool:**
-baseline oraria (punto 8), runner unico (punto 6).
+runner unico (punto 6). **Prossimo, approvato da Mattia il 18/10:** fonti con un
+motivo economico (paper sui fixing, sull'intraday momentum, sui flussi di fine
+mese), una alla volta con il processo di `50`.
 
 ---
 
