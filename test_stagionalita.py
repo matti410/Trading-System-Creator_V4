@@ -119,13 +119,14 @@ def main() -> int:
     check("B1. una riga per fascia (96), attributi del profilo",
           len(prof) == 96 and prof.attrs["k"] == 96 and prof.attrs["larghezza_min"] == 15
           and prof.attrs["fuso"] == LONDRA)
-    # da Open[i+1] a Close[i+H]: le barre 13:45-14:45 vedono tutta l'ora 15
-    piene = ["13:45", "14:00", "14:15", "14:30", "14:45"]
+    # la fascia e' l'ora in cui si apre il trade (19/10/2026): aprendo fra le 14:00 e le 15:00
+    # le H = 10 barre contengono tutta l'ora 15
+    piene = ["14:00", "14:15", "14:30", "14:45", "15:00"]
     check("B2. le fasce che vedono tutta l'ora dell'effetto: scarto ~ +3 pips, passano il controllo",
           bool(prof.loc[piene, "bh"].all()) and bool(prof.loc[piene, "scarto_pips"].between(2.0, 4.0).all()),
           ", ".join(f"{f} {prof.loc[f, 'scarto_pips']:+.2f}" for f in piene))
     # fasce che non toccano l'ora 15 (ne' da dentro ne' da dopo): 00:00-11:00 e 17:00-23:45
-    lontane = [f for f in prof.index if int(f[:2]) < 11 or int(f[:2]) >= 17]
+    lontane = [f for f in prof.index if (int(f[:2]) < 11 or int(f[:2]) >= 17) and f != "11:00"]
     # l'effetto alza anche la media di tutte le barre (~ 3 * H / 96 pips): le fasce lontane sono
     # davvero sotto la media generale di quel tanto, ma la loro media assoluta resta ~ 0
     ml = prof.loc[lontane, "media_pips"]
@@ -142,9 +143,11 @@ def main() -> int:
         p1 = np.random.default_rng(4).normal(0, 2, 20000)
         p1[np.asarray(idx1.tz_convert(LONDRA).hour) == 15] += EFFETTO
         prof1 = profilo_orario(_df(idx1, p1, {}), 3, PIP, fuso=LONDRA, quarantena=False).set_index("fascia")
-    check("B5. H1: 24 fasce, l'effetto si vede nelle fasce 13:00 e 14:00",
-          len(prof1) == 24 and bool(prof1.loc[["13:00", "14:00"], "bh"].all()),
-          ", ".join(f"{f} {prof1.loc[f, 'scarto_pips']:+.2f}" for f in ["12:00", "13:00", "14:00", "15:00"]))
+    check("B5. H1: 24 fasce, l'effetto si vede aprendo il trade alle 14:00 e alle 15:00",
+          len(prof1) == 24 and bool(prof1.loc[["14:00", "15:00"], "bh"].all()),
+          ", ".join(f"{f} {prof1.loc[f, 'scarto_pips']:+.2f}" for f in ["13:00", "14:00", "15:00", "16:00"]))
+    check("B6. le fasce sono in ordine d'orario e la prima e' 00:00 (M15)",
+          list(prof.index) == sorted(prof.index) and prof.index[0] == "00:00")
 
     # =====================================================================
     print("\nC · ROSA DELLE ENTRY, BASELINE ORARIA\n" + "-" * 70)

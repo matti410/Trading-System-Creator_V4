@@ -89,7 +89,7 @@ from .montecarlo import (grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import verifica_indice_utc
 from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
-from .stagionalita import fuso_profilo, profilo_orario
+from .stagionalita import descrivi_profilo, fuso_profilo, profilo_orario
 from .splitting import split_is_oos
 
 
@@ -446,6 +446,11 @@ def _registra_condizioni() -> None:
         vwap_regime_filter_conditions.registra_filtri_vwap()
 
 
+def _e_oraria(nome) -> bool:
+    from condizioni_orarie import e_oraria
+    return e_oraria(nome)
+
+
 def _trigger_candidati(direzione: int | None = None) -> list[str]:
     """I trigger veri del registro: senza le composite in OR e senza le metro."""
     esclusi = set()
@@ -461,9 +466,11 @@ def _trigger_candidati(direzione: int | None = None) -> list[str]:
         pass
     tutte = set(reg.list_entries())
     # le entry «ENTRY+FILTRO» nascono quando si congela un filtro (schermata 6):
-    # sono combinazioni gia' scelte, non trigger da esplorare
+    # sono combinazioni gia' scelte, non trigger da esplorare. Le entry a
+    # orario (ORA_LONG_@HH:MM) si registrano solo quando le scegli (19/10/2026)
     return [n for n in reg.list_entries(direzione)
-            if n not in esclusi and not ("+" in n and n.split("+")[0] in tutte)]
+            if n not in esclusi and not ("+" in n and n.split("+")[0] in tutte)
+            and not _e_oraria(n)]
 
 
 def _tutti_i_filtri() -> list[str]:
@@ -532,6 +539,8 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     s.df, s.costi = df, costi
     s.pip = costi["pip_size"]      # 10/10/2026: fisso, da engine/simboli.py
     s.fuso = fuso_profilo(symbol)  # 18/10/2026: fissato a priori per symbol
+    import condizioni_orarie
+    condizioni_orarie.imposta_fuso(s.fuso)   # 19/10/2026: entry e uscite a orario
     s.spread_pips, s.spread_rollover_pips, s.fonte_spread = sp["normale"], sp["rollover"], sp["fonte"]
     _registra_condizioni()
 
@@ -672,20 +681,22 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     passo = max(1, len(p) // 24)
     ax.set_xticks(x[::passo])
     ax.set_xticklabels(p["fascia"].iloc[::passo], rotation=90, fontsize=8)
-    ax.set_xlabel(f"fascia oraria (ora di {luogo})")
-    ax.set_ylabel(f"movimento nelle {s.H} barre dopo, rispetto alla media (pips)")
-    ax.set_title("Il profilo orario: quanto si muove il prezzo, in media, partendo da ogni fascia oraria "
-                 "(colorate = oltre la quota di fortuna)")
+    ax.set_xlabel(f"ora in cui apri il trade (ora di {luogo})")
+    ax.set_ylabel(f"guadagno di un LONG tenuto {s.H} barre,\nrispetto a un'ora qualsiasi (pips)")
+    ax.set_title("Se apro un long a quest'ora, guadagno più o meno del solito?   "
+                 "(verde = di più, rosso = di meno, grigio = può essere caso)")
     ax.grid(alpha=.3, axis="y")
     plt.tight_layout()
     plt.show()
+    for frase in descrivi_profilo(p):
+        _nota(frase)
     oltre = p[p["bh"]]
     if oltre.empty:
         _nota(f"Nessuna fascia oraria supera il controllo della quota di fortuna ({len(p)} fasce).")
     else:
         tabella = pd.DataFrame({
-            "Fascia": oltre["fascia"],
-            "Rispetto alla media (pips)": oltre["scarto_pips"],
+            "Ora in cui apri il trade": oltre["fascia"],
+            "Long: rispetto a un'ora qualsiasi (pips)": oltre["scarto_pips"],
             "Oscillazione casuale (pips)": oltre["incertezza"],
             "Solidità": oltre["t"],
             "Regge sulle due metà": [_si_no(v) for v in oltre["due_meta"]],
@@ -694,15 +705,18 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
         _mostra((f"Le fasce orarie oltre la quota di fortuna (in-sample, {s.H} barre, prima dei costi)", tabella),
                 decimali={"Solidità": 2})
     _riquadro(
-        f"Ogni barra è una fascia oraria (ora di {luogo}, larga quanto una candela): quanto sale (sopra lo zero) "
-        f"o scende (sotto) in media il prezzo nelle {s.H} barre dopo, rispetto alla media di tutte le ore. "
-        "Le stanghette nere sono l'oscillazione dovuta al caso. Colorate le fasce che restano fuori anche "
-        f"contando che le fasce sono {len(p)} (al massimo il {Q_ROSA:.0%} di colpi di fortuna fra le colorate).",
-        "Serve a due cose. Primo: dalla schermata 3 la rosa confronta ogni trigger con il mercato della SUA ora, "
-        "così un trigger non sembra bravo solo perché scatta in un'ora in cui il prezzo sale da solo. "
-        "Secondo: è una mappa delle ore, da confrontare con quello che dicono i paper (aperture, fixing).",
-        "È una mappa, non una scelta: una finestra oraria scelta guardando questo grafico conta come tante "
-        "prove quante sono le fasce. Prosegui con la schermata 3.")
+        f"Ogni barra risponde a una domanda: «se apro un LONG a quest'ora (ora di {luogo}) e lo chiudo dopo "
+        f"{s.H} barre, guadagno più o meno che aprendolo a un'ora qualsiasi?». Sopra lo zero = di più, sotto = "
+        "di meno; per uno SHORT vale al contrario. Le stanghette nere sono l'oscillazione dovuta al caso. "
+        "Verdi e rosse le ore che restano fuori anche contando che le ore provate sono tante; grigie le altre.",
+        "Barre vicine raccontano lo stesso fatto (condividono quasi tutte le stesse candele dopo): un gruppo di "
+        "barre colorate è UN'idea, non tante. È una media su tutti i giorni: non dice niente del singolo giorno. "
+        "Dalla schermata 3 la rosa confronta ogni trigger con il mercato della sua stessa ora, così un trigger "
+        "non sembra bravo solo perché scatta quando il prezzo sale da solo.",
+        "Per usarla: alla schermata 3 puoi scegliere un trigger a orario, es. ORA_LONG_@12:30 (si entra ogni "
+        "giorno alle 12:30) o ORA_SHORT_@12:30, prendendo l'ora da un paper o da un gruppo colorato; alla "
+        "schermata 4 puoi chiudere a un orario (X_ORA_@16:00) o quando arriva un'ora rossa per il long / "
+        "verde per lo short (X_INVERSIONE_TREND).")
     return p
 
 
@@ -870,6 +884,25 @@ def _nome_sistema(riga) -> str:
     return "Solo long" if ha_long else "Solo short"
 
 
+def _regola_oraria(s: Sessione, regola):
+    """Registra le uscite orarie (19/10/2026) e restituisce l'etichetta da passare al motore."""
+    import condizioni_orarie
+    if regola is None or str(regola).strip().lower() in ("", "nessuna", "none"):
+        return None
+    regola = str(regola).strip()
+    if regola == condizioni_orarie.INVERSIONE:
+        with _zitto():
+            return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip)
+    if regola.startswith("X_ORA_@") or regola[:1].isdigit():
+        condizioni_orarie.codice_orario(regola.split("@")[-1], s.df_is.index, s.fuso)   # orario valido qui
+        return condizioni_orarie.registra_uscita_oraria(regola)
+    coppie = {p for p, _, _ in reg.list_exit_pairs()}
+    if regola not in coppie:
+        raise ValueError(f"Regola di uscita '{regola}' sconosciuta. Usa nessuna, X_ORA_@HH:MM, "
+                         f"X_INVERSIONE_TREND o una di: {sorted(coppie)}.")
+    return regola
+
+
 def imposta_uscite(s: Sessione, barre_long: int | None = None,
                    barre_short: int | None = None, sl: float = 90.0,
                    tp: float = 0.0, regola_uscita: str | None = None) -> pd.DataFrame:
@@ -881,9 +914,13 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
                                (None = l'orizzonte H)
     sl / tp                    percentile dello stop e del target adattivi
                                (0 = spento); gli stessi per i due lati
-    regola_uscita              etichetta di una coppia di regole di uscita del
+    regola_uscita              None / "nessuna" = solo tempo, stop e target.
+                               Dal 19/10/2026: "X_ORA_@HH:MM" chiude il trade
+                               alle HH:MM; "X_INVERSIONE_TREND" chiude quando
+                               arriva un'ora che il profilo orario (congelato
+                               sull'in-sample) segna colorata contro il trade.
+                               Oppure l'etichetta di un'altra coppia del
                                registro (`engine.registry.list_exit_pairs`).
-                               Predisposta: nella versione slim resta None.
 
     Ritorna la tabella del confronto.
     """
@@ -895,6 +932,7 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     for nome, v in (("sl", sl), ("tp", tp)):
         if v is None or not (0 <= float(v) < 100):
             raise ValueError(f"{nome} è un percentile: da 0 (spento) a 99.")
+    regola_uscita = _regola_oraria(s, regola_uscita)
     s.uscite = dict(n_barre=bl, n_barre_long=bl, n_barre_short=bs,
                     perc_sl=float(sl), perc_tp=float(tp), regola=regola_uscita)
     s.fs = s.dm = s.oos = s.rosa_sistemi = None
@@ -925,7 +963,16 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     def soglia(p):
         return "spento" if not p else f"{_fmt(p, 0)}° percentile"
     _nota(f"Uscita a tempo: long dopo {bl} barre, short dopo {bs} barre · "
-          f"stop {soglia(sl)} · target {soglia(tp)} · chiusura e inversione sul segnale opposto.")
+          f"stop {soglia(sl)} · target {soglia(tp)} · chiusura e inversione sul segnale opposto"
+          + (f" · regola di uscita {regola_uscita}." if regola_uscita else "."))
+    if regola_uscita == "X_INVERSIONE_TREND":
+        import condizioni_orarie
+        contro = condizioni_orarie.fasce_contro()
+        _nota("X_INVERSIONE_TREND (profilo congelato sull'in-sample): il long si chiude all'arrivo delle ore "
+              + (", ".join(contro["long"]) if contro["long"] else "— nessuna ora rossa: per il long non scatta mai")
+              + "; lo short all'arrivo delle ore "
+              + (", ".join(contro["short"]) if contro["short"] else "— nessuna ora verde: per lo short non scatta mai")
+              + ".")
     _mostra(("Il sistema base (in-sample, al netto dei costi)", tabella),
             decimali={"Durata media (barre)": 1})
 

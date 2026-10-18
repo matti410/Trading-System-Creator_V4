@@ -172,6 +172,10 @@ def risolvi_scelta(scelta, lato: str, consenti_invertite: bool = False):
     if not all(isinstance(n, str) for n in nomi):
         raise ValueError(f"Scelta {lato.upper()}: servono nomi di entry (stringhe), trovato {list(nomi)}.")
 
+    # 19/10/2026: le entry orarie (ORA_LONG_@HH:MM, ORA_SHORT_@HH:MM) si registrano da sole
+    from condizioni_orarie import registra_se_oraria
+    registra_se_oraria(nomi)
+
     registrate = set(list_entries())
     mancanti = [n for n in nomi if n not in registrate]
     if mancanti:
