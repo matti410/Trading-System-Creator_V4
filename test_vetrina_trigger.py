@@ -144,11 +144,18 @@ def esegui() -> int:
     print("\nA · Le candele: quante ne servono davvero a ciascun trigger (misurato sui dati)")
     ohlc_soltanto = [n for n in list(vt._FIGURE) + list(vt._BARRE)
                      if n in esistenti and (n in vt._FIGURE or n.split("_")[0] in ("E5", "E6", "E8", "E9"))]
-    check("1. ogni trigger delle tabelle esiste nel registro",
-          all(n in esistenti for n in list(vt._FIGURE) + list(vt._BARRE) + list(vt._INDICATORI)
-              + list(vt._LIVELLI_FINESTRA) + list(vt._LIVELLI_CANDELA)),
-          ", ".join(n for n in list(vt._FIGURE) + list(vt._BARRE) + list(vt._INDICATORI)
-                    + list(vt._LIVELLI_FINESTRA) + list(vt._LIVELLI_CANDELA) if n not in esistenti) or "tutti presenti")
+    # le entry spente (riga del dizionario tra commenti, "SPENTO": sfoltimento del 17/10/2026) restano
+    # nelle tabelle, cosi' la lente le sa disegnare se si riattivano
+    import re
+    spente = set()
+    for nome_file in ("entry_long.py", "entry_short.py"):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), nome_file), encoding="utf-8") as fh:
+            spente |= set(re.findall(r'^    # "(E\w+)":.*SPENTO', fh.read(), flags=re.M))
+    tabelle = (list(vt._FIGURE) + list(vt._BARRE) + list(vt._INDICATORI)
+               + list(vt._LIVELLI_FINESTRA) + list(vt._LIVELLI_CANDELA))
+    check("1. ogni trigger delle tabelle esiste nel registro, o e' una riga spenta nei dizionari",
+          all(n in esistenti or n in spente for n in tabelle),
+          ", ".join(n for n in tabelle if n not in esistenti and n not in spente) or f"tutti presenti ({len(spente)} spenti)")
     rng = np.random.default_rng(7)
     sbagliati_dich, sbagliati_fuori, saltati = [], [], []
     for simbolo in ("BTCUSD", "EURUSD"):
@@ -293,7 +300,7 @@ def esegui() -> int:
 
     # ---- E1: il caso del notebook (E21 + E22) ---------------------------------
     print("  costruisco il sistema E21 + E22 (circa un minuto)...")
-    s = costruisci("E21_BELT_HOLD, E22_ASIAN_RANGE_BREAKOUT", "", "F6_VOLUME_ABOVE_AVG_50, F2_HIGH_VOLATILITY")
+    s = costruisci("E21_BELT_HOLD, E22_ASIAN_RANGE_BREAKOUT", "", "F3_VOLUME_ABOVE_AVG, F2_HIGH_VOLATILITY")
     oos_prima, is_prima = s.trades_oos.copy(deep=True), s.trades_is.copy(deep=True)
     r = registro_trade(s, "out-of-sample")
     n_e21 = int(r.index[r["Trigger scattato"] == "E21_BELT_HOLD"][0]) + 1
@@ -352,7 +359,7 @@ def esegui() -> int:
     # ---- E2: un sistema con trigger di ogni famiglia -------------------------
     print("  costruisco il secondo sistema, con trigger di ogni famiglia (circa un minuto)...")
     LONG = ["E12_ENGULFING", "E24_CYCLE_TURN_UP", "E5_QUICK_PULLBACK", "E1_RSI_CROSS_OVERSOLD", "E2_ZLEMA_CROSS_UP"]
-    SHORT = ["E17_SHORT_THREE_INSIDE", "E25_SHORT_ATC_PVO_SETUP_DOWN", "E26_SHORT_SUPERTREND_IIX_SETUP_DOWN",
+    SHORT = ["E16_SHORT_EVENING_STAR", "E25_SHORT_ATC_PVO_SETUP_DOWN", "E26_SHORT_SUPERTREND_IIX_SETUP_DOWN",
              "E23_SHORT_PREV_DAY_LOW_BREAKDOWN", "E9_SHORT_CLOSING_PATTERN_ONLY_II"]
     s2 = costruisci(", ".join(LONG), ", ".join(SHORT), "")
     r2 = registro_trade(s2, "out-of-sample")

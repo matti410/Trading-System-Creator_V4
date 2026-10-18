@@ -167,10 +167,32 @@ def main() -> int:
             entry_long.registra_trigger_long()
             entry_short.registra_trigger_short()
             filter_conditions.registra_filtri()
+        # le condizioni spente nello sfoltimento del 17/10/2026 (docs/50 §10 septies) restano
+        # come funzioni: qui si registrano apposta, perche' sono i casi noti per costruzione
+        spente_e = {"E13_HARAMI_CONFIRMED": entry_long.entry_harami_confirmed,
+                    "E14_HARAMI_CROSS": entry_long.entry_harami_cross,
+                    "E17_THREE_INSIDE": entry_long.entry_three_inside,
+                    "E18_THREE_OUTSIDE": entry_long.entry_three_outside,
+                    "E20_MARUBOZU": entry_long.entry_marubozu,
+                    "E11_INVERTED_HAMMER_CONFIRMED": entry_long.entry_inverted_hammer_confirmed,
+                    "E12_ENGULFING_CONFIRMED": entry_long.entry_engulfing_confirmed}
+        for k, fn in spente_e.items():
+            if k not in R.list_entries():
+                R.register_entry(k, 1)(fn)
+        for k, fn in {"F6_VOLUME_ABOVE_AVG_50": filter_conditions.filter_volume_above_avg_50,
+                      "F7_VOLUME_CLIMAX": filter_conditions.filter_volume_climax}.items():
+            if k not in R.list_filters():
+                R.register_filter(k)(fn)
         fe = famiglie(df_is, "entry").set_index("nome")["famiglia"]
-        check("C1. entry: pattern confermati, harami cross e three inside nella famiglia dell'harami",
-              fe["E13_HARAMI"] == fe["E13_HARAMI_CONFIRMED"] == fe["E14_HARAMI_CROSS"] == fe["E17_THREE_INSIDE"]
-              and fe["E12_ENGULFING"] == fe["E18_THREE_OUTSIDE"] and fe["E21_BELT_HOLD"] == fe["E20_MARUBOZU"])
+        sim = somiglianze(df_is, "entry")
+        attese = [("E13_HARAMI", "E13_HARAMI_CONFIRMED"), ("E13_HARAMI", "E14_HARAMI_CROSS"),
+                  ("E13_HARAMI", "E17_THREE_INSIDE"), ("E12_ENGULFING", "E18_THREE_OUTSIDE"),
+                  ("E12_ENGULFING", "E12_ENGULFING_CONFIRMED"), ("E21_BELT_HOLD", "E20_MARUBOZU")]
+        valori = {f"{a}~{b}": round(100 * float(sim.loc[a, b])) for a, b in attese}
+        check("C1. entry: pattern confermati, harami cross, three inside, three outside e marubozu "
+              "simili al 95% o piu' al pattern base che li contiene",
+              all(v >= 95 for v in valori.values()) and fe["E13_HARAMI"] == fe["E13_HARAMI_CONFIRMED"],
+              "" if all(v >= 95 for v in valori.values()) else str(valori))
         check("C2. entry: long e short dello stesso pattern in famiglie diverse; meno famiglie che condizioni",
               fe["E13_HARAMI"] != fe["E13_SHORT_HARAMI"] and fe.nunique() < len(fe),
               f"{len(fe)} entry in {fe.nunique()} famiglie")

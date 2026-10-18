@@ -101,10 +101,10 @@ def vwap_previous_session_closed_below(df: pd.DataFrame) -> pd.Series:
 
 # nome -> (funzione, direction, pair)
 FILTRI_VWAP = {
-    "VWAP_PRICE_ABOVE_FAIR_VALUE":         (vwap_price_above_fair_value, 1, "VWAP_FAIR_VALUE"),
+    # "VWAP_PRICE_ABOVE_FAIR_VALUE":         (vwap_price_above_fair_value, 1, "VWAP_FAIR_VALUE"),   # SPENTO 17/10/2026, famiglia di F8/F9 (docs/50 §10 septies)
     "VWAP_GAP_WIDENING":                   (vwap_gap_widening, 0, None),
     "VWAP_PREVIOUS_SESSION_CLOSED_ABOVE":  (vwap_previous_session_closed_above, 1, "VWAP_SESSION_CLOSE"),
-    "VWAP_PRICE_BELOW_FAIR_VALUE":         (vwap_price_below_fair_value, -1, "VWAP_FAIR_VALUE"),
+    # "VWAP_PRICE_BELOW_FAIR_VALUE":         (vwap_price_below_fair_value, -1, "VWAP_FAIR_VALUE"),   # SPENTO 17/10/2026, famiglia di F8/F9 (docs/50 §10 septies)
     "VWAP_PREVIOUS_SESSION_CLOSED_BELOW":  (vwap_previous_session_closed_below, -1, "VWAP_SESSION_CLOSE"),
 }
 
