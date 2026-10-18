@@ -198,6 +198,68 @@ per sé una condanna.
  
 ---
  
+## La rosa dei candidati — due cancelli per due compiti (dal 18/10)
+
+Le soglie di rumore qui sopra servono a **validare**: controllano la probabilità
+che fra tutte le prove anche **una sola** sia un colpo di fortuna (Šidák). È giusto
+che siano severe, ma per **proporre** candidati lasciano passare troppo poco.
+La rosa (`engine/rosa.py`) è un secondo cancello, più largo, con un compito
+diverso: suggerire un gruppo da cui scegliere. Non promuove niente; filtri,
+`due_meta` e out-of-sample restano quelli di sempre.
+
+| | validazione | rosa |
+|---|---|---|
+| domanda | c'è almeno un colpo di fortuna fra i promossi? | quanti colpi di fortuna ci sono, in media, nel gruppo? |
+| metodo | `soglia_rumore`, `soglia_rumore_orizzonte` (Šidák, 5%) | Benjamini–Hochberg, q = 20%, sul p a una coda del t netto |
+| in più | — | scarto positivo su entrambe le metà dell'in-sample |
+| uso | decide chi va avanti | suggerisce, sceglie Mattia |
+
+**Come si costruisce** (decisioni di Mattia del 17/10/2026):
+
+1. **t netto** — lo scarto dal mercato diviso la sua incertezza. Per le entry a
+   orizzonte H, con l'incertezza dell'event study (trigger vicini); per i sistemi
+   sui pips netti dei trade veri, togliendo a ogni trade la deriva del mercato
+   nelle barre in cui è rimasto aperto (vedi «Il t netto»);
+2. **Benjamini–Hochberg** al 20%: ordinati i p dal più piccolo, passano i primi r,
+   con r il rango più alto per cui p ≤ 0,20 · r / k;
+3. **due metà**: scarto positivo in entrambe;
+4. **il gruppo**: dal t più alto in giù entra chi è di una **famiglia** nuova
+   (`engine/famiglie.py`, soglia 60%) e ha **|ρ| ≤ 0,3** con i già presi, sui
+   profitti per giornata FX. Per le entry i profitti della sola entry a H barre
+   (accordo 0,99 con i trade interi su EURUSD e BTCUSD, 60 volte più veloce), per
+   i sistemi quelli dei trade veri. Un sistema ha per famiglia la terna `L·S·X`
+   (famiglia dell'entry long, dell'entry short, della regola d'uscita).
+
+H è quello già scelto (passo 1); si passa solo l'in-sample.
+
+**Prova di potenza** (17/10/2026, EURUSD in-sample, H = 25; un trade oscilla di
+27 pips di deviazione standard). 80 entry finte su barre a caso, a 5 delle quali
+si aggiunge un vantaggio noto; 60 giri.
+
+| eventi per entry | vantaggio vero a trade | validazione: vere trovate | rosa: vere trovate | rosa: finte per giro (su 75) |
+|---|---|---|---|---|
+| 300 | 3 pips | 6% | 34% | 0,6 |
+| 1.000 | 1 pip | 1% | 3% | 0,2 |
+| 1.000 | 2 pips | 8% | 45% | 0,7 |
+| 1.000 | 3 pips | 46% | **89%** | 0,8 |
+| 3.000 | 1 pip | 3% | 19% | 0,1 |
+| 3.000 | 2 pips | 53% | **91%** | 0,4 |
+| 3.000 | 3 pips | 100% | 100% | 0,4 |
+
+La validazione lascia passare 0–0,05 finte per giro: è tarata bene, ma severa. La
+rosa vede circa il doppio dei vantaggi veri con meno di una finta per giro. Un
+vantaggio di 1 pip lordo non lo vede nessuno dei due: è troppo piccolo rispetto
+alla dispersione dei trade.
+
+**Dove si usa:** notebook di ricerca, 1.3 (entry, dopo l'event study) e «La rosa
+dei sistemi» (dopo la ricerca delle uscite, prima dei filtri); Lab, 3a bis e 4b
+(`rosa_dei_trigger`, `rosa_dei_sistemi`). Collaudo: `test_rosa.py`.
+
+**Una rosa vuota non è un giudizio.** Vuol dire che a quell'orizzonte nessun
+candidato si distingue abbastanza dal caso; la scelta resta libera.
+
+---
+
 ## Unità: punti, pip e bp
  
 | Unità | EURUSD | BTCUSD |

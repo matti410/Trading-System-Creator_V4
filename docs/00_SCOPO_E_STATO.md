@@ -60,8 +60,8 @@ prova in più nel conteggio dei test multipli (soglia di rumore, `02`).
 | passo | cosa si decide | dove (ricerca · Lab) |
 |---|---|---|
 | 1 | **Orizzonte**: a quante barre si guarda l'effetto di un trigger (H) | event study · Lab 1–2 |
-| 2 | **Ingressi**: quali trigger, long e short come candidati separati | event study · Lab 3a–3b |
-| 3 | **Uscite**: a tempo (sempre attiva, il paracadute), a regola, stop e target adattivi | `exit_search_bt` · Lab 4 |
+| 2 | **Ingressi**: quali trigger, long e short come candidati separati; la rosa li suggerisce | event study, `rosa_entry` · Lab 3a–3b |
+| 3 | **Uscite**: a tempo (sempre attiva, il paracadute), a regola, stop e target adattivi; la rosa dei sistemi | `exit_search_bt`, `rosa_sistemi` · Lab 4–4b |
 | 4 | **Giudizio del sistema base** | `giudizio.py` |
 | 5 | **Filtri**, uno alla volta, sopra il sistema base | `filter_search_bt`, `due_meta`, `confidenza` · Lab 5 |
 | 6 | **Out-of-sample**: la prova sui dati mai visti | Sessione 4 · Lab 6 |
@@ -69,6 +69,13 @@ prova in più nel conteggio dei test multipli (soglia di rumore, `02`).
 
 Le regole che valgono passo per passo:
 
+- **Passi 2 e 3, la rosa (dal 18/10).** Dopo l'event study e dopo la ricerca
+  delle uscite il tool **suggerisce** un gruppo di candidati (`engine/rosa.py`):
+  t netto con la quota di falsi positivi al 20% (Benjamini–Hochberg), positivo
+  sulle due metà dell'in-sample, una famiglia ciascuno e |ρ| ≤ 0,3 sui profitti
+  giornalieri. Stesso H, solo in-sample. È un cancello per proporre, non per
+  validare: la scelta resta di Mattia e i cancelli dei passi 4–6 non cambiano
+  (`02`, «La rosa dei candidati»).
 - **Passo 3.** Stop e target **non si ottimizzano**: sono un metodo adattivo
   (percentile delle escursioni recenti, `soglie_adattive`), acceso o spento.
   Spenti di default dal 17/9.
@@ -158,6 +165,7 @@ gennaio 2025).
 | `engine/filter_search_bt.py` | 5, filtri; dal 17/10 i backtest girano su più processi (`processi=None` automatico, `1` in sequenza: stessi risultati, `test_velocita.py`) |
 | `engine/due_meta.py` | 5, stabilità sulle due metà |
 | `engine/famiglie.py` | collaudo e scelta delle condizioni: sovrapposizioni, somiglianze, famiglie (dal 17/10) |
+| `engine/rosa.py` | 2–3, la rosa dei candidati: entry dopo l'event study, sistemi dopo le uscite (dal 18/10) |
 | `engine/confidenza.py` | 5, confidenza dei segnali: griglia volatilità × trend, soglia come filtro |
 | `engine/volatility_features_engineering.py` | file di Mattia, invariato: `confidenza.py` usa `feat_historical_volatility` e `build_labels` |
 | `engine/montecarlo.py` | 7, yardstick 10/20/40/100 trade, Monte Carlo, sizing, grafici |
@@ -232,7 +240,7 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 
 ### Collaudo
 
-**Suite da terminale (17/10): 24 file `test_*.py`, 958 test, tutti superati**
+**Suite da terminale (18/10): 25 file `test_*.py`, 986 test, tutti superati**
 (pandas 3.0.6, in locale). Si lanciano dalla cartella del progetto, su Windows
 con `PYTHONIOENCODING=utf-8`; l'ultima riga di ognuno dev'essere
 `RISULTATO: n/n test superati`. Alcune parti leggono i CSV di `dati/` e, se
@@ -378,7 +386,7 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 ---
 
-## Dove siamo (17/10/2026)
+## Dove siamo (18/10/2026)
 
 - **Catalogo:** 117 condizioni dopo lo sfoltimento del 17/10 (59 entry, 38
   filtri, 10 uscite, 10 entry-metro), collaudate (lookahead e degenerazione) su
@@ -386,6 +394,9 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 - **I due notebook** leggono da `dati/` (o da Drive), con pip fisso per symbol,
   spread dal listino del conto Standard, fuso controllato. Vanno aggiornati
   sempre insieme (`CLAUDE.md`).
+- **La rosa dei candidati (18/10):** il tool suggerisce un gruppo di entry
+  (dopo l'event study) e di sistemi (dopo le uscite), positivi e diversi fra
+  loro; sceglie Mattia (`02`, «La rosa dei candidati»).
 - **Lab in nove passi:** configura, esplora, trigger, uscite, trova la
   strategia, scheda (out-of-sample), money management, verifica dei trade,
   stress test.

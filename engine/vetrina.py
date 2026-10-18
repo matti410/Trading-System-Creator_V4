@@ -11,8 +11,10 @@ risultato con un riquadro «Come leggerlo» scritto per un trader.
     s = prepara("EURUSD", H=25)                              1 · Configura
     esplora(s)                                               2 · Esplora
     classifiche(s)                                           3 · Scegli i trigger
+    rosa_dei_trigger(s)                                        (la rosa dei candidati, 18/10)
     scegli_trigger(s, long=[...], short=[...])
     imposta_uscite(s, barre_long=10, barre_short=18, sl=90)  4 · Imposta le uscite
+    rosa_dei_sistemi(s)                                        (la rosa dei sistemi, 18/10)
     trova_strategia(s)                                       5 · Trova la strategia
     scheda(s, filtro="F1, F2")                               6 · Scheda strategia
     money_management(s, capitale=10_000, drawdown_max_pct=20) 7 · Money management
@@ -85,6 +87,7 @@ from .metriche import pips_per_trade
 from .montecarlo import (grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import verifica_indice_utc
+from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
 from .splitting import split_is_oos
 
 
@@ -289,6 +292,8 @@ class Sessione:
         self.trades_is = self.trades_oos = None
         self.controlli = None
         self.mm = None                # 16/10/2026: schermata 7, money management
+        self.rosa_trigger = None      # 18/10/2026: la rosa dei candidati (engine/rosa.py)
+        self.rosa_sistemi = None
         self.tabelle = {}
 
     def __repr__(self):
@@ -680,6 +685,62 @@ def classifiche(s: Sessione, quanti: int = 8) -> dict:
     return out
 
 
+def _si_no(v) -> str:
+    return "sì" if bool(v) else "no"
+
+
+def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
+    """
+    Schermata 3, fra le classifiche e la scelta (18/10/2026). La rosa dei
+    candidati di engine/rosa.py sui trigger dell'event study: andamento netto
+    positivo che regge il controllo della quota di falsi positivi (q = 20%) e
+    le due meta' dell'in-sample, e un gruppo suggerito di trigger diversi fra
+    loro (una famiglia ciascuno, profitti giornalieri poco correlati).
+    Stesso orizzonte H della schermata 1, solo in-sample. E' un suggerimento:
+    la scelta resta nella cella successiva.
+
+    Ritorna la tabella completa di rosa_entry (anche in `s.rosa_trigger`).
+    """
+    s._serve("ev", "2 · Esplora")
+    with _zitto():
+        s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip, nomi=_trigger_candidati(),
+                                    min_eventi=MIN_TRIGGER)
+    r = s.rosa_trigger
+    vista = r[r["candidata"]]
+    if vista.empty:
+        _nota(f"Nessun trigger supera i tre controlli della rosa ({len(r)} misurati, orizzonte {s.H} barre). "
+              "Sotto, i cinque con la solidità netta più alta, per confronto.")
+        vista = r.sort_values("t_netto", ascending=False).head(5)
+    tabella = pd.DataFrame({
+        "Trigger": vista["candidato"],
+        "Lato": np.where(vista["direction"] == 1, "long", "short"),
+        "Occasioni": vista["eventi"].astype(int),
+        "Più del mercato (pips)": vista["scarto_pips"],
+        "Solidità netta": vista["t_netto"],
+        "Supera la quota di fortuna": [_si_no(v) for v in vista["bh"]],
+        "Regge sulle due metà": [_si_no(v) for v in vista["due_meta"]],
+        "Famiglia": vista["famiglia"].astype(int),
+        "Nella rosa": [_si_no(v) for v in vista["nella_rosa"]],
+        "Perché fuori": vista["perche"],
+    })
+    s.tabelle["rosa_trigger"] = tabella
+    _mostra((f"La rosa dei trigger (in-sample, {s.H} barre, prima dei costi)", tabella),
+            decimali={"Solidità netta": 2})
+    _riquadro(
+        "Un gruppo di trigger suggeriti. Ognuno ha un andamento a favore più grande di quello che il mercato "
+        "fa da solo («più del mercato»), difficile da spiegare con la fortuna anche tenendo conto di quanti trigger "
+        f"hai messo a confronto (al massimo il {Q_ROSA:.0%} di colpi di fortuna nella rosa, in media), e positivo "
+        "in entrambe le metà dell'in-sample. Dentro la rosa i trigger sono diversi fra loro: famiglie diverse "
+        "(non scattano sulle stesse candele) e guadagni giornalieri poco legati "
+        f"(correlazione entro ±{_fmt(RHO_MAX, 1)}).",
+        "È un suggerimento, non una promozione: la verifica vera arriva dopo, con i filtri, le due metà e i dati "
+        "mai visti. Un trigger fuori dalla rosa per «famiglia» o «correlata» è buono come quello che lo esclude, "
+        "ma ripete la stessa idea. Rosa vuota = nessun trigger si distingue abbastanza dal caso a questo orizzonte.",
+        "Usa la rosa per scegliere nella cella sotto: prendi i trigger «Nella rosa: sì» che ti convincono, "
+        "anche uno solo. La scelta resta tua.")
+    return r
+
+
 def scegli_trigger(s: Sessione, long=None, short=None) -> None:
     """
     Schermata 3 (seconda parte). Registra la scelta dei trigger.
@@ -707,7 +768,7 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
         s.entry_short = risolvi_scelta(list(ts), lato="short") if ts else None
     s.trigger_long, s.trigger_short = tl, ts
     # una scelta nuova invalida tutto cio' che viene dopo
-    s.uscite = s.es = s.fs = s.dm = s.oos = None
+    s.uscite = s.es = s.fs = s.dm = s.oos = s.rosa_sistemi = None
     s.sopravvissuti, s.filtro = [], None
 
     scelta = pd.DataFrame({
@@ -768,7 +829,7 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
             raise ValueError(f"{nome} è un percentile: da 0 (spento) a 99.")
     s.uscite = dict(n_barre=bl, n_barre_long=bl, n_barre_short=bs,
                     perc_sl=float(sl), perc_tp=float(tp), regola=regola_uscita)
-    s.fs = s.dm = s.oos = None
+    s.fs = s.dm = s.oos = s.rosa_sistemi = None
     s.sopravvissuti, s.filtro = [], None
 
     entrambi = s.entry_long is not None and s.entry_short is not None
@@ -829,6 +890,52 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
         "Se vuoi, cambia barre o percentili e riesegui la cella. Quando il sistema base ti convince, "
         "vai alla schermata 5 per cercare un filtro che lo migliori.")
     return tabella
+
+
+def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
+    """
+    Dopo la schermata 4 (18/10/2026). La rosa di engine/rosa.py sui sistemi
+    provati da `imposta_uscite` (solo long, solo short, entrambi), sui trade
+    veri dell'in-sample e al netto dei costi: quali hanno un andamento netto
+    positivo che regge il controllo della quota di falsi positivi e le due
+    meta', e quali sono abbastanza diversi da stare insieme.
+
+    Ritorna la tabella completa di rosa_sistemi (anche in `s.rosa_sistemi`).
+    """
+    s._serve("es", "4 · Imposta le uscite")
+    with _zitto():
+        s.rosa_sistemi = rosa_sistemi(s.es, s.df_is, s.pip, commission=s.costi["commission"])
+    r = s.rosa_sistemi
+    nomi = {riga["combinazione"]: _nome_sistema(riga) for _, riga in s.es.risultati.iterrows()}
+
+    def in_chiaro(testo):
+        for comb, nome in nomi.items():
+            testo = testo.replace(comb, f"«{nome}»")
+        return testo
+
+    tabella = pd.DataFrame({
+        "Sistema": r["combinazione"].map(nomi),
+        "Trade": r["trades"].astype(int),
+        "Più del mercato per trade (pips netti)": r["scarto_pips"],
+        "Solidità netta": r["t_netto"],
+        "Supera la quota di fortuna": [_si_no(v) for v in r["bh"]],
+        "Regge sulle due metà": [_si_no(v) for v in r["due_meta"]],
+        "Nella rosa": [_si_no(v) for v in r["nella_rosa"]],
+        "Perché fuori": [in_chiaro(p) for p in r["perche"]],
+    })
+    s.tabelle["rosa_sistemi"] = tabella
+    _mostra(("La rosa dei sistemi (in-sample, al netto dei costi)", tabella),
+            decimali={"Solidità netta": 2})
+    _riquadro(
+        "Gli stessi sistemi della schermata 4, letti con i controlli della rosa: guadagno netto per trade "
+        "oltre quello che il mercato dà da solo nelle barre in cui il trade resta aperto, difficile da spiegare "
+        "con la fortuna, positivo in entrambe le metà dell'in-sample. Due sistemi stanno insieme nella rosa "
+        f"solo se i loro guadagni giornalieri sono poco legati (correlazione entro ±{_fmt(RHO_MAX, 1)}).",
+        "Di solito «Long + Short» è molto legato ai due lati da soli, e la rosa ne tiene uno. Due lati da soli "
+        "entrambi nella rosa vuol dire che si completano. Rosa vuota = nessun sistema si distingue abbastanza "
+        "dal caso: non è una bocciatura, i filtri della schermata 5 possono ancora cambiarlo.",
+        "È un suggerimento: vai alla schermata 5 per cercare un filtro sul sistema base.")
+    return r
 
 
 # ========================================================================
