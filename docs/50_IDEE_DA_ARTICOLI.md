@@ -159,6 +159,9 @@ Un filtro direzionale ha il suo speculare con lo stesso `pair`; un filtro neutro
  
 ### Uscite a regola
 Funzione `df -> Series bool`. Il motore esce all'Open della barra successiva al segnale. Se l'idea ha un lato speculare, i due lati condividono lo stesso `pair`.
+
+### Idee a orario (dal 19/10/2026)
+Un'idea che dice «entra alle HH:MM» o «esci alle HH:MM» (fixing, aperture, prima mezz'ora) non si scrive come condizione nuova: si usa `ORA_LONG_@HH:MM`, `ORA_SHORT_@HH:MM` o `X_ORA_@HH:MM` di `condizioni_orarie.py`, con l'ora **in cui il trade si apre o si chiude**, nell'ora locale della piazza (`engine/stagionalita.fuso_profilo`). Come le composite, si registrano su richiesta, non nei dizionari. Ogni ora provata è una riga del registro (§10) e conta come una prova.
  
 ---
  

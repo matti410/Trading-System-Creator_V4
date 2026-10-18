@@ -165,6 +165,44 @@ pips veri a ore casuali dà lo stesso scarto con le due baseline. Su 60 entry fi
 del rollover sono in quarantena), scarto da −1,7 a +1,7 pips, 3 fasce oltre la
 quota di falsi positivi. Nella rosa lo scarto delle entry cambia in mediana di
 0,16 pips, al massimo di 0,85. È un collaudo, non un verdetto.
+
+### Dal 19/10: l'ora è quella in cui si apre il trade, e le condizioni orarie
+
+**Una regola sola per gli orari** (decisione di Mattia del 19/10/2026): ogni ora
+scritta è **l'ora in cui il trade si apre** (o si chiude). Il segnale scatta sulla
+candela prima e il motore apre o chiude all'Open della successiva. La fascia
+«12:30» del profilo vuol quindi dire «se apri il trade alle 12:30»; prima era
+etichettata con la candela del segnale, una candela prima.
+
+**Griglia vera delle candele:** le fasce si agganciano all'ora d'inizio reale
+delle candele (`griglia_oraria`). Sulle H4 del broker, che partono dalle 17:00 di
+New York (17, 21, 1, 5, 9, 13), prima le etichette sarebbero state sbagliate di
+un'ora.
+
+**Le condizioni orarie** (`condizioni_orarie.py`):
+
+| condizione | cosa fa |
+|---|---|
+| `ORA_LONG_@HH:MM` · `ORA_SHORT_@HH:MM` | apre un long / uno short ogni giorno alle HH:MM |
+| `X_ORA_@HH:MM` | chiude il trade, long o short, alle HH:MM |
+| `X_INVERSIONE_TREND` | chiude il long all'**arrivo** di un'ora colorata contro (scarto negativo oltre la quota dei colpi di fortuna), lo short all'arrivo di un'ora colorata a favore del long; solo le ore colorate |
+
+`X_INVERSIONE_TREND` usa il profilo calcolato **sull'in-sample e congelato**:
+sull'out-of-sample non si ricalcola. Su ogni timeframe l'ora deve essere l'inizio
+di una candela, altrimenti la condizione si ferma con gli orari possibili.
+
+**Prove:** ogni ora provata è una prova (registro di `50`). Un'ora presa da un paper
+conta come una. Un'ora presa da un gruppo colorato del profilo ha già pagato il
+conto delle fasce, ma se ne prende una per gruppo di fasce vicine.
+`X_INVERSIONE_TREND` conta una prova per ogni sistema su cui la provi.
+
+**Collaudo** (`test_condizioni_orarie.py`, 33 test). Sul mercato finto con +3 pips
+fra le 15:00 e le 16:00 di Londra, `ORA_LONG_@15:00` con `X_ORA_@16:00` apre alle
+15:00, chiude alle 16:00 e guadagna +3,11 pips a trade; lo short alla stessa ora
+perde −3,11. Le 09:30 di New York restano le 09:30 tutto l'anno, anche col cambio
+dell'ora legale. H1 rifiuta le 12:30, H4 accetta le 17:00. Nessun lookahead né
+degenerazione sul mercato finto; nessun lookahead sui 9 symbol veri (ultime
+20.000 barre).
  
 ---
  

@@ -68,11 +68,13 @@ def fuso_profilo(symbol: str) -> str:
 # Le fasce
 # ========================================================================
 
-def fasce_orarie(index, fuso: str = FUSO_PREDEFINITO) -> tuple[np.ndarray, int]:
+def griglia_oraria(index, fuso: str = FUSO_PREDEFINITO) -> tuple[np.ndarray, int, int]:
     """
-    Il codice della fascia oraria di ogni barra e la larghezza della fascia
-    in minuti (= durata della barra, dedotta dall'indice; un giorno al
-    massimo). Codice = minuti dalla mezzanotte locale // larghezza.
+    I minuti dalla mezzanotte locale dell'inizio di ogni barra, la larghezza
+    della barra in minuti (dedotta dall'indice; un giorno al massimo) e lo
+    sfasamento della griglia delle candele: il resto piu' frequente di
+    minuti / larghezza (19/10/2026). Su M5-H1 e' 0; sulle H4 del broker, che
+    partono dalle 17:00 di New York, e' 60 (candele alle 17, 21, 1, 5, 9, 13).
 
     Serve un indice con fuso (UTC vero: engine.quarantena.verifica_indice_utc).
     """
@@ -84,12 +86,65 @@ def fasce_orarie(index, fuso: str = FUSO_PREDEFINITO) -> tuple[np.ndarray, int]:
     larghezza = min(max(larghezza, 1), 1440)
     loc = idx.tz_convert(fuso)
     minuti = np.asarray(loc.hour * 60 + loc.minute, dtype=np.int64)
-    return minuti // larghezza, larghezza
+    resti = np.bincount(minuti % larghezza, minlength=larghezza)
+    return minuti, larghezza, int(np.argmax(resti))
 
 
-def etichetta_fascia(codice: int, larghezza: int) -> str:
-    m = int(codice) * int(larghezza)
+def n_fasce(larghezza: int) -> int:
+    return max(1, -(-1440 // int(larghezza)))
+
+
+def fasce_orarie(index, fuso: str = FUSO_PREDEFINITO) -> tuple[np.ndarray, int]:
+    """
+    Il codice della fascia oraria di ogni barra e la larghezza della fascia
+    in minuti. Codice = (minuti dalla mezzanotte locale - sfasamento della
+    griglia) // larghezza, da 0 a n_fasce - 1: una fascia per candela del
+    giorno, agganciata alla griglia vera delle candele (griglia_oraria).
+    """
+    minuti, larghezza, scarto = griglia_oraria(index, fuso)
+    return ((minuti - scarto) % 1440) // larghezza, larghezza
+
+
+def etichetta_fascia(codice: int, larghezza: int, scarto: int = 0) -> str:
+    """L'ora d'inizio della candela della fascia `codice`, «HH:MM»."""
+    m = (int(codice) * int(larghezza) + int(scarto)) % 1440
     return f"{m // 60:02d}:{m % 60:02d}"
+
+
+def codice_orario(orario: str, index, fuso: str = FUSO_PREDEFINITO) -> tuple[int, int]:
+    """
+    Il codice della fascia la cui candela comincia all'ora locale `orario`
+    («HH:MM») e il numero di fasce del giorno. Si ferma con errore se, su
+    questo timeframe, `orario` non e' l'inizio di una candela.
+    """
+    try:
+        ore, minuti = str(orario).strip().split(":")
+        m = int(ore) * 60 + int(minuti)
+        if not (0 <= int(ore) < 24 and 0 <= int(minuti) < 60):
+            raise ValueError
+    except ValueError:
+        raise ValueError(f"Orario '{orario}' non valido: scrivilo come HH:MM, es. 12:30.") from None
+    _, larghezza, scarto = griglia_oraria(index, fuso)
+    if (m - scarto) % larghezza:
+        esempi = ", ".join(etichetta_fascia(c, larghezza, scarto) for c in range(min(n_fasce(larghezza), 8)))
+        raise ValueError(f"Su candele da {larghezza} minuti l'orario {orario} non e' l'inizio di una "
+                         f"candela (ora di {fuso}). Orari possibili: {esempi}...")
+    return ((m - scarto) % 1440) // larghezza, n_fasce(larghezza)
+
+
+def segnale_prima_di(df: pd.DataFrame, orario: str, fuso: str = FUSO_PREDEFINITO) -> pd.Series:
+    """
+    Vera sulla candela che precede quella delle `orario` (ora locale di
+    `fuso`): il motore apre o chiude all'Open della candela successiva al
+    segnale, quindi il trade si apre (o si chiude) alle `orario` esatte.
+
+    Senza lookahead: usa solo l'ora d'inizio della candela del segnale (la
+    candela che verra' dopo e' quella successiva sulla griglia). Una volta al
+    giorno al massimo.
+    """
+    codici, larghezza = fasce_orarie(df.index, fuso)
+    bersaglio, n = codice_orario(orario, df.index, fuso)
+    return pd.Series((codici + 1) % n == bersaglio, index=df.index)
 
 
 def rendimenti_avanti(df: pd.DataFrame, H: int, pip: float) -> np.ndarray:
@@ -190,9 +245,12 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
     Il profilo orario sull'in-sample: una riga per fascia (larga una barra,
     ora locale di `fuso`).
 
-        fascia        inizio della fascia, ora locale «HH:MM»
+        fascia        l'ora in cui SI APRE il trade, ora locale «HH:MM» (19/10/2026,
+                      regola di Mattia: il segnale e' sulla candela prima, il
+                      trade parte all'Open di questa candela; stessa regola di
+                      ORA_LONG_@HH:MM e delle uscite orarie)
         barre         barre misurate in quella fascia
-        media_pips    rendimento long medio a H barre partendo da quella fascia
+        media_pips    rendimento long medio a H barre aprendo il trade a quell'ora
         scarto_pips   media_pips meno la media di tutte le barre
         incertezza    quanto balla lo scarto per il caso (barre vicine comprese)
         t, p          t dello scarto e p a DUE code (una fascia negativa e'
@@ -213,6 +271,8 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
     usa = np.isfinite(fwd) & maschera_segnali_puliti(df_is, quarantena)
     fwd0 = np.where(usa, fwd, 0.0)
     codici, larghezza = fasce_orarie(df_is.index, fuso)
+    _, _, sfasamento = griglia_oraria(df_is.index, fuso)
+    nf = n_fasce(larghezza)
     n = len(df_is)
     prima = np.arange(n) < n // 2
     globale = float(fwd[usa].mean())
@@ -237,7 +297,7 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
         dm = bool(a.size and b.size
                   and np.sign(fwd[a].mean() - glob_meta[0]) == np.sign(scarto)
                   and np.sign(fwd[b].mean() - glob_meta[1]) == np.sign(scarto))
-        righe.append({"fascia": etichetta_fascia(f, larghezza), "barre": int(pos.size),
+        righe.append({"fascia": etichetta_fascia((f + 1) % nf, larghezza, sfasamento), "barre": int(pos.size),
                       "media_pips": float(x.mean()), "scarto_pips": scarto,
                       "incertezza": se, "t": t,
                       "p": 2.0 * (1.0 - _NORMALE.cdf(abs(t))) if np.isfinite(t) else np.nan,
@@ -245,8 +305,34 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
     tab = pd.DataFrame(righe)
     if len(tab):
         tab["bh"] = benjamini_hochberg(tab["p"].to_numpy(), q)
-        tab = tab[["fascia", "barre", "media_pips", "scarto_pips", "incertezza", "t", "p",
-                   "bh", "due_meta"]]
+        tab = (tab[["fascia", "barre", "media_pips", "scarto_pips", "incertezza", "t", "p",
+                    "bh", "due_meta"]].sort_values("fascia").reset_index(drop=True))
     tab.attrs.update(fuso=fuso, larghezza_min=larghezza, H=H, k=len(tab), q=q,
                      media_pips=globale)
     return tab
+
+
+def descrivi_profilo(profilo: pd.DataFrame, pip_nome: str = "pips") -> list[str]:
+    """
+    Il profilo in parole, per chi lo vede la prima volta (19/10/2026): la
+    fascia migliore e la peggiore per un long, con il loro numero vero, e
+    quante fasce superano il controllo dei colpi di fortuna.
+    """
+    if profilo is None or len(profilo) == 0:
+        return ["Nessuna fascia misurabile."]
+    H = profilo.attrs.get("H")
+    luogo = str(profilo.attrs.get("fuso", "")).split("/")[-1].replace("_", " ")
+    alta = profilo.loc[profilo["scarto_pips"].idxmax()]
+    bassa = profilo.loc[profilo["scarto_pips"].idxmin()]
+    righe = [
+        f"Se apri un LONG alle {alta['fascia']} (ora di {luogo}) e lo tieni {H} barre, in media guadagni "
+        f"{alta['scarto_pips']:+.1f} {pip_nome} rispetto a un'ora qualsiasi"
+        + (" — supera il controllo dei colpi di fortuna." if alta["bh"] else " — ma può essere solo caso."),
+        f"Se apri un LONG alle {bassa['fascia']} il risultato è {bassa['scarto_pips']:+.1f} {pip_nome} rispetto a "
+        f"un'ora qualsiasi: per uno SHORT aperto a quell'ora vale al contrario"
+        + (" — supera il controllo dei colpi di fortuna." if bassa["bh"] else " — ma può essere solo caso."),
+    ]
+    n_oltre = int(profilo["bh"].sum())
+    righe.append(f"Fasce che superano il controllo dei colpi di fortuna: {n_oltre} su {len(profilo)}."
+                 + (" Fasce vicine raccontano lo stesso fatto: contale come un'idea sola." if n_oltre > 1 else ""))
+    return righe

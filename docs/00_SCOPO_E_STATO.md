@@ -167,6 +167,7 @@ gennaio 2025).
 | `engine/famiglie.py` | collaudo e scelta delle condizioni: sovrapposizioni, somiglianze, famiglie (dal 17/10) |
 | `engine/rosa.py` | 2–3, la rosa dei candidati: entry dopo l'event study, sistemi dopo le uscite (dal 18/10) |
 | `engine/stagionalita.py` | 1–3, profilo orario e baseline oraria della rosa; fasce larghe una barra, per ogni timeframe (dal 18/10) |
+| `condizioni_orarie.py` | 2–3, entry e uscite a orario: `ORA_LONG_@HH:MM`, `ORA_SHORT_@HH:MM`, `X_ORA_@HH:MM`, `X_INVERSIONE_TREND` (dal 19/10) |
 | `engine/confidenza.py` | 5, confidenza dei segnali: griglia volatilità × trend, soglia come filtro |
 | `engine/volatility_features_engineering.py` | file di Mattia, invariato: `confidenza.py` usa `feat_historical_volatility` e `build_labels` |
 | `engine/montecarlo.py` | 7, yardstick 10/20/40/100 trade, Monte Carlo, sizing, grafici |
@@ -241,7 +242,7 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 
 ### Collaudo
 
-**Suite da terminale (18/10): 26 file `test_*.py`, 1010 test, tutti superati**
+**Suite da terminale (19/10): 27 file `test_*.py`, 1044 test, tutti superati**
 (pandas 3.0.6, in locale). Si lanciano dalla cartella del progetto, su Windows
 con `PYTHONIOENCODING=utf-8`; l'ultima riga di ognuno dev'essere
 `RISULTATO: n/n test superati`. Alcune parti leggono i CSV di `dati/` e, se
@@ -399,6 +400,10 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   loro; sceglie Mattia (`02`, «La rosa dei candidati»). Dal 18/10 ogni
   candidato si confronta con il mercato **della stessa ora** (baseline oraria),
   e il profilo orario è nel passo 2 del Lab e in 1.2 bis della ricerca.
+- **Condizioni orarie (19/10):** le ore del profilo diventano entry
+  (`ORA_LONG_@HH:MM`, `ORA_SHORT_@HH:MM`) e uscite (`X_ORA_@HH:MM`,
+  `X_INVERSIONE_TREND`); l'ora scritta è sempre quella in cui il trade si apre
+  o si chiude (`02`, «La baseline oraria»).
 - **Lab in nove passi:** configura, esplora, trigger, uscite, trova la
   strategia, scheda (out-of-sample), money management, verifica dei trade,
   stress test.

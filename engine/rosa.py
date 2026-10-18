@@ -313,7 +313,9 @@ def _entry_vere() -> list[str]:
         esclusi |= set(elenca_composite())
     except ImportError:
         pass
-    return [n for n in _reg.list_entries() if n not in esclusi]
+    # le entry a orario (ORA_LONG_@HH:MM, 19/10/2026) si registrano solo su richiesta
+    from condizioni_orarie import e_oraria
+    return [n for n in _reg.list_entries() if n not in esclusi and not e_oraria(n)]
 
 
 # ========================================================================
