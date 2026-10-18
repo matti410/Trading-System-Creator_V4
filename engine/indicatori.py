@@ -1155,6 +1155,84 @@ def colonne_multi_timeframe(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Momentum intraday (docs/50 §10, riga 15; scheda approvata da Mattia il
+# 18/10/2026, con gli orari del paper)
+# ---------------------------------------------------------------------------
+
+# gli orari di Shen, Urquhart, Wang (2022), ora di New York con l'ora legale,
+# uguali per tutti i symbol (l'orologio del paper, non quello della piazza)
+MOMENTUM_INTRADAY_FUSO = "America/New_York"
+MOMENTUM_INTRADAY_ORARI = {"chiusura": "17:00", "apertura": "09:30",
+                           "penultima": "16:00", "ultima": "16:30"}
+COLONNE_MOMENTUM_INTRADAY = ("imm_r1", "imm_r12")
+
+
+def momentum_intraday(df: pd.DataFrame, fuso: str = MOMENTUM_INTRADAY_FUSO,
+                      orari: dict | None = None) -> pd.DataFrame:
+    """
+    I due rendimenti del momentum intraday, scritti SOLO sulla candela del
+    segnale (quella che finisce alle 16:30 di New York: il trade si apre alle
+    16:30 e si chiude alle 17:00 con X_ORA_@17:00); NaN su tutte le altre.
+
+      imm_r1   «prima mezz'ora»: dal prezzo delle 17:00 del giorno di trading
+               prima (l'ultima chiusura delle 17:00 disponibile) al prezzo
+               delle 09:30 di oggi
+      imm_r12  «penultima mezz'ora»: dal prezzo delle 16:00 a quello delle
+               16:30 di oggi
+
+    Il prezzo «alle HH:MM» e' il Close della candela che finisce alle HH:MM,
+    cosi' su M5, M15 e M30 e' lo stesso istante. Su H1 e H4 le 09:30 e le
+    16:30 non sono l'inizio di una candela: le colonne restano tutte NaN (le
+    entry non scattano mai, verifica_degenerazione lo segnala) invece di
+    fermare il catalogo intero. Se manca la candela di un orario, quel giorno
+    non c'e' valore.
+
+    Nessun lookahead: alle 16:30 tutti e quattro i prezzi sono gia' noti.
+    Nota sul dato del broker (decisione di Mattia del 18/10/2026: orari del
+    paper, i dati verranno da exchange crypto): il prezzo delle 17:00 e' il
+    Close della candela delle 16:45, che sul broker e' in quarantena.
+
+    Fonti: Shen, Urquhart, Wang, "Bitcoin Intraday Time-Series Momentum",
+    Financial Review 57(2), 2022, pp. 319-344, §2 e §3.4 (formule 7 e 8);
+    Gao, Han, Li, Zhou, "Intraday Momentum: The First Half-Hour Return
+    Predicts the Last Half-Hour Return", J. of Financial Economics 2018.
+    """
+    from engine.stagionalita import segnale_prima_di
+    o = dict(MOMENTUM_INTRADAY_ORARI, **(orari or {}))
+    vuoto = pd.DataFrame(np.nan, index=df.index, columns=list(COLONNE_MOMENTUM_INTRADAY))
+    if getattr(df.index, "tz", None) is None or len(df) < 2:
+        return vuoto
+    try:
+        fine = {k: segnale_prima_di(df, v, fuso).to_numpy() for k, v in o.items()}
+    except ValueError:
+        return vuoto
+    close = df["Close"].to_numpy(dtype=float)
+    pos = np.arange(len(df))
+
+    def ultimo(maschera: np.ndarray) -> np.ndarray:
+        # posizione dell'ultima candela (fino a questa compresa) con la maschera vera, -1 se nessuna
+        return np.maximum.accumulate(np.where(maschera, pos, -1))
+
+    u_chiusura, u_apertura, u_penultima = (ultimo(fine[k]) for k in ("chiusura", "apertura", "penultima"))
+    segnale = fine["ultima"]
+    t = df.index
+    # stessa giornata: l'apertura di oggi viene dopo l'ultima chiusura delle 17:00,
+    # e la penultima mezz'ora e' di oggi (dopo l'apertura, 30 minuti prima del segnale)
+    passo = pd.Timedelta(minutes=30)
+    ok1 = segnale & (u_apertura > u_chiusura) & (u_chiusura >= 0)
+    ok12 = segnale & (u_penultima > u_apertura) & (u_apertura >= 0)
+    r1 = np.full(len(df), np.nan)
+    r12 = np.full(len(df), np.nan)
+    i1 = np.flatnonzero(ok1)
+    r1[i1] = close[u_apertura[i1]] / close[u_chiusura[i1]] - 1.0
+    i12 = np.flatnonzero(ok12)
+    stessa = (t[i12] - t[u_penultima[i12]]) == passo
+    i12 = i12[np.asarray(stessa)]
+    r12[i12] = close[i12] / close[u_penultima[i12]] - 1.0
+    return pd.DataFrame({"imm_r1": r1, "imm_r12": r12}, index=df.index)
+
+
+# ---------------------------------------------------------------------------
 # AlgoXplorer 0.1c (docs/50 §10, riga 13; scheda approvata da Mattia il
 # 17/10/2026). Script Pine v5 scritto da Mattia e da un amico, uso concordato.
 # Traduzione riga per riga; fedelta' verificata con PineTS su una copia di
@@ -1462,8 +1540,10 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         ftfc, mtf_h4_macdh_pend, mtf_h1_force, mtf_h1_high, mtf_h1_low,
         tsmom, inside_day, ha_open, ha_high, ha_low, ha_close, pvsra,
         algox_segnale, algox_stato, algox_careful, algox_nv_careful,
-        vsa_asta, vsa_bias, vsa_go, vsa_sr
-        (AlgoXplorer: vedi algoxplorer, riscaldamento 50 barre; VSA: vedi
+        vsa_asta, vsa_bias, vsa_go, vsa_sr, imm_r1, imm_r12
+        (momentum intraday: vedi momentum_intraday, valori solo sulla
+        candela che finisce alle 16:30 di New York, aggiunte dopo il taglio;
+        AlgoXplorer: vedi algoxplorer, riscaldamento 50 barre; VSA: vedi
         vsa_modulo_unico, riscaldamento 100 barre piu' gli swing)
         (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
         R2 103, R3 201; multi timeframe: vedi colonne_multi_timeframe, al
@@ -1548,6 +1628,11 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     # NaN nel loro riscaldamento senza togliere righe
     for c in COLONNE_MULTI_TIMEFRAME:
         df[c] = mtf[c]
+    # momentum intraday (E36, E37): valori solo sulla candela del segnale, NaN
+    # altrove: dopo il taglio, come il sentiment
+    imm = momentum_intraday(df)
+    for c in COLONNE_MOMENTUM_INTRADAY:
+        df[c] = imm[c]
     return df
 
 
@@ -1562,4 +1647,5 @@ COLONNE_INDICATORI = (
     "ha_open", "ha_high", "ha_low", "ha_close", "pvsra",
     "algox_segnale", "algox_stato", "algox_careful", "algox_nv_careful",
     "vsa_asta", "vsa_bias", "vsa_go", "vsa_sr",
+    "imm_r1", "imm_r12",
 )
