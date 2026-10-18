@@ -34,6 +34,14 @@ valutaria e' quasi piatta; su un asset con drift (crypto, indici) sale, e
 senza quel riferimento la curva di una entry long sembrerebbe brava quando
 invece sta solo seguendo l'asset.
 
+IL MERCATO DELLA STESSA ORA (18/10/2026)
+----------------------------------------
+Con `fuso=` la sintesi ha una colonna in piu', `vs_mercato_orario_pct`: il
+picco meno la media, a quella barra, delle sole barre della stessa fascia
+oraria dei trigger (engine/stagionalita.py). Un trigger che scatta sempre
+alla stessa ora eredita il movimento tipico di quell'ora: la colonna lo
+toglie. La classifica non cambia; senza `fuso` la sintesi e' quella di prima.
+
 LE DUE FASCE
 ------------
   dispersione  quanto ballano i SINGOLI trade (percentili, default 25-75).
@@ -79,6 +87,7 @@ import pandas as pd
 from .registry import get_entry, get_entry_direction, list_entries, get_filter
 from .giudizio import soglia_rumore_orizzonte
 from .quarantena_trade import maschera_segnali_puliti
+from .stagionalita import fasce_orarie, media_per_fascia
 
 
 # ========================================================================
@@ -167,6 +176,7 @@ def run_event_study(
     verbose: bool = True,
     alpha: float = 0.05,
     quarantena=True,
+    fuso: str | None = None,
 ):
     """
     Calcola l'andamento medio del prezzo dopo il trigger, per ogni entry.
@@ -187,6 +197,9 @@ def run_event_study(
     filters       lista di filtri da applicare in AND all'entry, o None.
     alpha         famiglia della soglia di rumore (default 5%). Vedi sotto.
     banda         percentili bassi/alti della fascia di dispersione.
+    fuso          (18/10/2026) il fuso delle fasce orarie
+                  (engine/stagionalita.fuso_profilo(symbol)): aggiunge alla
+                  sintesi `vs_mercato_orario_pct`. None = sintesi di prima.
 
     Ritorna
     -------
@@ -344,6 +357,24 @@ def run_event_study(
             "barra_picco_netto": i_ecc,
             "picco_in_coda": i_ecc >= coda,
         })
+    if fuso is not None:
+        # il mercato della stessa ora, alla barra del picco (18/10/2026)
+        codici, _ = fasce_orarie(df.index, fuso)
+        per_k = {}
+        for r in righe:
+            k = r["barra_picco"]
+            if k not in per_k:
+                fwd = np.full(n, np.nan)
+                if n - k > 0:
+                    fwd[: n - k] = close[k:] / prezzo_ing[: n - k] - 1.0
+                per_k[k] = (np.isfinite(fwd),
+                            media_per_fascia(np.nan_to_num(fwd), codici, np.isfinite(fwd)))
+            nome = next(x for x in attive if etichetta[x] == r["candidato"])
+            finito, media_f = per_k[k]
+            pos = posizioni[nome]
+            b = media_f[pos[finito[pos]]]
+            mkt_ora = float(np.nanmean(b)) if np.isfinite(b).any() else np.nan
+            r["vs_mercato_orario_pct"] = r["picco_pct"] - direzioni[nome] * mkt_ora * 100.0
     sintesi = (pd.DataFrame(righe)
                .sort_values("volte_incertezza", key=abs, ascending=False)
                .reset_index(drop=True))

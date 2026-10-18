@@ -181,7 +181,7 @@ Collaudo su due asset opposti, orizzonte 48:
 Su EURUSD, asset senza deriva, la correzione cambia poco. Su BTCUSD, passato
 da 7.100 a 81.000, **dimezza i valori**: la curva grezza saliva da sola. È la
 dimostrazione che la correzione serve, e il motivo per cui va automatizzata
-(baseline oraria, non ancora costruita).
+(baseline oraria, costruita il 18/10/2026: `engine/stagionalita.py`, docs/02).
  
 **2. Il conto anno per anno: un `t` aggregato non dice se il segno tiene.**
 Rendimento medio a 24 barre su EURUSD, in pips, per un long:

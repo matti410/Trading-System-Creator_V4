@@ -125,8 +125,46 @@ tutte le barre, quindi la sua incertezza è trascurabile nel confronto.
 Misurato su due asset opposti: su EURUSD la correzione cambia poco, su BTCUSD
 **dimezza** i valori. Dettagli e tabelle in `11_DATI_QUARANTENA.md`.
  
-Oggi va fatto a mano. La versione automatica è la **baseline oraria**, non ancora
-costruita.
+**Dal 18/10 c'è la versione automatica: la baseline oraria** (sezione sotto).
+
+## La baseline oraria e il profilo orario (dal 18/10)
+
+Il mercato non si muove allo stesso modo a tutte le ore. `engine/stagionalita.py`
+divide la giornata in **fasce orarie** larghe quanto una barra: M5 288 fasce, M15
+96, M30 48, H1 24, H4 6. Le fasce seguono l'ora locale della piazza, fissata a
+priori per symbol (`FUSO_PIAZZA`): New York per forex, oro, cripto, US500 e USTEC
+(per il forex è l'ora del giorno FX, che cambia alle 17:00 di New York),
+Francoforte per DE40. Restano agganciate all'ora locale anche ai cambi di ora
+legale. Il giorno della settimana non entra: con 5 giorni le celle sarebbero
+troppo piccole (decisione di Mattia del 18/10/2026).
+
+- **Profilo orario** (`profilo_orario`): per ogni fascia il rendimento medio a H
+  barre, lo scarto dalla media di tutte le barre, la sua incertezza (barre vicine
+  comprese) e il controllo della quota di falsi positivi sulle fasce (BH 20%, p a
+  due code). È una mappa: una finestra scelta guardando il profilo conta come
+  tante prove quante sono le fasce. Una finestra presa da un paper conta come una.
+- **Baseline oraria:** nella rosa il mercato di riferimento di un trigger è la
+  media **della sua fascia**. Lo scarto è la media di `d·(r_i − b_fascia(i))`.
+  L'incertezza è quella di una somma pesata su tutte le barre: +1/n sui trigger,
+  −(trigger della fascia)/(n · barre della fascia) su ogni barra, con le
+  sovrapposizioni delle finestre a H barre. Così include il rumore della media di
+  fascia. Per i sistemi, a ogni trade si toglie la somma delle derive per barra
+  tipiche delle fasce in cui è rimasto aperto. Il confronto con tutte le ore resta
+  visibile (`scarto_globale_pips`, `t_globale`); `baseline="globale"` ridà i
+  numeri di prima.
+- **Event study:** con `fuso=` la sintesi ha in più `vs_mercato_orario_pct`. La
+  classifica non cambia.
+
+**Collaudo** (`test_stagionalita.py`): su un mercato finto con +3 pips ogni giorno
+fra le 15:00 e le 16:00 di Londra, un trigger alle 14:00 senza vantaggio proprio
+ha t 21,9 con la baseline globale e −1,0 con quella oraria. Una entry con +1,5
+pips veri a ore casuali dà lo stesso scarto con le due baseline. Su 60 entry finte,
+2 allarmi con |t| > 1,96 (attesi 3).
+
+**Prima misura** (EURUSD in-sample, H = 25, 18/10/2026): 90 fasce misurabili (quelle
+del rollover sono in quarantena), scarto da −1,7 a +1,7 pips, 3 fasce oltre la
+quota di falsi positivi. Nella rosa lo scarto delle entry cambia in mediana di
+0,16 pips, al massimo di 0,85. È un collaudo, non un verdetto.
  
 ---
  
@@ -219,7 +257,8 @@ diverso: suggerire un gruppo da cui scegliere. Non promuove niente; filtri,
 1. **t netto** — lo scarto dal mercato diviso la sua incertezza. Per le entry a
    orizzonte H, con l'incertezza dell'event study (trigger vicini); per i sistemi
    sui pips netti dei trade veri, togliendo a ogni trade la deriva del mercato
-   nelle barre in cui è rimasto aperto (vedi «Il t netto»);
+   nelle barre in cui è rimasto aperto (vedi «Il t netto»). Dal 18/10 il
+   mercato è quello **della stessa ora** (vedi «La baseline oraria»);
 2. **Benjamini–Hochberg** al 20%: ordinati i p dal più piccolo, passano i primi r,
    con r il rango più alto per cui p ≤ 0,20 · r / k;
 3. **due metà**: scarto positivo in entrambe;
@@ -253,7 +292,8 @@ alla dispersione dei trade.
 
 **Dove si usa:** notebook di ricerca, 1.3 (entry, dopo l'event study) e «La rosa
 dei sistemi» (dopo la ricerca delle uscite, prima dei filtri); Lab, 3a bis e 4b
-(`rosa_dei_trigger`, `rosa_dei_sistemi`). Collaudo: `test_rosa.py`.
+(`rosa_dei_trigger`, `rosa_dei_sistemi`). Collaudo: `test_rosa.py` e, per la
+baseline oraria, `test_stagionalita.py`.
 
 **Una rosa vuota non è un giudizio.** Vuol dire che a quell'orizzonte nessun
 candidato si distingue abbastanza dal caso; la scelta resta libera.

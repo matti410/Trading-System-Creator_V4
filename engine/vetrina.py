@@ -10,6 +10,7 @@ risultato con un riquadro «Come leggerlo» scritto per un trader.
 
     s = prepara("EURUSD", H=25)                              1 · Configura
     esplora(s)                                               2 · Esplora
+    profilo_delle_ore(s)                                       (il profilo orario, 18/10)
     classifiche(s)                                           3 · Scegli i trigger
     rosa_dei_trigger(s)                                        (la rosa dei candidati, 18/10)
     scegli_trigger(s, long=[...], short=[...])
@@ -88,6 +89,7 @@ from .montecarlo import (grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import verifica_indice_utc
 from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
+from .stagionalita import fuso_profilo, profilo_orario
 from .splitting import split_is_oos
 
 
@@ -294,6 +296,8 @@ class Sessione:
         self.mm = None                # 16/10/2026: schermata 7, money management
         self.rosa_trigger = None      # 18/10/2026: la rosa dei candidati (engine/rosa.py)
         self.rosa_sistemi = None
+        self.fuso = None              # 18/10/2026: fuso delle fasce orarie (engine/stagionalita.py)
+        self.profilo = None
         self.tabelle = {}
 
     def __repr__(self):
@@ -527,6 +531,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
         s.df_is, s.df_oos = split_is_oos(df, is_ratio=quota_in_sample)
     s.df, s.costi = df, costi
     s.pip = costi["pip_size"]      # 10/10/2026: fisso, da engine/simboli.py
+    s.fuso = fuso_profilo(symbol)  # 18/10/2026: fissato a priori per symbol
     s.spread_pips, s.spread_rollover_pips, s.fonte_spread = sp["normale"], sp["rollover"], sp["fonte"]
     _registra_condizioni()
 
@@ -640,6 +645,67 @@ def esplora(s: Sessione, quanti: int = 5):
     return s.ev
 
 
+def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
+    """
+    Schermata 2, dopo le curve (18/10/2026). Il profilo orario di
+    engine/stagionalita.py sull'in-sample: per ogni fascia oraria (larga una
+    barra, ora locale della piazza di riferimento) quanto si muove in media
+    il prezzo nelle H barre dopo, rispetto alla media di tutte le barre.
+    E' anche il riferimento della rosa (schermate 3 e 4): ogni trigger si
+    confronta con il mercato della sua stessa ora.
+
+    Ritorna la tabella del profilo (anche in `s.profilo`).
+    """
+    import matplotlib.pyplot as plt
+    s._serve("df_is", "1 · Configura")
+    with _zitto():
+        s.profilo = profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso)
+    p = s.profilo
+    luogo = s.fuso.split("/")[-1].replace("_", " ")
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    x = np.arange(len(p))
+    colori = np.where(p["bh"], np.where(p["scarto_pips"] > 0, "tab:green", "tab:red"), "lightgray")
+    ax.bar(x, p["scarto_pips"], color=colori, width=0.85)
+    ax.errorbar(x, p["scarto_pips"], yerr=2 * p["incertezza"], fmt="none", ecolor="black",
+                elinewidth=0.6, alpha=0.5)
+    ax.axhline(0, color="black", lw=0.8)
+    passo = max(1, len(p) // 24)
+    ax.set_xticks(x[::passo])
+    ax.set_xticklabels(p["fascia"].iloc[::passo], rotation=90, fontsize=8)
+    ax.set_xlabel(f"fascia oraria (ora di {luogo})")
+    ax.set_ylabel(f"movimento nelle {s.H} barre dopo, rispetto alla media (pips)")
+    ax.set_title("Il profilo orario: quanto si muove il prezzo, in media, partendo da ogni fascia oraria "
+                 "(colorate = oltre la quota di fortuna)")
+    ax.grid(alpha=.3, axis="y")
+    plt.tight_layout()
+    plt.show()
+    oltre = p[p["bh"]]
+    if oltre.empty:
+        _nota(f"Nessuna fascia oraria supera il controllo della quota di fortuna ({len(p)} fasce).")
+    else:
+        tabella = pd.DataFrame({
+            "Fascia": oltre["fascia"],
+            "Rispetto alla media (pips)": oltre["scarto_pips"],
+            "Oscillazione casuale (pips)": oltre["incertezza"],
+            "Solidità": oltre["t"],
+            "Regge sulle due metà": [_si_no(v) for v in oltre["due_meta"]],
+        })
+        s.tabelle["profilo"] = tabella
+        _mostra((f"Le fasce orarie oltre la quota di fortuna (in-sample, {s.H} barre, prima dei costi)", tabella),
+                decimali={"Solidità": 2})
+    _riquadro(
+        f"Ogni barra è una fascia oraria (ora di {luogo}, larga quanto una candela): quanto sale (sopra lo zero) "
+        f"o scende (sotto) in media il prezzo nelle {s.H} barre dopo, rispetto alla media di tutte le ore. "
+        "Le stanghette nere sono l'oscillazione dovuta al caso. Colorate le fasce che restano fuori anche "
+        f"contando che le fasce sono {len(p)} (al massimo il {Q_ROSA:.0%} di colpi di fortuna fra le colorate).",
+        "Serve a due cose. Primo: dalla schermata 3 la rosa confronta ogni trigger con il mercato della SUA ora, "
+        "così un trigger non sembra bravo solo perché scatta in un'ora in cui il prezzo sale da solo. "
+        "Secondo: è una mappa delle ore, da confrontare con quello che dicono i paper (aperture, fixing).",
+        "È una mappa, non una scelta: una finestra oraria scelta guardando questo grafico conta come tante "
+        "prove quante sono le fasce. Prosegui con la schermata 3.")
+    return p
+
+
 # ========================================================================
 # 3 · Scegli i trigger
 # ========================================================================
@@ -704,7 +770,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     s._serve("ev", "2 · Esplora")
     with _zitto():
         s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip, nomi=_trigger_candidati(),
-                                    min_eventi=MIN_TRIGGER)
+                                    min_eventi=MIN_TRIGGER, fuso=s.fuso)
     r = s.rosa_trigger
     vista = r[r["candidata"]]
     if vista.empty:
@@ -715,8 +781,9 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
         "Trigger": vista["candidato"],
         "Lato": np.where(vista["direction"] == 1, "long", "short"),
         "Occasioni": vista["eventi"].astype(int),
-        "Più del mercato (pips)": vista["scarto_pips"],
+        "Più del mercato della stessa ora (pips)": vista["scarto_pips"],
         "Solidità netta": vista["t_netto"],
+        "Più del mercato a qualunque ora (pips)": vista["scarto_globale_pips"],
         "Supera la quota di fortuna": [_si_no(v) for v in vista["bh"]],
         "Regge sulle due metà": [_si_no(v) for v in vista["due_meta"]],
         "Famiglia": vista["famiglia"].astype(int),
@@ -728,7 +795,8 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
             decimali={"Solidità netta": 2})
     _riquadro(
         "Un gruppo di trigger suggeriti. Ognuno ha un andamento a favore più grande di quello che il mercato "
-        "fa da solo («più del mercato»), difficile da spiegare con la fortuna anche tenendo conto di quanti trigger "
+        "fa da solo nelle stesse ore («più del mercato della stessa ora», vedi il profilo orario della "
+        "schermata 2; accanto, il confronto con tutte le ore), difficile da spiegare con la fortuna anche tenendo conto di quanti trigger "
         f"hai messo a confronto (al massimo il {Q_ROSA:.0%} di colpi di fortuna nella rosa, in media), e positivo "
         "in entrambe le metà dell'in-sample. Dentro la rosa i trigger sono diversi fra loro: famiglie diverse "
         "(non scattano sulle stesse candele) e guadagni giornalieri poco legati "
@@ -904,7 +972,8 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
     """
     s._serve("es", "4 · Imposta le uscite")
     with _zitto():
-        s.rosa_sistemi = rosa_sistemi(s.es, s.df_is, s.pip, commission=s.costi["commission"])
+        s.rosa_sistemi = rosa_sistemi(s.es, s.df_is, s.pip, commission=s.costi["commission"],
+                                      fuso=s.fuso)
     r = s.rosa_sistemi
     nomi = {riga["combinazione"]: _nome_sistema(riga) for _, riga in s.es.risultati.iterrows()}
 
@@ -916,8 +985,9 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
     tabella = pd.DataFrame({
         "Sistema": r["combinazione"].map(nomi),
         "Trade": r["trades"].astype(int),
-        "Più del mercato per trade (pips netti)": r["scarto_pips"],
+        "Più del mercato della stessa ora, per trade (pips netti)": r["scarto_pips"],
         "Solidità netta": r["t_netto"],
+        "Più del mercato a qualunque ora, per trade (pips netti)": r["scarto_globale_pips"],
         "Supera la quota di fortuna": [_si_no(v) for v in r["bh"]],
         "Regge sulle due metà": [_si_no(v) for v in r["due_meta"]],
         "Nella rosa": [_si_no(v) for v in r["nella_rosa"]],
@@ -928,7 +998,7 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
             decimali={"Solidità netta": 2})
     _riquadro(
         "Gli stessi sistemi della schermata 4, letti con i controlli della rosa: guadagno netto per trade "
-        "oltre quello che il mercato dà da solo nelle barre in cui il trade resta aperto, difficile da spiegare "
+        "oltre quello che il mercato dà da solo nelle ore in cui il trade resta aperto, difficile da spiegare "
         "con la fortuna, positivo in entrambe le metà dell'in-sample. Due sistemi stanno insieme nella rosa "
         f"solo se i loro guadagni giornalieri sono poco legati (correlazione entro ±{_fmt(RHO_MAX, 1)}).",
         "Di solito «Long + Short» è molto legato ai due lati da soli, e la rosa ne tiene uno. Due lati da soli "

@@ -195,8 +195,13 @@ def main() -> int:
     pos = np.flatnonzero(df["VERA_L1"].to_numpy())
     pos = pos[np.isfinite(fwd[pos])]
     t_mano = (fwd[pos].mean() - np.nanmean(fwd)) / _errore_standard_sovrapposti(fwd[pos], pos, H)
-    check("B8. t netto contro il calcolo a mano", abs(t_mano - r.loc["VERA_L1", "t_netto"]) < 1e-9,
-          f"{t_mano:.6f} contro {r.loc['VERA_L1', 't_netto']:.6f}")
+    # 18/10/2026: il conto a mano e' quello della media di tutte le barre (baseline globale):
+    # deve tornare identico sia con baseline="globale" sia nella colonna t_globale
+    rg = rosa_entry(df, H, PIP, quarantena=False, baseline="globale").set_index("candidato")
+    check("B8. t netto contro il calcolo a mano (baseline globale e colonna t_globale)",
+          abs(t_mano - rg.loc["VERA_L1", "t_netto"]) < 1e-9
+          and abs(t_mano - r.loc["VERA_L1", "t_globale"]) < 1e-9,
+          f"{t_mano:.6f} contro {rg.loc['VERA_L1', 't_netto']:.6f}")
     check("B9. vantaggio aggiunto 1,5 pips: lo scarto stimato delle vere fra 1 e 2 pips",
           bool(r.loc[vere, "scarto_pips"].between(1.0, 2.0).all()),
           ", ".join(f"{r.loc[k, 'scarto_pips']:.2f}" for k in vere))
@@ -218,12 +223,16 @@ def main() -> int:
     ev = np.sort(rng.choice(np.arange(50, len(passi) - 50), 2000, replace=False))
     dfd = _df(passi, {"CASO_L": ev, "CASO_S": ev})
     _registra({"CASO_L": 1, "CASO_S": -1})
-    rd = rosa_entry(dfd, H, PIP, quarantena=False).set_index("candidato")
+    rd = rosa_entry(dfd, H, PIP, quarantena=False, baseline="globale").set_index("candidato")
     grezzo = float(np.nanmean((dfd["Close"].to_numpy()[ev + H] - dfd["Open"].to_numpy()[ev + 1]) / PIP))
     check("C1. long a caso su un asset che sale: media grezza ~ +3 pips, scarto dal mercato ~ 0",
           grezzo > 2.0 and abs(rd.loc["CASO_L", "scarto_pips"]) < 0.5,
           f"grezzo {grezzo:.2f}, scarto {rd.loc['CASO_L', 'scarto_pips']:.2f}")
     check("C2. ne' la long ne' la short a caso sono candidate", not rd["candidata"].any())
+    ro = rosa_entry(dfd, H, PIP, quarantena=False).set_index("candidato")
+    check("C3. baseline oraria: anche contro la media della stessa ora lo scarto della long a caso ~ 0 "
+          "e il t entro +-2", abs(ro.loc["CASO_L", "scarto_pips"]) < 0.5 and abs(ro.loc["CASO_L", "t_netto"]) < 2,
+          f"scarto {ro.loc['CASO_L', 'scarto_pips']:.2f}, t {ro.loc['CASO_L', 't_netto']:.2f}")
 
     # =====================================================================
     print("\nD · ROSA DEI SISTEMI, TRADE COSTRUITI A MANO\n" + "-" * 70)
@@ -248,10 +257,12 @@ def main() -> int:
                     "trades": _trades(dfs, ingressi[:10], 1, np.full(10, 9.0), 20)},
     }
     rs = rosa_sistemi(_fake_es(sistemi), dfs, PIP).set_index("combinazione")
+    rsg = rosa_sistemi(_fake_es(sistemi), dfs, PIP, baseline="globale").set_index("combinazione")
     x = base + 0.2 * 20 - deriva * 20
     t_mano = x.mean() / (x.std(ddof=1) / np.sqrt(x.size))
-    check("D1. t netto di S_BUONO: pips netti meno deriva x barre, t classico",
-          abs(rs.loc["S_BUONO", "t_netto"] - t_mano) < 1e-9 and abs(rs.loc["S_BUONO", "scarto_pips"] - x.mean()) < 1e-9,
+    check("D1. t netto di S_BUONO: pips netti meno deriva x barre, t classico (baseline globale e t_globale)",
+          abs(rsg.loc["S_BUONO", "t_netto"] - t_mano) < 1e-9 and abs(rsg.loc["S_BUONO", "scarto_pips"] - x.mean()) < 1e-9
+          and abs(rs.loc["S_BUONO", "t_globale"] - t_mano) < 1e-9,
           f"{t_mano:.4f}")
     check("D2. S_NULLO (solo deriva) non e' candidato; S_BUONO si'",
           not rs.loc["S_NULLO", "candidata"] and bool(rs.loc["S_BUONO", "candidata"]))
@@ -285,7 +296,8 @@ def main() -> int:
         pip = pip_symbol("EURUSD")
         re_ = rosa_entry(df_is, 25, pip)
         attese = ["candidato", "direction", "eventi", "scarto_pips", "t_netto", "p", "bh",
-                  "due_meta", "candidata", "famiglia", "nella_rosa", "rho_max", "perche"]
+                  "due_meta", "candidata", "famiglia", "nella_rosa", "rho_max", "perche",
+                  "scarto_globale_pips", "t_globale"]
         check("E1. tabella completa: colonne, una riga per entry misurata, nessuna metro",
               list(re_.columns) == attese and re_["candidato"].is_unique
               and not re_["candidato"].str.startswith("M_").any() and len(re_) >= 40,
@@ -311,8 +323,8 @@ def main() -> int:
         netti = (tr["ExitPrice"] - tr["EntryPrice"]).to_numpy() / pip * segno - (tr["CostoExtraPips"].fillna(0).to_numpy() if "CostoExtraPips" in tr else 0.0)
         deriva = float(np.mean(np.diff(df_is["Open"].to_numpy()))) / pip
         xx = netti - segno * deriva * (tr["ExitBar"] - tr["EntryBar"]).to_numpy()
-        t_es = rsv.set_index("combinazione").loc[riga["combinazione"], "t_netto"]
-        check("E5. t netto di una combinazione vera contro il calcolo a mano",
+        t_es = rsv.set_index("combinazione").loc[riga["combinazione"], "t_globale"]
+        check("E5. t netto (colonna t_globale) di una combinazione vera contro il calcolo a mano",
               abs(xx.mean() / (xx.std(ddof=1) / np.sqrt(xx.size)) - t_es) < 1e-9, f"t = {t_es:.3f}")
         R.clear_registry()
 
