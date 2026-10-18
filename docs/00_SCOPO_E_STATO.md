@@ -216,7 +216,7 @@ si ferma e indica la riga da aggiungere (`50` §12).
 
 | file | contenuto |
 |---|---|
-| `entry_long.py` / `entry_short.py` | 30 entry long e 29 short accese (fino a E35); 21 spente nello sfoltimento del 17/10 |
+| `entry_long.py` / `entry_short.py` | 32 entry long e 31 short accese (fino a E37); 21 spente nello sfoltimento del 17/10 |
 | `entry_composita.py` | entry composte: più trigger in OR sullo stesso lato |
 | `entry_metro.py` | 5 entry-metro temporali per lato (righello, non candidate) |
 | `filter_conditions.py` | 35 filtri accesi (fino a F40); 12 spenti nello sfoltimento del 17/10 |
@@ -242,7 +242,7 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 
 ### Collaudo
 
-**Suite da terminale (19/10): 27 file `test_*.py`, 1044 test, tutti superati**
+**Suite da terminale (18/10, momentum intraday): 28 file `test_*.py`, 1072 test, tutti superati**
 (pandas 3.0.6, in locale). Si lanciano dalla cartella del progetto, su Windows
 con `PYTHONIOENCODING=utf-8`; l'ultima riga di ognuno dev'essere
 `RISULTATO: n/n test superati`. Alcune parti leggono i CSV di `dati/` e, se
@@ -404,6 +404,10 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   (`ORA_LONG_@HH:MM`, `ORA_SHORT_@HH:MM`) e uscite (`X_ORA_@HH:MM`,
   `X_INVERSIONE_TREND`); l'ora scritta è sempre quella in cui il trade si apre
   o si chiude (`02`, «La baseline oraria»).
+- **Momentum intraday (18/10, primo paper):** E36 ed E37 da Shen, Urquhart,
+  Wang (Bitcoin, 2022) e Gao e altri (S&P 500, 2018): alle 16:30 di New York si
+  entra nella direzione della mattina e si esce alle 17:00 (`X_ORA_@17:00`);
+  registro di `50`, riga 15.
 - **Lab in nove passi:** configura, esplora, trigger, uscite, trova la
   strategia, scheda (out-of-sample), money management, verifica dei trade,
   stress test.
@@ -418,8 +422,10 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 **Aperti, per scelta di Mattia:** money management sul repo crypto, interruttore
 sulla curva dei profitti. **Aperti nel tool:**
 runner unico (punto 6). **Prossimo, approvato da Mattia il 18/10:** fonti con un
-motivo economico (paper sui fixing, sull'intraday momentum, sui flussi di fine
-mese), una alla volta con il processo di `50`.
+motivo economico, una alla volta con il processo di `50`. Dal 18/10 (Mattia):
+si passerà alle crypto, con dati da exchange e non dal broker CFD; quindi
+approcci generalisti, niente idee specifiche del forex (i fixing restano fuori).
+Fatto il momentum intraday (riga 15 del registro).
 
 ---
 

@@ -66,6 +66,8 @@ ECCEZIONI_ATTESE = {          # trigger che hanno per scelta solo nome + candela
     "E33_ALGOX_NOVOL_CAREFUL_UP", "E33_SHORT_ALGOX_NOVOL_CAREFUL_DOWN",
     "E34_VSA_TREND_GO_UP", "E34_SHORT_VSA_TREND_GO_DOWN",         # VSA Modulo Unico, docs/50 §10 (17/10/2026)
     "E35_VSA_STOP_REVERSE_UP", "E35_SHORT_VSA_STOP_REVERSE_DOWN",
+    "E36_INTRADAY_MOMENTUM_UP", "E36_SHORT_INTRADAY_MOMENTUM_DOWN",   # momentum intraday, docs/50 §10 (18/10/2026)
+    "E37_INTRADAY_MOMENTUM_COMBO_UP", "E37_SHORT_INTRADAY_MOMENTUM_COMBO_DOWN",
 }
 W = 60                        # candele di contesto per il test delle candele
 N_RILEVAZIONI = 40

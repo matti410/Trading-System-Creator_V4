@@ -453,6 +453,38 @@ def entry_short_vsa_stop_reverse_down(df: pd.DataFrame) -> pd.Series:
     return _evento(df["vsa_sr"] == -1)
 
 
+# ------------------------------------------------------------ E36 --------
+def entry_short_intraday_momentum_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Momentum intraday: il prezzo delle 09:30 di New York e' sotto quello
+    delle 17:00 del giorno di trading prima (`imm_r1` < 0) -> short alle
+    16:30, da chiudere alle 17:00 con X_ORA_@17:00. Rendimento zero: nessun
+    trade. Una volta al giorno, sulla candela che finisce alle 16:30.
+
+    Fonte: Shen, Urquhart, Wang, "Bitcoin Intraday Time-Series Momentum",
+    Financial Review 57(2), 2022, §3.4, formula 7 (idea di Gao, Han, Li,
+    Zhou, J. of Financial Economics 2018). Colonne: engine.indicatori.
+    momentum_intraday.
+    """
+    return _evento(df["imm_r1"] < 0)
+
+
+# ------------------------------------------------------------ E37 --------
+def entry_short_intraday_momentum_combo_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Momentum intraday combinato (setup in AND, come nella fonte) -> short
+    alle 16:30, da chiudere alle 17:00 con X_ORA_@17:00:
+
+      1. la «prima mezz'ora» e' scesa: 17:00 del giorno prima -> 09:30
+         (`imm_r1` < 0)
+      2. la penultima mezz'ora e' salita: 16:00 -> 16:30 (`imm_r12` > 0)
+
+    Fonte: Shen, Urquhart, Wang, "Bitcoin Intraday Time-Series Momentum",
+    Financial Review 57(2), 2022, §3.4, formula 8.
+    """
+    return _evento((df["imm_r1"] < 0) & (df["imm_r12"] > 0))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -497,6 +529,8 @@ TRIGGER_SHORT = {
     "E33_SHORT_ALGOX_NOVOL_CAREFUL_DOWN": entry_short_algox_novol_careful_down,
     "E34_SHORT_VSA_TREND_GO_DOWN": entry_short_vsa_trend_go_down,
     "E35_SHORT_VSA_STOP_REVERSE_DOWN": entry_short_vsa_stop_reverse_down,
+    "E36_SHORT_INTRADAY_MOMENTUM_DOWN": entry_short_intraday_momentum_down,
+    "E37_SHORT_INTRADAY_MOMENTUM_COMBO_DOWN": entry_short_intraday_momentum_combo_down,
 }
 
 
