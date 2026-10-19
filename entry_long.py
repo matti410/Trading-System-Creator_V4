@@ -598,6 +598,22 @@ def entry_hour_reversal_up(df: pd.DataFrame) -> pd.Series:
     return _evento(df["ora_r12"] < 0)
 
 
+# ------------------------------------------------------------ E40 --------
+def entry_jump_momentum_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Momentum dopo un salto: al primo controllo di mezz'ora della giornata in
+    cui il rendimento dalla chiusura di ieri (17:00 di New York) supera il
+    90° percentile dei rendimenti giornalieri delle ultime 250 giornate
+    (`salto` == 1) -> long, da chiudere alla chiusura con X_ORA_@17:00.
+    Al massimo una volta al giorno.
+
+    Fonte: Baltussen, Da, Lammers, Martens, "Hedging demand and market
+    intraday momentum", J. of Financial Economics 2021 (SSRN 3760365),
+    §4.3 e Tab. 10. Colonna: engine.indicatori.salto_giornaliero.
+    """
+    return _evento(df["salto"] == 1)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -646,6 +662,7 @@ TRIGGER_LONG = {
     "E37_INTRADAY_MOMENTUM_COMBO_UP": entry_intraday_momentum_combo_up,
     "E38_HOUR_MOMENTUM_UP": entry_hour_momentum_up,
     "E39_HOUR_REVERSAL_UP": entry_hour_reversal_up,
+    "E40_JUMP_MOMENTUM_UP": entry_jump_momentum_up,
 }
 
 
