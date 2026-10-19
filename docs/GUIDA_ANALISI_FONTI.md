@@ -257,6 +257,7 @@ Aggiungi qui gli articoli che vuoi far analizzare, una riga ciascuno. Poi incoll
 | 16 | Kim, Hansen, «The Quarter-Hour Effect…», arXiv 2607.09426, 2026 (n. 1 della coda) | nessuna: scartato (10 secondi, serve il lato dell'aggressore); riapribile coi dati da exchange |
 | 17 | Wen, Bouri, Xu, Zhao, «Intraday return predictability in the cryptocurrency markets…», NAJEF 2022 (n. 2 della coda; PDF nella cartella degli ebook) | E38 (coppia 8~22), E39 (coppia 12~13) + `X_ORA_@22:00_UTC`, `X_ORA_@13:00_UTC` |
 | 18 | Baltussen, Da, Lammers, Martens, «Hedging demand and market intraday momentum», JFE 2021 (n. 3 della coda; PDF nella cartella degli ebook) | E40 (momentum dopo un salto) + `X_ORA_@17:00` |
+| 19 | Liu, Tsyvinski, «Risks and Returns of Cryptocurrency», RFS 2021 (n. 4 della coda; versione NBER WP 24877, gratuita) | E41 (quintili del rendimento giornaliero, variante di Mattia) |
 
 **Paper in coda** (candidati, non ancora letti: titolo, rivista e anno vanno verificati alla lettura)
 
@@ -265,7 +266,7 @@ Aggiungi qui gli articoli che vuoi far analizzare, una riga ciascuno. Poi incoll
 | 1 | «The Quarter-Hour Effect: Periodic Algorithmic Trading and Return Predictability in Cryptocurrency Futures», arXiv 2607.09426 | rendimenti prevedibili a intervalli di 15 minuti sui future crypto | **letto il 19/10: scartato** (riga 16 del registro) |
 | 2 | Wen, Bouri, Xu, Zhao, «Intraday return predictability in the cryptocurrency markets: Momentum, reversal, or both», N. American J. of Economics and Finance 2022 (DOI 10.1016/j.najef.2022.101733) | momentum o inversione dentro la giornata crypto | **letto il 19/10: fatto** (riga 17 del registro, E38 ed E39) |
 | 3 | Baltussen, Da, Lammers, Martens, «Hedging demand and market intraday momentum», JFE 2021 (citato da Shen) | il momentum intraday spiegato dalle coperture delle opzioni, su più mercati | **letto il 19/10: fatto** (riga 18 del registro, E40) |
-| 4 | Liu, Tsyvinski, «Risks and Returns of Cryptocurrency», Review of Financial Studies 2021 | momentum a più giorni sulle crypto | time-series momentum su un asset solo (attenzione a F38 TSMOM, spento come doppione) |
+| 4 | Liu, Tsyvinski, «Risks and Returns of Cryptocurrency», Review of Financial Studies 2021 | momentum a più giorni sulle crypto | **letto il 19/10: fatto** (riga 19 del registro, E41) |
 | 5 | Etula, Rinne, Suominen, Vaittinen, «Dash for Cash: Monthly Market Impact of Institutional Liquidity Needs», RFS 2020 | i flussi di cassa di fine mese spostano i prezzi | effetto di calendario; da verificare se vale anche fuori dalle azioni |
 | 6 | Lucca, Moench, «The Pre-FOMC Announcement Drift», J. of Finance 2015 | il mercato sale nelle 24 ore prima della Fed | evento macro comune a tutti gli asset; serve il calendario delle riunioni Fed (dato esterno, fisso) |
 
