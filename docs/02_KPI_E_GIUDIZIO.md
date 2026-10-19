@@ -185,6 +185,7 @@ un'ora.
 |---|---|
 | `ORA_LONG_@HH:MM` · `ORA_SHORT_@HH:MM` | apre un long / uno short ogni giorno alle HH:MM |
 | `X_ORA_@HH:MM` | chiude il trade, long o short, alle HH:MM |
+| `X_ORA_@HH:MM_UTC` | lo stesso, all'ora UTC fissa qualunque sia la piazza (dal 19/10, per gli orari dei paper scritti in UTC: E38, E39) |
 | `X_INVERSIONE_TREND` | chiude il long all'**arrivo** di un'ora colorata contro (scarto negativo oltre la quota dei colpi di fortuna), lo short all'arrivo di un'ora colorata a favore del long; solo le ore colorate |
 
 `X_INVERSIONE_TREND` usa il profilo calcolato **sull'in-sample e congelato**:

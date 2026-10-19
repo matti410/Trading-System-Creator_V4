@@ -68,6 +68,8 @@ ECCEZIONI_ATTESE = {          # trigger che hanno per scelta solo nome + candela
     "E35_VSA_STOP_REVERSE_UP", "E35_SHORT_VSA_STOP_REVERSE_DOWN",
     "E36_INTRADAY_MOMENTUM_UP", "E36_SHORT_INTRADAY_MOMENTUM_DOWN",   # momentum intraday, docs/50 §10 (18/10/2026)
     "E37_INTRADAY_MOMENTUM_COMBO_UP", "E37_SHORT_INTRADAY_MOMENTUM_COMBO_DOWN",
+    "E38_HOUR_MOMENTUM_UP", "E38_SHORT_HOUR_MOMENTUM_DOWN",           # coppie di ore UTC, docs/50 §10 (19/10/2026)
+    "E39_HOUR_REVERSAL_UP", "E39_SHORT_HOUR_REVERSAL_DOWN",
 }
 W = 60                        # candele di contesto per il test delle candele
 N_RILEVAZIONI = 40

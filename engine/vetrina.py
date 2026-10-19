@@ -894,7 +894,8 @@ def _regola_oraria(s: Sessione, regola):
         with _zitto():
             return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip)
     if regola.startswith("X_ORA_@") or regola[:1].isdigit():
-        condizioni_orarie.codice_orario(regola.split("@")[-1], s.df_is.index, s.fuso)   # orario valido qui
+        orario, fuso = condizioni_orarie.orario_uscita(regola)    # "_UTC" in fondo: ora UTC fissa
+        condizioni_orarie.codice_orario(orario, s.df_is.index, s.fuso if fuso != "UTC" else "UTC")   # orario valido qui
         return condizioni_orarie.registra_uscita_oraria(regola)
     coppie = {p for p, _, _ in reg.list_exit_pairs()}
     if regola not in coppie:
@@ -916,7 +917,8 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
                                (0 = spento); gli stessi per i due lati
     regola_uscita              None / "nessuna" = solo tempo, stop e target.
                                Dal 19/10/2026: "X_ORA_@HH:MM" chiude il trade
-                               alle HH:MM; "X_INVERSIONE_TREND" chiude quando
+                               alle HH:MM ("X_ORA_@HH:MM_UTC": all'ora UTC
+                               fissa, per E38 ed E39); "X_INVERSIONE_TREND" chiude quando
                                arriva un'ora che il profilo orario (congelato
                                sull'in-sample) segna colorata contro il trade.
                                Oppure l'etichetta di un'altra coppia del

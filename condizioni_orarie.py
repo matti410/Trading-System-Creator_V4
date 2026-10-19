@@ -21,6 +21,9 @@ LE CONDIZIONI
     ORA_LONG_@HH:MM    entry long: apre il trade ogni giorno alle HH:MM
     ORA_SHORT_@HH:MM   entry short: apre il trade ogni giorno alle HH:MM
     X_ORA_@HH:MM       coppia di uscite: chiude il trade (long o short) alle HH:MM
+    X_ORA_@HH:MM_UTC   la stessa, ma all'ora UTC fissa qualunque sia la piazza
+                       del symbol (19/10/2026: per gli orari dei paper scritti
+                       in UTC, es. E38 ed E39); imposta_fuso non la cambia
     X_INVERSIONE_TREND coppia di uscite: chiude il long quando si entra in
                        un'ora che il profilo orario segna colorata CONTRO
                        (scarto negativo oltre la quota dei colpi di fortuna),
@@ -65,13 +68,15 @@ from engine.stagionalita import (FUSO_PREDEFINITO, codice_orario, fasce_orarie,
                                  profilo_orario, segnale_prima_di)
 
 _ENTRY = re.compile(r"^ORA_(LONG|SHORT)_@(\d{2}:\d{2})$")
-_USCITA = re.compile(r"^X_ORA_@(\d{2}:\d{2})$")
+_USCITA = re.compile(r"^X_ORA_@(\d{2}:\d{2})(_UTC)?$")
 INVERSIONE = "X_INVERSIONE_TREND"
 
 # il fuso di lavoro (lo imposta il notebook, o prepara() nel Lab)
 _FUSO = {"corrente": FUSO_PREDEFINITO}
 # nome -> fuso con cui e' stato registrato (la funzione lo legge a ogni chiamata)
 _DEF: dict[str, str] = {}
+# le condizioni con il fuso scritto nel nome (X_ORA_@HH:MM_UTC): imposta_fuso non le tocca
+_FISSI: set[str] = set()
 # il profilo congelato di X_INVERSIONE_TREND
 _CONGELATO: dict = {}
 
@@ -80,7 +85,8 @@ def imposta_fuso(fuso: str) -> str:
     """Il fuso delle condizioni orarie registrate da qui in poi (e di quelle gia' registrate)."""
     _FUSO["corrente"] = str(fuso)
     for nome in _DEF:
-        _DEF[nome] = _FUSO["corrente"]
+        if nome not in _FISSI:
+            _DEF[nome] = _FUSO["corrente"]
     return _FUSO["corrente"]
 
 
@@ -138,23 +144,37 @@ def registra_se_oraria(nomi) -> list[str]:
 # Uscita a orario fisso
 # ========================================================================
 
-def registra_uscita_oraria(nome_o_orario: str) -> str:
+def orario_uscita(nome_o_orario: str) -> tuple[str, str]:
     """
-    Registra la coppia di uscite `X_ORA_@HH:MM` (accetta anche solo "HH:MM")
-    e ne restituisce l'etichetta, da passare come exit_rule_pairs /
-    regola_uscita. Chiude il trade, long o short, alle HH:MM.
+    L'orario e il fuso di un'uscita oraria: "X_ORA_@16:00" -> ("16:00", fuso
+    corrente); "X_ORA_@22:00_UTC" -> ("22:00", "UTC"). Accetta anche solo
+    "HH:MM" o "HH:MM_UTC".
     """
-    from engine.registry import list_exits, register_exit
     testo = str(nome_o_orario).strip()
-    if re.match(r"^\d{2}:\d{2}$", testo):
+    if re.match(r"^\d{2}:\d{2}(_UTC)?$", testo):
         testo = f"X_ORA_@{testo}"
     m = _USCITA.match(testo)
     if not m:
         raise ValueError(f"'{nome_o_orario}' non e' un'uscita oraria: scrivila come X_ORA_@HH:MM, "
-                         f"es. X_ORA_@16:00.")
-    coppia = m.group(0)
-    orario = _orario_valido(m.group(1))
-    _DEF[coppia] = _FUSO["corrente"]
+                         f"es. X_ORA_@16:00, oppure X_ORA_@HH:MM_UTC per l'ora UTC fissa.")
+    return _orario_valido(m.group(1)), ("UTC" if m.group(2) else _FUSO["corrente"])
+
+
+def registra_uscita_oraria(nome_o_orario: str) -> str:
+    """
+    Registra la coppia di uscite `X_ORA_@HH:MM` (accetta anche solo "HH:MM")
+    e ne restituisce l'etichetta, da passare come exit_rule_pairs /
+    regola_uscita. Chiude il trade, long o short, alle HH:MM. Con il suffisso
+    `_UTC` (X_ORA_@22:00_UTC) l'ora e' UTC fissa, qualunque sia il fuso
+    impostato.
+    """
+    from engine.registry import list_exits, register_exit
+    orario, fuso = orario_uscita(nome_o_orario)
+    fisso = str(nome_o_orario).strip().endswith("_UTC")
+    coppia = f"X_ORA_@{orario}" + ("_UTC" if fisso else "")
+    _DEF[coppia] = fuso
+    if fisso:
+        _FISSI.add(coppia)
     for lato, d in (("LONG", 1), ("SHORT", -1)):
         nome = f"{coppia}_{lato}"
         if nome in list_exits():
