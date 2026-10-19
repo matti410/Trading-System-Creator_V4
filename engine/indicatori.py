@@ -1297,6 +1297,93 @@ def rendimenti_ore_utc(df: pd.DataFrame, coppie: dict | None = None) -> pd.DataF
 
 
 # ---------------------------------------------------------------------------
+# Momentum dopo un salto (docs/50 §10, riga 18; scheda approvata da Mattia il
+# 19/10/2026: Baltussen, Da, Lammers, Martens 2021, §4.3, solo il candidato C)
+# ---------------------------------------------------------------------------
+
+SALTO_FUSO = "America/New_York"   # la «chiusura» e' quella di E36: le 17:00 di New York
+SALTO_CHIUSURA = 17 * 60          # minuti dalla mezzanotte di New York
+SALTO_GIORNATE = 250              # giornate chiuse su cui si calcolano i percentili (traduzione nostra)
+SALTO_PERCENTILI = (0.10, 0.90)   # come nel paper (Tab. 10)
+COLONNE_SALTO = ("salto",)
+
+
+def salto_giornaliero(df: pd.DataFrame, giornate: int = SALTO_GIORNATE,
+                      percentili: tuple = SALTO_PERCENTILI) -> pd.DataFrame:
+    """
+    Il primo «salto» della giornata, scritto SOLO sulla candela che lo
+    rivela: +1 se il rendimento dalla chiusura di ieri supera il 90°
+    percentile dei rendimenti giornalieri, -1 se scende sotto il 10°; 0 sulle
+    altre candele; NaN finche' non ci sono `giornate` rendimenti giornalieri.
+
+      chiusura   il Close della candela che finisce alle 17:00 di New York
+                 (come imm_r1 di E36); la giornata va da una chiusura alla
+                 successiva; se una chiusura manca (weekend del forex) si usa
+                 l'ultima disponibile
+      controlli  ogni mezz'ora, sulle candele che finiscono alle :00 e alle :30
+                 di New York, esclusa quella delle 17:00 (e' la chiusura)
+      soglie     10° e 90° percentile dei rendimenti fra chiusure successive
+                 delle ultime `giornate` giornate CHIUSE (mai quella in corso)
+
+    Un solo salto al giorno, il primo, nel suo verso. Il trade si chiude alla
+    chiusura con X_ORA_@17:00. Su candele che non dividono la mezz'ora (H1,
+    H4) la colonna resta tutta NaN.
+
+    Nessun lookahead: alla fine della candela di controllo il rendimento e le
+    soglie (fatte di giornate gia' chiuse) sono noti. Il paper usa il
+    percentile di tutto il campione: qui e' mobile, sul passato (§6 di
+    docs/50).
+
+    Fonte: Baltussen, Da, Lammers, Martens, "Hedging demand and market
+    intraday momentum", J. of Financial Economics 2021 (SSRN 3760365,
+    26/8/2020), §4.3 e Tab. 10.
+    """
+    from engine.quarantena import passo_barre
+    vuoto = pd.DataFrame(np.nan, index=df.index, columns=list(COLONNE_SALTO))
+    if getattr(df.index, "tz", None) is None or len(df) < 2:
+        return vuoto
+    passo = passo_barre(df.index)
+    if passo > pd.Timedelta(minutes=30) or pd.Timedelta(minutes=30) % passo != pd.Timedelta(0):
+        return vuoto
+    fine = pd.DatetimeIndex(df.index + passo).tz_convert(SALTO_FUSO)
+    minuti = np.asarray(fine.hour * 60 + fine.minute, dtype=np.int64)
+    close = df["Close"].to_numpy(dtype=float)
+    e_chiusura = minuti == SALTO_CHIUSURA
+    pos_chiusure = np.flatnonzero(e_chiusura)
+    if len(pos_chiusure) <= giornate:
+        return vuoto
+    c17 = close[pos_chiusure]
+    giornaliero = pd.Series(c17[1:] / c17[:-1] - 1.0)              # rendimento della giornata chiusa j+1
+    basso = giornaliero.rolling(giornate).quantile(percentili[0]).to_numpy()
+    alto = giornaliero.rolling(giornate).quantile(percentili[1]).to_numpy()
+    # giornata di ogni candela: quante chiusure ci sono state PRIMA di lei
+    giorno = np.cumsum(e_chiusura) - e_chiusura
+    controllo = (minuti % 30 == 0) & ~e_chiusura & (giorno >= 1)
+    i = np.flatnonzero(controllo)
+    k = giorno[i]                                                  # la chiusura di ieri e' c17[k-1]
+    # soglie della giornata k: rendimenti delle giornate chiuse fino a k-1, cioe' giornaliero[k-2]
+    j = k - 2
+    ok = j >= 0
+    i, k, j = i[ok], k[ok], j[ok]
+    r = close[i] / c17[k - 1] - 1.0
+    lo, hi = basso[j], alto[j]
+    pronta = np.isfinite(lo) & np.isfinite(hi)
+    segno = np.where(r > hi, 1.0, np.where(r < lo, -1.0, 0.0))
+    esito_col = np.full(len(df), np.nan)
+    # NaN fino alla prima giornata con le soglie pronte, poi 0
+    if pronta.any():
+        primo_giorno = k[pronta].min()
+        esito_col[giorno >= primo_giorno] = 0.0
+    i, k, segno = i[pronta], k[pronta], segno[pronta]
+    salti = segno != 0
+    i, k, segno = i[salti], k[salti], segno[salti]
+    _, primo = np.unique(k, return_index=True)                     # il primo salto di ogni giornata
+    esito_col[i[primo]] = segno[primo]
+    vuoto["salto"] = esito_col
+    return vuoto
+
+
+# ---------------------------------------------------------------------------
 # AlgoXplorer 0.1c (docs/50 §10, riga 13; scheda approvata da Mattia il
 # 17/10/2026). Script Pine v5 scritto da Mattia e da un amico, uso concordato.
 # Traduzione riga per riga; fedelta' verificata con PineTS su una copia di
@@ -1604,10 +1691,11 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         ftfc, mtf_h4_macdh_pend, mtf_h1_force, mtf_h1_high, mtf_h1_low,
         tsmom, inside_day, ha_open, ha_high, ha_low, ha_close, pvsra,
         algox_segnale, algox_stato, algox_careful, algox_nv_careful,
-        vsa_asta, vsa_bias, vsa_go, vsa_sr, imm_r1, imm_r12, ora_r8, ora_r12
+        vsa_asta, vsa_bias, vsa_go, vsa_sr, imm_r1, imm_r12, ora_r8, ora_r12, salto
         (momentum intraday: vedi momentum_intraday, valori solo sulla
         candela che finisce alle 16:30 di New York, aggiunte dopo il taglio;
         coppie di ore UTC: vedi rendimenti_ore_utc, stessa logica;
+        salto: vedi salto_giornaliero, riscaldamento di 250 giornate;
         AlgoXplorer: vedi algoxplorer, riscaldamento 50 barre; VSA: vedi
         vsa_modulo_unico, riscaldamento 100 barre piu' gli swing)
         (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
@@ -1702,6 +1790,10 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     ore_utc = rendimenti_ore_utc(df)
     for c in COLONNE_ORE_UTC:
         df[c] = ore_utc[c]
+    # momentum dopo un salto (E40): NaN nel riscaldamento di 250 giornate, dopo il taglio
+    salto = salto_giornaliero(df)
+    for c in COLONNE_SALTO:
+        df[c] = salto[c]
     return df
 
 
@@ -1716,5 +1808,5 @@ COLONNE_INDICATORI = (
     "ha_open", "ha_high", "ha_low", "ha_close", "pvsra",
     "algox_segnale", "algox_stato", "algox_careful", "algox_nv_careful",
     "vsa_asta", "vsa_bias", "vsa_go", "vsa_sr",
-    "imm_r1", "imm_r12", "ora_r8", "ora_r12",
+    "imm_r1", "imm_r12", "ora_r8", "ora_r12", "salto",
 )
