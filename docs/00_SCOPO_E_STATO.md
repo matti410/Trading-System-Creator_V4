@@ -1,8 +1,8 @@
 # 00 · Scopo del progetto e stato del tool
 
-**Da leggere per primo.** Aggiornato: 17 ottobre 2026 (riscritto per intero:
-metodo in sette passi qui dentro, solo documenti che esistono nel repo, stato
-di oggi).
+**Da leggere per primo.** Aggiornato: 19 ottobre 2026 (riscritto per intero il
+17/10: metodo in sette passi qui dentro, solo documenti che esistono nel repo;
+stato aggiornato al 19/10).
 
 **Repo (pubblico):** `github.com/matti410/Trading-System-Creator_V4`
 **Notebook:**
@@ -223,10 +223,12 @@ si ferma e indica la riga da aggiungere (`50` §12).
 | `vwap_regime_filter_conditions.py` | 5 filtri di regime VWAP |
 | `exit_long.py` / `exit_short.py` | 5 uscite a regola per lato |
 
-Con tutto registrato (metro short comprese) il registry contiene **117
-condizioni**: 69 entry (59 vere e 10 metro), 38 filtri, 10 uscite (conteggio del
-17/10, dopo lo sfoltimento: un rappresentante per famiglia, `50` §10 septies;
-prima erano 152). Le condizioni spente hanno la riga del dizionario tra
+Con tutto registrato (metro short comprese) il registry contiene **121
+condizioni**: 73 entry (63 vere e 10 metro), 38 filtri, 10 uscite (conteggio del
+19/10: 117 dopo lo sfoltimento del 17/10, un rappresentante per famiglia, `50`
+§10 septies, più le quattro entry del momentum intraday del 18/10; prima dello
+sfoltimento erano 152). Le entry e le uscite a orario (`condizioni_orarie.py`)
+e le composite non sono nel conto: si registrano su richiesta. Le condizioni spente hanno la riga del dizionario tra
 commenti con il motivo: la funzione resta e si riattiva togliendo il `#`.
 
 I filtri di confidenza (`CONF_…`) non sono nel catalogo: nascono nel notebook,
@@ -387,11 +389,11 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 ---
 
-## Dove siamo (18/10/2026)
+## Dove siamo (19/10/2026)
 
-- **Catalogo:** 117 condizioni dopo lo sfoltimento del 17/10 (59 entry, 38
-  filtri, 10 uscite, 10 entry-metro), collaudate (lookahead e degenerazione) su
-  9 symbol. Dalle fonti testuali: 41 prove al 17/10, registro in `50` §10.
+- **Catalogo:** 121 condizioni (63 entry, 38 filtri, 10 uscite, 10
+  entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
+  testuali: 45 prove al 18/10, registro in `50` §10.
 - **I due notebook** leggono da `dati/` (o da Drive), con pip fisso per symbol,
   spread dal listino del conto Standard, fuso controllato. Vanno aggiornati
   sempre insieme (`CLAUDE.md`).
@@ -421,11 +423,15 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 **Aperti, per scelta di Mattia:** money management sul repo crypto, interruttore
 sulla curva dei profitti. **Aperti nel tool:**
-runner unico (punto 6). **Prossimo, approvato da Mattia il 18/10:** fonti con un
+runner unico (punto 6); il Lab (`prepara` in `engine/vetrina.py`) scrive ancora
+«Barre M15» e converte le barre in ore come se fossero M15 (da togliere quando si
+userà un altro timeframe); i dati da exchange crypto (oggi i CSV vengono dal
+broker MT5). **Prossimo, approvato da Mattia il 18/10:** fonti con un
 motivo economico, una alla volta con il processo di `50`. Dal 18/10 (Mattia):
 si passerà alle crypto, con dati da exchange e non dal broker CFD; quindi
 approcci generalisti, niente idee specifiche del forex (i fixing restano fuori).
-Fatto il momentum intraday (riga 15 del registro).
+Fatto il momentum intraday (riga 15 del registro). La coda dei prossimi paper
+e degli ebook è in `GUIDA_ANALISI_FONTI.md` §11.6.
 
 ---
 
