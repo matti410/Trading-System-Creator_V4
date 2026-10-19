@@ -1233,6 +1233,70 @@ def momentum_intraday(df: pd.DataFrame, fuso: str = MOMENTUM_INTRADAY_FUSO,
 
 
 # ---------------------------------------------------------------------------
+# Coppie di ore UTC (docs/50 §10, riga 17; scheda approvata da Mattia il
+# 19/10/2026: coppie 8~22 e 12~13 di Wen, Bouri, Xu, Zhao, 2022)
+# ---------------------------------------------------------------------------
+
+# colonna -> (inizio dell'ora del segnale, fine dell'ora del segnale, ora in
+# cui si apre il trade), tutto in UTC fisso come nel paper (prezzi Bitstamp in
+# GMT, senza ora legale). L'ora «i» del paper va da (i-1):00 a i:00 (eq. 1).
+ORE_UTC_COPPIE = {"ora_r8": ("07:00", "08:00", "21:00"),     # 8~22: momentum
+                  "ora_r12": ("11:00", "12:00", "12:00")}    # 12~13: inversione
+COLONNE_ORE_UTC = tuple(ORE_UTC_COPPIE)
+
+
+def rendimenti_ore_utc(df: pd.DataFrame, coppie: dict | None = None) -> pd.DataFrame:
+    """
+    Il rendimento di un'ora UTC fissa, scritto SOLO sulla candela del segnale
+    (quella che finisce all'ora in cui si apre il trade); NaN altrove.
+
+      ora_r8   ora 8 del paper: dal prezzo delle 07:00 a quello delle 08:00
+               UTC, sulla candela che finisce alle 21:00 (trade 21:00 -> 22:00)
+      ora_r12  ora 12 del paper: dal prezzo delle 11:00 a quello delle 12:00
+               UTC, sulla candela che finisce alle 12:00 (trade 12:00 -> 13:00)
+
+    Il prezzo «alle HH:MM» e' il Close della candela che finisce alle HH:MM
+    (come in momentum_intraday). Tutto nello stesso giorno UTC: se manca una
+    delle tre candele, quel giorno non c'e' valore. Su candele piu' larghe di
+    un'ora (H4) le colonne restano tutte NaN: le entry non scattano mai.
+
+    Nessun lookahead: alla fine della candela del segnale i due prezzi sono
+    gia' noti; il motore apre all'Open della candela dopo.
+
+    Fonte: Wen, Bouri, Xu, Zhao, "Intraday return predictability in the
+    cryptocurrency markets: momentum, reversal, or both", North American J.
+    of Economics and Finance 62, 2022 (SSRN 4080253), §2.1 eq. 1, Tab. 2,
+    §5.1 eq. 8.
+    """
+    from engine.quarantena import passo_barre
+    c = dict(ORE_UTC_COPPIE if coppie is None else coppie)
+    esito = pd.DataFrame(np.nan, index=df.index, columns=list(c))
+    if getattr(df.index, "tz", None) is None or len(df) < 2:
+        return esito
+    passo = passo_barre(df.index)
+    if passo > pd.Timedelta(hours=1):
+        return esito
+    fine = pd.DatetimeIndex(df.index + passo).tz_convert("UTC")   # l'istante in cui la candela finisce
+    giorno = fine.normalize()
+    close = df["Close"].to_numpy(dtype=float)
+
+    def _durata(hhmm: str) -> pd.Timedelta:
+        ore, minuti = hhmm.split(":")
+        return pd.Timedelta(hours=int(ore), minutes=int(minuti))
+
+    for col, (da, a, segnale) in c.items():
+        i_seg = np.flatnonzero(np.asarray(fine - giorno == _durata(segnale)))
+        g = giorno[i_seg]
+        p_da = fine.get_indexer(g + _durata(da))
+        p_a = fine.get_indexer(g + _durata(a))
+        ok = (p_da >= 0) & (p_a >= 0)
+        valori = np.full(len(df), np.nan)
+        valori[i_seg[ok]] = close[p_a[ok]] / close[p_da[ok]] - 1.0
+        esito[col] = valori
+    return esito
+
+
+# ---------------------------------------------------------------------------
 # AlgoXplorer 0.1c (docs/50 §10, riga 13; scheda approvata da Mattia il
 # 17/10/2026). Script Pine v5 scritto da Mattia e da un amico, uso concordato.
 # Traduzione riga per riga; fedelta' verificata con PineTS su una copia di
@@ -1540,9 +1604,10 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         ftfc, mtf_h4_macdh_pend, mtf_h1_force, mtf_h1_high, mtf_h1_low,
         tsmom, inside_day, ha_open, ha_high, ha_low, ha_close, pvsra,
         algox_segnale, algox_stato, algox_careful, algox_nv_careful,
-        vsa_asta, vsa_bias, vsa_go, vsa_sr, imm_r1, imm_r12
+        vsa_asta, vsa_bias, vsa_go, vsa_sr, imm_r1, imm_r12, ora_r8, ora_r12
         (momentum intraday: vedi momentum_intraday, valori solo sulla
         candela che finisce alle 16:30 di New York, aggiunte dopo il taglio;
+        coppie di ore UTC: vedi rendimenti_ore_utc, stessa logica;
         AlgoXplorer: vedi algoxplorer, riscaldamento 50 barre; VSA: vedi
         vsa_modulo_unico, riscaldamento 100 barre piu' gli swing)
         (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
@@ -1633,6 +1698,10 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     imm = momentum_intraday(df)
     for c in COLONNE_MOMENTUM_INTRADAY:
         df[c] = imm[c]
+    # coppie di ore UTC (E38, E39): stessa logica, dopo il taglio
+    ore_utc = rendimenti_ore_utc(df)
+    for c in COLONNE_ORE_UTC:
+        df[c] = ore_utc[c]
     return df
 
 
@@ -1647,5 +1716,5 @@ COLONNE_INDICATORI = (
     "ha_open", "ha_high", "ha_low", "ha_close", "pvsra",
     "algox_segnale", "algox_stato", "algox_careful", "algox_nv_careful",
     "vsa_asta", "vsa_bias", "vsa_go", "vsa_sr",
-    "imm_r1", "imm_r12",
+    "imm_r1", "imm_r12", "ora_r8", "ora_r12",
 )

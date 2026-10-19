@@ -485,6 +485,35 @@ def entry_short_intraday_momentum_combo_down(df: pd.DataFrame) -> pd.Series:
     return _evento((df["imm_r1"] < 0) & (df["imm_r12"] > 0))
 
 
+# ------------------------------------------------------------ E38 --------
+def entry_short_hour_momentum_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Coppia di ore 8~22 (momentum): l'ora 07:00 -> 08:00 UTC e' scesa
+    (`ora_r8` < 0) -> short alle 21:00 UTC dello stesso giorno, da chiudere
+    alle 22:00 con X_ORA_@22:00_UTC. Rendimento zero: nessun trade.
+
+    Fonte: Wen, Bouri, Xu, Zhao, "Intraday return predictability in the
+    cryptocurrency markets: momentum, reversal, or both", North American J.
+    of Economics and Finance 62, 2022 (SSRN 4080253), Tab. 2 e §5.1 eq. 8.
+    Colonna: engine.indicatori.rendimenti_ore_utc.
+    """
+    return _evento(df["ora_r8"] < 0)
+
+
+# ------------------------------------------------------------ E39 --------
+def entry_short_hour_reversal_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Coppia di ore 12~13 (inversione): l'ora 11:00 -> 12:00 UTC e' salita
+    (`ora_r12` > 0) -> short alle 12:00 UTC, da chiudere alle 13:00 con
+    X_ORA_@13:00_UTC. Rendimento zero: nessun trade.
+
+    Fonte: Wen, Bouri, Xu, Zhao, North American J. of Economics and Finance
+    62, 2022 (SSRN 4080253), Tab. 2 e §5.1 eq. 8. Colonna:
+    engine.indicatori.rendimenti_ore_utc.
+    """
+    return _evento(df["ora_r12"] > 0)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -531,6 +560,8 @@ TRIGGER_SHORT = {
     "E35_SHORT_VSA_STOP_REVERSE_DOWN": entry_short_vsa_stop_reverse_down,
     "E36_SHORT_INTRADAY_MOMENTUM_DOWN": entry_short_intraday_momentum_down,
     "E37_SHORT_INTRADAY_MOMENTUM_COMBO_DOWN": entry_short_intraday_momentum_combo_down,
+    "E38_SHORT_HOUR_MOMENTUM_DOWN": entry_short_hour_momentum_down,
+    "E39_SHORT_HOUR_REVERSAL_DOWN": entry_short_hour_reversal_down,
 }
 
 

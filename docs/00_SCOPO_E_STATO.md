@@ -216,17 +216,18 @@ si ferma e indica la riga da aggiungere (`50` §12).
 
 | file | contenuto |
 |---|---|
-| `entry_long.py` / `entry_short.py` | 32 entry long e 31 short accese (fino a E37); 21 spente nello sfoltimento del 17/10 |
+| `entry_long.py` / `entry_short.py` | 34 entry long e 33 short accese (fino a E39); 21 spente nello sfoltimento del 17/10 |
 | `entry_composita.py` | entry composte: più trigger in OR sullo stesso lato |
 | `entry_metro.py` | 5 entry-metro temporali per lato (righello, non candidate) |
 | `filter_conditions.py` | 35 filtri accesi (fino a F40); 12 spenti nello sfoltimento del 17/10 |
 | `vwap_regime_filter_conditions.py` | 5 filtri di regime VWAP |
 | `exit_long.py` / `exit_short.py` | 5 uscite a regola per lato |
 
-Con tutto registrato (metro short comprese) il registry contiene **121
-condizioni**: 73 entry (63 vere e 10 metro), 38 filtri, 10 uscite (conteggio del
+Con tutto registrato (metro short comprese) il registry contiene **125
+condizioni**: 77 entry (67 vere e 10 metro), 38 filtri, 10 uscite (conteggio del
 19/10: 117 dopo lo sfoltimento del 17/10, un rappresentante per famiglia, `50`
-§10 septies, più le quattro entry del momentum intraday del 18/10; prima dello
+§10 septies, più le quattro entry del momentum intraday del 18/10 e le quattro
+delle coppie di ore UTC del 19/10; prima dello
 sfoltimento erano 152). Le entry e le uscite a orario (`condizioni_orarie.py`)
 e le composite non sono nel conto: si registrano su richiesta. Le condizioni spente hanno la riga del dizionario tra
 commenti con il motivo: la funzione resta e si riattiva togliendo il `#`.
@@ -244,7 +245,7 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 
 ### Collaudo
 
-**Suite da terminale (18/10, momentum intraday): 28 file `test_*.py`, 1072 test, tutti superati**
+**Suite da terminale (19/10, coppie di ore UTC): 29 file `test_*.py`, 1112 test, tutti superati**
 (pandas 3.0.6, in locale). Si lanciano dalla cartella del progetto, su Windows
 con `PYTHONIOENCODING=utf-8`; l'ultima riga di ognuno dev'essere
 `RISULTATO: n/n test superati`. Alcune parti leggono i CSV di `dati/` e, se
@@ -391,9 +392,9 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 ## Dove siamo (19/10/2026)
 
-- **Catalogo:** 121 condizioni (63 entry, 38 filtri, 10 uscite, 10
+- **Catalogo:** 125 condizioni (67 entry, 38 filtri, 10 uscite, 10
   entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
-  testuali: 45 prove al 18/10, registro in `50` §10.
+  testuali: 49 prove al 19/10, registro in `50` §10.
 - **I due notebook** leggono da `dati/` (o da Drive), con pip fisso per symbol,
   spread dal listino del conto Standard, fuso controllato. Vanno aggiornati
   sempre insieme (`CLAUDE.md`).
@@ -410,6 +411,15 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   Wang (Bitcoin, 2022) e Gao e altri (S&P 500, 2018): alle 16:30 di New York si
   entra nella direzione della mattina e si esce alle 17:00 (`X_ORA_@17:00`);
   registro di `50`, riga 15.
+- **Coppie di ore UTC (19/10, secondo paper):** E38 ed E39 da Wen, Bouri, Xu,
+  Zhao (crypto, 2022): E38 entra alle 21:00 UTC nel verso dell'ora 07:00→08:00
+  UTC ed esce alle 22:00 (`X_ORA_@22:00_UTC`); E39 entra alle 12:00 UTC contro
+  il verso dell'ora 11:00→12:00 ed esce alle 13:00 (`X_ORA_@13:00_UTC`). Il
+  suffisso `_UTC` tiene l'ora UTC qualunque sia la piazza. Sul broker d'estate
+  E38 cade nella quarantena del rollover (orari non adattati). Il primo paper
+  della coda (quarti d'ora, Kim e Hansen) è scartato: serve il lato
+  dell'aggressore nei primi 10 secondi, riapribile coi dati da exchange.
+  Registro di `50`, righe 16 e 17.
 - **Lab in nove passi:** configura, esplora, trigger, uscite, trova la
   strategia, scheda (out-of-sample), money management, verifica dei trade,
   stress test.
@@ -430,7 +440,8 @@ broker MT5). **Prossimo, approvato da Mattia il 18/10:** fonti con un
 motivo economico, una alla volta con il processo di `50`. Dal 18/10 (Mattia):
 si passerà alle crypto, con dati da exchange e non dal broker CFD; quindi
 approcci generalisti, niente idee specifiche del forex (i fixing restano fuori).
-Fatto il momentum intraday (riga 15 del registro). La coda dei prossimi paper
+Fatti il momentum intraday (riga 15 del registro) e i primi due paper della
+coda (righe 16 e 17). La coda dei prossimi paper
 e degli ebook è in `GUIDA_ANALISI_FONTI.md` §11.6.
 
 ---
