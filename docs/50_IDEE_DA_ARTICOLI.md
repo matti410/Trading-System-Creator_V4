@@ -585,6 +585,37 @@ Una sola regola per tutto il conto: `A_US_DST (NY+7h)` (`10_DATI_FUSO_BROKER.md`
 | BTCUSD | 12,5 | 12,8 |
  
 Sono **stime**: lo 0,8 Standard è il minimo pubblicato, non la media. Da verificare con le prime operazioni sul conto Standard reale; un symbol nuovo senza riga continua a fermare il notebook con la riga esatta da aggiungere.
+### Dati da exchange crypto (19/10/2026)
+
+Decisioni di Mattia del 19/10: versione crypto del Lab nello **stesso repo**; dati da **Binance e Bybit** (Kraken via API dà solo le ultime 720 barre spot: rinviato, si potrà leggere dai CSV trimestrali che Kraken pubblica); **spot e perpetual**; **BTC, ETH, SOL, XRP**; **M15 dal 2/1/2020**; commissioni dai listini ufficiali; leva scelta dall'utente ma mai oltre il tetto italiano. Anche il Grid Search legge la stessa fonte.
+
+- **Symbol:** 16, nome `EXCHANGE_MERCATO_COPPIA` (es. `BINANCE_PERP_BTCUSDT`), in `SIMBOLI_EXCHANGE`, `LOTTI_EXCHANGE`, `LEVA_EXCHANGE` di `engine/simboli.py`, separate dalle tabelle MT5. Valori letti con ccxt (`load_markets`, sola lettura) il 19/10: passo di prezzo, quantità minima, passo e massimo per ordine a mercato. Pip fisso per moneta: BTC 1 $, ETH 0,1, SOL 0,01, XRP 0,0001. 1 lotto = 1 moneta; conto in USDT (conta come dollari).
+- **Scaricamento:** `scarica_dati_crypto.py`, sul PC (Binance e Bybit bloccano gli indirizzi USA di Colab). Solo funzioni pubbliche di lettura di ccxt, nessuna chiave API. CSV `dati/<SYMBOL>_<TF>.csv`, colonne `Date, Open, High, Low, Close, Volume`, Date in UTC. Se il CSV c'è già scarica solo le barre nuove. Sul PC di Mattia Python non riconosceva i certificati HTTPS (antivirus): si usa `truststore` (certificati di Windows). Versioni: `ccxt==4.5.78`, `truststore==0.10.1`.
+- **Scaricamento del 19/10 (M15, fino al 19/10/2026 13:30 UTC):**
+
+| symbol | dal | barre | buchi (barre mancanti) |
+|---|---|---|---|
+| Binance spot BTC, ETH, XRP | 2/1/2020 | 238.172 | 15 (153): manutenzioni, il più lungo 6 ore il 19/2/2020 |
+| Binance spot SOL | 11/8/2020 | 216.896 | 10 (94) |
+| Binance perpetual BTC, ETH | 2/1/2020 | 238.326 | 0 |
+| Binance perpetual SOL | 14/9/2020 | 213.722 | 0 |
+| Binance perpetual XRP | 6/1/2020 | 237.909 | 0 |
+| Bybit spot BTC, ETH | 5/7/2021 | 185.078 | 1 (400): 4 giorni dal 1/2/2022, manca nello storico di Bybit |
+| Bybit spot SOL / XRP | 21/10/2021 / 20/7/2021 | 174.728 / 183.678 | 1 (400), lo stesso |
+| Bybit perpetual BTC | 25/3/2020 | 230.317 | 0 |
+| Bybit perpetual ETH, SOL, XRP | 15/3/2021, 15/10/2021, 13/5/2021 | 196.279, 175.735, 190.577 | 0 |
+
+  Nessuna barra doppia né fuori griglia. Una barra con OHLC incoerente su Bybit perpetual XRP (10/6/2021 23:30 UTC: Open 0,8761 sotto il Low 0,8762, un passo): difetto dell'exchange, lasciata com'è. Qualche barra a volume zero (al massimo 10 per file). Bybit ha risposto a tratti «internal error» / «Get kline failed»: `scarica_storico` riprova ogni blocco fino a 6 volte con attesa crescente.
+- **Lotti consigliati (stress test):** si arrotondano per difetto al passo dell'exchange (`passo_lotti`, Binance perpetual BTC 0,001): col passo 0,01 dei CFD un conto da 10.000 $ su BTC dava 0 lotti. Sul broker resta 0,01, stessi numeri.
+- **Fuso e quarantena:** le date sono già UTC, niente regola del server. Il rollover del broker non esiste: `carica_storico` lo spegne (`engine.quarantena.imposta_rollover(None)`) e lo riaccende quando si carica un symbol del broker; le cache della quarantena hanno la finestra nella chiave. Resta la quarantena dopo un'interruzione (manutenzioni). Dal 19/10 la soglia delle interruzioni è almeno due barre: su H1 e H4 marcava ogni barra; da M5 a M30 non cambia nulla (EURUSD M15: quarantena identica).
+- **Costi:** commissione **taker per lato** (il Lab entra ed esce a mercato) dal listino ufficiale, livello base, in `COMMISSIONI` di `engine/exchange.py`: Binance spot 0,10%, Binance perpetual 0,05% (maker 0,02%), Bybit spot 0,10%, Bybit perpetual 0,055% (maker 0,02%), più uno spread di **un passo di prezzo**. Vanno nel parametro `commission` del motore (per lato), come la commissione dei CFD. **Funding dei perpetual non ancora contato** (fase 2).
+- **Leva:** tetto italiano per un cliente al dettaglio, Consob delibera 20976 (CFD su criptovalute: margine 50%, leva 2) e dichiarazione ESMA del 24/2/2026 (i perpetual rientrano nelle misure sui CFD): **perpetual 2, spot 1**. Nel money management la leva si sceglie (`leva`, 0 o None = la massima); oltre il tetto si ferma.
+- **Spot:** lo short non esiste. Il Lab misura e propone solo trigger long e si ferma se scegli un trigger short.
+- **Profilo orario:** in UTC sui symbol da exchange (`fuso_profilo`), quindi anche le condizioni `ORA_…` e `X_ORA_@…`. Le condizioni che fissano l'orario della fonte (E36, E37, E40 a New York; E38, E39 in UTC) restano come sono.
+- **Timeframe:** `prepara` e `carica_storico` accettano M5, M15, M30, H1, H4 (CSV `{symbol}_{timeframe}.csv`); il riepilogo dice «Barre H1» e converte l'orizzonte nelle ore giuste.
+- **Notebook:** `Trading_System_Lab_Crypto.ipynb` (nel passo 1 exchange, mercato, moneta, timeframe); il Grid Search usa `carica_storico` e `costi_storico` come i due Lab.
+- **Collaudo:** `test_exchange.py` (tabelle, costi, quarantena, controlli dei dati, scaricamento con un exchange finto, `prepara` su perpetual, spot e H1, EURUSD invariato, CSV veri).
+
 ### Collaudo su 9 symbol (10/10/2026)
  
 - `verifica_lookahead` sul mercato sintetico e sugli ultimi ~4 mesi di ogni symbol: 141 righe (122 condizioni + 19 indicatori, compresi `chop` e `vr`), **0 LOOKAHEAD, 0 ERRORE**.

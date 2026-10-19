@@ -174,9 +174,10 @@ gennaio 2025).
 | `engine/money_management.py` | 7, modulo puro (solo numpy e pandas): rischio fisso, secure f, Kelly e optimal f come riferimento, Monte Carlo moltiplicativo, tabella di controllo, z-score (`61`) |
 | `engine/mm_adattatore.py` | 7, dai trade del V4 alla tabella del money management: rischio a stop o a volatilità, valore del pip trade per trade |
 | `engine/costi.py` | costi per strumento; lo spread usato dai notebook è il listino del conto Standard (`SPREAD_LISTINO_PIPS` in `vetrina.py`) |
+| `engine/exchange.py` | dati e costi da exchange crypto (dal 19/10): commissioni di listino, lettura dei CSV, scaricamento con ccxt in sola lettura, controlli dei dati (`50` §12) |
 | `engine/metriche.py` | `avg_trade` / `avg_trade_netto` / `costo_pips` |
 | `engine/controlli.py` | `avviso_capitale`: avvisa quando il prezzo supera il capitale |
-| `engine/vetrina.py`, `vetrina_verifica.py`, `vetrina_trigger.py` | le nove schermate del Lab |
+| `engine/vetrina.py`, `vetrina_verifica.py`, `vetrina_trigger.py` | le nove schermate dei due Lab; `carica_storico` e `costi_storico` leggono dati e costi per tutti e tre i notebook (dal 19/10) |
 | `engine/splitting.py`, `equity_plot.py`, `alpha_ops.py`, `vwap_ops.py`, `registry.py`, `collaudo_catalogo.py` | supporto |
 
 Firme utili:
@@ -210,7 +211,10 @@ condizioni_registrate() · tagli_standard(indice) · mercato_sintetico()
 
 Il conto di riferimento è il **Standard** del broker: costo tutto nello spread,
 commissione zero. Uno spread che manca nel listino non si inventa: il notebook
-si ferma e indica la riga da aggiungere (`50` §12).
+si ferma e indica la riga da aggiungere (`50` §12). Sui symbol da exchange
+(dal 19/10) il costo è la commissione taker per lato del listino dell'exchange,
+livello base, più uno spread di un passo; il funding dei perpetual non è
+ancora contato (`50` §12, «Dati da exchange crypto»).
 
 ### Catalogo delle condizioni
 
@@ -245,7 +249,7 @@ anche alla lista `REGISTRAZIONI` di `Collaudo_Catalogo.ipynb`.
 
 ### Collaudo
 
-**Suite da terminale (19/10, quintili giornalieri): 31 file `test_*.py`, 1165 test, tutti superati**
+**Suite da terminale (19/10, dati da exchange crypto): 32 file `test_*.py`, 1227 test, tutti superati**
 (pandas 3.0.6, in locale). Si lanciano dalla cartella del progetto, su Windows
 con `PYTHONIOENCODING=utf-8`; l'ultima riga di ognuno dev'essere
 `RISULTATO: n/n test superati`. Alcune parti leggono i CSV di `dati/` e, se
@@ -338,8 +342,11 @@ notebook principale) non c'è più.
 
 - **Diagnostica delle pause sistematiche** per simbolo
 - **Festivi di borsa**: decisione rimandata, serve al filtro NYSE
-- **Money management sul repo crypto** e **interruttore sulla curva dei
-  profitti**: rimandati per scelta di Mattia (`61` §14.6)
+- **Interruttore sulla curva dei profitti**: rimandato per scelta di Mattia
+  (`61` §14.6). Il money management sulle crypto non chiede più un repo
+  gemello: dal 19/10 la versione crypto sta in questo repo e usa lo stesso
+  modulo (1 lotto = 1 moneta, conto in USDT, leva scelta entro il tetto
+  italiano)
 
 Fatti: incertezza dell'event study corretta per i grappoli (24/9), confidenza
 dei segnali (25/9), yardstick e sizing (26/9), money management fasi 0–3
@@ -395,9 +402,15 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
   testuali: 53 prove al 19/10, registro in `50` §10.
-- **I due notebook** leggono da `dati/` (o da Drive), con pip fisso per symbol,
-  spread dal listino del conto Standard, fuso controllato. Vanno aggiornati
-  sempre insieme (`CLAUDE.md`).
+- **I tre notebook** (ricerca, Lab, Lab crypto) leggono da `dati/` (o da
+  Drive), con pip fisso per symbol, costi di listino, fuso controllato. Vanno
+  aggiornati sempre insieme (`CLAUDE.md`).
+- **Dati da exchange crypto (19/10):** 16 symbol (Binance e Bybit, spot e
+  perpetual, BTC ETH SOL XRP), M15 dal 2/1/2020, scaricati con
+  `scarica_dati_crypto.py` (ccxt, sola lettura, senza chiavi). Ora UTC, nessun
+  rollover, commissione taker di listino, leva al massimo quella italiana
+  (perpetual 2, spot 1), spot solo long. Lab dedicato:
+  `Trading_System_Lab_Crypto.ipynb`. Timeframe M5–H4 nei Lab e nella ricerca.
 - **La rosa dei candidati (18/10):** il tool suggerisce un gruppo di entry
   (dopo l'event study) e di sistemi (dopo le uscite), positivi e diversi fra
   loro; sceglie Mattia (`02`, «La rosa dei candidati»). Dal 18/10 ogni
@@ -440,12 +453,10 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   risultati identici. Un motore più veloce (simulatore proprio) resta un'opzione
   solo se servirà.
 
-**Aperti, per scelta di Mattia:** money management sul repo crypto, interruttore
-sulla curva dei profitti. **Aperti nel tool:**
-runner unico (punto 6); il Lab (`prepara` in `engine/vetrina.py`) scrive ancora
-«Barre M15» e converte le barre in ore come se fossero M15 (da togliere quando si
-userà un altro timeframe); i dati da exchange crypto (oggi i CSV vengono dal
-broker MT5). **Prossimo, approvato da Mattia il 18/10:** fonti con un
+**Aperti, per scelta di Mattia:** interruttore sulla curva dei profitti.
+**Aperti nel tool:** runner unico (punto 6); il funding dei perpetual nei
+risultati (fase 2 della versione crypto); Kraken (via API solo le ultime 720
+barre spot: servono i suoi CSV trimestrali). **Prossimo, approvato da Mattia il 18/10:** fonti con un
 motivo economico, una alla volta con il processo di `50`. Dal 18/10 (Mattia):
 si passerà alle crypto, con dati da exchange e non dal broker CFD; quindi
 approcci generalisti, niente idee specifiche del forex (i fixing restano fuori).

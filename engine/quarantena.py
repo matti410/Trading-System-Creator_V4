@@ -45,6 +45,26 @@ import pandas as pd
 ROLLOVER_DEFAULT = ("16:45", "18:00")
 TZ_ROLLOVER = "America/New_York"
 
+# La finestra in uso quando `quarantena()` non riceve `rollover` (19/10/2026).
+# Il rollover e' un difetto dei dati del BROKER: sui dati da exchange crypto
+# (24/7, prezzi degli scambi, niente allargamento delle 17:00) non esiste, e
+# chi carica quei dati la spegne con imposta_rollover(None). Le cache della
+# quarantena (engine/livelli.py, entry_metro.py) mettono la finestra nella
+# chiave, quindi cambiarla non lascia quarantene vecchie.
+_ROLLOVER_ATTIVO: tuple[str, str] | None = ROLLOVER_DEFAULT
+_IN_USO = object()      # segnaposto: «la finestra attiva»
+
+
+def imposta_rollover(finestra: tuple[str, str] | None = ROLLOVER_DEFAULT) -> None:
+    """La finestra del rollover per le chiamate senza `rollover` (None = nessuna)."""
+    global _ROLLOVER_ATTIVO
+    _ROLLOVER_ATTIVO = None if finestra is None else (str(finestra[0]), str(finestra[1]))
+
+
+def rollover_attivo() -> tuple[str, str] | None:
+    """La finestra del rollover in uso (None = spenta, dati da exchange)."""
+    return _ROLLOVER_ATTIVO
+
 
 # --------------------------------------------------------------- utility --
 def _minuti(orario: str) -> int:
@@ -164,7 +184,7 @@ def verifica_indice_utc(df: pd.DataFrame, verbose: bool = True) -> None:
 # ------------------------------------------------------------- quarantena --
 def quarantena(
     df: pd.DataFrame,
-    rollover: tuple[str, str] | None = ROLLOVER_DEFAULT,
+    rollover=_IN_USO,
     soglia_interruzione_min: int = 60,
     verbose: bool = True,
 ) -> pd.DataFrame:
@@ -176,10 +196,15 @@ def quarantena(
     ---------
     rollover : ("16:45", "18:00") in ora locale di New York, oppure None per
         disattivare la finestra. Il default e' misurato sui dati: vedi la
-        docstring del modulo.
+        docstring del modulo. Dal 19/10/2026, se non lo passi vale la
+        finestra attiva (`imposta_rollover`): ROLLOVER_DEFAULT come prima,
+        None sui dati da exchange.
     soglia_interruzione_min : sopra questo distacco fra due barre consecutive,
         la barra successiva e' marcata. 60 minuti separa i weekend, i festivi
         e i buchi veri (come il 2021-12-02) dalla normale spaziatura M15.
+        Dal 19/10/2026 la soglia e' almeno due barre: su H1 e H4 la normale
+        spaziatura (60 e 240 minuti) marcava ogni barra. Da M5 a M30 non
+        cambia niente (due barre sono al massimo 60 minuti).
 
     Restituisce
     -----------
@@ -200,6 +225,8 @@ def quarantena(
         )
 
     q = pd.DataFrame(index=idx.copy())
+    if rollover is _IN_USO:
+        rollover = _ROLLOVER_ATTIVO
 
     # --- finestra del rollover -------------------------------------------
     if rollover is None:
@@ -214,6 +241,8 @@ def quarantena(
     # --- prima barra dopo una pausa --------------------------------------
     salto = pd.Series(idx).diff()
     soglia = pd.Timedelta(minutes=soglia_interruzione_min)
+    if len(idx) > 1:
+        soglia = max(soglia, 2 * passo_barre(idx))
     # La prima barra in assoluto ha diff NaT: non e' "dopo una pausa",
     # e' l'inizio dello storico. Resta non marcata.
     q["dopo_interruzione"] = (salto > soglia).fillna(False).values

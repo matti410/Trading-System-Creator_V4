@@ -33,6 +33,8 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 - Il pip è FISSO per symbol: l'unica fonte è engine/simboli.py (pip_symbol, info_symbol).
   Mai dedurlo dal prezzo. Un symbol nuovo = una riga in SIMBOLI (classe, pip, contratto,
   valuta di quotazione, cifre, letti da MT5); un symbol fuori tabella deve fermarsi con errore.
+  I symbol da exchange crypto stanno in SIMBOLI_EXCHANGE, LOTTI_EXCHANGE, LEVA_EXCHANGE
+  (valori letti dall'exchange con ccxt, nome EXCHANGE_MERCATO_COPPIA, es. BINANCE_PERP_BTCUSDT).
 - Prima di ogni commit lancia TUTTI i test_*.py (su Windows con PYTHONIOENCODING=utf-8):
   l'ultima riga di ognuno deve essere "RISULTATO: n/n test superati" con n = totale.
   Se un test fallisce, fermati e spiega.
@@ -42,8 +44,15 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 - Symbol disponibili in dati/ (M15 dal 2/1/2020, scaricati con scarica_dati.py):
   EURUSD, GBPUSD, USDJPY, NZDUSD, BTCUSD, US500, USTEC, XAUUSD, DE40.
   USDCAD è ESCLUSO: il broker lo fornisce in M15 solo da gennaio 2025.
-- I due notebook leggono dati/{symbol}_M15.csv: in locale dalla cartella dati/,
+- I notebook leggono dati/{symbol}_{timeframe}.csv: in locale dalla cartella dati/,
   su Colab da Google Drive (Il mio Drive/Trading-System-Creator_V4/dati/).
+- Dati da exchange crypto (dal 19/10/2026): scarica_dati_crypto.py, sul PC (Binance e Bybit
+  bloccano Colab), 16 symbol = Binance e Bybit x spot e perpetual x BTC, ETH, SOL, XRP, M15
+  dal 2/1/2020. Date gia' in UTC, nessun rollover. Solo funzioni PUBBLICHE di lettura di ccxt
+  (load_markets, fetch_ohlcv), MAI chiavi API, MAI funzioni di ordine o di saldo.
+  Costi: commissione taker per lato dal listino ufficiale, livello base (COMMISSIONI in
+  engine/exchange.py); valori nuovi solo dal listino, con la fonte. Il funding dei perpetual
+  non e' ancora contato. Leva: mai oltre il tetto italiano (perpetual 2, spot 1).
 - Spread: solo dal listino del conto Standard, SPREAD_LISTINO_PIPS in engine/vetrina.py,
   commissione zero. Se un symbol non ha la riga NON inventare lo spread: il notebook si
   ferma con la riga esatta da aggiungere (rollover proposto dai dati); lo spread normale
@@ -57,14 +66,17 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 - Dopo ogni download: controlla fuso orario del broker, buchi e barre in quarantena
   (docs/10, docs/11) e riporta il risultato. Pip e costi per symbol: docs/50 §12.
 
-## I due notebook: sempre allineati
-- Trading_Grid_Search_v4_backtesting.ipynb (ricerca) e Trading_System_Lab.ipynb (laboratorio
-  guidato) vanno aggiornati SEMPRE insieme, nello stesso ramo: ogni modifica a dati, symbol,
-  costi, pip, fuso, capitale o lotti fatta in uno va portata anche nell'altro.
-- Il Lab non ha codice nelle celle: chiama le funzioni di engine/vetrina.py (prepara,
-  stress_test, ...). Allineare il Lab vuol dire di solito modificare vetrina.py.
-- Prova per entrambi: identità su EURUSD a parità di barre (prima e dopo la modifica) e un
-  giro completo su un symbol non forex (es. DE40). Dettagli in docs/50 §12.
+## I tre notebook: sempre allineati
+- Trading_Grid_Search_v4_backtesting.ipynb (ricerca), Trading_System_Lab.ipynb (laboratorio
+  guidato, broker CFD) e Trading_System_Lab_Crypto.ipynb (lo stesso laboratorio coi dati da
+  exchange, dal 19/10/2026) vanno aggiornati SEMPRE insieme, nello stesso ramo: ogni modifica
+  a dati, symbol, costi, pip, fuso, capitale, lotti o leva fatta in uno va portata negli altri.
+- I due Lab non hanno codice nelle celle: chiamano le funzioni di engine/vetrina.py (prepara,
+  stress_test, ...). Allineare i Lab vuol dire di solito modificare vetrina.py. Dati e costi
+  si leggono con carica_storico e costi_storico, le stesse funzioni nei tre notebook.
+- Prova per tutti: identità su EURUSD a parità di barre (prima e dopo la modifica), un
+  giro completo su un symbol non forex (es. DE40) e uno su un symbol da exchange
+  (es. BINANCE_PERP_BTCUSDT). Dettagli in docs/50 §12.
 
 ## Git e invio su GitHub (procedura completa)
 1. Parti da main aggiornato: `git switch main`, `git fetch origin --prune`,

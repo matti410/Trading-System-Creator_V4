@@ -639,5 +639,8 @@ def lente(s, periodo: str = "out-of-sample", numero=None, data=None, indicatori=
         "guarda che si incrocino sulla candela del triangolo. L'ingresso deve essere sempre una candela dopo, mai "
         "sulla stessa: è la garanzia che il backtest non usa informazioni che dal vivo non avresti.",
         "Cambia numero o data per guardare altri trade, o lascia il numero a 0 per pescarne uno a caso. "
-        "Puoi confrontare orari e prezzi con il grafico M15 di IC Markets su TradingView. Poi vai alla schermata 9.")
+        "Puoi confrontare orari e prezzi con il grafico "
+        + (f"{getattr(s, 'timeframe', 'M15')} della stessa coppia sull'exchange, su TradingView"
+           if getattr(s, "da_exchange", False) else "M15 di IC Markets su TradingView")
+        + ". Poi vai alla schermata 9.")
     return fig
