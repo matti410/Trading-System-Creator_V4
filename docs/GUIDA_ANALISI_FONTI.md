@@ -1,6 +1,6 @@
 # Guida — analisi di fonti testuali (articoli, video, libri) e trascrizione in condizioni
 
-**Per:** Mattia · **Data:** 7 ottobre 2026 · **aggiornata il 17/10/2026** al lavoro in locale con Claude Code
+**Per:** Mattia · **Data:** 7 ottobre 2026 · **aggiornata il 17/10/2026** al lavoro in locale con Claude Code · **il 19/10/2026** con la coda di paper ed ebook (§11.6)
 **Dove sta:** nel repo, `docs/GUIDA_ANALISI_FONTI.md`. Il metodo completo è in `docs/50_IDEE_DA_ARTICOLI.md`: questa guida è la parte pratica, da seguire passo per passo.
 
 Si lavora **in locale con Claude Code**, aperto nella cartella del progetto (in VS Code): Claude legge i documenti e il codice del repo da sé. Prima si leggono le fonti, si scrivono schede in testo e si decide cosa entra nel catalogo; il codice arriva solo dopo il tuo via libera.
@@ -244,3 +244,47 @@ Aggiungi qui gli articoli che vuoi far analizzare, una riga ciascuno. Poi incoll
 | | | | |
 | | | | |
 | | | | |
+
+### 11.6 Paper ed ebook (dal 18/10/2026)
+
+**La direzione** (Mattia, 18/10/2026): edge con un motivo economico, presi da paper; poi gli ebook, per il metodo e non per i modelli addestrati. Il progetto passerà alle **crypto con dati da exchange**: si scelgono approcci **generalisti**, che valgano su un mercato aperto 24 ore su 24, e niente idee che valgono solo per il forex. Gli orari si prendono come li scrive il paper. Ogni fonte segue il processo di `50`: scheda, via libera, codice, registro.
+
+**Paper fatti**
+
+| riga del registro | fonte | condizioni |
+|---|---|---|
+| 15 | Shen, Urquhart, Wang, «Bitcoin Intraday Time-Series Momentum», Financial Review 2022; Gao, Han, Li, Zhou, JFE 2018 | E36, E37 + `X_ORA_@17:00` |
+
+**Paper in coda** (candidati, non ancora letti: titolo, rivista e anno vanno verificati alla lettura)
+
+| n | fonte | idea | perché è generalista |
+|---|---|---|---|
+| 1 | «The Quarter-Hour Effect: Periodic Algorithmic Trading and Return Predictability in Cryptocurrency Futures», arXiv 2607.09426 | rendimenti prevedibili a intervalli di 15 minuti sui future crypto | nato sulle crypto, lavora proprio sulle barre M15 |
+| 2 | Wen, Bouri, Xu, Zhao, «Intraday return predictability in the cryptocurrency markets: Momentum, reversal, or both», N. American J. of Economics and Finance 2022 (DOI 10.1016/j.najef.2022.101733) | momentum o inversione dentro la giornata crypto | crypto; confronto diretto con E36/E37 (attenzione ai doppioni) |
+| 3 | Baltussen, Da, Lammers, Martens, «Hedging demand and market intraday momentum», JFE 2021 (citato da Shen) | il momentum intraday spiegato dalle coperture delle opzioni, su più mercati | lo stesso effetto su molti asset; da leggere per il meccanismo prima di aggiungere condizioni |
+| 4 | Liu, Tsyvinski, «Risks and Returns of Cryptocurrency», Review of Financial Studies 2021 | momentum a più giorni sulle crypto | time-series momentum su un asset solo (attenzione a F38 TSMOM, spento come doppione) |
+| 5 | Etula, Rinne, Suominen, Vaittinen, «Dash for Cash: Monthly Market Impact of Institutional Liquidity Needs», RFS 2020 | i flussi di cassa di fine mese spostano i prezzi | effetto di calendario; da verificare se vale anche fuori dalle azioni |
+| 6 | Lucca, Moench, «The Pre-FOMC Announcement Drift», J. of Finance 2015 | il mercato sale nelle 24 ore prima della Fed | evento macro comune a tutti gli asset; serve il calendario delle riunioni Fed (dato esterno, fisso) |
+
+Fuori dalla coda per la scelta crypto: Krohn, Mueller, Whelan (fixing del forex), Ranaldo, Elaut e gli altri paper sul solo forex.
+
+La raccolta di Mattia, da riguardare con il filtro «generalista / crypto»: https://finresearch-6cp7yibf.manus.space/ (sito JavaScript: l'elenco dei paper sta nel file `/assets/index-*.js`).
+
+**Ebook** — cartella `C:\Users\matti\Documents\EBOOK\TRADING\Algorithmic Trading for Claude Code` (12 PDF, non nel repo; diritto d'autore, `50` §2.3):
+
+| n | file | note per la lettura |
+|---|---|---|
+| 1 | Advanced Algorithmic Trading (QuantStart).pdf | metodo (serie storiche, regimi, validazione) |
+| 2 | Successful Algorithmic Trading (QuantStrat).pdf | metodo e backtest, stesso autore del n. 1 |
+| 3 | Algorithmic Trading and Quantitative Strategies (2020).pdf | Velu e altri: microstruttura e strategie |
+| 4 | Algorithmic Trading Methods (2020).pdf | Kissell: costi e metodi di esecuzione |
+| 5 | An_Introduction_to_Algorithmic_Finance_Algorithmic_Trading_and_Blockchain.pdf | include blockchain e crypto |
+| 6 | An_Introduction_to_Algorithmic_Trading.pdf | introduttivo |
+| 7 | Algorithmic.Trading.Systems.pdf | da aprire per capire il contenuto |
+| 8 | Algorithmic_Trading_Winning_Strategies.pdf | probabilmente Chan: mean reversion e momentum |
+| 9 | Algorithmic Trading Strategies 2022 (Scotty Ratford).pdf | da valutare |
+| 10 | Algorithmic_Essentials_Trading_with_Python_Your_Comprehenive_Guide.pdf | Python, probabilmente poche idee nuove |
+| 11 | Python Algorithmic Trading Cookbook (2020).pdf | Python, ricette |
+| 12 | Python_for_Finance_and_Algorithmic_trading_2nd_edition_2022.pdf | Python, include ML |
+
+Per gli ebook: prima un **indice** dei capitoli utili (strategie con un motivo economico, portabili sulle crypto), poi un capitolo alla volta con la scheda di `50` §3. Niente modelli addestrati sull'intero campione (`50` §6).
