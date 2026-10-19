@@ -1194,6 +1194,44 @@ def _prima_prova(esito, motivo) -> str:
 _VERDETTO = {"regge": "regge", "non regge": "non regge", "giudizio sospeso": "troppo pochi trade"}
 
 
+def _grafico_filtri(s: Sessione, filtri: list, promossi: list) -> None:
+    """
+    Schermata 5, sotto la classifica (19/10/2026, richiesta di Mattia): la somma
+    dei pips netti trade dopo trade, IN-SAMPLE, del sistema base e dei filtri
+    della classifica. Stessi trade e stessi costi della tabella (s.fs). Serve a
+    vedere COME un filtro cambia l'andamento (regolarita', periodi), non a
+    sceglierlo dalla curva: la scelta resta alle due prove della tabella.
+    """
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(11, 5))
+    voci = [(BASELINE, "Sistema base (nessun filtro)", dict(color="black", lw=2.4))]
+    for f in filtri:
+        if f in s.sopravvissuti:
+            voci.append((f, f"{f}  (regge le due prove)", dict(lw=2.0)))
+        elif f in promossi:
+            voci.append((f, f"{f}  (solo prima prova)", dict(lw=1.4)))
+        else:
+            voci.append((f, f"{f}  (non promosso)", dict(lw=1.0, alpha=0.7)))
+    for nome, etichetta, stile in voci:
+        tr = s.fs.trades(nome)
+        if tr is None or len(tr) == 0:
+            continue
+        _, netti = pips_per_trade(tr, s.fs.pip_size, s.fs.commission or 0.0)
+        curva = pd.Series(netti.to_numpy(), index=pd.DatetimeIndex(tr["ExitTime"])).sort_index().cumsum()
+        ax.plot(curva.index, curva.to_numpy(), label=f"{etichetta} · {len(tr)} trade", **stile)
+    ax.axhline(0, color="black", lw=0.8)
+    ax.set_ylabel("pips netti accumulati")
+    ax.set_title("Sistema base e filtri: somma dei pips netti, trade dopo trade (in-sample)")
+    ax.grid(alpha=.3)
+    ax.legend(fontsize=8, loc="best")
+    plt.tight_layout()
+    plt.show()
+    _nota("Ogni linea usa gli stessi costi della tabella. Un filtro che migliora davvero alza la curva in modo "
+          "regolare lungo tutto l'in-sample, non per un solo periodo. Le curve servono a capire, non a scegliere: "
+          "scegliere il filtro dalla curva più bella conta come una prova in più; la scelta resta alle due prove "
+          "della tabella.")
+
+
 def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     """
     Schermata 5. Prova tutti i filtri del registro sul sistema base
@@ -1272,6 +1310,7 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     tabella = pd.DataFrame(righe)
     s.tabelle["filtri"] = tabella
     _mostra(("I filtri migliori (in-sample, al netto dei costi)", tabella))
+    _grafico_filtri(s, list(ordinati.head(quanti)["filtro"]), promossi)
 
     asticella = float(s.fs.soglia_rumore)
     una_prova = soglia_rumore(1, ALPHA)
