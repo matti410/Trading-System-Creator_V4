@@ -43,7 +43,7 @@ import pandas as pd
 from .broker_tz_diagnostic import to_utc_index
 from .exit_search_bt import soglie_per_lato
 from .metriche import pips_per_trade
-from .simboli import info_symbol, leva_symbol, lotti_symbol
+from .simboli import VALUTE_IN_DOLLARI, info_symbol, leva_scelta, leva_symbol, lotti_symbol
 
 MISURE = ("stop", "volatilita")
 
@@ -51,11 +51,17 @@ PERC_STOP_CALCOLO = 90.0            # strada A: stesso percentile dello stop di 
 REGOLA_FUSO = "A_US_DST (NY+7h)"
 
 
-def limiti_symbol(symbol: str, leva: bool = True) -> dict:
-    """I limiti dei lotti per money_management: minimo, passo, massimo e leva."""
+def limiti_symbol(symbol: str, leva: bool = True, valore_leva: float | None = None) -> dict:
+    """
+    I limiti dei lotti per money_management: minimo, passo, massimo e leva.
+
+    valore_leva (19/10/2026)   None = la leva massima del symbol, come prima;
+                               un numero = la leva scelta, fra 1 e la massima
+                               concessa in Italia (engine/simboli.leva_scelta).
+    """
     lt = lotti_symbol(symbol)
     return {"minimo": lt["minimo"], "passo": lt["passo"], "massimo": lt["massimo"],
-            "leva": leva_symbol(symbol) if leva else None}
+            "leva": leva_scelta(symbol, valore_leva) if leva else None}
 
 
 def _cambi(valuta: str, cartella) -> pd.Series:
@@ -72,7 +78,7 @@ def _conversione(symbol: str, prezzi: np.ndarray, tempi: pd.DatetimeIndex,
                  cambi: pd.Series | None) -> np.ndarray:
     """Dollari per 1 unita' della valuta di quotazione, trade per trade."""
     info = info_symbol(symbol)
-    if info["valuta"] == "USD":
+    if info["valuta"] in VALUTE_IN_DOLLARI:      # 19/10/2026: anche USDT (conto in USDT)
         return np.ones(len(prezzi))
     if symbol.upper().startswith("USD"):
         return 1.0 / np.asarray(prezzi, dtype=float)
@@ -148,7 +154,7 @@ def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: floa
 
     info = info_symbol(symbol)
     cambi = None
-    if info["valuta"] != "USD" and not symbol.upper().startswith("USD"):
+    if info["valuta"] not in VALUTE_IN_DOLLARI and not symbol.upper().startswith("USD"):
         cambi = _cambi(info["valuta"], cartella)
     conv_in = _conversione(symbol, prezzo_segnale, tempo_segnale, cambi)
     conv_out = _conversione(symbol, t["ExitPrice"].to_numpy(dtype=float),

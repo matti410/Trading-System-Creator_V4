@@ -36,6 +36,13 @@ contro MT5 quando MT5 c'e' (e salta quel controllo quando non c'e').
 
 Un symbol nuovo = una riga in SIMBOLI (e una in LOTTI, dal 16/10/2026:
 lotto minimo, passo, lotto massimo). Modulo ADDITIVO.
+
+EXCHANGE CRYPTO (19/10/2026)
+----------------------------
+I symbol presi da un exchange (Binance, Bybit: dati con ccxt, non da MT5)
+stanno in tabelle separate, SIMBOLI_EXCHANGE, LOTTI_EXCHANGE e
+LEVA_EXCHANGE, con i valori letti dall'exchange. Le funzioni di lettura
+guardano tutte e due le tabelle; `da_exchange(symbol)` dice da dove viene.
 """
 from __future__ import annotations
 
@@ -53,20 +60,75 @@ SIMBOLI = {
 }
 
 
+# ------------------------------------------------------------------------
+# Symbol da exchange crypto (19/10/2026, versione crypto del Lab)
+# ------------------------------------------------------------------------
+# Tabelle SEPARATE da quelle di MT5: i loro valori non vengono da MT5 ma
+# dall'exchange (ccxt, load_markets, sola lettura, API pubbliche senza
+# chiavi, letti il 19/10/2026). Le funzioni qui sotto (info_symbol,
+# pip_symbol, lotti_symbol, leva_symbol, in_tabella) leggono entrambe.
+#
+# Nome: EXCHANGE_MERCATO_COPPIA, es. BINANCE_PERP_BTCUSDT; il CSV e'
+# dati/{nome}_{timeframe}.csv, come per i symbol del broker.
+#   SPOT = mercato a pronti (si compra la moneta, niente short)
+#   PERP = perpetual lineare in USDT (long e short)
+# Contratto 1: 1 «lotto» = 1 moneta (su Binance e Bybit il perpetual lineare
+# ha contractSize 1). Valuta USDT: il conto e' in USDT, 1 USDT conta come
+# 1 dollaro (VALUTE_IN_DOLLARI). Cifre = decimali del passo di prezzo.
+# Pip fisso per moneta, scritto a mano come per i CFD, circa 1/10.000 del
+# prezzo tipico: BTC 1 $ (come BTCUSD), ETH 0,1, SOL 0,01, XRP 0,0001.
+#
+# nome: (classe, pip, contratto per lotto, valuta di quotazione, cifre)
+SIMBOLI_EXCHANGE = {
+    "BINANCE_SPOT_BTCUSDT": ("crypto", 1.0,    1.0, "USDT", 2),
+    "BINANCE_SPOT_ETHUSDT": ("crypto", 0.1,    1.0, "USDT", 2),
+    "BINANCE_SPOT_SOLUSDT": ("crypto", 0.01,   1.0, "USDT", 2),
+    "BINANCE_SPOT_XRPUSDT": ("crypto", 0.0001, 1.0, "USDT", 4),
+    "BINANCE_PERP_BTCUSDT": ("crypto", 1.0,    1.0, "USDT", 1),
+    "BINANCE_PERP_ETHUSDT": ("crypto", 0.1,    1.0, "USDT", 2),
+    "BINANCE_PERP_SOLUSDT": ("crypto", 0.01,   1.0, "USDT", 2),
+    "BINANCE_PERP_XRPUSDT": ("crypto", 0.0001, 1.0, "USDT", 4),
+    "BYBIT_SPOT_BTCUSDT":   ("crypto", 1.0,    1.0, "USDT", 1),
+    "BYBIT_SPOT_ETHUSDT":   ("crypto", 0.1,    1.0, "USDT", 2),
+    "BYBIT_SPOT_SOLUSDT":   ("crypto", 0.01,   1.0, "USDT", 2),
+    "BYBIT_SPOT_XRPUSDT":   ("crypto", 0.0001, 1.0, "USDT", 4),
+    "BYBIT_PERP_BTCUSDT":   ("crypto", 1.0,    1.0, "USDT", 1),
+    "BYBIT_PERP_ETHUSDT":   ("crypto", 0.1,    1.0, "USDT", 2),
+    "BYBIT_PERP_SOLUSDT":   ("crypto", 0.01,   1.0, "USDT", 2),
+    "BYBIT_PERP_XRPUSDT":   ("crypto", 0.0001, 1.0, "USDT", 4),
+}
+
+# Valute di quotazione che il conto conta in dollari senza cambio: USD e,
+# per i symbol da exchange, USDT (il conto e' in USDT).
+VALUTE_IN_DOLLARI = ("USD", "USDT")
+
+
+def _riga(symbol: str):
+    s = (symbol or "").upper()
+    return SIMBOLI.get(s) or SIMBOLI_EXCHANGE.get(s)
+
+
+def da_exchange(symbol: str) -> bool:
+    """True se il symbol e' di un exchange crypto (SIMBOLI_EXCHANGE)."""
+    return (symbol or "").upper() in SIMBOLI_EXCHANGE
+
+
 def info_symbol(symbol: str) -> dict:
     """
     La riga della tabella come dizionario: classe, pip, contratto, valuta,
     cifre. Symbol assente -> KeyError con l'istruzione per aggiungerlo.
+    Legge SIMBOLI (broker) e SIMBOLI_EXCHANGE (exchange crypto).
     """
-    s = (symbol or "").upper()
-    if s not in SIMBOLI:
+    riga = _riga(symbol)
+    if riga is None:
         raise KeyError(
             f"'{symbol}' non e' nella tabella di engine/simboli.py. Aggiungi una "
             "riga a SIMBOLI con classe, pip, contratto per lotto, valuta di "
             "quotazione e cifre decimali (si leggono in MT5: tasto destro sul "
-            "symbol -> Specifiche). Il pip non viene indovinato dal prezzo."
+            "symbol -> Specifiche), oppure a SIMBOLI_EXCHANGE per un symbol da "
+            "exchange crypto. Il pip non viene indovinato dal prezzo."
         )
-    classe, pip, contratto, valuta, cifre = SIMBOLI[s]
+    classe, pip, contratto, valuta, cifre = riga
     return {"classe": classe, "pip": pip, "contratto": contratto,
             "valuta": valuta, "cifre": cifre}
 
@@ -77,7 +139,7 @@ def pip_symbol(symbol: str) -> float:
 
 
 def in_tabella(symbol: str) -> bool:
-    return (symbol or "").upper() in SIMBOLI
+    return _riga(symbol) is not None
 
 
 # ------------------------------------------------------------------------
@@ -111,14 +173,43 @@ def lotti_symbol(symbol: str) -> dict:
     i limiti dei lotti non vengono indovinati.
     """
     s = (symbol or "").upper()
-    if s not in LOTTI:
+    riga = LOTTI.get(s) or LOTTI_EXCHANGE.get(s)
+    if riga is None:
         raise KeyError(
             f"'{symbol}' non e' nella tabella LOTTI di engine/simboli.py. Aggiungi "
             "una riga con lotto minimo, passo e lotto massimo (in MT5: tasto destro "
-            "sul symbol -> Specifiche -> Volume minimo / Passo volume / Volume massimo)."
+            "sul symbol -> Specifiche -> Volume minimo / Passo volume / Volume massimo; "
+            "per un symbol da exchange in LOTTI_EXCHANGE, dai limiti del mercato)."
         )
-    minimo, passo, massimo = LOTTI[s]
+    minimo, passo, massimo = riga
     return {"minimo": minimo, "passo": passo, "massimo": massimo}
+
+
+# Lotti dei symbol da exchange (19/10/2026): quantita' minima, passo e
+# quantita' massima per ORDINE A MERCATO (il Lab entra a mercato), in monete,
+# dai limiti di ccxt (load_markets, sola lettura). Binance da' un massimo
+# per gli ordini a mercato (limits.market.max, arrotondato per difetto al
+# passo); Bybit no, e vale il massimo per ordine (limits.amount.max).
+#
+# nome: (minimo, passo, massimo)
+LOTTI_EXCHANGE = {
+    "BINANCE_SPOT_BTCUSDT": (0.00001, 0.00001, 132.0),
+    "BINANCE_SPOT_ETHUSDT": (0.0001,  0.0001,  3846.0),
+    "BINANCE_SPOT_SOLUSDT": (0.001,   0.001,   81765.0),
+    "BINANCE_SPOT_XRPUSDT": (0.1,     0.1,     2581913.0),
+    "BINANCE_PERP_BTCUSDT": (0.001,   0.001,   120.0),
+    "BINANCE_PERP_ETHUSDT": (0.001,   0.001,   2000.0),
+    "BINANCE_PERP_SOLUSDT": (0.01,    0.01,    80000.0),
+    "BINANCE_PERP_XRPUSDT": (0.1,     0.1,     2000000.0),
+    "BYBIT_SPOT_BTCUSDT":   (0.000001, 0.000001, 230.0),
+    "BYBIT_SPOT_ETHUSDT":   (0.00001, 0.00001, 8118.0),
+    "BYBIT_SPOT_SOLUSDT":   (0.0001,  0.0001,  26000.0),
+    "BYBIT_SPOT_XRPUSDT":   (0.01,    0.01,    1200000.0),
+    "BYBIT_PERP_BTCUSDT":   (0.001,   0.001,   1500.0),
+    "BYBIT_PERP_ETHUSDT":   (0.01,    0.01,    10000.0),
+    "BYBIT_PERP_SOLUSDT":   (0.1,     0.1,     96000.0),
+    "BYBIT_PERP_XRPUSDT":   (0.1,     0.1,     7500000.0),
+}
 
 
 # ------------------------------------------------------------------------
@@ -146,13 +237,46 @@ LEVA = {
 }
 
 
+# Leva massima dei symbol da exchange (19/10/2026, decisione di Mattia: la
+# leva si sceglie, ma non oltre quella concessa in Italia a un cliente al
+# dettaglio). Fonti:
+#   - Consob, delibera n. 20976 del 2019 (misura nazionale sui CFD, art. 42
+#     MiFIR), allegato I: margine iniziale del 50% del nozionale quando il
+#     sottostante e' una criptovaluta, cioe' leva massima 2;
+#   - ESMA, dichiarazione del 24/2/2026: i derivati venduti come «perpetual
+#     futures» rientrano di regola nelle misure nazionali sui CFD, quindi
+#     anche lo stesso tetto di leva.
+# PERP = 2. SPOT = 1: si compra con i soldi del conto, il nozionale non
+# supera il capitale (il margin trading e' un altro prodotto, non usato qui).
+LEVA_EXCHANGE = {nome: (2 if "_PERP_" in nome else 1) for nome in SIMBOLI_EXCHANGE}
+
+
 def leva_symbol(symbol: str) -> int:
-    """Leva massima retail europea del symbol. Symbol assente -> KeyError."""
+    """Leva massima retail del symbol (in Italia). Symbol assente -> KeyError."""
     s = (symbol or "").upper()
-    if s not in LEVA:
+    leva = LEVA.get(s) or LEVA_EXCHANGE.get(s)
+    if leva is None:
         raise KeyError(
             f"'{symbol}' non e' nella tabella LEVA di engine/simboli.py. Aggiungi una "
             "riga con la leva massima retail europea (30 coppie principali; 20 altre "
             "coppie, oro e indici principali; 10 altre materie prime e indici; 2 crypto)."
         )
-    return LEVA[s]
+    return leva
+
+
+def leva_scelta(symbol: str, leva: float | None = None) -> float:
+    """
+    La leva da usare nel money management (19/10/2026). None = la massima
+    del symbol (leva_symbol); altrimenti un numero fra 1 e la massima: oltre
+    il tetto concesso in Italia si ferma con un errore.
+    """
+    massima = leva_symbol(symbol)
+    if leva is None:
+        return massima
+    leva = float(leva)
+    if not (1.0 <= leva <= massima):
+        raise ValueError(
+            f"Leva {leva:g} non ammessa su {symbol.upper()}: deve stare fra 1 e {massima}, "
+            "la massima concessa in Italia a un cliente al dettaglio (engine/simboli.py)."
+        )
+    return leva

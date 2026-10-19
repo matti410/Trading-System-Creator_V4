@@ -60,7 +60,14 @@ _NORMALE = NormalDist()
 
 
 def fuso_profilo(symbol: str) -> str:
-    """Il fuso della piazza di riferimento del symbol (New York se non elencato)."""
+    """
+    Il fuso della piazza di riferimento del symbol (New York se non elencato).
+    19/10/2026: UTC per i symbol da exchange crypto (engine/simboli.py,
+    SIMBOLI_EXCHANGE): la giornata degli exchange e dei paper crypto.
+    """
+    from .simboli import da_exchange
+    if da_exchange(symbol):
+        return "UTC"
     return FUSO_PIAZZA.get(str(symbol).upper(), FUSO_PREDEFINITO)
 
 

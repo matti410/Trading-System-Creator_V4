@@ -36,7 +36,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from engine.quarantena import quarantena as _calcola_quarantena
+from engine.quarantena import quarantena as _calcola_quarantena, rollover_attivo
 from engine.sessioni import barre_da_apertura
 
 # Cache: queste funzioni vengono chiamate una volta per entry, su df identici.
@@ -56,8 +56,12 @@ def _chiave(idx: pd.DatetimeIndex) -> tuple:
 
 
 def quarantena_cached(df: pd.DataFrame) -> pd.DataFrame:
-    """La quarantena di questo storico, calcolata una volta sola."""
-    k = _chiave(pd.DatetimeIndex(df.index))
+    """
+    La quarantena di questo storico, calcolata una volta sola. Dal 19/10/2026
+    la chiave contiene anche la finestra del rollover in uso
+    (engine.quarantena.rollover_attivo: spenta sui dati da exchange).
+    """
+    k = _chiave(pd.DatetimeIndex(df.index)) + (rollover_attivo(),)
     if k not in _CACHE_Q:
         _CACHE_Q[k] = _calcola_quarantena(df, verbose=False)
     return _CACHE_Q[k]

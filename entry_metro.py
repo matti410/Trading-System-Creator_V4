@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from engine.quarantena import quarantena
+from engine.quarantena import quarantena, rollover_attivo
 from engine.sessioni import barre_da_apertura
 
 # Sessione di provenienza di ogni metro. Aggiungere una riga qui basta:
@@ -84,7 +84,7 @@ def _chiave(idx: pd.DatetimeIndex) -> tuple:
 def quarantena_cached(df: pd.DataFrame) -> pd.DataFrame:
     """La quarantena di questo storico, calcolata una volta sola."""
     idx = pd.DatetimeIndex(df.index)
-    k = _chiave(idx)
+    k = _chiave(idx) + (rollover_attivo(),)     # 19/10/2026: rollover spento sui dati da exchange
     if k not in _CACHE:
         _CACHE[k] = quarantena(df, verbose=False)
     return _CACHE[k]

@@ -236,9 +236,14 @@ def valore_pip_lotto(symbol: str, pip_size: float, prezzo: float | None = None,
 
 def sizing(yardstick_o_mc, dd_accettabile_usd: float, valore_pip: float,
            percentile: int = 95, perdita_max_trade_usd: float | None = None,
-           peggior_trade_pips: float | None = None) -> dict:
+           peggior_trade_pips: float | None = None, passo: float = 0.01) -> dict:
     """
     Lotti per il live, con i due metodi della Lezione 9.
+
+    passo (19/10/2026)      il passo a cui si arrotondano per difetto i lotti
+                            consigliati: 0,01 come prima; sui symbol da exchange
+                            il passo dell'exchange (Binance perpetual BTC 0,001):
+                            con 0,01 un conto da 10.000 $ su BTC dava 0 lotti
 
     yardstick_o_mc          il dict di montecarlo_completo (usa il suo dd al
                             `percentile`), oppure un numero: il drawdown in pips
@@ -251,7 +256,7 @@ def sizing(yardstick_o_mc, dd_accettabile_usd: float, valore_pip: float,
                             backtest in pips (numero positivo o negativo)
 
     Ritorna: dd_pips (usato), lotti_drawdown, lotti_peggior_trade (o NaN),
-    lotti_consigliati (il piu' prudente dei due, arrotondato per difetto a 0,01).
+    lotti_consigliati (il piu' prudente dei due, arrotondato per difetto a `passo`).
     """
     if isinstance(yardstick_o_mc, dict):
         chiave = f"dd_p{int(percentile)}"
@@ -270,7 +275,11 @@ def sizing(yardstick_o_mc, dd_accettabile_usd: float, valore_pip: float,
         if peggiore > 0:
             lotti_pt = float(perdita_max_trade_usd) / (peggiore * float(valore_pip))
     candidati = [v for v in (lotti_dd, lotti_pt) if np.isfinite(v)]
-    consigliati = np.floor(min(candidati) * 100) / 100
+    if passo == 0.01:
+        consigliati = np.floor(min(candidati) * 100) / 100      # come prima, stessi numeri
+    else:
+        cifre = max(0, int(round(-np.log10(float(passo)))) + 2)
+        consigliati = round(np.floor(min(candidati) / float(passo) + 1e-9) * float(passo), cifre)
     return {"percentile": int(percentile), "dd_pips": dd_pips,
             "dd_usd_per_lotto": dd_pips * float(valore_pip),
             "lotti_drawdown": lotti_dd, "lotti_peggior_trade": lotti_pt,

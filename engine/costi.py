@@ -190,6 +190,9 @@ def classifica_simbolo(symbol: str, path: str = "") -> str:
     if "share" in p or "stock" in p or "equit" in p:               return "azioni"
     if "forex" in p or "fx" in p:                                  return "forex"
     if in_tabella(s) and info_symbol(s)["classe"] == "indici":     return "indici"
+    # 19/10/2026: i symbol da exchange (BINANCE_PERP_BTCUSDT, ...) non
+    # cominciano con la sigla della moneta: vale la classe della tabella
+    if in_tabella(s) and info_symbol(s)["classe"] == "crypto":     return "crypto"
     if any(s.startswith(c) for c in SIGLE_CRYPTO):                 return "crypto"
     if len(s) == 6 and s.isalpha() and s[:3] in VALUTE_FIAT and s[3:] in VALUTE_FIAT:
         return "forex"

@@ -77,7 +77,7 @@ from .costi import parametri_backtest
 from .due_meta import due_meta
 from .equity_plot import plot_equity
 from .event_study import deduci_pip, run_event_study
-from .simboli import in_tabella, info_symbol, pip_symbol
+from .simboli import da_exchange, in_tabella, info_symbol, pip_symbol
 from .exit_search_bt import barre_per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
 from .confidenza import congela_filtro
@@ -87,7 +87,7 @@ from .livelli import quarantena_cached
 from .metriche import pips_per_trade
 from .montecarlo import (grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
-from .quarantena import verifica_indice_utc
+from .quarantena import ROLLOVER_DEFAULT, imposta_rollover, passo_barre, verifica_indice_utc
 from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
 from .stagionalita import descrivi_profilo, fuso_profilo, profilo_orario
 from .splitting import split_is_oos
@@ -298,10 +298,17 @@ class Sessione:
         self.rosa_sistemi = None
         self.fuso = None              # 18/10/2026: fuso delle fasce orarie (engine/stagionalita.py)
         self.profilo = None
+        self.timeframe = "M15"        # 19/10/2026: M5, M15, M30, H1, H4
+        self.da_exchange = False      # 19/10/2026: dati da exchange crypto (engine/exchange.py)
+        self.solo_long = False        # 19/10/2026: spot, lo short non esiste
         self.tabelle = {}
 
     def __repr__(self):
-        return f"<Sessione {self.symbol} · H={self.H}>"
+        return f"<Sessione {self.symbol} {self.timeframe} · H={self.H}>"
+
+    def lati(self) -> tuple:
+        """Le direzioni su cui si opera: (1, -1), oppure solo (1,) sullo spot."""
+        return (1,) if self.solo_long else (1, -1)
 
     def _serve(self, attributo: str, schermata: str):
         if getattr(self, attributo) is None:
@@ -477,18 +484,116 @@ def _tutti_i_filtri() -> list[str]:
     return reg.list_filters(0) + reg.list_filters(1) + reg.list_filters(-1)
 
 
-def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
-            cartella: str = "dati") -> Sessione:
+TIMEFRAMES = ("M5", "M15", "M30", "H1", "H4")    # 19/10/2026: quelli che il Lab accetta
+
+
+def carica_storico(symbol: str, cartella="dati", timeframe: str = "M15") -> pd.DataFrame:
     """
-    Schermata 1. Carica lo storico M15 dal CSV, calcola costi e indicatori,
+    Lo storico di `symbol` con indice UTC verificato, dal CSV
+    `{cartella}/{symbol}_{timeframe}.csv` (19/10/2026, comune al Lab e al
+    notebook di ricerca). Imposta anche la quarantena del rollover per i
+    calcoli che seguono:
+
+      broker (SIMBOLI)            ora server -> UTC con REGOLA_FUSO; fuso
+                                  verificato sul symbol se e' un forex,
+                                  altrimenti su EURUSD M15 della stessa
+                                  cartella (la regola e' del server, docs/10);
+                                  rollover 16:45-18:00 NY, come sempre;
+      exchange (SIMBOLI_EXCHANGE) gia' UTC (engine/exchange.leggi_csv);
+                                  nessun rollover (mercato 24/7, prezzi degli
+                                  scambi): imposta_rollover(None).
+    """
+    info_symbol(symbol)            # si ferma subito se il symbol non e' in engine/simboli.py
+    if timeframe not in TIMEFRAMES:
+        raise ValueError(f"Timeframe {timeframe!r} non previsto: usa uno di {list(TIMEFRAMES)}.")
+    percorso = os.path.join(str(cartella), f"{symbol}_{timeframe}.csv")
+    if not os.path.exists(percorso):
+        aiuto = ("scaricalo con scarica_dati_crypto.py" if da_exchange(symbol)
+                 else "scaricalo con scarica_dati.py")
+        raise FileNotFoundError(f"Non trovo {percorso}: serve il CSV dello storico {timeframe} di "
+                                f"{symbol} ({aiuto}).")
+    if da_exchange(symbol):
+        from .exchange import leggi_csv
+        imposta_rollover(None)
+        df = leggi_csv(percorso)                    # indice UTC; niente weekend da controllare
+        attesa = pd.Timedelta(timeframe.replace("M", "") + "min") if timeframe.startswith("M") \
+            else pd.Timedelta(timeframe[1:] + "h")
+        if passo_barre(df.index) != attesa:
+            raise ValueError(f"{percorso}: le barre sono da {passo_barre(df.index)}, non da {timeframe}.")
+        return df
+    imposta_rollover(ROLLOVER_DEFAULT)
+    with _zitto():
+        df = pd.read_csv(percorso, index_col="Date")
+        df = to_utc_index(df, REGOLA_FUSO, on_dst_gap="drop")
+    if info_symbol(symbol)["classe"] == "forex":
+        verifica_indice_utc(df, verbose=False)
+    else:
+        # indici, oro e cripto riaprono a orari loro: il fuso del server si verifica su EURUSD
+        rif = os.path.join(str(cartella), "EURUSD_M15.csv")
+        if not os.path.exists(rif):
+            raise FileNotFoundError(f"{symbol} non e' un forex: per verificare il fuso del server "
+                                    f"serve anche {rif}.")
+        with _zitto():
+            df_rif = to_utc_index(pd.read_csv(rif, index_col="Date"), REGOLA_FUSO,
+                                  on_dst_gap="drop", verbose=False)
+        verifica_indice_utc(df_rif, verbose=False)
+    return df
+
+
+def costi_storico(symbol: str, df: pd.DataFrame) -> tuple[dict, dict]:
+    """
+    I costi del backtest per `symbol` su `df` (19/10/2026, comune al Lab e al
+    notebook di ricerca). Ritorna (costi, sp):
+
+      costi  il dizionario da passare con **costi ai motori: spread,
+             commission, pip_size, cash, spread_rollover_pips;
+      sp     {"normale", "rollover", "fonte"}: lo spread in pips e la sua fonte
+             (piu' "taker" e "maker" per i symbol da exchange).
+
+    Broker: spread dal solo listino del conto Standard (`spread_listino`),
+    nessuna commissione, come prima. Exchange: commissione taker per lato e
+    spread di un passo (engine/exchange.costi_exchange), nessun rollover.
+    Si ferma se CASH e' meno di 10 volte il prezzo massimo.
+    """
+    prezzo_max = float(df["High"].max())
+    if CASH < 10 * prezzo_max:
+        raise ValueError(f"CASH = {CASH:,} e' meno di 10 volte il prezzo massimo di {symbol} "
+                         f"({prezzo_max:,.2f}): alza CASH in engine/vetrina.py.")
+    if da_exchange(symbol):
+        from .exchange import costi_exchange, parti_symbol
+        c = costi_exchange(symbol, df)
+        p = parti_symbol(symbol)
+        costi = {"spread": c["spread"], "commission": c["commission"], "pip_size": c["pip_size"],
+                 "cash": CASH, "spread_rollover_pips": None}
+        sp = {"normale": c["spread_pips"], "rollover": None, "taker": c["taker"], "maker": c["maker"],
+              "fonte": f"listino {p['exchange'].title()} {p['mercato'].lower()}, livello base"}
+        return costi, sp
+    sp = spread_listino(symbol, df)
+    with _zitto():
+        costi = parametri_backtest(symbol, bars=df, valuta_conto="USD", usa_mt5=False,
+                                   spread_pips=sp["normale"], commissione_rt=0.0)
+    costi["cash"] = CASH
+    costi["spread_rollover_pips"] = sp["rollover"]
+    return costi, sp
+
+
+def _minuti_barra(timeframe: str) -> int:
+    return int(timeframe[1:]) * (1 if timeframe.startswith("M") else 60)
+
+
+def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
+            cartella: str = "dati", timeframe: str = "M15") -> Sessione:
+    """
+    Schermata 1. Carica lo storico dal CSV, calcola costi e indicatori,
     divide in-sample / out-of-sample e carica le condizioni dal registro.
 
-    symbol            nome dello strumento: serve il file `{symbol}_M15.csv`
+    symbol            nome dello strumento: serve il file `{symbol}_{timeframe}.csv`
     H                 orizzonte di osservazione, in barre (unico per long e short)
     quota_in_sample   parte iniziale dello storico usata per costruire (0.8 = 80%)
     cartella          dove stanno i CSV. Default "dati" (la cartella dati/ del
                       progetto, dal 17/10); il Lab passa DATI_DIR: dati/ in locale, Google
                       Drive su Colab.
+    timeframe         19/10/2026: M5, M15 (default, come prima), M30, H1, H4
 
     11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
     symbol solo dalla tabella di engine/simboli.py; spread dal solo listino
@@ -497,48 +602,31 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     stessa cartella (la regola del fuso e' del server, docs/10); si ferma se
     CASH e' meno di 10 volte il prezzo massimo.
 
+    19/10/2026, versione crypto: i symbol da exchange (engine/simboli.py,
+    SIMBOLI_EXCHANGE) si caricano gia' in UTC, senza rollover, con la
+    commissione taker dell'exchange e il profilo orario in UTC
+    (`carica_storico`, `costi_storico`). Sullo spot si opera solo long.
+
     Ritorna la sessione da passare alle schermate successive.
     """
     H = int(H)
     if H < 1:
         raise ValueError("H deve essere almeno 1 barra.")
-    info = info_symbol(symbol)      # si ferma subito se il symbol non e' in engine/simboli.py
-    percorso = os.path.join(cartella, f"{symbol}_M15.csv")
-    if not os.path.exists(percorso):
-        raise FileNotFoundError(f"Non trovo {percorso}: serve il CSV dello storico M15 di {symbol}.")
+    df = carica_storico(symbol, cartella, timeframe)
+    costi, sp = costi_storico(symbol, df)
 
     s = Sessione()
-    s.symbol, s.H, s.cartella = symbol, H, cartella
+    s.symbol, s.H, s.cartella, s.timeframe = symbol, H, cartella, timeframe
+    s.da_exchange = da_exchange(symbol)
+    if s.da_exchange:
+        from .exchange import solo_long
+        s.solo_long = solo_long(symbol)
     with _zitto():
-        df = pd.read_csv(percorso, index_col="Date")
-        df = to_utc_index(df, REGOLA_FUSO, on_dst_gap="drop")
-    if info["classe"] == "forex":
-        verifica_indice_utc(df, verbose=False)
-    else:
-        # indici, oro e cripto riaprono a orari loro: il fuso del server si verifica su EURUSD
-        rif = os.path.join(cartella, "EURUSD_M15.csv")
-        if not os.path.exists(rif):
-            raise FileNotFoundError(f"{symbol} non e' un forex: per verificare il fuso del server "
-                                    f"serve anche {rif}.")
-        with _zitto():
-            df_rif = to_utc_index(pd.read_csv(rif, index_col="Date"), REGOLA_FUSO,
-                                  on_dst_gap="drop", verbose=False)
-        verifica_indice_utc(df_rif, verbose=False)
-    prezzo_max = float(df["High"].max())
-    if CASH < 10 * prezzo_max:
-        raise ValueError(f"CASH = {CASH:,} e' meno di 10 volte il prezzo massimo di {symbol} "
-                         f"({prezzo_max:,.2f}): alza CASH in engine/vetrina.py.")
-    sp = spread_listino(symbol, df)
-    with _zitto():
-        costi = parametri_backtest(symbol, bars=df, valuta_conto="USD", usa_mt5=False,
-                                   spread_pips=sp["normale"], commissione_rt=0.0)
-        costi["cash"] = CASH
-        costi["spread_rollover_pips"] = sp["rollover"]
         df = aggiungi_indicatori(df)
         s.df_is, s.df_oos = split_is_oos(df, is_ratio=quota_in_sample)
     s.df, s.costi = df, costi
     s.pip = costi["pip_size"]      # 10/10/2026: fisso, da engine/simboli.py
-    s.fuso = fuso_profilo(symbol)  # 18/10/2026: fissato a priori per symbol
+    s.fuso = fuso_profilo(symbol)  # 18/10/2026: fissato a priori per symbol (UTC sugli exchange)
     import condizioni_orarie
     condizioni_orarie.imposta_fuso(s.fuso)   # 19/10/2026: entry e uscite a orario
     s.spread_pips, s.spread_rollover_pips, s.fonte_spread = sp["normale"], sp["rollover"], sp["fonte"]
@@ -547,19 +635,29 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     def giorno(t):
         return pd.Timestamp(t).strftime("%d/%m/%Y")
 
-    riepilogo = pd.DataFrame({
-        "": ["Strumento", "Barre M15", "Periodo", "In-sample (per costruire)",
-             "Out-of-sample (mai visto)", "Costo per trade", "Costo nel rollover",
-             "Orizzonte di osservazione", "Trigger disponibili", "Filtri disponibili"],
-        " ": [symbol, _fmt(len(df)), f"{giorno(df.index[0])} – {giorno(df.index[-1])}",
+    if s.da_exchange:
+        costo = (f"commissione {_fmt(sp['taker'] * 100, 3)}% per lato (taker) + spread di "
+                 f"{_fmt(sp['normale'], 2)} pips ({sp['fonte']})")
+        rollover = "nessun rollover: mercato aperto 24 ore su 24"
+    else:
+        costo = f"{_fmt(sp['normale'])} pips di spread, nessuna commissione ({sp['fonte']})"
+        rollover = (f"{_fmt(sp['rollover'])} pips" if sp["rollover"] is not None
+                    else "come il resto della giornata")
+    n_short = "lo short non esiste sullo spot" if s.solo_long else f"{len(_trigger_candidati(-1))} short"
+    voci = ["Strumento", f"Barre {timeframe}", "Periodo", "In-sample (per costruire)",
+            "Out-of-sample (mai visto)", "Costo per trade", "Costo nel rollover",
+            "Orizzonte di osservazione", "Trigger disponibili", "Filtri disponibili"]
+    valori = [symbol, _fmt(len(df)), f"{giorno(df.index[0])} – {giorno(df.index[-1])}",
               f"{_fmt(len(s.df_is))} barre, fino al {giorno(s.df_is.index[-1])}",
               f"{_fmt(len(s.df_oos))} barre, dal {giorno(s.df_oos.index[0])}",
-              f"{_fmt(sp['normale'])} pips di spread, nessuna commissione ({sp['fonte']})",
-              (f"{_fmt(sp['rollover'])} pips" if sp["rollover"] is not None else "come il resto della giornata"),
-              f"{H} barre ({_fmt(H * 15 / 60, 1)} ore)",
-              f"{len(_trigger_candidati(1))} long · {len(_trigger_candidati(-1))} short",
-              _fmt(len(_tutti_i_filtri()))],
-    })
+              costo, rollover,
+              f"{H} barre ({_fmt(H * _minuti_barra(timeframe) / 60, 1)} ore)",
+              f"{len(_trigger_candidati(1))} long · {n_short}",
+              _fmt(len(_tutti_i_filtri()))]
+    if s.da_exchange and not s.solo_long:
+        voci.append("Funding (perpetual)")
+        valori.append("non ancora contato nei risultati")
+    riepilogo = pd.DataFrame({"": voci, " ": valori})
     s.tabelle["riepilogo"] = riepilogo
     _mostra(("Il tuo laboratorio", riepilogo))
     _riquadro(
@@ -629,14 +727,17 @@ def esplora(s: Sessione, quanti: int = 5):
     Ritorna l'oggetto EventStudy (anche in `s.ev`).
     """
     s._serve("df_is", "1 · Configura")
-    candidati = _trigger_candidati()
+    candidati = _trigger_candidati(1 if s.solo_long else None)    # spot: solo long (19/10/2026)
     with _zitto():
         s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=s.H,
                                min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
     misurati = len(s.ev.sintesi)
     _nota(f"{misurati} trigger misurati su {len(candidati)} "
-          f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media).")
+          f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media)."
+          + (" Spot: solo i trigger long, lo short non esiste." if s.solo_long else ""))
     for direzione, nome in ((1, "LONG"), (-1, "SHORT")):
+        if direzione not in s.lati():
+            continue
         lato = _favorevoli(s, direzione)
         if lato.empty:
             continue
@@ -744,6 +845,8 @@ def classifiche(s: Sessione, quanti: int = 8) -> dict:
     s._serve("ev", "2 · Esplora")
     out, da_mostrare = {}, []
     for direzione, nome in ((1, "long"), (-1, "short")):
+        if direzione not in s.lati():          # spot: niente classifica short
+            continue
         t = _favorevoli(s, direzione).head(quanti)
         t = t[list(_COLONNE_CLASSIFICA)].rename(columns=_COLONNE_CLASSIFICA)
         out[nome] = t
@@ -783,7 +886,8 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     """
     s._serve("ev", "2 · Esplora")
     with _zitto():
-        s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip, nomi=_trigger_candidati(),
+        s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip,
+                                    nomi=_trigger_candidati(1 if s.solo_long else None),
                                     min_eventi=MIN_TRIGGER, fuso=s.fuso)
     r = s.rosa_trigger
     vista = r[r["candidata"]]
@@ -843,6 +947,9 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
         return tuple(n.strip() for n in x if isinstance(n, str) and n.strip())
 
     tl, ts = lista(long), lista(short)
+    if s.solo_long and ts:
+        raise ValueError(f"{s.symbol} e' spot: lo short non esiste. Lascia vuoto il lato short, "
+                         "oppure scegli il mercato perpetual (PERP).")
     if not tl and not ts:
         raise ValueError("Scegli almeno un trigger, long o short.")
     with _zitto():
@@ -1407,7 +1514,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
                            capitale: float = 10_000.0, drawdown_max_pct: float = 20.0,
                            anni: float = 1.0, simulazioni: int = SIMULAZIONI_MM,
                            titolo: str = "", modello: str = "volatilità",
-                           storia: pd.DataFrame | None = None) -> dict:
+                           storia: pd.DataFrame | None = None, leva: float | None = None) -> dict:
     """
     La sezione «Money management» con gli argomenti espliciti: la usa il
     notebook di ricerca (Sessione 5); il Lab passa da `money_management(s)`.
@@ -1425,6 +1532,9 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
 
     storia   lo storico completo (df) per calcolare l'ATR senza ripartire da
              zero all'inizio dell'out-of-sample. None = ogni parte per conto suo.
+    leva     19/10/2026: la leva massima da usare (nozionale <= capitale x leva).
+             None = la massima del symbol, come prima; un numero fra 1 e la
+             massima concessa in Italia (engine/simboli.leva_scelta), oltre si ferma.
 
     Ritorna un dict: modello, confronto, f, calibrazione, rischio, sintesi,
     percorso_is, percorso_oos, banda, tabella_is, tabella_oos, kelly,
@@ -1436,6 +1546,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     from .mm_adattatore import limiti_symbol, tabella_trade, trade_per_anno
 
     scelto = _modello(modello)
+    limiti = limiti_symbol(symbol, valore_leva=leva)       # si ferma subito se la leva non e' ammessa
     kw = dict(symbol=symbol, pip=pip, commission=commission, spread_pips=spread_pips,
               perc_sl=perc_sl, n_barre_long=n_barre_long, n_barre_short=n_barre_short,
               finestra=finestra, lag=lag, cartella=cartella)
@@ -1449,7 +1560,6 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     tab_is, tab_oos = tabelle[scelto]
     if len(tab_is) < 5:
         raise ValueError(f"Servono almeno 5 trade in-sample per il money management (ce ne sono {len(tab_is)}).")
-    limiti = limiti_symbol(symbol)
     freq = trade_per_anno(trades_is, df_is)                 # trade all'anno, in-sample
     n_trade = max(10, int(round(freq * float(anni))))
     dd_max = float(drawdown_max_pct)
@@ -1701,7 +1811,8 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
 
 
 def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: float = 20.0,
-                     anni: float = 1.0, modello: str = "volatilità") -> dict:
+                     anni: float = 1.0, modello: str = "volatilità",
+                     leva: float | None = None) -> dict:
     """
     Schermata 7. Quanto rischiare su ogni trade (rischio fisso in percentuale,
     docs/61): la percentuale si sceglie sull'in-sample con la tua regola sul
@@ -1713,17 +1824,23 @@ def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: 
     modello            «volatilità» (predefinito, decisione di Mattia del 16/10)
                        oppure «rischio fisso»: i due si confrontano comunque
                        sull'in-sample
+    leva               19/10/2026: la leva massima da usare. None o 0 = la massima
+                       concessa in Italia per il symbol (engine/simboli.py);
+                       oltre quella si ferma con un errore
 
     Ritorna il dict di `money_management_trade`, salvato anche in `s.mm`.
     """
     s._serve("oos", "6 · Scheda strategia")
+    if leva is not None and float(leva) == 0:
+        leva = None
     u = s.uscite
     out = money_management_trade(
         s.symbol, s.trades_is, s.df_is, s.trades_oos, s.df_oos, pip=s.fs.pip_size,
         commission=s.fs.commission or 0.0, spread_pips=s.spread_pips, perc_sl=u["perc_sl"],
         n_barre_long=u["n_barre_long"], n_barre_short=u["n_barre_short"], finestra=FINESTRA,
         lag=LAG, cartella=s.cartella, capitale=capitale, drawdown_max_pct=drawdown_max_pct,
-        anni=anni, titolo=f"{s.symbol} · {s.filtro or 'sistema base'}", modello=modello, storia=s.df)
+        anni=anni, titolo=f"{s.symbol} · {s.filtro or 'sistema base'}", modello=modello, storia=s.df,
+        leva=leva)
     s.mm = out
     s.tabelle["money_management"] = {"rischio": out["rischio"], "sintesi": out["sintesi"]}
     return out
@@ -1732,6 +1849,18 @@ def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: 
 # ========================================================================
 # 9 · Stress test
 # ========================================================================
+
+def passo_lotti(symbol: str) -> float:
+    """
+    Il passo a cui lo stress test arrotonda i lotti consigliati (19/10/2026):
+    0,01 per i symbol del broker, come prima; il passo dell'exchange per i
+    symbol da exchange (engine/simboli.py, LOTTI_EXCHANGE).
+    """
+    if da_exchange(symbol):
+        from .simboli import lotti_symbol
+        return float(lotti_symbol(symbol)["passo"])
+    return 0.01
+
 
 def _cambio_ultima_barra(s: Sessione) -> float | None:
     """
@@ -1779,7 +1908,9 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
         mc = montecarlo_completo(pips, n_sim=simulazioni)
         valore_pip = valore_pip_lotto(s.symbol, s.fs.pip_size, prezzo=float(s.df["Close"].iloc[-1]),
                                       cambio=_cambio_ultima_barra(s))
-        sz = sizing(mc, drawdown_max_usd, valore_pip, percentile=95)
+        passo = passo_lotti(s.symbol)
+        sz = sizing(mc, drawdown_max_usd, valore_pip, percentile=95, passo=passo)
+    cifre_lotti = max(2, int(round(-np.log10(passo))))     # BTC: 0,006 lotti, non «0,01»
 
     controllo = pd.DataFrame({
         "Dopo quanti trade": [int(h) for h in yard.index],
@@ -1795,7 +1926,8 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
         " ": [_fmt(mc["n_trade"]), f"{_fmt(mc['dd_reale'], 0)} pips", f"{_fmt(mc['dd_p50'], 0)} pips",
               f"{_fmt(mc['dd_p95'], 0)} pips", f"{_fmt(mc['p_pnl_negativo'], 1)} %",
               f"{_fmt(valore_pip)} $", f"{_fmt(float(drawdown_max_usd), 0)} $",
-              _fmt(sz["lotti_consigliati"])],
+              _fmt(sz["lotti_consigliati"], cifre_lotti)
+              + (f" ({info_symbol(s.symbol)['valuta']}: 1 lotto = 1 moneta)" if s.da_exchange else "")],
     })
     s.tabelle["stress"] = {"controllo": controllo, "sintesi": sintesi}
     _nota(f"Drawdown che accetti, {origine}.")
