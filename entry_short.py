@@ -530,6 +530,24 @@ def entry_short_jump_momentum_down(df: pd.DataFrame) -> pd.Series:
     return _evento(df["salto"] == -1)
 
 
+# ------------------------------------------------------------ E41 --------
+def entry_short_daily_quintile_down(df: pd.DataFrame) -> pd.Series:
+    """
+    Quintili del rendimento giornaliero: la giornata appena chiusa (da una
+    mezzanotte UTC alla successiva) ha un rendimento nel 1° quintile, cioe'
+    sotto il 20° percentile delle 300 giornate chiuse prima
+    (`quintile_giorno` == -1) -> short all'inizio della giornata dopo. Una
+    volta al giorno, sulla candela che finisce a mezzanotte UTC; l'uscita e'
+    quella del sistema (tempo o ora scelta).
+
+    Fonte: Liu, Tsyvinski, "Risks and Returns of Cryptocurrency", Review of
+    Financial Studies 2021 (NBER WP 24877), §4.1, Tab. 14-17; finestra di
+    300 giornate e passo giornaliero di Mattia (19/10/2026). Colonna:
+    engine.indicatori.quintile_giornaliero.
+    """
+    return _evento(df["quintile_giorno"] == -1)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -579,6 +597,7 @@ TRIGGER_SHORT = {
     "E38_SHORT_HOUR_MOMENTUM_DOWN": entry_short_hour_momentum_down,
     "E39_SHORT_HOUR_REVERSAL_DOWN": entry_short_hour_reversal_down,
     "E40_SHORT_JUMP_MOMENTUM_DOWN": entry_short_jump_momentum_down,
+    "E41_SHORT_DAILY_QUINTILE_DOWN": entry_short_daily_quintile_down,
 }
 
 

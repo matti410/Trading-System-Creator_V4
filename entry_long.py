@@ -614,6 +614,24 @@ def entry_jump_momentum_up(df: pd.DataFrame) -> pd.Series:
     return _evento(df["salto"] == 1)
 
 
+# ------------------------------------------------------------ E41 --------
+def entry_daily_quintile_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Quintili del rendimento giornaliero: la giornata appena chiusa (da una
+    mezzanotte UTC alla successiva) ha un rendimento nel 5° quintile, cioe'
+    sopra l'80° percentile delle 300 giornate chiuse prima
+    (`quintile_giorno` == 1) -> long all'inizio della giornata dopo. Una volta
+    al giorno, sulla candela che finisce a mezzanotte UTC; l'uscita e' quella
+    del sistema (tempo o ora scelta).
+
+    Fonte: Liu, Tsyvinski, "Risks and Returns of Cryptocurrency", Review of
+    Financial Studies 2021 (NBER WP 24877), §4.1, Tab. 14-17; finestra di
+    300 giornate e passo giornaliero di Mattia (19/10/2026). Colonna:
+    engine.indicatori.quintile_giornaliero.
+    """
+    return _evento(df["quintile_giorno"] == 1)
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -663,6 +681,7 @@ TRIGGER_LONG = {
     "E38_HOUR_MOMENTUM_UP": entry_hour_momentum_up,
     "E39_HOUR_REVERSAL_UP": entry_hour_reversal_up,
     "E40_JUMP_MOMENTUM_UP": entry_jump_momentum_up,
+    "E41_DAILY_QUINTILE_UP": entry_daily_quintile_up,
 }
 
 

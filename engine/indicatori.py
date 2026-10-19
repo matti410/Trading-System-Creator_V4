@@ -1384,6 +1384,71 @@ def salto_giornaliero(df: pd.DataFrame, giornate: int = SALTO_GIORNATE,
 
 
 # ---------------------------------------------------------------------------
+# Quintili del rendimento giornaliero (docs/50 §10, riga 19; variante di
+# Mattia del 19/10/2026 sul momentum di Liu e Tsyvinski, Tab. 14-17)
+# ---------------------------------------------------------------------------
+
+QUINTILE_GIORNATE = 300            # giornate chiuse su cui si calcolano i quintili (scelta di Mattia)
+QUINTILE_PERCENTILI = (0.20, 0.80)  # 1° e 5° quintile
+COLONNE_QUINTILE = ("quintile_giorno",)
+
+
+def quintile_giornaliero(df: pd.DataFrame, giornate: int = QUINTILE_GIORNATE,
+                         percentili: tuple = QUINTILE_PERCENTILI) -> pd.DataFrame:
+    """
+    Il quintile estremo del rendimento della giornata appena chiusa, scritto
+    SOLO sulla candela che chiude la giornata (quella che finisce alla
+    mezzanotte UTC): +1 se il rendimento supera l'80° percentile dei
+    rendimenti delle `giornate` giornate chiuse prima (5° quintile), -1 se
+    scende sotto il 20° (1° quintile); 0 sulle altre candele; NaN finche'
+    non ci sono `giornate` rendimenti precedenti.
+
+    La giornata va da una mezzanotte UTC alla successiva, come nel paper
+    (chiusure CoinDesk); il rendimento e' fra il Close della candela che
+    finisce a mezzanotte e quello della mezzanotte precedente disponibile (sul
+    forex il lunedi' parte dalla mezzanotte del venerdi'). Su candele che non
+    finiscono a mezzanotte UTC (le H4 del broker) la colonna resta tutta NaN.
+    Il trade si apre all'inizio della giornata dopo; si chiude dopo H barre o
+    all'ora scelta nelle uscite.
+
+    Nessun lookahead: alla fine della candela di mezzanotte il rendimento e'
+    noto, le soglie usano solo le giornate precedenti (oggi escluso).
+
+    Fonte: Liu, Tsyvinski, "Risks and Returns of Cryptocurrency", Review of
+    Financial Studies 2021 (NBER WP 24877, 2018), §4.1, Tab. 14-17
+    (quintili del rendimento appena chiuso); finestra mobile di 300 giornate
+    e passo giornaliero decisi da Mattia il 19/10/2026.
+    """
+    from engine.quarantena import passo_barre
+    vuoto = pd.DataFrame(np.nan, index=df.index, columns=list(COLONNE_QUINTILE))
+    if getattr(df.index, "tz", None) is None or len(df) < 2:
+        return vuoto
+    passo = passo_barre(df.index)
+    if passo > pd.Timedelta(days=1):
+        return vuoto
+    fine = pd.DatetimeIndex(df.index + passo).tz_convert("UTC")
+    e_chiusura = np.asarray((fine.hour == 0) & (fine.minute == 0))
+    pos = np.flatnonzero(e_chiusura)
+    if len(pos) <= giornate + 1:
+        return vuoto
+    c = df["Close"].to_numpy(dtype=float)[pos]
+    rend = pd.Series(c[1:] / c[:-1] - 1.0)                       # rendimento della giornata chiusa in pos[j+1]
+    # soglie dalle `giornate` giornate PRIMA di quella appena chiusa
+    basso = rend.rolling(giornate).quantile(percentili[0]).shift(1).to_numpy()
+    alto = rend.rolling(giornate).quantile(percentili[1]).shift(1).to_numpy()
+    r = rend.to_numpy()
+    pronta = np.isfinite(basso) & np.isfinite(alto)
+    segno = np.where(r > alto, 1.0, np.where(r < basso, -1.0, 0.0))
+    esito_col = np.full(len(df), np.nan)
+    if pronta.any():
+        esito_col[pos[1:][np.argmax(pronta)]:] = 0.0
+        dove = pos[1:][pronta]
+        esito_col[dove] = segno[pronta]
+    vuoto["quintile_giorno"] = esito_col
+    return vuoto
+
+
+# ---------------------------------------------------------------------------
 # AlgoXplorer 0.1c (docs/50 §10, riga 13; scheda approvata da Mattia il
 # 17/10/2026). Script Pine v5 scritto da Mattia e da un amico, uso concordato.
 # Traduzione riga per riga; fedelta' verificata con PineTS su una copia di
@@ -1691,11 +1756,12 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
         ftfc, mtf_h4_macdh_pend, mtf_h1_force, mtf_h1_high, mtf_h1_low,
         tsmom, inside_day, ha_open, ha_high, ha_low, ha_close, pvsra,
         algox_segnale, algox_stato, algox_careful, algox_nv_careful,
-        vsa_asta, vsa_bias, vsa_go, vsa_sr, imm_r1, imm_r12, ora_r8, ora_r12, salto
+        vsa_asta, vsa_bias, vsa_go, vsa_sr, imm_r1, imm_r12, ora_r8, ora_r12, salto, quintile_giorno
         (momentum intraday: vedi momentum_intraday, valori solo sulla
         candela che finisce alle 16:30 di New York, aggiunte dopo il taglio;
         coppie di ore UTC: vedi rendimenti_ore_utc, stessa logica;
         salto: vedi salto_giornaliero, riscaldamento di 250 giornate;
+        quintile_giorno: vedi quintile_giornaliero, riscaldamento di 300 giornate;
         AlgoXplorer: vedi algoxplorer, riscaldamento 50 barre; VSA: vedi
         vsa_modulo_unico, riscaldamento 100 barre piu' gli swing)
         (docs/51: riscaldamento V1 261 barre, V2 30, M1 38, M2 41, R1 10,
@@ -1794,6 +1860,10 @@ def aggiungi_indicatori(df: pd.DataFrame) -> pd.DataFrame:
     salto = salto_giornaliero(df)
     for c in COLONNE_SALTO:
         df[c] = salto[c]
+    # quintili del rendimento giornaliero (E41): NaN nel riscaldamento di 300 giornate, dopo il taglio
+    quintile = quintile_giornaliero(df)
+    for c in COLONNE_QUINTILE:
+        df[c] = quintile[c]
     return df
 
 
@@ -1808,5 +1878,5 @@ COLONNE_INDICATORI = (
     "ha_open", "ha_high", "ha_low", "ha_close", "pvsra",
     "algox_segnale", "algox_stato", "algox_careful", "algox_nv_careful",
     "vsa_asta", "vsa_bias", "vsa_go", "vsa_sr",
-    "imm_r1", "imm_r12", "ora_r8", "ora_r12", "salto",
+    "imm_r1", "imm_r12", "ora_r8", "ora_r12", "salto", "quintile_giorno",
 )
