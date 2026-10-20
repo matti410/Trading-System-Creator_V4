@@ -172,6 +172,52 @@ def rendimenti_avanti(df: pd.DataFrame, H: int, pip: float) -> np.ndarray:
     return fwd
 
 
+UNITA = ("pips", "bp", "atr")       # 20/10/2026, docs/63 §4
+
+
+def in_unita(valori_pips: np.ndarray, unita: str, pip: float, prezzo=None, atr=None) -> np.ndarray:
+    """
+    Da pips all'unita' scelta, barra per barra (20/10/2026, docs/63 §4):
+      pips  invariati;
+      bp    pips x pip / prezzo x 10.000 (prezzo = quello d'ingresso);
+      atr   pips x pip / atr (l'ATR giornaliero noto al segnale).
+    NaN dove prezzo o ATR mancano o non sono positivi.
+    """
+    v = np.asarray(valori_pips, dtype=float)
+    if unita == "pips":
+        return v
+    if unita == "bp":
+        p = np.asarray(prezzo, dtype=float)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(p > 0, v * float(pip) * 10_000.0 / p, np.nan)
+    if unita == "atr":
+        a = np.asarray(atr, dtype=float)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(a > 0, v * float(pip) / a, np.nan)
+    raise ValueError(f"unita' {unita!r} sconosciuta: usa una di {UNITA}")
+
+
+def rendimenti_avanti_unita(df: pd.DataFrame, H: int, unita: str = "bp", pip: float = None,
+                            atr=None) -> np.ndarray:
+    """
+    Come rendimenti_avanti (segnale i, ingresso Open[i+1], misura Close[i+H]),
+    nell'unita' scelta: "pips", "bp" (sul prezzo d'ingresso) o "atr" (sull'ATR
+    alla barra del segnale; `atr` = indicatori.atr_giornaliero_chiuso, una
+    serie allineata a df). NaN dove non misurabile.
+    """
+    if pip is None or not float(pip) > 0:
+        raise ValueError("pip obbligatorio: il pip fisso del symbol (engine/simboli.py).")
+    fwd = rendimenti_avanti(df, H, pip)
+    ingresso = np.full(len(df), np.nan)
+    ingresso[:-1] = df["Open"].to_numpy(dtype=float)[1:]
+    if unita == "atr":
+        if atr is None:
+            raise ValueError("unita' 'atr': serve la serie dell'ATR (indicatori.atr_giornaliero_chiuso).")
+        atr = pd.Series(atr).reindex(df.index).to_numpy(dtype=float) if isinstance(atr, pd.Series) \
+            else np.asarray(atr, dtype=float)
+    return in_unita(fwd, unita, pip, prezzo=ingresso, atr=atr)
+
+
 def media_per_fascia(valori: np.ndarray, codici: np.ndarray, usa: np.ndarray) -> np.ndarray:
     """
     Per ogni barra, la media di `valori` sulle barre `usa` della sua stessa

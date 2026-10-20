@@ -298,7 +298,9 @@ def main() -> int:
         attese = ["candidato", "direction", "eventi", "scarto_pips", "t_netto", "p", "bh",
                   "due_meta", "candidata", "famiglia", "nella_rosa", "rho_max", "perche",
                   "scarto_globale_pips", "t_globale"]
-        check("E1. tabella completa: colonne, una riga per entry misurata, nessuna metro",
+        # 20/10/2026 (docs/63 §4, U1): bp e ATR in coda, colonne di prima invariate
+        attese += [f"{c}_{u}" for u in ("bp", "atr") for c in ("scarto", "t", "due_meta")]
+        check("E1. tabella completa: colonne (bp e ATR in coda), una riga per entry misurata, nessuna metro",
               list(re_.columns) == attese and re_["candidato"].is_unique
               and not re_["candidato"].str.startswith("M_").any() and len(re_) >= 40,
               f"{len(re_)} entry, {int(re_['candidata'].sum())} candidate, {int(re_['nella_rosa'].sum())} nella rosa")

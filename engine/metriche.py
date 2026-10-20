@@ -107,6 +107,59 @@ def pips_per_trade(trades: pd.DataFrame, pip_size: float,
     return lordi, netti
 
 
+def bp_per_trade(trades: pd.DataFrame, pip_size: float,
+                 commission: float = 0.0) -> tuple[pd.Series, pd.Series]:
+    """
+    I pips per trade (lordi, netti) in PUNTI BASE del prezzo d'ingresso
+    (20/10/2026, docs/63 §4, unita' bp): 1 bp = 0,01% del prezzo.
+
+        bp = pips x pip_size / EntryPrice x 10.000
+
+    Un trade dell'1% vale 100 bp a 7.000 $ come a 70.000 $: i bp pesano
+    allo stesso modo un trade del 2020 e uno del 2025. I costi sono gli
+    stessi di pips_per_trade (commissione, CostoExtraPips), convertiti
+    trade per trade con il suo prezzo d'ingresso.
+    """
+    lordi, netti = pips_per_trade(trades, pip_size, commission)
+    if len(trades) == 0:
+        return lordi, netti
+    fattore = float(pip_size) * 10_000.0 / trades["EntryPrice"].astype(float)
+    return lordi * fattore, netti * fattore
+
+
+def atr_alla_entrata(trades: pd.DataFrame, atr: pd.Series) -> pd.Series:
+    """
+    L'ATR noto alla barra del SEGNALE di ogni trade: la barra prima di
+    EntryTime nell'indice di `atr` (il segnale e' sulla barra i, l'ingresso
+    all'Open della i+1). `atr` va calcolata sullo storico intero
+    (indicatori.atr_giornaliero_chiuso), cosi' anche i trade out-of-sample
+    hanno il valore. NaN se l'ingresso non e' nell'indice o e' la prima barra.
+    """
+    if len(trades) == 0:
+        return pd.Series(dtype=float)
+    pos = pd.DatetimeIndex(atr.index).get_indexer(pd.DatetimeIndex(trades["EntryTime"])) - 1
+    valori = atr.to_numpy(dtype=float)
+    esito = np.where(pos >= 0, valori[np.clip(pos, 0, None)], np.nan)
+    return pd.Series(esito, index=trades.index)
+
+
+def atr_per_trade(trades: pd.DataFrame, atr: pd.Series, pip_size: float,
+                  commission: float = 0.0) -> tuple[pd.Series, pd.Series]:
+    """
+    I pips per trade (lordi, netti) in multipli dell'ATR giornaliero a 5
+    giornate chiuse noto al segnale (20/10/2026, docs/63 §4, unita' ATR; lo
+    stesso ATR del money management). Non e' la «R» del money management
+    (distanza dallo stop): e' il risultato rispetto alla volatilita' del
+    momento. NaN dove l'ATR non c'e' ancora (prime giornate dello storico).
+    """
+    lordi, netti = pips_per_trade(trades, pip_size, commission)
+    if len(trades) == 0:
+        return lordi, netti
+    a = atr_alla_entrata(trades, atr)
+    fattore = float(pip_size) / a.where(a > 0)
+    return lordi * fattore, netti * fattore
+
+
 def metriche_per_trade(trades: pd.DataFrame, pip_size: float,
                        commission: float = 0.0) -> dict:
     """

@@ -983,10 +983,13 @@ def barre_superiori(df: pd.DataFrame, regola: str) -> tuple[pd.DataFrame, np.nda
 
     pid = id_periodo(df, regola)
     utile = ~quarantena_cached(df)["totale"].reindex(df.index).fillna(False).to_numpy(dtype=bool)
-    b = pd.DataFrame({c: df[c].to_numpy(dtype=float)[utile] for c in ("Open", "High", "Low", "Close", "Volume")})
+    # 20/10/2026: Volume solo se c'e' (l'ATR delle unita' di docs/63 §4 gira anche su dati senza)
+    colonne = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+    b = pd.DataFrame({c: df[c].to_numpy(dtype=float)[utile] for c in colonne})
     b["pid"] = pid[utile]
-    candele = b.groupby("pid").agg(Open=("Open", "first"), High=("High", "max"), Low=("Low", "min"),
-                                   Close=("Close", "last"), Volume=("Volume", "sum"))
+    regole = dict(Open=("Open", "first"), High=("High", "max"), Low=("Low", "min"),
+                  Close=("Close", "last"), Volume=("Volume", "sum"))
+    candele = b.groupby("pid").agg(**{c: regole[c] for c in colonne})
     n = int(pid[-1]) + 1 if len(pid) else 0
     return candele.reindex(np.arange(n)), pid
 

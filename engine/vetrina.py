@@ -82,7 +82,7 @@ from .exit_search_bt import barre_per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
 from .confidenza import congela_filtro
 from .giudizio import CAMPIONE_CORTO, DA_VALUTARE, scheda_strategia, soglia_rumore
-from .indicatori import aggiungi_indicatori
+from .indicatori import aggiungi_indicatori, atr_giornaliero_chiuso
 from .livelli import GIORNATA_FX, GIORNATA_UTC, imposta_giornata, quarantena_cached
 from .metriche import pips_per_trade
 from .montecarlo import (grafici_montecarlo, montecarlo_completo,
@@ -301,6 +301,7 @@ class Sessione:
         self.timeframe = "M15"        # 19/10/2026: M5, M15, M30, H1, H4
         self.da_exchange = False      # 19/10/2026: dati da exchange crypto (engine/exchange.py)
         self.solo_long = False        # 19/10/2026: spot, lo short non esiste
+        self.atr = None               # 20/10/2026: ATR giornaliero a 5 giornate chiuse (unita' ATR, docs/63 §4)
         self.tabelle = {}
 
     def __repr__(self):
@@ -629,6 +630,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
         df = aggiungi_indicatori(df)
         s.df_is, s.df_oos = split_is_oos(df, is_ratio=quota_in_sample)
     s.df, s.costi = df, costi
+    s.atr = atr_giornaliero_chiuso(df)   # 20/10/2026: sullo storico intero, noto prima di ogni ingresso
     s.pip = costi["pip_size"]      # 10/10/2026: fisso, da engine/simboli.py
     s.fuso = fuso_profilo(symbol)  # 18/10/2026: fissato a priori per symbol (UTC sugli exchange)
     import condizioni_orarie
@@ -661,6 +663,17 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     if s.da_exchange and not s.solo_long:
         voci.append("Funding (perpetual)")
         valori.append("non ancora contato nei risultati")
+    # 20/10/2026 (docs/63 §4): lo stesso costo in punti base del prezzo (1 bp = 0,01%)
+    mediana = float(s.df_is["Close"].median())
+    spread_bp = sp["normale"] * s.pip / mediana * 10_000
+    if s.da_exchange:
+        comm_bp = 2 * sp["taker"] * 10_000
+        costo_bp = (f"{_fmt(comm_bp + spread_bp, 1)} bp andata e ritorno: commissione {_fmt(comm_bp, 1)} bp "
+                    f"a qualunque prezzo + spread {_fmt(spread_bp, 2)} bp al prezzo mediano dell'in-sample")
+    else:
+        costo_bp = f"{_fmt(spread_bp, 2)} bp al prezzo mediano dell'in-sample (lo spread fisso pesa di più a prezzi bassi)"
+    voci.insert(voci.index("Costo per trade") + 1, "Costo per trade in bp")
+    valori.insert(voci.index("Costo per trade in bp"), costo_bp)
     riepilogo = pd.DataFrame({"": voci, " ": valori})
     s.tabelle["riepilogo"] = riepilogo
     _mostra(("Il tuo laboratorio", riepilogo))
@@ -892,7 +905,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     with _zitto():
         s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip,
                                     nomi=_trigger_candidati(1 if s.solo_long else None),
-                                    min_eventi=MIN_TRIGGER, fuso=s.fuso)
+                                    min_eventi=MIN_TRIGGER, fuso=s.fuso, atr=s.atr)
     r = s.rosa_trigger
     vista = r[r["candidata"]]
     if vista.empty:
@@ -906,6 +919,8 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
         "Più del mercato della stessa ora (pips)": vista["scarto_pips"],
         "Solidità netta": vista["t_netto"],
         "Più del mercato a qualunque ora (pips)": vista["scarto_globale_pips"],
+        "Più del mercato della stessa ora (bp)": vista["scarto_bp"],
+        "Solidità in bp": vista["t_bp"],
         "Supera la quota di fortuna": [_si_no(v) for v in vista["bh"]],
         "Regge sulle due metà": [_si_no(v) for v in vista["due_meta"]],
         "Famiglia": vista["famiglia"].astype(int),
@@ -914,7 +929,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     })
     s.tabelle["rosa_trigger"] = tabella
     _mostra((f"La rosa dei trigger (in-sample, {s.H} barre, prima dei costi)", tabella),
-            decimali={"Solidità netta": 2})
+            decimali={"Solidità netta": 2, "Solidità in bp": 2})
     _riquadro(
         "Un gruppo di trigger suggeriti. Ognuno ha un andamento a favore più grande di quello che il mercato "
         "fa da solo nelle stesse ore («più del mercato della stessa ora», vedi il profilo orario della "
@@ -923,6 +938,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
         "in entrambe le metà dell'in-sample. Dentro la rosa i trigger sono diversi fra loro: famiglie diverse "
         "(non scattano sulle stesse candele) e guadagni giornalieri poco legati "
         f"(correlazione entro ±{_fmt(RHO_MAX, 1)}).",
+        "Le due colonne in bp (punti base del prezzo, 1 bp = 0,01%) sono solo da leggere, decidono ancora i pips: i bp pesano allo stesso modo un trade del 2020 e uno del 2025. "
         "È un suggerimento, non una promozione: la verifica vera arriva dopo, con i filtri, le due metà e i dati "
         "mai visti. Un trigger fuori dalla rosa per «famiglia» o «correlata» è buono come quello che lo esclude, "
         "ma ripete la stessa idea. Rosa vuota = nessun trigger si distingue abbastanza dal caso a questo orizzonte.",
@@ -1133,7 +1149,7 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
     s._serve("es", "4 · Imposta le uscite")
     with _zitto():
         s.rosa_sistemi = rosa_sistemi(s.es, s.df_is, s.pip, commission=s.costi["commission"],
-                                      fuso=s.fuso)
+                                      fuso=s.fuso, atr=s.atr)
     r = s.rosa_sistemi
     nomi = {riga["combinazione"]: _nome_sistema(riga) for _, riga in s.es.risultati.iterrows()}
 
@@ -1148,6 +1164,8 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
         "Più del mercato della stessa ora, per trade (pips netti)": r["scarto_pips"],
         "Solidità netta": r["t_netto"],
         "Più del mercato a qualunque ora, per trade (pips netti)": r["scarto_globale_pips"],
+        "Più del mercato della stessa ora, per trade (bp netti)": r["scarto_bp"],
+        "Solidità in bp": r["t_bp"],
         "Supera la quota di fortuna": [_si_no(v) for v in r["bh"]],
         "Regge sulle due metà": [_si_no(v) for v in r["due_meta"]],
         "Nella rosa": [_si_no(v) for v in r["nella_rosa"]],
@@ -1155,12 +1173,13 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
     })
     s.tabelle["rosa_sistemi"] = tabella
     _mostra(("La rosa dei sistemi (in-sample, al netto dei costi)", tabella),
-            decimali={"Solidità netta": 2})
+            decimali={"Solidità netta": 2, "Solidità in bp": 2})
     _riquadro(
         "Gli stessi sistemi della schermata 4, letti con i controlli della rosa: guadagno netto per trade "
         "oltre quello che il mercato dà da solo nelle ore in cui il trade resta aperto, difficile da spiegare "
         "con la fortuna, positivo in entrambe le metà dell'in-sample. Due sistemi stanno insieme nella rosa "
         f"solo se i loro guadagni giornalieri sono poco legati (correlazione entro ±{_fmt(RHO_MAX, 1)}).",
+        "Le due colonne in bp (punti base del prezzo, 1 bp = 0,01%) sono solo da leggere, decidono ancora i pips: i bp pesano allo stesso modo un trade del 2020 e uno del 2025. "
         "Di solito «Long + Short» è molto legato ai due lati da soli, e la rosa ne tiene uno. Due lati da soli "
         "entrambi nella rosa vuol dire che si completano. Rosa vuota = nessun sistema si distingue abbastanza "
         "dal caso: non è una bocciatura, i filtri della schermata 5 possono ancora cambiarlo.",
@@ -1353,6 +1372,8 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
 _VOCI_SCHEDA = [
     ("n_trades", "Trade", 0),
     ("ev_pips", "Guadagno medio netto per trade (pips)", 2),
+    ("ev_bp", "Guadagno medio netto per trade (bp)", 2),        # 20/10/2026, docs/63 §4
+    ("ev_atr", "Guadagno medio netto per trade (ATR)", 4),
     ("net_pips", "Totale pips netti", 0),
     ("win_rate", "Trade vincenti (%)", 1),
     ("wr_pareggio", "Vincenti necessari per il pareggio (%)", 1),
@@ -1455,9 +1476,9 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
             min_trades=s.fs.min_trades, verbose=False, **kw)
         tr_is, tr_oos = fs_ultimo.trades(ultimo), s.oos.trades(ultimo)
         k_is = scheda_strategia(tr_is, s.fs.pip_size, s.fs.commission or 0.0,
-                                montecarlo=False, verbose=False)
+                                montecarlo=False, verbose=False, atr=s.atr)
         k_oos = scheda_strategia(tr_oos, s.fs.pip_size, s.fs.commission or 0.0,
-                                 montecarlo=False, verbose=False)
+                                 montecarlo=False, verbose=False, atr=s.atr)
     s.filtri_scelti = scelti
     s.filtro = " + ".join(scelti) if scelti else None
     s.trades_is, s.trades_oos = tr_is, tr_oos

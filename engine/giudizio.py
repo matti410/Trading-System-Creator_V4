@@ -91,7 +91,7 @@ from statistics import NormalDist
 import numpy as np
 import pandas as pd
 
-from .metriche import pips_per_trade
+from .metriche import atr_per_trade, bp_per_trade, pips_per_trade
 
 SCARTATA = "SCARTATA"
 CAMPIONE_CORTO = "CAMPIONE CORTO"
@@ -414,7 +414,7 @@ def scheda_strategia(trades: pd.DataFrame, pip_size: float,
                      commission: float = 0.0, n_boot: int = 10_000,
                      montecarlo: bool = True, n_sim: int = 2000,
                      seed: int = 0, min_trades: int = 100,
-                     p_max: float = 5.0, verbose: bool = True) -> dict:
+                     p_max: float = 5.0, verbose: bool = True, atr=None) -> dict:
     """
     La scheda completa di una strategia: i KPI di scoperta (nostri) e
     quelli di rischio (Lezione 8/9 del corso), su qualunque `.trades()`.
@@ -443,6 +443,14 @@ def scheda_strategia(trades: pd.DataFrame, pip_size: float,
     nel corso: lo stop e' adattivo, quindi un trade con stop da 15 pips e
     uno con stop da 40 non sono confrontabili in pips. NaN se lo stop non
     e' attivo (perc_sl=0).
+
+    L'EV IN BP E IN ATR (20/10/2026, docs/63 §4)
+    ---------------------------------------------
+    `ev_bp`: l'EV netto in punti base del prezzo d'ingresso di ogni trade
+    (pesa allo stesso modo un trade del 2020 e uno del 2025). `ev_atr`:
+    l'EV netto in multipli dell'ATR giornaliero noto al segnale; serve
+    `atr` (indicatori.atr_giornaliero_chiuso sullo storico intero),
+    altrimenti NaN. Solo voci in piu': il giudizio resta sui pips.
     """
     n_t = int(len(trades)) if trades is not None else 0
     if n_t == 0:
@@ -477,9 +485,18 @@ def scheda_strategia(trades: pd.DataFrame, pip_size: float,
     p_neg = p_ev_negativo(n, n_boot=n_boot, seed=seed)
     lo, hi = ic_ev(n, n_boot=n_boot, seed=seed)
 
+    ev_bp = float(np.nanmean(bp_per_trade(trades, pip_size, commission)[1].to_numpy()))
+    ev_atr = np.nan
+    if atr is not None:
+        netti_atr = atr_per_trade(trades, atr, pip_size, commission)[1].to_numpy()
+        if np.isfinite(netti_atr).any():
+            ev_atr = float(np.nanmean(netti_atr))
+
     s = {
         "n_trades": n_t,
         "ev_pips": ev,
+        "ev_bp": ev_bp,
+        "ev_atr": ev_atr,
         "ev_lordo": float(lordi.to_numpy().mean()),
         "ev_R": ev_r,
         "net_pips": float(n.sum()),
@@ -520,6 +537,10 @@ def stampa_scheda(s: dict, titolo: str = "SCHEDA STRATEGIA") -> None:
           f"(lordo {s['ev_lordo']:.3f})")
     print(f"     cuscinetto sui costi: regge {s['ev_pips']:.3f} pips di attrito "
           "in piu' prima di azzerarsi")
+    if np.isfinite(s.get("ev_bp", np.nan)):
+        print(f"  EV netto in bp          {s['ev_bp']:>9.2f} bp     (sul prezzo d'ingresso)")
+    if np.isfinite(s.get("ev_atr", np.nan)):
+        print(f"  EV netto in ATR         {s['ev_atr']:>9.4f} ATR    (ATR giornaliero al segnale)")
     if np.isfinite(s.get("ev_R", np.nan)):
         print(f"  EV in R multipli        {s['ev_R']:>9.3f} R")
     print(f"  t-stat                  {s['t_stat']:>9.2f}")
