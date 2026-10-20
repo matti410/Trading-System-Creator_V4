@@ -927,18 +927,28 @@ def id_periodo(df: pd.DataFrame, regola: str) -> np.ndarray:
         W   la settimana FX: inizia domenica alle 17:00 NY (giornata FX del lunedi')
         M   il mese della data FX
 
+    Sui symbol da exchange (livelli.GIORNATA_UTC, 20/10/2026, docs/63 §10.1
+    punto 3) gli stessi periodi partono dalla mezzanotte UTC, come le candele
+    degli exchange: H4 alle 0, 4, 8, 12, 16, 20 UTC, D da 00:00 a 00:00 UTC,
+    W dal lunedi' alle 00:00 UTC, M il mese UTC.
+
     Serve l'indice con fuso orario. I confini vengono dal calendario puro,
     senza quarantena (come range_finestra).
     """
+    from engine.livelli import GIORNATA_UTC, giornata_attiva
+
     idx = pd.DatetimeIndex(df.index)
     if regola == "H1":
         chiave = idx.floor("h").asi8
     else:
-        # +7 ore all'ora DA OROLOGIO di New York: le 17:00 diventano la mezzanotte
-        # della data FX. Si somma all'ora locale senza fuso: sommando a un orario
-        # con fuso, la notte del cambio d'ora i blocchi H4 si spostavano di un'ora
-        # (la data FX resta la stessa di giorno_fx: il cambio d'ora e' alle 2:00)
-        loc = idx.tz_convert("America/New_York").tz_localize(None) + pd.Timedelta(hours=7)
+        if giornata_attiva() == GIORNATA_UTC:
+            loc = idx.tz_convert("UTC").tz_localize(None)
+        else:
+            # +7 ore all'ora DA OROLOGIO di New York: le 17:00 diventano la mezzanotte
+            # della data FX. Si somma all'ora locale senza fuso: sommando a un orario
+            # con fuso, la notte del cambio d'ora i blocchi H4 si spostavano di un'ora
+            # (la data FX resta la stessa di giorno_fx: il cambio d'ora e' alle 2:00)
+            loc = idx.tz_convert("America/New_York").tz_localize(None) + pd.Timedelta(hours=7)
         # giorni dal 1/1/1970 della data FX (conversione esplicita: l'unita'
         # interna delle date cambia fra pandas 2 e 3)
         giorni = loc.to_numpy().astype("datetime64[D]").astype(np.int64)
@@ -1007,7 +1017,8 @@ def atr_giornaliero_chiuso(df: pd.DataFrame, giorni: int = 5) -> pd.Series:
         (il primo giorno dei dati: massimo - minimo)
 
     Giornate FX e candele di `barre_superiori` (17:00 New York, senza le barre
-    in quarantena); su ogni barra M15 il valore dell'ultima giornata chiusa
+    in quarantena; sui symbol da exchange 00:00 UTC, livelli.GIORNATA_UTC);
+    su ogni barra M15 il valore dell'ultima giornata chiusa
     (`al_periodo_chiuso`): la giornata in corso non entra mai.
 
     Non e' in aggiungi_indicatori: le colonne del catalogo non cambiano. Lo

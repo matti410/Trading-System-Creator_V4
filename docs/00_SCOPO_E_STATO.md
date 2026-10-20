@@ -2,7 +2,8 @@
 
 **Da leggere per primo.** Aggiornato: 20 ottobre 2026 (riscritto per intero il
 17/10: metodo in sette passi qui dentro, solo documenti che esistono nel repo;
-stato aggiornato al 19/10; **perimetro solo crypto dal 20/10**, `63` §10.0).
+stato aggiornato al 19/10; **perimetro solo crypto dal 20/10**, `63` §10.0;
+giornata delle crypto a 00:00 UTC dal 20/10).
 
 **Repo (pubblico):** `github.com/matti410/Trading-System-Creator_V4`
 **Notebook:**
@@ -422,10 +423,17 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   (`63` §10.0). Notebook vivi e allineati: Lab crypto e ricerca. Le suite
   `test_*.py` si lanciano tutte, comprese quelle sui symbol del broker (non
   chiedono MT5): se una si rompe, si è toccato codice condiviso.
-- **Prossimi lavori, approvati il 20/10 (`63` §10):** giornata delle crypto a
-  00:00 UTC → unità di rischio (bp e ATR) → funding dei perpetual → mercato
-  nullo sulla pipeline di oggi → atlante del trigger → mercato nullo con
-  l'atlante. Un ramo ciascuno.
+- **Giornata delle crypto (20/10, `63` §10.1 punto 3):** sui symbol da
+  exchange la giornata va da 00:00 a 00:00 UTC (sul broker resta quella FX,
+  dalle 17:00 di New York). Vale per «un trigger al giorno», il massimo e il
+  minimo di ieri (E23), l'ATR del money management, `gap_trend`, F36, F38,
+  F39 e le candele H4, D, W, M (E31, F37). La imposta `carica_storico`
+  (`engine/livelli.imposta_giornata`), come il rollover spento. Restano
+  invece alle 17:00 di New York gli orari presi dalle fonti (momentum
+  intraday E36/E37, salto E40, sessioni come F21 e F22).
+- **Prossimi lavori, approvati il 20/10 (`63` §10):** unità di rischio (bp e
+  ATR) → funding dei perpetual → mercato nullo sulla pipeline di oggi →
+  atlante del trigger → mercato nullo con l'atlante. Un ramo ciascuno.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
   testuali: 53 prove al 19/10, registro in `50` §10.

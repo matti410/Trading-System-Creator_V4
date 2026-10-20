@@ -25,7 +25,8 @@ LE REGOLE (decisioni di Mattia del 16/10/2026, docs/61 §3 e §10)
 - Limiti: lotto minimo, passo e massimo da simboli.LOTTI, leva da simboli.LEVA.
 - 16/10/2026, fase 3 (docs/61 §14): misura="volatilita'" = modello a
   volatilita' del libro (cap. 4.5): il "rischio" e' l'ATR giornaliero a 5
-  giornate FX chiuse (indicatori.atr_giornaliero_chiuso) alla barra del
+  giornate FX chiuse (indicatori.atr_giornaliero_chiuso; sui symbol da
+  exchange giornate da 00:00 UTC, dal 20/10/2026) alla barra del
   segnale, in pips, senza costi. Il modulo puro non cambia.
 
 Modulo ADDITIVO: legge simboli, metriche, exit_search_bt (soglie_per_lato) e il
