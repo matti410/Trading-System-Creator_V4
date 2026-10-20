@@ -1,15 +1,18 @@
 # 00 · Scopo del progetto e stato del tool
 
-**Da leggere per primo.** Aggiornato: 19 ottobre 2026 (riscritto per intero il
+**Da leggere per primo.** Aggiornato: 20 ottobre 2026 (riscritto per intero il
 17/10: metodo in sette passi qui dentro, solo documenti che esistono nel repo;
-stato aggiornato al 19/10).
+stato aggiornato al 19/10; **perimetro solo crypto dal 20/10**, `63` §10.0).
 
 **Repo (pubblico):** `github.com/matti410/Trading-System-Creator_V4`
 **Notebook:**
-- `Trading_Grid_Search_v4_backtesting.ipynb` — la ricerca completa;
-- `Trading_System_Lab.ipynb` — il laboratorio guidato in nove passi, senza
-  codice nelle celle (chiama `engine/vetrina.py`);
-- `Collaudo_Catalogo.ipynb` — il collaudo del catalogo delle condizioni.
+- `Trading_System_Lab_Crypto.ipynb` — il laboratorio guidato in nove passi sui
+  dati da exchange, senza codice nelle celle (chiama `engine/vetrina.py`);
+- `Trading_Grid_Search_v4_backtesting.ipynb` — la ricerca completa, usata sui
+  symbol da exchange;
+- `Collaudo_Catalogo.ipynb` — il collaudo del catalogo delle condizioni;
+- `Trading_System_Lab.ipynb` — il laboratorio sul broker CFD: **sospeso dal
+  20/10/2026, non mantenuto** (resta nel repo, non si aggiorna e non si collauda).
 
 Girano in locale (dati da `dati/`) e su Colab (dati da Google Drive,
 `Il mio Drive/Trading-System-Creator_V4/dati/`). I CSV non sono su GitHub.
@@ -21,9 +24,18 @@ Girano in locale (dati da `dati/`) e su Colab (dati da Google Drive,
 **Uno strumento per scovare strategie di trading.** Una base, che cresce
 aggiungendo condizioni di ingresso, filtri, uscite, diagnostiche.
 
-Non è la ricerca di un edge su EURUSD. EURUSD M15 è il **dataset di
-sviluppo**: fa girare il codice e fa emergere i difetti degli strumenti. È
-piatto, ed è utile proprio per questo — fa vedere come appare il nulla.
+**Perimetro (decisione di Mattia del 20/10/2026, `63` §10.0): solo crypto da
+exchange** — Binance e Bybit, spot e perpetual, BTC, ETH, SOL, XRP. Il lato
+broker (MT5, CFD, EURUSD e gli altri 8 symbol) è **sospeso**: codice, test,
+notebook e dati restano nel repo e si possono riaprire, ma non si sviluppano e
+non si usano per misurare. `scarica_dati.py` (MT5) non si usa.
+
+Non è la ricerca di un edge su un symbol. Il **dataset di sviluppo** e della
+prova di identità è **BINANCE_PERP_BTCUSDT** M15 (dal 2/1/2020, long e short):
+fa girare il codice e fa emergere i difetti degli strumenti. Il giro completo
+«su un symbol diverso» si fa su **BYBIT_SPOT_ETHUSDT** (altro exchange, spot,
+solo long, altra moneta). Fino al 19/10 il dataset di sviluppo era EURUSD M15:
+le misure citate più sotto su EURUSD sono di quel periodo.
 
 ---
 
@@ -125,6 +137,8 @@ Le istruzioni per Claude Code sono in `CLAUDE.md`.
 | 51 | `51_INDICATORI_TRADINGVIEW.md` | specifica dei 7 indicatori TradingView tradotti in condizioni (13–15/10) |
 | 60 | `60_MONEY_MANAGEMENT.md` | incarico di studio sul money management (libro di Unger) |
 | 61 | `61_PROPOSTA_MONEY_MANAGEMENT.md` | proposta, decisioni e cosa è stato fatto nelle fasi 0–3 del money management |
+| 62 | `62_ATLANTE_E_FLUSSO.md` | incarico di studio: unità di rischio, funding dei perpetual, atlante del trigger, mercato nullo (20/10) |
+| 63 | `63_PROPOSTA_ATLANTE_E_FLUSSO.md` | la proposta, il controllo con i documenti di progetto e le decisioni di Mattia (perimetro solo crypto in §10.0) |
 | 93 | `93_QUARANTENA_TRADE_E_COSTI.md` | quarantena applicata ai trade e costi del conto Standard (5/10) |
 | — | `GUIDA_ANALISI_FONTI.md` | guida per Mattia: come portare una fonte (articolo, video, libro) fino al codice |
 
@@ -141,7 +155,8 @@ sopra (il metodo) o nel codice e nei test. Il ramo ML è un altro repo
 
 | modulo | cosa fa |
 |---|---|
-| `scarica_dati.py` | scarica da MT5 (sola lettura) i CSV M15 in `dati/` |
+| `scarica_dati_crypto.py` | scarica dagli exchange (ccxt, sola lettura, senza chiavi) i CSV in `dati/` — l'unico scaricatore in uso dal 20/10 |
+| `scarica_dati.py` | scarica da MT5 (sola lettura) i CSV M15 in `dati/` — **sospeso dal 20/10/2026** |
 | `engine/mt5_interaction.py` | le funzioni di lettura da MT5 usate da `scarica_dati.py` |
 | `engine/simboli.py` | **unica fonte** di pip, classe, contratto, valuta, lotti e leva per symbol (`pip_symbol`, `info_symbol`, `lotti_symbol`, `leva_symbol`) |
 | `engine/broker_tz_diagnostic.py` | diagnosi del fuso, `to_utc_index()` |
@@ -151,9 +166,12 @@ sopra (il metodo) o nel codice e nei test. Il ramo ML è un altro repo
 | `engine/livelli.py` | `range_finestra()`, `giorno_fx()`, `al_ultima_apertura()`, `primo_del_giorno()` — vedi `20` trappole 4–5 |
 | `engine/indicatori.py` | `aggiungi_indicatori(df)` e tutti gli indicatori nuovi (regola: solo qui) |
 
-Symbol con i dati in `dati/` (M15 dal 2/1/2020): EURUSD, GBPUSD, USDJPY,
-NZDUSD, BTCUSD, US500, USTEC, XAUUSD, DE40. USDCAD escluso (in M15 solo da
-gennaio 2025).
+**Symbol in uso (dal 20/10/2026):** i 16 da exchange di `SIMBOLI_EXCHANGE`
+(Binance e Bybit × spot e perpetual × BTC, ETH, SOL, XRP; M15 dal 2/1/2020 o
+dalla prima barra disponibile), scaricati con `scarica_dati_crypto.py`.
+**Sospesi** (dati ancora in `dati/`, non si usano per misurare): EURUSD,
+GBPUSD, USDJPY, NZDUSD, BTCUSD, US500, USTEC, XAUUSD, DE40 del broker. USDCAD
+escluso (in M15 solo da gennaio 2025).
 
 ### Motore di ricerca
 
@@ -209,8 +227,8 @@ verifica_degenerazione(df, min_occorrenze=30, copertura_max=0.95, distanza_grapp
 condizioni_registrate() · tagli_standard(indice) · mercato_sintetico()
 ```
 
-Il conto di riferimento è il **Standard** del broker: costo tutto nello spread,
-commissione zero. Uno spread che manca nel listino non si inventa: il notebook
+Sul lato broker (sospeso dal 20/10) il conto di riferimento è il **Standard**:
+costo tutto nello spread, commissione zero. Uno spread che manca nel listino non si inventa: il notebook
 si ferma e indica la riga da aggiungere (`50` §12). Sui symbol da exchange
 (dal 19/10) il costo è la commissione taker per lato del listino dell'exchange,
 livello base, più uno spread di un passo; il funding dei perpetual non è
@@ -310,7 +328,7 @@ e quante volte il caso, regola dei doppioni di `50` §7.5), `somiglianze` e
 `famiglie` (condizioni raggruppate a somiglianza media ≥ 60%). Usa solo i
 segnali, mai i risultati dei trade. Collaudo: `test_famiglie.py`.
 
-### 5. Portabilità multi-asset — fatta su 9 symbol
+### 5. Portabilità multi-asset — fatta su 9 symbol del broker e 16 da exchange (lato broker sospeso dal 20/10)
 
 Il primo run su BTCUSD (25/9) ha trovato due difetti, corretti e coperti da
 `test_portabilita.py`: **prezzo > capitale** (`backtesting.py` non compra
@@ -397,14 +415,23 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 ---
 
-## Dove siamo (19/10/2026)
+## Dove siamo (19/10/2026; perimetro aggiornato il 20/10)
 
+- **Perimetro (20/10):** solo crypto da exchange; lato broker sospeso; dataset
+  di sviluppo BINANCE_PERP_BTCUSDT, giro di controllo su BYBIT_SPOT_ETHUSDT
+  (`63` §10.0). Notebook vivi e allineati: Lab crypto e ricerca. Le suite
+  `test_*.py` si lanciano tutte, comprese quelle sui symbol del broker (non
+  chiedono MT5): se una si rompe, si è toccato codice condiviso.
+- **Prossimi lavori, approvati il 20/10 (`63` §10):** giornata delle crypto a
+  00:00 UTC → unità di rischio (bp e ATR) → funding dei perpetual → mercato
+  nullo sulla pipeline di oggi → atlante del trigger → mercato nullo con
+  l'atlante. Un ramo ciascuno.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
   testuali: 53 prove al 19/10, registro in `50` §10.
-- **I tre notebook** (ricerca, Lab, Lab crypto) leggono da `dati/` (o da
-  Drive), con pip fisso per symbol, costi di listino, fuso controllato. Vanno
-  aggiornati sempre insieme (`CLAUDE.md`).
+- **I notebook** (ricerca, Lab crypto; il Lab broker è sospeso dal 20/10)
+  leggono da `dati/` (o da Drive), con pip fisso per symbol, costi di listino,
+  fuso controllato. I due vivi si aggiornano sempre insieme (`CLAUDE.md`).
 - **Dati da exchange crypto (19/10):** 16 symbol (Binance e Bybit, spot e
   perpetual, BTC ETH SOL XRP), M15 dal 2/1/2020, scaricati con
   `scarica_dati_crypto.py` (ccxt, sola lettura, senza chiavi). Ora UTC, nessun
@@ -455,7 +482,7 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 **Aperti, per scelta di Mattia:** interruttore sulla curva dei profitti.
 **Aperti nel tool:** runner unico (punto 6); il funding dei perpetual nei
-risultati (fase 2 della versione crypto); Kraken (via API solo le ultime 720
+risultati (fase 2 della versione crypto, lavoro B di `63`); Kraken (via API solo le ultime 720
 barre spot: servono i suoi CSV trimestrali). **Prossimo, approvato da Mattia il 18/10:** fonti con un
 motivo economico, una alla volta con il processo di `50`. Dal 18/10 (Mattia):
 si passerà alle crypto, con dati da exchange e non dal broker CFD; quindi

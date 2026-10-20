@@ -5,7 +5,11 @@ spiega in parole semplici: cosa hai fatto, come eseguire ogni comando, cosa dovr
 vedere come risultato. Ragiona come un trader algoritmico esperto.
 
 ## Il progetto
-Strumento Python per scovare strategie di trading (EURUSD, BTCUSD e altri symbol, M15).
+Strumento Python per scovare strategie di trading. DAL 20/10/2026 IL PERIMETRO E' SOLO
+CRYPTO DA EXCHANGE (Binance, Bybit; spot e perpetual; BTC, ETH, SOL, XRP). Il lato broker
+(MT5, CFD, EURUSD e gli altri 8 symbol) e' SOSPESO: il codice resta nel repo, non si
+cancella, ma non si sviluppa e non si usa per misurare. Dataset di sviluppo e di
+identita': BINANCE_PERP_BTCUSDT (prima era EURUSD). Decisione in docs/63 §10.0.
 Leggi PRIMA di lavorare: docs/00_SCOPO_E_STATO.md (regola che viene prima di tutte:
 i risultati sui dati NON sono il metro di giudizio del progetto, non fare commenti
 tipo "la strategia tiene/non tiene" né proposte di cambiare asset se non richiesti),
@@ -40,6 +44,11 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   Se un test fallisce, fermati e spiega.
 
 ## Dati e MT5
+- SOSPESO DAL 20/10/2026: MT5 e scarica_dati.py non si usano. I dati si scaricano solo con
+  scarica_dati_crypto.py (sotto). Le regole su MT5 qui sotto restano valide se un giorno
+  si riapre il lato broker.
+- ccxt, funzioni ammesse (tutte pubbliche, sola lettura): load_markets, fetch_ohlcv,
+  fetch_funding_rate_history. MAI chiavi API, MAI ordini, MAI saldi.
 - I dati scaricati vanno in dati/ (non vanno su GitHub, è nel .gitignore).
 - Symbol disponibili in dati/ (M15 dal 2/1/2020, scaricati con scarica_dati.py):
   EURUSD, GBPUSD, USDJPY, NZDUSD, BTCUSD, US500, USTEC, XAUUSD, DE40.
@@ -48,8 +57,8 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   su Colab da Google Drive (Il mio Drive/Trading-System-Creator_V4/dati/).
 - Dati da exchange crypto (dal 19/10/2026): scarica_dati_crypto.py, sul PC (Binance e Bybit
   bloccano Colab), 16 symbol = Binance e Bybit x spot e perpetual x BTC, ETH, SOL, XRP, M15
-  dal 2/1/2020. Date gia' in UTC, nessun rollover. Solo funzioni PUBBLICHE di lettura di ccxt
-  (load_markets, fetch_ohlcv), MAI chiavi API, MAI funzioni di ordine o di saldo.
+  dal 2/1/2020. Date gia' in UTC, nessun rollover. Solo le funzioni di ccxt ammesse qui sopra,
+  MAI chiavi API, MAI funzioni di ordine o di saldo.
   Costi: commissione taker per lato dal listino ufficiale, livello base (COMMISSIONI in
   engine/exchange.py); valori nuovi solo dal listino, con la fonte. Il funding dei perpetual
   non e' ancora contato. Leva: mai oltre il tetto italiano (perpetual 2, spot 1).
@@ -66,17 +75,21 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 - Dopo ogni download: controlla fuso orario del broker, buchi e barre in quarantena
   (docs/10, docs/11) e riporta il risultato. Pip e costi per symbol: docs/50 §12.
 
-## I tre notebook: sempre allineati
-- Trading_Grid_Search_v4_backtesting.ipynb (ricerca), Trading_System_Lab.ipynb (laboratorio
-  guidato, broker CFD) e Trading_System_Lab_Crypto.ipynb (lo stesso laboratorio coi dati da
-  exchange, dal 19/10/2026) vanno aggiornati SEMPRE insieme, nello stesso ramo: ogni modifica
-  a dati, symbol, costi, pip, fuso, capitale, lotti o leva fatta in uno va portata negli altri.
-- I due Lab non hanno codice nelle celle: chiamano le funzioni di engine/vetrina.py (prepara,
-  stress_test, ...). Allineare i Lab vuol dire di solito modificare vetrina.py. Dati e costi
-  si leggono con carica_storico e costi_storico, le stesse funzioni nei tre notebook.
-- Prova per tutti: identità su EURUSD a parità di barre (prima e dopo la modifica), un
-  giro completo su un symbol non forex (es. DE40) e uno su un symbol da exchange
-  (es. BINANCE_PERP_BTCUSDT). Dettagli in docs/50 §12.
+## I notebook: due vivi, uno sospeso
+- Vivi e SEMPRE allineati, nello stesso ramo: Trading_System_Lab_Crypto.ipynb (laboratorio
+  guidato, dati da exchange) e Trading_Grid_Search_v4_backtesting.ipynb (ricerca, usato sui
+  symbol da exchange). Ogni modifica a dati, symbol, costi, pip, fuso, capitale, lotti o leva
+  fatta in uno va portata nell'altro.
+- Sospeso dal 20/10/2026: Trading_System_Lab.ipynb (broker CFD). Non si aggiorna e non si
+  collauda; in testa ha la riga «sospeso dal 20/10/2026, non mantenuto». Non va cancellato.
+- I Lab non hanno codice nelle celle: chiamano le funzioni di engine/vetrina.py. Allineare
+  vuol dire di solito modificare vetrina.py. Dati e costi si leggono con carica_storico e
+  costi_storico.
+- Prova per tutti: identita' su BINANCE_PERP_BTCUSDT a parita' di barre (prima e dopo la
+  modifica) nei due notebook vivi, e un giro completo su BYBIT_SPOT_ETHUSDT (altro exchange,
+  spot, solo long).
+- Tutte le suite test_*.py si lanciano comunque, comprese quelle sui symbol del broker (non
+  chiedono MT5): se una si rompe, si e' toccato codice condiviso.
 
 ## Git e invio su GitHub (procedura completa)
 1. Parti da main aggiornato: `git switch main`, `git fetch origin --prune`,
