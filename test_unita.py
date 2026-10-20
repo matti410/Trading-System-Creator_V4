@@ -218,6 +218,70 @@ def main() -> int:
     check("E2. con l'ATR: ev_atr = media dei netti in ATR; ev_pips invariato",
           np.isclose(k_atr["ev_atr"], np.nanmean(atr_per_trade(trd, atr_df, pip, 0.0005)[1]))
           and k_atr["ev_pips"] == k["ev_pips"])
+    kb = scheda_strategia(trd, pip, 0.0005, montecarlo=True, n_sim=200, verbose=False, n_boot=200,
+                          unita="bp")
+    _, nb_trd = bp_per_trade(trd, pip, 0.0005)
+    _, np_trd = pips_per_trade(trd, pip, 0.0005)
+    km = scheda_strategia(trd, pip, 0.0005, montecarlo=True, n_sim=200, verbose=False, n_boot=200)
+    check("E3. U2, unita='bp': EV, t e win rate sui bp; ev_pips, totale e drawdown restano in pips",
+          np.isclose(kb["ev"], nb_trd.mean()) and np.isclose(kb["t_stat"], t_stat(nb_trd.to_numpy()))
+          and np.isclose(kb["ev_pips"], np_trd.mean()) and kb["net_pips"] == km["net_pips"]
+          and kb["dd_chiusi_pips"] == km["dd_chiusi_pips"] and kb["dd_50"] == km["dd_50"]
+          and kb["unita"] == "bp" and km["unita"] == "pips" and km["ev"] == km["ev_pips"])
+
+    # ------------------------------------------------------- U2 nei motori --
+    print("\nU · U2: decide il bp nei motori (uscite, filtri, due meta')")
+    from engine.due_meta import due_meta
+    from engine.filter_search_bt import BASELINE, run_filter_search_bt
+    from engine.metriche import metriche_per_trade, netti_in_unita
+
+    @R.register_filter("TEST_FILTRO_MATTINA", 0)
+    def _mattina(d):
+        return pd.Series(d.index.hour < 12, index=d.index)
+
+    mb = metriche_per_trade(trd, pip, 0.0005, unita="bp")
+    mp = metriche_per_trade(trd, pip, 0.0005)
+    check("U1. metriche_per_trade in bp: medie in bp, pips accanto; in pips nessuna chiave nuova",
+          np.isclose(mb["avg_trade_netto"], nb_trd.mean()) and np.isclose(mb["avg_trade_netto_pips"], np_trd.mean())
+          and "avg_trade_netto_pips" not in mp and mp["avg_trade_netto"] == np_trd.mean())
+    try:
+        netti_in_unita(trd, pip, 0.0005, "atr")
+        err = False
+    except ValueError:
+        err = True
+    check("U2. l'ATR non decide: netti_in_unita('atr') si ferma con errore", err)
+    kw_m = dict(n_barre=H, perc_sl=0.0, perc_tp=0.0, spread=0.0, commission=0.0005,
+                cash=10_000_000, pip_size=pip, verbose=False)
+    es_b = muto(run_exit_search_bt, df, entry_cols_long=["TEST_LONG_OGNI_ORA", None],
+                entry_cols_short=["TEST_SHORT_MEZZORA", None], unita="bp", **kw_m)
+    rb_ = es_b.risultati.set_index("combinazione").loc[comb]
+    rp_ = es.risultati.set_index("combinazione").loc[comb]
+    check("U3. uscite in bp: stessi trade, avg_trade_netto e t in bp, pips accanto identici a prima",
+          es_b.unita == "bp" and len(es_b.trades(comb)) == len(trd)
+          and np.isclose(rb_["avg_trade_netto"], nb_trd.mean()) and np.isclose(rb_["t_stat"], t_stat(nb_trd.to_numpy()))
+          and np.isclose(rb_["avg_trade_netto_pips"], rp_["avg_trade_netto"]) and rb_["sharpe"] == rp_["sharpe"])
+    kw_f = dict(entry_long="TEST_LONG_OGNI_ORA", entry_short="TEST_SHORT_MEZZORA",
+                filtri=["TEST_FILTRO_MATTINA"], min_trades_giudizio=30, processi=1, **kw_m)
+    fs_p = muto(run_filter_search_bt, df, **kw_f)
+    fs_b = muto(run_filter_search_bt, df, unita="bp", **kw_f)
+    from engine.giudizio import tenuti_scartati
+    base_tr = fs_b.trades(BASELINE)
+    m_l = _mattina(df).to_numpy()
+    ts_b = tenuti_scartati(base_tr, bp_per_trade(base_tr, pip, 0.0005)[1].to_numpy(), m_l, m_l)
+    riga_b = fs_b.risultati.set_index("filtro").loc["TEST_FILTRO_MATTINA"]
+    riga_p = fs_p.risultati.set_index("filtro").loc["TEST_FILTRO_MATTINA"]
+    check("U4. filtri in bp: tenuti contro scartati sui bp (t_guadagno), stessi trade, pips accanto",
+          fs_b.unita == "bp" and np.isclose(riga_b["t_guadagno"], ts_b["t_guadagno"])
+          and riga_b["trades"] == riga_p["trades"]
+          and np.isclose(riga_b["avg_trade_netto_pips"], riga_p["avg_trade_netto"]),
+          f"t in bp {riga_b['t_guadagno']:+.2f}, in pips {riga_p['t_guadagno']:+.2f}")
+    check("U5. fs.scheda() decide nell'unita' della ricerca",
+          fs_b.scheda(montecarlo=False, verbose=False, n_boot=100)["unita"] == "bp"
+          and fs_p.scheda(montecarlo=False, verbose=False, n_boot=100)["unita"] == "pips")
+    dm = muto(due_meta, df, fs_b, [None, "TEST_FILTRO_MATTINA"], spread=0.0, commission=0.0005,
+              cash=10_000_000, verbose=False)
+    check("U6. due meta': le due ricerche usano l'unita' di fs (bp)",
+          dm.metà1.unita == "bp" and dm.metà2.unita == "bp")
     R.clear_registry()
 
     # ---------------------------------------------------------------- vetrina --
@@ -234,6 +298,10 @@ def main() -> int:
           "Costo per trade in bp" in rie.index and "commissione 10,0 bp" in rie["Costo per trade in bp"]
           and list(rie.index).index("Costo per trade in bp") == list(rie.index).index("Costo per trade") + 1,
           rie.get("Costo per trade in bp", ""))
+    s.uscite = dict(n_barre=8, n_barre_long=8, n_barre_short=8, perc_sl=90.0, perc_tp=0.0, regola=None)
+    check("F3. U2: sui symbol da exchange decide il bp, e i motori lo ricevono",
+          s.unita == "bp" and v._kw_motore(s)["unita"] == "bp"
+          and v.Sessione().unita == "pips")
     R.clear_registry()
 
     tot, ok = len(ESITI), sum(ESITI)

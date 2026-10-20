@@ -88,7 +88,7 @@ from .registry import (get_entry, get_exit, get_filter, get_filter_direction,
 from .event_study import deduci_pip
 from .exit_search_bt import (soglie_adattive, _StrategiaGenerica,
                              barre_per_lato, soglie_per_lato)
-from .metriche import metriche_per_trade, pips_per_trade
+from .metriche import UNITA_CHE_DECIDONO, metriche_per_trade, netti_in_unita
 from .controlli import avviso_capitale
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
 from .giudizio import (RIFERIMENTO, p_ev_negativo, soglia_rumore, t_stat,
@@ -214,6 +214,7 @@ def run_filter_search_bt(
     n_barre_short=None,
     pip_size=None,
     processi=None,
+    unita="pips",
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -276,6 +277,13 @@ def run_filter_search_bt(
     pip_size (10/10/2026)
         Il pip fisso del symbol, di norma da **costi. None = dedotto dal
         prezzo medio come prima, con un avviso. Vedi run_exit_search_bt.
+
+    unita (20/10/2026, docs/63 §4.2, U2)
+        L'unita' in cui si misurano i trade per DECIDERE: "pips" (come
+        prima) o "bp" (punti base del prezzo d'ingresso di ogni trade). Con
+        "bp" le colonne avg_trade, avg_trade_netto, costo_pips, guadagno_pips, guadagno_avg_trade sono in bp
+        (il nome resta, per compatibilita'), t e P(EV<0) si calcolano sui
+        netti in bp, e avg_trade_netto_pips riporta i pips accanto.
 
     processi (17/10/2026)
         Quanti processi usare per le righe. None (default) = automatico (i
@@ -436,6 +444,8 @@ def run_filter_search_bt(
             print(f"run_filter_search_bt: pip dedotto dal prezzo ({pip_size:g}). "
                   "Passa i costi di parametri_backtest per il pip fisso del symbol.")
     pip_size = float(pip_size)
+    if unita not in UNITA_CHE_DECIDONO:
+        raise ValueError(f"unita {unita!r}: usa una di {UNITA_CHE_DECIDONO}.")
 
     giri = [dict(long_col=col_long, short_col=col_short, n_barre=n_barre,
                  n_barre_long=n_long, n_barre_short=n_short,
@@ -454,14 +464,14 @@ def run_filter_search_bt(
                                   spread_rollover_pips, pip_size)
 
         # stesso calcolo di exit_search_bt: engine/metriche.py, un posto solo.
-        m = metriche_per_trade(trades, pip_size, commission)
+        m = metriche_per_trade(trades, pip_size, commission, unita)
         n_t = m["n_trades"]
 
         # il sistema filtrato realizzato guadagna? (t e P(EV<0) sui suoi
         # pips netti). Domanda distinta da "il filtro aggiunge qualcosa",
         # che si misura piu' sotto su tenuti vs scartati.
         if n_t:
-            _, netti = pips_per_trade(trades, pip_size, commission)
+            _, netti = netti_in_unita(trades, pip_size, commission, unita)
             netti = netti.to_numpy()
             t_riga = t_stat(netti)
             p_riga = p_ev_negativo(netti, n_boot=n_boot, seed=seed)
@@ -486,6 +496,7 @@ def run_filter_search_bt(
             "durata_media": m["durata_media"],
             "durata_max": m["durata_max"],
             "pochi_trade": n_t < min_trades,
+            **({"avg_trade_netto_pips": m["avg_trade_netto_pips"]} if unita != "pips" else {}),
         })
         trades_per_filtro[etichetta] = trades
         maschere_per_filtro[etichetta] = (m_long, m_short)
@@ -502,7 +513,7 @@ def run_filter_search_bt(
     # rende illecito ogni test appaiato.
     base_trades = trades_per_filtro[BASELINE]
     if len(base_trades):
-        _, base_netti = pips_per_trade(base_trades, pip_size, commission)
+        _, base_netti = netti_in_unita(base_trades, pip_size, commission, unita)
         base_netti = base_netti.to_numpy()
         base_chiavi = set(zip(base_trades["EntryBar"].to_numpy(),
                               np.sign(base_trades["Size"].to_numpy())))
@@ -568,7 +579,7 @@ def run_filter_search_bt(
                           exit_rule_pair=exit_rule_pair, n_barre=n_barre,
                           min_trades=min_trades, soglia_rumore=soglia,
                           pip_size=pip_size, commission=commission,
-                          n_barre_long=n_long, n_barre_short=n_short)
+                          n_barre_long=n_long, n_barre_short=n_short, unita=unita)
 
 
 class FilterSearchBT:
@@ -577,8 +588,9 @@ class FilterSearchBT:
     def __init__(self, risultati, trades_per_filtro, entry_long, entry_short,
                  exit_rule_pair, n_barre, min_trades, soglia_rumore=None,
                  pip_size=None, commission=None,
-                 n_barre_long=None, n_barre_short=None):
+                 n_barre_long=None, n_barre_short=None, unita="pips"):
         self.risultati = risultati
+        self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono
         self._trades_per_filtro = trades_per_filtro
         self.entry_long = entry_long
         self.entry_short = entry_short
@@ -623,6 +635,7 @@ class FilterSearchBT:
         """
         from .giudizio import scheda_strategia
         nome = BASELINE if filtro is None else filtro
+        kwargs.setdefault("unita", self.unita)
         return scheda_strategia(self.trades(nome), self.pip_size,
                                 self.commission or 0.0, **kwargs)
 

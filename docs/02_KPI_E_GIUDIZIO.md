@@ -363,8 +363,15 @@ alto. Due unità in più, per trade e per ogni rendimento a H barre:
 
 Funzioni: `metriche.bp_per_trade`, `metriche.atr_per_trade`,
 `stagionalita.rendimenti_avanti_unita`, parametri `unita` e `unita_extra` di
-`rosa_entry` e `rosa_sistemi`, voci `ev_bp` ed `ev_atr` della scheda. Primo passo
-(U1): colonne in più, decidono ancora i pips.
+`rosa_entry` e `rosa_sistemi`, voci `ev_bp` ed `ev_atr` della scheda.
+
+**Quale unità decide (U2, 20/10/2026).** Sui symbol da exchange **decide il bp** in
+tutti i passi: rosa dei trigger e dei sistemi, ricerca delle uscite, ricerca dei
+filtri (tenuti contro scartati), due metà, scheda (solidità, P(EV<0), verdetto). I
+pips restano accanto, e restano l'unità di totale, drawdown, money management e
+stress test (sono soldi: pips × valore del pip). L'event study misurava già in
+percentuale del prezzo. Sul broker (sospeso) decidono ancora i pips. Confronto fra
+le due unità in `63` §4.7.
  
 ---
  

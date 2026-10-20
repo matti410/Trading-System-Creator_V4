@@ -431,9 +431,13 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   (`engine/livelli.imposta_giornata`), come il rollover spento. Restano
   invece alle 17:00 di New York gli orari presi dalle fonti (momentum
   intraday E36/E37, salto E40, sessioni come F21 e F22).
-- **Prossimi lavori, approvati il 20/10 (`63` §10):** unità di rischio (bp e
-  ATR) → funding dei perpetual → mercato nullo sulla pipeline di oggi →
-  atlante del trigger → mercato nullo con l'atlante. Un ramo ciascuno.
+- **Unità di rischio (20/10, `63` §4):** sui symbol da exchange decide il bp
+  (punti base del prezzo d'ingresso) in ogni passo del Lab crypto e della
+  ricerca; pips e ATR restano accanto; totale, drawdown, money management e
+  stress test restano in pips (`02`, «Unità»).
+- **Prossimi lavori, approvati il 20/10 (`63` §10):** funding dei perpetual →
+  mercato nullo sulla pipeline di oggi → atlante del trigger → mercato nullo
+  con l'atlante. Un ramo ciascuno.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
   testuali: 53 prove al 19/10, registro in `50` §10.

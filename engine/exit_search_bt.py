@@ -96,7 +96,7 @@ from backtesting import Backtest, Strategy
 
 from .registry import get_entry, get_entry_direction, get_exit, list_exit_pairs
 from .event_study import deduci_pip
-from .metriche import metriche_per_trade, pips_per_trade
+from .metriche import UNITA_CHE_DECIDONO, metriche_per_trade, netti_in_unita
 from .controlli import avviso_capitale
 from .giudizio import soglia_rumore, t_stat
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
@@ -339,6 +339,7 @@ def run_exit_search_bt(
     n_barre_long=None,
     n_barre_short=None,
     pip_size=None,
+    unita="pips",
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -432,6 +433,13 @@ def run_exit_search_bt(
         engine/simboli.py). None = dedotto dal prezzo medio come prima, con
         un avviso: succede solo chiamando il motore senza i costi del symbol
         (dati sintetici).
+
+    unita (20/10/2026, docs/63 §4.2, U2)
+        L'unita' in cui si misurano i trade per DECIDERE: "pips" (come
+        prima) o "bp" (punti base del prezzo d'ingresso di ogni trade). Con
+        "bp" le colonne avg_trade, avg_trade_netto, costo_pips sono in bp
+        (il nome resta, per compatibilita'), t e P(EV<0) si calcolano sui
+        netti in bp, e avg_trade_netto_pips riporta i pips accanto.
 
     Ritorna un oggetto ExitSearchBT: .risultati (tabella), .top(),
     .trades(combinazione), .soglia_rumore, .k.
@@ -553,6 +561,8 @@ def run_exit_search_bt(
             print(f"run_exit_search_bt: pip dedotto dal prezzo ({pip_size:g}). "
                   "Passa i costi di parametri_backtest per il pip fisso del symbol.")
     pip_size = float(pip_size)
+    if unita not in UNITA_CHE_DECIDONO:
+        raise ValueError(f"unita {unita!r}: usa una di {UNITA_CHE_DECIDONO}.")
 
     righe = []
     trades_per_combo = {}
@@ -581,11 +591,12 @@ def run_exit_search_bt(
 
         # avg_trade (lordo, invariato), avg_trade_netto e costo_pips: il
         # calcolo sta in engine/metriche.py, unico per i due motori.
-        m = metriche_per_trade(trades, pip_size, commission)
+        m = metriche_per_trade(trades, pip_size, commission, unita)
         n_t = m["n_trades"]
         # t sui pips NETTI per trade: il numero da confrontare con la soglia
-        # di rumore (i trade non si sovrappongono, exclusive_orders=True)
-        _, netti = pips_per_trade(trades, pip_size, commission)
+        # di rumore (i trade non si sovrappongono, exclusive_orders=True).
+        # 20/10/2026: nell'unita' che decide (pips o bp)
+        _, netti = netti_in_unita(trades, pip_size, commission, unita)
 
         righe.append({
             "combinazione": etichetta,
@@ -605,6 +616,7 @@ def run_exit_search_bt(
             "durata_media": m["durata_media"],
             "durata_max": m["durata_max"],
             "pochi_trade": n_t < min_trades,
+            **({"avg_trade_netto_pips": m["avg_trade_netto_pips"]} if unita != "pips" else {}),
         })
         trades_per_combo[etichetta] = trades
 
@@ -638,7 +650,7 @@ def run_exit_search_bt(
                         finestra=finestra, spread=spread, commission=commission,
                         margin=margin, min_trades=min_trades,
                         soglia_rumore=soglia, k=k, alpha=alpha,
-                        n_barre_long=n_long, n_barre_short=n_short)
+                        n_barre_long=n_long, n_barre_short=n_short, unita=unita)
 
 
 # ========================================================================
@@ -651,9 +663,10 @@ class ExitSearchBT:
     def __init__(self, risultati, trades_per_combo, n_barre, perc_sl,
                  perc_tp, finestra, spread, commission, margin, min_trades,
                  soglia_rumore=np.nan, k=0, alpha=0.05,
-                 n_barre_long=None, n_barre_short=None):
+                 n_barre_long=None, n_barre_short=None, unita="pips"):
         self.risultati = risultati
         self._trades_per_combo = trades_per_combo
+        self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono
         self.n_barre = n_barre
         # scadenza per lato (6/10/2026): uguali a n_barre se non indicate
         self.n_barre_long = n_barre if n_barre_long is None else n_barre_long
