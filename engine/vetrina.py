@@ -83,7 +83,7 @@ from .filter_search_bt import BASELINE, run_filter_search_bt
 from .confidenza import congela_filtro
 from .giudizio import CAMPIONE_CORTO, DA_VALUTARE, scheda_strategia, soglia_rumore
 from .indicatori import aggiungi_indicatori
-from .livelli import quarantena_cached
+from .livelli import GIORNATA_FX, GIORNATA_UTC, imposta_giornata, quarantena_cached
 from .metriche import pips_per_trade
 from .montecarlo import (grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
@@ -502,6 +502,8 @@ def carica_storico(symbol: str, cartella="dati", timeframe: str = "M15") -> pd.D
       exchange (SIMBOLI_EXCHANGE) gia' UTC (engine/exchange.leggi_csv);
                                   nessun rollover (mercato 24/7, prezzi degli
                                   scambi): imposta_rollover(None).
+    E l'inizio della giornata (20/10/2026, docs/63 §10.1 punto 3): 17:00 New
+    York sul broker, 00:00 UTC sui symbol da exchange (livelli.imposta_giornata).
     """
     info_symbol(symbol)            # si ferma subito se il symbol non e' in engine/simboli.py
     if timeframe not in TIMEFRAMES:
@@ -515,6 +517,7 @@ def carica_storico(symbol: str, cartella="dati", timeframe: str = "M15") -> pd.D
     if da_exchange(symbol):
         from .exchange import leggi_csv
         imposta_rollover(None)
+        imposta_giornata(GIORNATA_UTC)
         df = leggi_csv(percorso)                    # indice UTC; niente weekend da controllare
         attesa = pd.Timedelta(timeframe.replace("M", "") + "min") if timeframe.startswith("M") \
             else pd.Timedelta(timeframe[1:] + "h")
@@ -522,6 +525,7 @@ def carica_storico(symbol: str, cartella="dati", timeframe: str = "M15") -> pd.D
             raise ValueError(f"{percorso}: le barre sono da {passo_barre(df.index)}, non da {timeframe}.")
         return df
     imposta_rollover(ROLLOVER_DEFAULT)
+    imposta_giornata(GIORNATA_FX)
     with _zitto():
         df = pd.read_csv(percorso, index_col="Date")
         df = to_utc_index(df, REGOLA_FUSO, on_dst_gap="drop")

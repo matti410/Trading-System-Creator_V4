@@ -27,7 +27,8 @@ passato, barra corrente compresa):
         2  VOL_ALTA·TREND_CONTRO       3  VOL_ALTA·TREND_FAVORE
 
 La giornata di VWAP e regressione e' la giornata FX (`giorno_fx`, dal
-rollover delle 17:00 di New York), non la mezzanotte dell'indice. Per questo
+rollover delle 17:00 di New York; sui symbol da exchange dalle 00:00 UTC,
+livelli.GIORNATA_UTC, 20/10/2026), non la mezzanotte dell'indice. Per questo
 il gap e' ricalcolato qui e non preso da `engine/vwap_ops.py`, che raggruppa
 per `df.index.date`: le formule sono le stesse, cambia solo dove si taglia
 la giornata.

@@ -74,14 +74,43 @@ def svuota_cache() -> None:
 
 
 # --------------------------------------------------------------- giorno FX --
+# Dove inizia la giornata (20/10/2026, docs/63 §10.1 punto 3). Sul broker la
+# giornata e' quella FX, dal rollover delle 17:00 di New York. Sui symbol da
+# exchange crypto (24/7) le 17:00 di New York non hanno un motivo di mercato:
+# la giornata parte alle 00:00 UTC, come le candele giornaliere degli
+# exchange e una delle liquidazioni del funding. Chi carica i dati da exchange
+# la imposta con imposta_giornata(GIORNATA_UTC) (engine/vetrina.carica_storico),
+# come imposta_rollover(None). Vale per giorno_fx, range_finestra("ROLLOVER"),
+# primo_del_giorno e per i periodi H4, D, W, M di indicatori.id_periodo (ATR
+# del money management, gap_trend, F36, F38, F39, E31, E23).
+GIORNATA_FX = "fx"       # 17:00 New York (broker)
+GIORNATA_UTC = "utc"     # 00:00 UTC (symbol da exchange)
+_GIORNATA_ATTIVA = GIORNATA_FX
+
+
+def imposta_giornata(tipo: str = GIORNATA_FX) -> None:
+    """L'inizio della giornata per i calcoli che seguono: GIORNATA_FX o GIORNATA_UTC."""
+    global _GIORNATA_ATTIVA
+    if tipo not in (GIORNATA_FX, GIORNATA_UTC):
+        raise ValueError(f"giornata {tipo!r} sconosciuta: usa {GIORNATA_FX!r} o {GIORNATA_UTC!r}")
+    _GIORNATA_ATTIVA = tipo
+
+
+def giornata_attiva() -> str:
+    """L'inizio della giornata in uso: GIORNATA_FX (17:00 New York) o GIORNATA_UTC (00:00 UTC)."""
+    return _GIORNATA_ATTIVA
+
+
 def _data_fx(idx: pd.DatetimeIndex) -> np.ndarray:
     """
     La "data FX" di ogni barra: il giorno di contrattazione che inizia al
-    rollover delle 17:00 di New York.
+    rollover delle 17:00 di New York (con GIORNATA_UTC: la data UTC).
 
     Il trucco e' sommare 7 ore all'ora di New York, cosi' le 17:00 diventano
     la mezzanotte del giorno dopo e la data cambia esattamente al rollover.
     """
+    if _GIORNATA_ATTIVA == GIORNATA_UTC:
+        return idx.tz_convert("UTC").date
     return (idx.tz_convert("America/New_York") + pd.Timedelta(hours=7)).date
 
 
@@ -113,6 +142,7 @@ def giorno_fx(df: pd.DataFrame) -> pd.Series:
 
     La giornata FX va da un rollover al successivo (17:00 New York), non da
     mezzanotte a mezzanotte: e' il giorno di contrattazione vero del forex.
+    Sui symbol da exchange (GIORNATA_UTC, 20/10/2026) va da 00:00 a 00:00 UTC.
 
     Serve a imporre "un solo trigger al giorno": senza, una giornata che
     oscilla attorno a un livello produce molti segnali e l'indipendenza
@@ -166,7 +196,7 @@ def range_finestra(
     nello storico) produce NaN: non si inventa un livello che non c'e'.
     """
     idx = pd.DatetimeIndex(df.index)
-    chiave = (_chiave(idx), inizio, fine, id(quarantena))
+    chiave = (_chiave(idx), inizio, fine, id(quarantena), _GIORNATA_ATTIVA)
     if chiave in _CACHE_R:
         return _CACHE_R[chiave]
 
