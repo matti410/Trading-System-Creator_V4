@@ -29,7 +29,10 @@ import pandas as pd
 
 
 def _equity_strategia(trades, df, cash):
-    pnl_a_uscita = trades.set_index("ExitTime")["PnL"].sort_index()
+    # 21/10/2026: con stop e target attivi sulla barra d'ingresso due trade
+    # possono chiudere nella stessa barra (uno all'Open, l'altro dentro):
+    # i PnL dello stesso istante si sommano (con istanti unici e' come prima)
+    pnl_a_uscita = trades.groupby("ExitTime", sort=True)["PnL"].sum()
     cumulato = cash + pnl_a_uscita.cumsum()
     # punto iniziale a cash0 sul primo istante del df, cosi' la curva
     # parte dall'inizio della serie anche se il primo trade chiude dopo

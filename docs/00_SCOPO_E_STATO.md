@@ -61,9 +61,11 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   passo; sui perpetual il **funding** trade per trade, acceso di default (`63`
   §5). Leva mai oltre il tetto italiano (perpetual 2, spot 1).
 - **Motore di backtest:** «veloce» (`engine/motore_veloce.py`, numba) è il
-  predefinito; «bt» (`backtesting.py`) resta e fa da oracolo dei test. Stessi
-  trade al bit, tranne i sistemi in cui il capitale simulato si esaurisce:
-  «veloce» tiene i trade e avvisa con la data (`65`).
+  predefinito; «bt» (`backtesting.py`) resta e fa da oracolo dei test. Due
+  differenze dichiarate: con «veloce» stop e target sono attivi già sulla
+  barra d'ingresso (serve `lag` ≥ 1), e quando il capitale simulato si
+  esaurisce «veloce» tiene i trade e avvisa con la data (`65`). Nei test,
+  `comportamento_vecchio()` riporta «veloce» identico al bit a «bt».
 - **Mercato nullo sospeso** (`63` §10.3): il codice resta, fermo.
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
@@ -75,15 +77,18 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 
 ## Prossimi lavori, in ordine (Mattia, 21/10), un ramo ciascuno
 
-1. **Correzione dello stop non attivo sulla barra d'ingresso** (comportamento
-   della libreria, ~0,2% dei trade, bias a favore del backtest). Parte al via
-   di Mattia. Poi la proposta sull'ordinamento di `top()` (oggi per `sharpe`;
-   il t nell'unità che decide).
-2. **Confidenza in bp:** `engine/confidenza.py` ha ancora le soglie in pips.
-3. **Soglia cumulata nel Lab:** Šidák sul totale delle prove della catena,
+1. **Stop e target sulla barra d'ingresso** — in corso (ramo
+   `stop-barra-ingresso`): con il motore veloce stop e target sono attivi
+   dall'Open della barra d'ingresso; «bt» resta l'oracolo del comportamento
+   vecchio.
+2. **`confidenza.py` in bp:** le sue soglie sono ancora in pips.
+3. **`top()` ordinato per il t nell'unità che decide** (oggi per `sharpe`).
+   Lavoro piccolo, senza proposta.
+4. **Soglia cumulata nel Lab:** Šidák sul totale delle prove della catena,
    solo informativa (`00_ARCHIVIO.md`, «Cosa manca», punto 3).
-4. **C · atlante del trigger** (`63` §6). Grande.
-5. **Money management P1–P4** e **stress test in bp**. Piccoli, da decidere.
+5. **C · atlante del trigger** (`63` §6). Grande.
+
+Restano aperti: **money management P1–P4** e **stress test in bp**.
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.
@@ -92,8 +97,8 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 
 | cosa | stato |
 |---|---|
-| stop non attivo sulla barra d'ingresso | prossimo lavoro (punto 1) |
-| `ExitSearchBT.top()` ordina per `sharpe`, la regola dice `avg_trade_netto` | proposta dopo il punto 1 |
+| stop e target non attivi sulla barra d'ingresso | in corso (punto 1) |
+| `ExitSearchBT.top()` ordina per `sharpe`: va ordinato per il t nell'unità che decide | punto 3 |
 | `vwap_ops.py` taglia la giornata a mezzanotte UTC: sulle crypto coincide con la giornata, sul broker (sospeso) no | da decidere se si riapre il broker |
 | il notebook di ricerca su Colab chiede il secret `GITHUB_TOKEN` | non bloccante |
 | interruttore sulla curva dei profitti | rimandato da Mattia |

@@ -101,7 +101,7 @@ from .controlli import avviso_capitale
 from .giudizio import soglia_rumore, t_stat
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
 from .exchange import aggiungi_funding
-from .motore_veloce import MotoreVeloce, scegli_motore
+from .motore_veloce import MotoreVeloce, controlla_lag, scegli_motore
 
 
 # ========================================================================
@@ -573,6 +573,7 @@ def run_exit_search_bt(
 
     # --- backtest, una sola costruzione, riusata per ogni combinazione --
     motore = scegli_motore(motore)    # 21/10/2026 (docs/65): "bt" o "veloce", stessi trade
+    controlla_lag(motore, usa_sl or usa_tp, lag)   # 21/10/2026: stop dall'Open d'ingresso
     avviso_capitale(df, cash, margin, close_col, contesto="run_exit_search_bt",
                     motore=motore)    # 25/9: prezzo > capitale (solo "bt", E3)
     if motore == "veloce":
