@@ -210,6 +210,8 @@ def registro_trade(s, periodo: str = "out-of-sample") -> pd.DataFrame:
         "Prezzo uscita": t["ExitPrice"].to_numpy(dtype=float),
         "Uscita per": t["_motivo"].to_numpy(),
         "Pips netti": t["_pips"].to_numpy(),
+        # 21/10/2026: il funding del trade (+ = pagato), dentro i pips netti
+        **({"Funding (pips)": t["FundingPips"].fillna(0.0).to_numpy()} if "FundingPips" in t.columns else {}),
         "Trigger scattato": scattati,
         "barra_segnale": seg,
         "barra_ingresso": t["EntryBar"].to_numpy(dtype=int),
@@ -381,6 +383,7 @@ def verifica_trade(s) -> dict:
     tutto_ok = bool((regole["Esito"] == "OK").all())
     _v._mostra((f"Controllo automatico · {_v._fmt(totale)} trade verificati uno per uno", regole))
     _v._mostra(("Come si sono chiusi i trade", uscite), ("Che fine hanno fatto i segnali del trigger", segn))
+    costi = _v._mostra_costi(s, s.trades_is, s.trades_oos)     # 21/10/2026: commissione, spread, funding
     _v._riquadro(
         "Lo strumento ha ricalcolato per conto suo trigger e filtri, barra per barra, e li ha confrontati con ogni "
         "trade del backtest. La prima tabella dice in quanti trade ogni regola è rispettata. La terza segue i segnali "
@@ -390,7 +393,8 @@ def verifica_trade(s) -> dict:
         "si tiene una posizione alla volta, e un filtro serve proprio a scartarne una parte.",
         ("Tutto torna. Apri la lente qui sotto per vedere un trade sul grafico, poi vai alla schermata 9." if tutto_ok
          else "Qualcosa non torna: apri con la lente i trade indicati nella colonna «Trade da guardare»."))
-    return {"regole": regole, "uscite": uscite, "segnali": segn, "da_guardare": da_guardare}
+    return {"regole": regole, "uscite": uscite, "segnali": segn, "da_guardare": da_guardare,
+            "costi": costi}
 
 
 # ========================================================================

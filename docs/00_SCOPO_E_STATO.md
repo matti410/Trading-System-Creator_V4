@@ -232,8 +232,8 @@ Sul lato broker (sospeso dal 20/10) il conto di riferimento è il **Standard**:
 costo tutto nello spread, commissione zero. Uno spread che manca nel listino non si inventa: il notebook
 si ferma e indica la riga da aggiungere (`50` §12). Sui symbol da exchange
 (dal 19/10) il costo è la commissione taker per lato del listino dell'exchange,
-livello base, più uno spread di un passo; il funding dei perpetual non è
-ancora contato (`50` §12, «Dati da exchange crypto»).
+livello base, più uno spread di un passo; dal 21/10 sui perpetual anche il
+funding, trade per trade (`63` §5, `50` §12, «Dati da exchange crypto»).
 
 ### Catalogo delle condizioni
 
@@ -435,9 +435,18 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   (punti base del prezzo d'ingresso) in ogni passo del Lab crypto e della
   ricerca; pips e ATR restano accanto; totale, drawdown, money management e
   stress test restano in pips (`02`, «Unità»).
-- **Prossimi lavori, approvati il 20/10 (`63` §10):** funding dei perpetual →
-  mercato nullo sulla pipeline di oggi → atlante del trigger → mercato nullo
-  con l'atlante. Un ramo ciascuno.
+- **Funding dei perpetual (21/10, `63` §5):** `scarica_dati_crypto.py` scarica
+  anche il funding (`dati/<SYMBOL>_FUNDING.csv`, solo `fetch_funding_rate_history`);
+  ogni trade paga, o incassa, le liquidazioni con ingresso < S ≤ uscita, al
+  prezzo Open della barra (colonna `FundingPips`, + = pagato), e il funding
+  entra da solo in bp, rose, uscite, filtri, due metà, scheda, money
+  management e stress test; non entra nel rischio del money management (si
+  conosce solo a trade chiuso). Acceso di default nei due notebook vivi; il
+  notebook si ferma se il file manca o non copre le barre. Stati per l'atlante
+  (`funding_liquidato`, `basis_bp`) pronti, fuori dal catalogo.
+- **Prossimi lavori, approvati il 20/10 (`63` §10):** mercato nullo sulla
+  pipeline di oggi → atlante del trigger → mercato nullo con l'atlante. Un
+  ramo ciascuno.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
   testuali: 53 prove al 19/10, registro in `50` §10.
@@ -493,8 +502,9 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   solo se servirà.
 
 **Aperti, per scelta di Mattia:** interruttore sulla curva dei profitti.
-**Aperti nel tool:** runner unico (punto 6); il funding dei perpetual nei
-risultati (fase 2 della versione crypto, lavoro B di `63`); Kraken (via API solo le ultime 720
+**Aperti nel tool:** runner unico (punto 6); lo stress test somma ancora pips
+anche sulle crypto, quindi su BTC pesano di più gli anni a prezzo alto (da
+decidere in un lavoro a parte, annotato il 21/10); Kraken (via API solo le ultime 720
 barre spot: servono i suoi CSV trimestrali). **Prossimo, approvato da Mattia il 18/10:** fonti con un
 motivo economico, una alla volta con il processo di `50`. Dal 18/10 (Mattia):
 si passerà alle crypto, con dati da exchange e non dal broker CFD; quindi

@@ -311,6 +311,10 @@ def esegui() -> int:
         for nome in ("BINANCE_PERP_BTCUSDT", "BINANCE_SPOT_BTCUSDT"):
             X.salva_csv(dati, os.path.join(tmp, f"{nome}_M15.csv"))
         X.salva_csv(dati, os.path.join(tmp, "BYBIT_PERP_BTCUSDT_M30.csv"))    # nome sbagliato: barre M15
+        # 21/10/2026: sui perpetual il funding e' acceso di default, serve il suo CSV (test_funding.py)
+        orari = pd.date_range(dati.index[0].floor("8h"), dati.index[-1].ceil("8h"), freq="8h")
+        X.salva_funding(X.con_intervalli(pd.DataFrame({"tasso": 0.0001}, index=orari.rename("Date"))),
+                        X.file_funding("BINANCE_PERP_BTCUSDT", tmp))
         s = muto(v.prepara, "BINANCE_PERP_BTCUSDT", H=8, cartella=tmp)
         check("F1. perpetual: dati da exchange, long e short, profilo e orari in UTC",
               s.da_exchange and not s.solo_long and s.lati() == (1, -1) and s.fuso == "UTC"
@@ -322,9 +326,10 @@ def esegui() -> int:
               Q.rollover_attivo() is None and int(quarantena_cached(s.df)["rollover"].sum()) == 0)
         rie = s.tabelle["riepilogo"]
         testo = " ".join(rie[" "].astype(str))
-        check("F4. riepilogo: barre M15, ore dell'orizzonte da 15 minuti, funding dichiarato non contato",
+        check("F4. riepilogo: barre M15, ore dell'orizzonte da 15 minuti, funding contato (dal 21/10/2026)",
               "Barre M15" in list(rie[""]) and "8 barre (2,0 ore)" in testo
-              and "Funding (perpetual)" in list(rie[""]) and "nessun rollover" in testo)
+              and "Funding (perpetual)" in list(rie[""]) and "nessun rollover" in testo
+              and rie.set_index("")[" "]["Funding (perpetual)"].startswith("contato"))
         s2 = muto(v.prepara, "BINANCE_SPOT_BTCUSDT", H=8, cartella=tmp)
         check("F5. spot: solo long, commissione 0,1%, nessuna riga di funding",
               s2.solo_long and s2.lati() == (1,) and s2.costi["commission"] == 0.001

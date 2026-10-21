@@ -145,6 +145,11 @@ def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: floa
         frazione = np.where(lato > 0, s["sl_long"].to_numpy()[pos], s["sl_short"].to_numpy()[pos])
 
     costo = float(spread_pips) + (lordi - netti).to_numpy(dtype=float)
+    # 21/10/2026 (docs/63 §5): il funding resta nel risultato (pips_netti) ma NON
+    # nel rischio: si conosce solo a trade chiuso (sarebbe lookahead) e un incasso
+    # abbasserebbe il rischio. lordi - netti lo contiene: si toglie
+    if "FundingPips" in t.columns:
+        costo = costo - t["FundingPips"].fillna(0.0).to_numpy(dtype=float)
     rischio = frazione * prezzo_segnale / float(pip) + costo
     atr_pips = np.full(len(t), np.nan)
     if misura == "volatilita":

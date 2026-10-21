@@ -372,6 +372,17 @@ pips restano accanto, e restano l'unità di totale, drawdown, money management e
 stress test (sono soldi: pips × valore del pip). L'event study misurava già in
 percentuale del prezzo. Sul broker (sospeso) decidono ancora i pips. Confronto fra
 le due unità in `63` §4.7.
+
+**Il funding dei perpetual nei netti (21/10/2026, `63` §5).** Sui perpetual
+i netti di ogni trade tolgono anche il funding, con il segno: ogni
+liquidazione S con ingresso < S ≤ uscita costa lato × tasso × prezzo Open
+della barra di S (il long paga se il tasso è positivo, lo short incassa).
+Colonna `FundingPips` dei trade (+ = pagato), sottratta da
+`metriche.pips_per_trade`: quindi vale in pips e in bp, in ogni passo che
+decide. Il rischio del money management (stop + costi) NON contiene il
+funding: si conosce solo a trade chiuso. Nella scheda e nella verifica dei
+trade il costo medio per trade è diviso in commissione, spread e funding
+(anche long e short separati), in bp con i pips accanto.
  
 ---
  

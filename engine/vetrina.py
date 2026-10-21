@@ -303,6 +303,7 @@ class Sessione:
         self.solo_long = False        # 19/10/2026: spot, lo short non esiste
         self.atr = None               # 20/10/2026: ATR giornaliero a 5 giornate chiuse (unita' ATR, docs/63 §4)
         self.unita = "pips"           # 20/10/2026 (U2): l'unita' che decide; "bp" sui symbol da exchange
+        self.funding = None           # 21/10/2026: storico del funding (perpetual); None = non contato
         self.tabelle = {}
 
     def __repr__(self):
@@ -546,7 +547,7 @@ def carica_storico(symbol: str, cartella="dati", timeframe: str = "M15") -> pd.D
     return df
 
 
-def costi_storico(symbol: str, df: pd.DataFrame) -> tuple[dict, dict]:
+def costi_storico(symbol: str, df: pd.DataFrame, funding: pd.DataFrame | None = None) -> tuple[dict, dict]:
     """
     I costi del backtest per `symbol` su `df` (19/10/2026, comune al Lab e al
     notebook di ricerca). Ritorna (costi, sp):
@@ -560,6 +561,10 @@ def costi_storico(symbol: str, df: pd.DataFrame) -> tuple[dict, dict]:
     nessuna commissione, come prima. Exchange: commissione taker per lato e
     spread di un passo (engine/exchange.costi_exchange), nessun rollover.
     Si ferma se CASH e' meno di 10 volte il prezzo massimo.
+
+    funding (21/10/2026, docs/63 §5): lo storico di carica_funding. Sui
+    perpetual finisce in costi["funding"] e con **costi arriva ai motori, che
+    lo contano trade per trade (FundingPips). None = non contato, come prima.
     """
     prezzo_max = float(df["High"].max())
     if CASH < 10 * prezzo_max:
@@ -571,6 +576,8 @@ def costi_storico(symbol: str, df: pd.DataFrame) -> tuple[dict, dict]:
         p = parti_symbol(symbol)
         costi = {"spread": c["spread"], "commission": c["commission"], "pip_size": c["pip_size"],
                  "cash": CASH, "spread_rollover_pips": None}
+        if funding is not None and p["mercato"] == "PERP":
+            costi["funding"] = funding
         sp = {"normale": c["spread_pips"], "rollover": None, "taker": c["taker"], "maker": c["maker"],
               "fonte": f"listino {p['exchange'].title()} {p['mercato'].lower()}, livello base"}
         return costi, sp
@@ -583,12 +590,59 @@ def costi_storico(symbol: str, df: pd.DataFrame) -> tuple[dict, dict]:
     return costi, sp
 
 
+def carica_funding(symbol: str, df: pd.DataFrame, cartella="dati") -> pd.DataFrame | None:
+    """
+    Lo storico del funding di un perpetual (21/10/2026, docs/63 §5), dal CSV
+    `{cartella}/{symbol}_FUNDING.csv` di scarica_dati_crypto.py: tasso e
+    intervallo_ore, indice UTC. None sugli altri symbol (CFD, spot): non
+    pagano il funding. Comune al Lab e al notebook di ricerca.
+
+    Si ferma, dicendo quale file serve e come scaricarlo, se il CSV manca o non
+    copre le barre di `df` (exchange.copertura_funding): nessuno zero al posto
+    dei tassi che mancano.
+    """
+    from .exchange import copertura_funding, file_funding, ha_funding, leggi_funding
+    if not ha_funding(symbol):
+        return None
+    percorso = file_funding(symbol, cartella)
+    comando = f"python scarica_dati_crypto.py {symbol}"
+    if not os.path.exists(percorso):
+        raise FileNotFoundError(
+            f"Non trovo {percorso}: serve lo storico del funding di {symbol}, un perpetual. Scaricalo sul PC "
+            f"con «{comando}» (aggiorna barre e funding insieme); su Colab caricalo poi su Google Drive, "
+            "accanto al CSV delle barre.")
+    funding = leggi_funding(percorso)
+    motivo = copertura_funding(funding, df)
+    if motivo is not None:
+        raise ValueError(f"{percorso} non copre le barre di {symbol}: {motivo}. Aggiorna barre e funding "
+                         f"insieme con «{comando}» (su Colab: ricarica tutti e due i CSV su Google Drive).")
+    return funding
+
+
+def _frase_funding(s) -> str:
+    """La riga «Funding (perpetual)» della schermata 1 (21/10/2026, docs/63 §5.5)."""
+    if s.funding is None:
+        return "spento: non contato nei risultati (serve solo alla prova di identità)"
+    from .exchange import ORE_RIFERIMENTO, liquidazioni_mancanti
+    f = s.funding
+    dentro = f[(f.index >= s.df_is.index[0]) & (f.index <= s.df_is.index[-1])]
+    a8 = (dentro["tasso"] * ORE_RIFERIMENTO / dentro["intervallo_ore"]).replace([np.inf, -np.inf], np.nan).dropna()
+    medio = float(a8.mean()) if len(a8) else float("nan")
+    chi = ("in media il long paga, lo short incassa" if medio > 0 else
+           "in media lo short paga, il long incassa" if medio < 0 else "in media nessuno paga")
+    frase = f"contato. Tasso medio dell'in-sample {_fmt(medio * 100, 4)}% ogni 8 ore; {chi}"
+    mancanti = int(liquidazioni_mancanti(f).sum())
+    if mancanti:
+        frase += f" (nello storico mancano {mancanti} liquidazioni: non contate)"
+    return frase
+
+
 def _minuti_barra(timeframe: str) -> int:
     return int(timeframe[1:]) * (1 if timeframe.startswith("M") else 60)
 
 
 def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
-            cartella: str = "dati", timeframe: str = "M15") -> Sessione:
+            cartella: str = "dati", timeframe: str = "M15", funding: bool = True) -> Sessione:
     """
     Schermata 1. Carica lo storico dal CSV, calcola costi e indicatori,
     divide in-sample / out-of-sample e carica le condizioni dal registro.
@@ -600,6 +654,10 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
                       progetto, dal 17/10); il Lab passa DATI_DIR: dati/ in locale, Google
                       Drive su Colab.
     timeframe         19/10/2026: M5, M15 (default, come prima), M30, H1, H4
+    funding           21/10/2026: True (default) = sui perpetual il funding e'
+                      contato in ogni risultato (carica_funding: si ferma se il
+                      file manca o non copre le barre). False = spento: serve
+                      solo alla prova di identita' con la versione di prima.
 
     11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
     symbol solo dalla tabella di engine/simboli.py; spread dal solo listino
@@ -619,9 +677,11 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     if H < 1:
         raise ValueError("H deve essere almeno 1 barra.")
     df = carica_storico(symbol, cartella, timeframe)
-    costi, sp = costi_storico(symbol, df)
+    storico_funding = carica_funding(symbol, df, cartella) if funding else None   # 21/10/2026
+    costi, sp = costi_storico(symbol, df, funding=storico_funding)
 
     s = Sessione()
+    s.funding = storico_funding
     s.symbol, s.H, s.cartella, s.timeframe = symbol, H, cartella, timeframe
     s.da_exchange = da_exchange(symbol)
     if s.da_exchange:
@@ -666,7 +726,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
               _fmt(len(_tutti_i_filtri()))]
     if s.da_exchange and not s.solo_long:
         voci.append("Funding (perpetual)")
-        valori.append("non ancora contato nei risultati")
+        valori.append(_frase_funding(s))      # 21/10/2026
     # 20/10/2026 (docs/63 §4): lo stesso costo in punti base del prezzo (1 bp = 0,01%)
     mediana = float(s.df_is["Close"].median())
     spread_bp = sp["normale"] * s.pip / mediana * 10_000
@@ -683,7 +743,10 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     _mostra(("Il tuo laboratorio", riepilogo))
     _riquadro(
         "Lo storico su cui lavori, diviso in due: l'in-sample serve a costruire la strategia, "
-        "l'out-of-sample resta chiuso in cassaforte fino alla fine.",
+        "l'out-of-sample resta chiuso in cassaforte fino alla fine."
+        + (" Sul perpetual ogni trade paga, o incassa, il funding di ogni liquidazione in cui è aperto, al "
+           "prezzo di apertura della barra della liquidazione: l'exchange usa il prezzo «mark», che qui non c'è, "
+           "e la differenza è di pochi millesimi sul costo." if s.funding is not None else ""),
         "Qui non c'è ancora niente da giudicare. Controlla solo che strumento, periodo e costi "
         "siano quelli che ti aspetti: ogni risultato che vedrai è già al netto di questi costi.",
         "Vai alla schermata 2 per vedere come si muove il prezzo dopo ogni trigger.")
@@ -1312,7 +1375,8 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     s.dm = None
     if promossi:
         solo_costi = {k: kw[k] for k in ("perc_sl", "perc_tp", "finestra", "lag", "spread",
-                                         "commission", "cash", "spread_rollover_pips")}
+                                         "commission", "cash", "spread_rollover_pips", "funding")
+                      if k in kw}
         with _zitto():
             s.dm = due_meta(s.df_is, s.fs, [None, *promossi], verbose=False, **solo_costi)
         verdetti = s.dm.tabella.set_index("filtro")["verdetto"].to_dict()
@@ -1486,6 +1550,72 @@ def _catena_filtri(s: Sessione, scelti: list[str]):
     return entry_long, entry_short, fs_k, passi
 
 
+def _tabella_costi(s: Sessione, tr_is, tr_oos) -> pd.DataFrame | None:
+    """
+    Il costo medio per trade in tre righe, commissione, spread e funding
+    (21/10/2026, docs/63 §5.5), con il segno (+ = pagato, - = incassato), in
+    bp e in pips, in-sample e out-of-sample; il funding anche diviso fra long
+    e short. Solo sui symbol da exchange. None se non ci sono trade.
+    """
+    if not s.da_exchange:
+        return None
+    pip = s.pip
+    commissione = float(s.costi.get("commission") or 0.0)
+    spread = float(s.costi.get("spread") or 0.0)
+    righe = [("Commissione (andata e ritorno)", None), ("Spread", None)]
+    con_funding = any(t is not None and "FundingPips" in t.columns for t in (tr_is, tr_oos))
+    if con_funding:
+        righe += [("Funding, tutti i trade", None), ("Funding dei long", 1), ("Funding degli short", -1)]
+    righe.append(("Costo totale", None))
+
+    def voci(t):
+        if t is None or len(t) == 0:
+            return None
+        ent = t["EntryPrice"].to_numpy(dtype=float)
+        usc = t["ExitPrice"].to_numpy(dtype=float)
+        lato = np.where(t["Size"].to_numpy(dtype=float) > 0, 1, -1)
+        c = commissione * (ent + usc) / pip
+        sp = spread * ent / pip
+        if "CostoExtraPips" in t.columns:
+            sp = sp + t["CostoExtraPips"].fillna(0.0).to_numpy(dtype=float)
+        fu = t["FundingPips"].fillna(0.0).to_numpy(dtype=float) if "FundingPips" in t.columns else np.zeros(len(t))
+        bp = pip * 10_000.0 / ent
+        per_riga = {"Commissione (andata e ritorno)": (c, None), "Spread": (sp, None),
+                    "Funding, tutti i trade": (fu, None), "Funding dei long": (fu, 1),
+                    "Funding degli short": (fu, -1), "Costo totale": (c + sp + fu, None)}
+        out = {}
+        for nome, (v, quale) in per_riga.items():
+            m = np.ones(len(t), dtype=bool) if quale is None else lato == quale
+            out[nome] = ((float(np.mean(v[m] * bp[m])), float(np.mean(v[m]))) if m.any()
+                         else (np.nan, np.nan))
+        return out
+
+    tabella = {"": [nome for nome, _ in righe]}
+    for etichetta, t in (("In-sample", tr_is), ("Out-of-sample", tr_oos)):
+        v = voci(t)
+        tabella[f"{etichetta} (bp)"] = [np.nan if v is None else v[nome][0] for nome, _ in righe]
+        tabella[f"{etichetta} (pips)"] = [np.nan if v is None else v[nome][1] for nome, _ in righe]
+    return pd.DataFrame(tabella)
+
+
+def _mostra_costi(s: Sessione, tr_is, tr_oos) -> pd.DataFrame | None:
+    """Mostra _tabella_costi con la sua nota (scheda e verifica dei trade)."""
+    tabella = _tabella_costi(s, tr_is, tr_oos)
+    if tabella is None:
+        return None
+    s.tabelle["costi"] = tabella
+    _mostra(("Il costo medio per trade (+ = pagato, − = incassato)", tabella))
+    if "Funding, tutti i trade" in set(tabella[""]):
+        _nota("Il funding si paga, o si incassa, a ogni liquidazione in cui il trade è aperto (ingresso < "
+              "liquidazione ≤ uscita), al prezzo di apertura della barra della liquidazione: l'exchange usa il "
+              "prezzo «mark», che qui non c'è; la differenza è di pochi millesimi sul costo. Con il tasso positivo "
+              "il long paga e lo short incassa. Il funding resta fuori dal rischio del money management: si "
+              "conosce solo a trade chiuso.")
+    elif s.da_exchange and not s.solo_long:
+        _nota("Funding spento: non è contato (serve solo alla prova di identità).")
+    return tabella
+
+
 def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
     """
     Schermata 6. La scheda della strategia scelta: in-sample accanto alla
@@ -1551,6 +1681,7 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         _nota(f"Decide il {s.unita}: solidità, probabilità che in realtà perda, trade vincenti, vincita media / "
               f"perdita media e profit factor sono calcolati sui {s.unita} netti di ogni trade. Totale e drawdown "
               "restano in pips: sono i soldi del conto.")
+    _mostra_costi(s, tr_is, tr_oos)       # 21/10/2026: commissione, spread, funding
 
     if len(tr_oos):
         plot_equity(tr_oos, s.df_oos, cash=CASH, etichetta=nome, figsize=(11, 4.8))
