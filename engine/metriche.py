@@ -107,8 +107,78 @@ def pips_per_trade(trades: pd.DataFrame, pip_size: float,
     return lordi, netti
 
 
+def bp_per_trade(trades: pd.DataFrame, pip_size: float,
+                 commission: float = 0.0) -> tuple[pd.Series, pd.Series]:
+    """
+    I pips per trade (lordi, netti) in PUNTI BASE del prezzo d'ingresso
+    (20/10/2026, docs/63 §4, unita' bp): 1 bp = 0,01% del prezzo.
+
+        bp = pips x pip_size / EntryPrice x 10.000
+
+    Un trade dell'1% vale 100 bp a 7.000 $ come a 70.000 $: i bp pesano
+    allo stesso modo un trade del 2020 e uno del 2025. I costi sono gli
+    stessi di pips_per_trade (commissione, CostoExtraPips), convertiti
+    trade per trade con il suo prezzo d'ingresso.
+    """
+    lordi, netti = pips_per_trade(trades, pip_size, commission)
+    if len(trades) == 0:
+        return lordi, netti
+    fattore = float(pip_size) * 10_000.0 / trades["EntryPrice"].astype(float)
+    return lordi * fattore, netti * fattore
+
+
+def atr_alla_entrata(trades: pd.DataFrame, atr: pd.Series) -> pd.Series:
+    """
+    L'ATR noto alla barra del SEGNALE di ogni trade: la barra prima di
+    EntryTime nell'indice di `atr` (il segnale e' sulla barra i, l'ingresso
+    all'Open della i+1). `atr` va calcolata sullo storico intero
+    (indicatori.atr_giornaliero_chiuso), cosi' anche i trade out-of-sample
+    hanno il valore. NaN se l'ingresso non e' nell'indice o e' la prima barra.
+    """
+    if len(trades) == 0:
+        return pd.Series(dtype=float)
+    pos = pd.DatetimeIndex(atr.index).get_indexer(pd.DatetimeIndex(trades["EntryTime"])) - 1
+    valori = atr.to_numpy(dtype=float)
+    esito = np.where(pos >= 0, valori[np.clip(pos, 0, None)], np.nan)
+    return pd.Series(esito, index=trades.index)
+
+
+def atr_per_trade(trades: pd.DataFrame, atr: pd.Series, pip_size: float,
+                  commission: float = 0.0) -> tuple[pd.Series, pd.Series]:
+    """
+    I pips per trade (lordi, netti) in multipli dell'ATR giornaliero a 5
+    giornate chiuse noto al segnale (20/10/2026, docs/63 §4, unita' ATR; lo
+    stesso ATR del money management). Non e' la «R» del money management
+    (distanza dallo stop): e' il risultato rispetto alla volatilita' del
+    momento. NaN dove l'ATR non c'e' ancora (prime giornate dello storico).
+    """
+    lordi, netti = pips_per_trade(trades, pip_size, commission)
+    if len(trades) == 0:
+        return lordi, netti
+    a = atr_alla_entrata(trades, atr)
+    fattore = float(pip_size) / a.where(a > 0)
+    return lordi * fattore, netti * fattore
+
+
+UNITA_CHE_DECIDONO = ("pips", "bp")     # 20/10/2026, docs/63 §4.2 (U2)
+
+
+def netti_in_unita(trades: pd.DataFrame, pip_size: float, commission: float = 0.0,
+                   unita: str = "pips") -> tuple[pd.Series, pd.Series]:
+    """
+    (lordi, netti) per trade nell'unita' che decide (20/10/2026, U2):
+    "pips" = pips_per_trade, "bp" = bp_per_trade. L'ATR resta una colonna
+    da leggere (atr_per_trade): ha NaN nelle prime giornate e non decide.
+    """
+    if unita == "pips":
+        return pips_per_trade(trades, pip_size, commission)
+    if unita == "bp":
+        return bp_per_trade(trades, pip_size, commission)
+    raise ValueError(f"unita' che decide {unita!r} non prevista: usa una di {UNITA_CHE_DECIDONO}.")
+
+
 def metriche_per_trade(trades: pd.DataFrame, pip_size: float,
-                       commission: float = 0.0) -> dict:
+                       commission: float = 0.0, unita: str = "pips") -> dict:
     """
     Le metriche per-trade di una riga di risultati.
 
@@ -132,17 +202,24 @@ def metriche_per_trade(trades: pd.DataFrame, pip_size: float,
 
     Con zero trade tutti i valori numerici sono NaN (durata_max = 0), come
     nel comportamento precedente dei due motori.
+
+    unita (20/10/2026, U2): con "bp" avg_trade, avg_trade_netto e
+    costo_pips sono in punti base (il nome della chiave resta, per
+    compatibilita'), e si aggiunge avg_trade_netto_pips, i pips accanto.
     """
     n_t = int(len(trades))
     if n_t == 0:
-        return {"n_trades": 0, "avg_trade": np.nan, "avg_trade_netto": np.nan,
-                "costo_pips": np.nan, "durata_media": np.nan, "durata_max": 0}
+        vuoto = {"n_trades": 0, "avg_trade": np.nan, "avg_trade_netto": np.nan,
+                 "costo_pips": np.nan, "durata_media": np.nan, "durata_max": 0}
+        if unita != "pips":
+            vuoto["avg_trade_netto_pips"] = np.nan
+        return vuoto
 
-    lordi, netti = pips_per_trade(trades, pip_size, commission)
+    lordi, netti = netti_in_unita(trades, pip_size, commission, unita)
     costo = lordi - netti        # commissione + eventuale costo extra del rollover
     durate = (trades["ExitBar"] - trades["EntryBar"]).to_numpy()
 
-    return {
+    esito = {
         "n_trades": n_t,
         "avg_trade": float(lordi.mean()),
         "avg_trade_netto": float(netti.mean()),
@@ -150,3 +227,6 @@ def metriche_per_trade(trades: pd.DataFrame, pip_size: float,
         "durata_media": float(durate.mean()),
         "durata_max": int(durate.max()),
     }
+    if unita != "pips":
+        esito["avg_trade_netto_pips"] = float(pips_per_trade(trades, pip_size, commission)[1].mean())
+    return esito

@@ -82,9 +82,9 @@ from .exit_search_bt import barre_per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
 from .confidenza import congela_filtro
 from .giudizio import CAMPIONE_CORTO, DA_VALUTARE, scheda_strategia, soglia_rumore
-from .indicatori import aggiungi_indicatori
+from .indicatori import aggiungi_indicatori, atr_giornaliero_chiuso
 from .livelli import GIORNATA_FX, GIORNATA_UTC, imposta_giornata, quarantena_cached
-from .metriche import pips_per_trade
+from .metriche import netti_in_unita, pips_per_trade
 from .montecarlo import (grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import ROLLOVER_DEFAULT, imposta_rollover, passo_barre, verifica_indice_utc
@@ -301,6 +301,8 @@ class Sessione:
         self.timeframe = "M15"        # 19/10/2026: M5, M15, M30, H1, H4
         self.da_exchange = False      # 19/10/2026: dati da exchange crypto (engine/exchange.py)
         self.solo_long = False        # 19/10/2026: spot, lo short non esiste
+        self.atr = None               # 20/10/2026: ATR giornaliero a 5 giornate chiuse (unita' ATR, docs/63 §4)
+        self.unita = "pips"           # 20/10/2026 (U2): l'unita' che decide; "bp" sui symbol da exchange
         self.tabelle = {}
 
     def __repr__(self):
@@ -629,6 +631,10 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
         df = aggiungi_indicatori(df)
         s.df_is, s.df_oos = split_is_oos(df, is_ratio=quota_in_sample)
     s.df, s.costi = df, costi
+    s.atr = atr_giornaliero_chiuso(df)   # 20/10/2026: sullo storico intero, noto prima di ogni ingresso
+    # 20/10/2026 (docs/63 §4.2, U2): sui symbol da exchange decide il bp in ogni passo; il broker,
+    # sospeso (§10.0), resta in pips come prima
+    s.unita = "bp" if s.da_exchange else "pips"
     s.pip = costi["pip_size"]      # 10/10/2026: fisso, da engine/simboli.py
     s.fuso = fuso_profilo(symbol)  # 18/10/2026: fissato a priori per symbol (UTC sugli exchange)
     import condizioni_orarie
@@ -661,6 +667,17 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     if s.da_exchange and not s.solo_long:
         voci.append("Funding (perpetual)")
         valori.append("non ancora contato nei risultati")
+    # 20/10/2026 (docs/63 §4): lo stesso costo in punti base del prezzo (1 bp = 0,01%)
+    mediana = float(s.df_is["Close"].median())
+    spread_bp = sp["normale"] * s.pip / mediana * 10_000
+    if s.da_exchange:
+        comm_bp = 2 * sp["taker"] * 10_000
+        costo_bp = (f"{_fmt(comm_bp + spread_bp, 1)} bp andata e ritorno: commissione {_fmt(comm_bp, 1)} bp "
+                    f"a qualunque prezzo + spread {_fmt(spread_bp, 2)} bp al prezzo mediano dell'in-sample")
+    else:
+        costo_bp = f"{_fmt(spread_bp, 2)} bp al prezzo mediano dell'in-sample (lo spread fisso pesa di più a prezzi bassi)"
+    voci.insert(voci.index("Costo per trade") + 1, "Costo per trade in bp")
+    valori.insert(voci.index("Costo per trade in bp"), costo_bp)
     riepilogo = pd.DataFrame({"": voci, " ": valori})
     s.tabelle["riepilogo"] = riepilogo
     _mostra(("Il tuo laboratorio", riepilogo))
@@ -892,20 +909,23 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     with _zitto():
         s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip,
                                     nomi=_trigger_candidati(1 if s.solo_long else None),
-                                    min_eventi=MIN_TRIGGER, fuso=s.fuso)
+                                    min_eventi=MIN_TRIGGER, fuso=s.fuso, atr=s.atr, unita=s.unita)
     r = s.rosa_trigger
     vista = r[r["candidata"]]
     if vista.empty:
         _nota(f"Nessun trigger supera i tre controlli della rosa ({len(r)} misurati, orizzonte {s.H} barre). "
               "Sotto, i cinque con la solidità netta più alta, per confronto.")
         vista = r.sort_values("t_netto", ascending=False).head(5)
+    u, a = s.unita, _altra_unita(s)
     tabella = pd.DataFrame({
         "Trigger": vista["candidato"],
         "Lato": np.where(vista["direction"] == 1, "long", "short"),
         "Occasioni": vista["eventi"].astype(int),
-        "Più del mercato della stessa ora (pips)": vista["scarto_pips"],
+        f"Più del mercato della stessa ora ({u})": vista[f"scarto_{u}"],
         "Solidità netta": vista["t_netto"],
-        "Più del mercato a qualunque ora (pips)": vista["scarto_globale_pips"],
+        f"Più del mercato a qualunque ora ({u})": vista[f"scarto_globale_{u}"],
+        f"Più del mercato della stessa ora ({a})": vista[f"scarto_{a}"],
+        f"Solidità in {a}": vista[f"t_{a}"],
         "Supera la quota di fortuna": [_si_no(v) for v in vista["bh"]],
         "Regge sulle due metà": [_si_no(v) for v in vista["due_meta"]],
         "Famiglia": vista["famiglia"].astype(int),
@@ -914,7 +934,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     })
     s.tabelle["rosa_trigger"] = tabella
     _mostra((f"La rosa dei trigger (in-sample, {s.H} barre, prima dei costi)", tabella),
-            decimali={"Solidità netta": 2})
+            decimali={"Solidità netta": 2, f"Solidità in {a}": 2})
     _riquadro(
         "Un gruppo di trigger suggeriti. Ognuno ha un andamento a favore più grande di quello che il mercato "
         "fa da solo nelle stesse ore («più del mercato della stessa ora», vedi il profilo orario della "
@@ -923,6 +943,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
         "in entrambe le metà dell'in-sample. Dentro la rosa i trigger sono diversi fra loro: famiglie diverse "
         "(non scattano sulle stesse candele) e guadagni giornalieri poco legati "
         f"(correlazione entro ±{_fmt(RHO_MAX, 1)}).",
+        _frase_unita(s) +
         "È un suggerimento, non una promozione: la verifica vera arriva dopo, con i filtri, le due metà e i dati "
         "mai visti. Un trigger fuori dalla rosa per «famiglia» o «correlata» è buono come quello che lo esclude, "
         "ma ripete la stessa idea. Rosa vuota = nessun trigger si distingue abbastanza dal caso a questo orizzonte.",
@@ -979,12 +1000,38 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
 # ========================================================================
 
 def _kw_motore(s: Sessione) -> dict:
-    """I parametri comuni a ogni backtest della sessione (uscite + costi)."""
+    """I parametri comuni a ogni backtest della sessione (uscite + costi + unita' che decide)."""
     u = s.uscite
     return dict(n_barre=u["n_barre"], n_barre_long=u["n_barre_long"],
                 n_barre_short=u["n_barre_short"], perc_sl=u["perc_sl"],
                 perc_tp=u["perc_tp"], finestra=FINESTRA, lag=LAG,
-                inverti_su_opposto=True, **s.costi)
+                inverti_su_opposto=True, unita=s.unita, **s.costi)
+
+
+def _altra_unita(s: Sessione) -> str:
+    """L'unita' mostrata accanto a quella che decide (20/10/2026, U2)."""
+    return "bp" if s.unita == "pips" else "pips"
+
+
+def _in_unita(s: Sessione, etichetta: str, valore, valore_pips=None) -> dict:
+    """
+    Una colonna nell'unita' che decide, piu' i pips accanto quando decide il
+    bp (20/10/2026, U2): «Guadagno ... (bp)» e «Guadagno ... (pips)».
+    """
+    voci = {f"{etichetta} ({s.unita})": valore}
+    if s.unita != "pips":
+        voci[f"{etichetta} (pips)"] = valore_pips
+    return voci
+
+
+def _frase_unita(s: Sessione, colonne: str = "Le due colonne") -> str:
+    """La frase del riquadro che dice quale unita' decide (docs/63 §4.4)."""
+    if s.unita == "pips":
+        return (f"{colonne} in bp (punti base del prezzo, 1 bp = 0,01%) sono solo da leggere, decidono ancora "
+                "i pips: i bp pesano allo stesso modo un trade del 2020 e uno del 2025. ")
+    return ("Qui decide il bp (punti base del prezzo d'ingresso, 1 bp = 0,01%): pesa allo stesso modo un trade del "
+            "2020 e uno del 2025, anche se il prezzo nel frattempo è cambiato di molto. I pips restano accanto: "
+            "sono l'unità del conto e del money management. ")
 
 
 def _nome_sistema(riga) -> str:
@@ -1066,7 +1113,7 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     tabella = pd.DataFrame({
         "Sistema": r["Sistema"],
         "Trade": r["trades"].astype(int),
-        "Guadagno medio netto per trade (pips)": r["avg_trade_netto"],
+        **_in_unita(s, "Guadagno medio netto per trade", r["avg_trade_netto"], r.get("avg_trade_netto_pips")),
         "Trade vincenti (%)": r["win_rate_pct"],
         "Solidità": r["t_stat"],
         "Durata media (barre)": r["durata_media"],
@@ -1095,13 +1142,13 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
         tr = s.es.trades(riga["combinazione"])
         if len(tr) == 0:
             continue
-        _, netti = pips_per_trade(tr, s.pip, s.costi["commission"])
+        _, netti = netti_in_unita(tr, s.pip, s.costi["commission"], s.unita)
         curva = pd.Series(netti.to_numpy(), index=pd.DatetimeIndex(tr["ExitTime"])).sort_index().cumsum()
         ax.plot(curva.index, curva.to_numpy(), lw=2.0 if riga["Sistema"] == "Long + Short" else 1.2,
                 label=riga["Sistema"])
     ax.axhline(0, color="black", lw=0.8)
-    ax.set_ylabel("pips netti accumulati")
-    ax.set_title("Sistema base: somma dei pips netti, trade dopo trade (in-sample)")
+    ax.set_ylabel(f"{s.unita} netti accumulati")
+    ax.set_title(f"Sistema base: somma dei {s.unita} netti, trade dopo trade (in-sample)")
     ax.grid(alpha=.3)
     ax.legend()
     plt.tight_layout()
@@ -1133,7 +1180,7 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
     s._serve("es", "4 · Imposta le uscite")
     with _zitto():
         s.rosa_sistemi = rosa_sistemi(s.es, s.df_is, s.pip, commission=s.costi["commission"],
-                                      fuso=s.fuso)
+                                      fuso=s.fuso, atr=s.atr, unita=s.unita)
     r = s.rosa_sistemi
     nomi = {riga["combinazione"]: _nome_sistema(riga) for _, riga in s.es.risultati.iterrows()}
 
@@ -1142,12 +1189,15 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
             testo = testo.replace(comb, f"«{nome}»")
         return testo
 
+    u, a = s.unita, _altra_unita(s)
     tabella = pd.DataFrame({
         "Sistema": r["combinazione"].map(nomi),
         "Trade": r["trades"].astype(int),
-        "Più del mercato della stessa ora, per trade (pips netti)": r["scarto_pips"],
+        f"Più del mercato della stessa ora, per trade ({u} netti)": r[f"scarto_{u}"],
         "Solidità netta": r["t_netto"],
-        "Più del mercato a qualunque ora, per trade (pips netti)": r["scarto_globale_pips"],
+        f"Più del mercato a qualunque ora, per trade ({u} netti)": r[f"scarto_globale_{u}"],
+        f"Più del mercato della stessa ora, per trade ({a} netti)": r[f"scarto_{a}"],
+        f"Solidità in {a}": r[f"t_{a}"],
         "Supera la quota di fortuna": [_si_no(v) for v in r["bh"]],
         "Regge sulle due metà": [_si_no(v) for v in r["due_meta"]],
         "Nella rosa": [_si_no(v) for v in r["nella_rosa"]],
@@ -1155,12 +1205,13 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
     })
     s.tabelle["rosa_sistemi"] = tabella
     _mostra(("La rosa dei sistemi (in-sample, al netto dei costi)", tabella),
-            decimali={"Solidità netta": 2})
+            decimali={"Solidità netta": 2, f"Solidità in {a}": 2})
     _riquadro(
         "Gli stessi sistemi della schermata 4, letti con i controlli della rosa: guadagno netto per trade "
         "oltre quello che il mercato dà da solo nelle ore in cui il trade resta aperto, difficile da spiegare "
         "con la fortuna, positivo in entrambe le metà dell'in-sample. Due sistemi stanno insieme nella rosa "
         f"solo se i loro guadagni giornalieri sono poco legati (correlazione entro ±{_fmt(RHO_MAX, 1)}).",
+        _frase_unita(s) +
         "Di solito «Long + Short» è molto legato ai due lati da soli, e la rosa ne tiene uno. Due lati da soli "
         "entrambi nella rosa vuol dire che si completano. Rosa vuota = nessun sistema si distingue abbastanza "
         "dal caso: non è una bocciatura, i filtri della schermata 5 possono ancora cambiarlo.",
@@ -1220,12 +1271,12 @@ def _grafico_filtri(s: Sessione, filtri: list, promossi: list) -> None:
         tr = s.fs.trades(nome)
         if tr is None or len(tr) == 0:
             continue
-        _, netti = pips_per_trade(tr, s.fs.pip_size, s.fs.commission or 0.0)
+        _, netti = netti_in_unita(tr, s.fs.pip_size, s.fs.commission or 0.0, s.unita)
         curva = pd.Series(netti.to_numpy(), index=pd.DatetimeIndex(tr["ExitTime"])).sort_index().cumsum()
         ax.plot(curva.index, curva.to_numpy(), label=f"{etichetta} · {len(tr)} trade", **stile)
     ax.axhline(0, color="black", lw=0.8)
-    ax.set_ylabel("pips netti accumulati")
-    ax.set_title("Sistema base e filtri: somma dei pips netti, trade dopo trade (in-sample)")
+    ax.set_ylabel(f"{s.unita} netti accumulati")
+    ax.set_title(f"Sistema base e filtri: somma dei {s.unita} netti, trade dopo trade (in-sample)")
     ax.grid(alpha=.3)
     ax.legend(fontsize=8, loc="best")
     plt.tight_layout()
@@ -1294,8 +1345,9 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     # --- classifica -----------------------------------------------------
     base = r[r["filtro"] == BASELINE].iloc[0]
     righe = [{"Filtro": "Sistema base (nessun filtro)", "Trade": int(base["trades"]),
-              "Guadagno medio netto per trade (pips)": base["avg_trade_netto"],
-              "Miglioramento sul sistema base (pips)": np.nan,
+              **_in_unita(s, "Guadagno medio netto per trade", base["avg_trade_netto"],
+                          base.get("avg_trade_netto_pips")),
+              f"Miglioramento sul sistema base ({s.unita})": np.nan,
               "Solidità del miglioramento": np.nan,
               "Prima prova": "—", "Seconda prova (due metà)": "—"}]
     ordinati = prove.assign(_s=prove["filtro"].isin(s.sopravvissuti),
@@ -1305,8 +1357,9 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     for _, x in ordinati.head(quanti).iterrows():
         righe.append({
             "Filtro": x["filtro"], "Trade": int(x["trades"]),
-            "Guadagno medio netto per trade (pips)": x["avg_trade_netto"],
-            "Miglioramento sul sistema base (pips)": x["guadagno_pips"],
+            **_in_unita(s, "Guadagno medio netto per trade", x["avg_trade_netto"],
+                        x.get("avg_trade_netto_pips")),
+            f"Miglioramento sul sistema base ({s.unita})": x["guadagno_pips"],
             "Solidità del miglioramento": x["t_guadagno"],
             "Prima prova": _prima_prova(x["esito"], x.get("motivo")),
             "Seconda prova (due metà)": _VERDETTO.get(verdetti.get(x["filtro"]), "—"),
@@ -1338,7 +1391,8 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
                   "e cambiare trigger o uscite.")
     _riquadro(
         "Ogni filtro è una condizione in più per entrare (trend, volatilità, orario…). Lo strumento li prova "
-        "tutti, uno alla volta, e misura di quanti pips per trade migliorano il sistema base scartando i trade peggiori.",
+        "tutti, uno alla volta, e misura di quanto migliorano il guadagno per trade del sistema base scartando i trade "
+        f"peggiori (in {s.unita}).",
         "Un filtro vale solo se supera due prove. Prima: il miglioramento deve essere più grande di quello che "
         "troveresti per caso provando così tanti filtri. Seconda: deve esserci in entrambe le metà dello storico, "
         "non in una sola. Più cose provi, più è facile trovarne una bella per caso: l'imbuto serve a questo.",
@@ -1353,6 +1407,8 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
 _VOCI_SCHEDA = [
     ("n_trades", "Trade", 0),
     ("ev_pips", "Guadagno medio netto per trade (pips)", 2),
+    ("ev_bp", "Guadagno medio netto per trade (bp)", 2),        # 20/10/2026, docs/63 §4
+    ("ev_atr", "Guadagno medio netto per trade (ATR)", 4),
     ("net_pips", "Totale pips netti", 0),
     ("win_rate", "Trade vincenti (%)", 1),
     ("wr_pareggio", "Vincenti necessari per il pareggio (%)", 1),
@@ -1411,8 +1467,9 @@ def _catena_filtri(s: Sessione, scelti: list[str]):
     """
     base = s.fs.risultati[s.fs.risultati["filtro"] == BASELINE].iloc[0]
     passi = [{"Passo": "Sistema base", "Trade": int(base["trades"]),
-              "Guadagno medio netto per trade (pips)": base["avg_trade_netto"],
-              "Miglioramento sul passo prima (pips)": np.nan,
+              **_in_unita(s, "Guadagno medio netto per trade", base["avg_trade_netto"],
+                          base.get("avg_trade_netto_pips")),
+              f"Miglioramento sul passo prima ({s.unita})": np.nan,
               "Solidità del miglioramento": np.nan}]
     entry_long, entry_short, fs_k = s.fs.entry_long, s.fs.entry_short, s.fs
     for k, etichetta in enumerate(scelti):
@@ -1422,8 +1479,9 @@ def _catena_filtri(s: Sessione, scelti: list[str]):
                                         filtri=_membri_filtro(s, etichetta), **_kw_filtri(s))
         riga = fs_k.risultati[fs_k.risultati["filtro"] == etichetta].iloc[0]
         passi.append({"Passo": f"+ {etichetta}", "Trade": int(riga["trades"]),
-                      "Guadagno medio netto per trade (pips)": riga["avg_trade_netto"],
-                      "Miglioramento sul passo prima (pips)": riga["guadagno_pips"],
+                      **_in_unita(s, "Guadagno medio netto per trade", riga["avg_trade_netto"],
+                                  riga.get("avg_trade_netto_pips")),
+                      f"Miglioramento sul passo prima ({s.unita})": riga["guadagno_pips"],
                       "Solidità del miglioramento": riga["t_guadagno"]})
     return entry_long, entry_short, fs_k, passi
 
@@ -1455,9 +1513,9 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
             min_trades=s.fs.min_trades, verbose=False, **kw)
         tr_is, tr_oos = fs_ultimo.trades(ultimo), s.oos.trades(ultimo)
         k_is = scheda_strategia(tr_is, s.fs.pip_size, s.fs.commission or 0.0,
-                                montecarlo=False, verbose=False)
+                                montecarlo=False, verbose=False, atr=s.atr, unita=s.unita)
         k_oos = scheda_strategia(tr_oos, s.fs.pip_size, s.fs.commission or 0.0,
-                                 montecarlo=False, verbose=False)
+                                 montecarlo=False, verbose=False, atr=s.atr, unita=s.unita)
     s.filtri_scelti = scelti
     s.filtro = " + ".join(scelti) if scelti else None
     s.trades_is, s.trades_oos = tr_is, tr_oos
@@ -1489,6 +1547,10 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
     s.tabelle["scheda"] = tabella
     nome = s.filtro or "sistema base"
     _mostra((f"Scheda strategia · {s.symbol} · {nome}", tabella))
+    if s.unita != "pips":
+        _nota(f"Decide il {s.unita}: solidità, probabilità che in realtà perda, trade vincenti, vincita media / "
+              f"perdita media e profit factor sono calcolati sui {s.unita} netti di ogni trade. Totale e drawdown "
+              "restano in pips: sono i soldi del conto.")
 
     if len(tr_oos):
         plot_equity(tr_oos, s.df_oos, cash=CASH, etichetta=nome, figsize=(11, 4.8))

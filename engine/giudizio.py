@@ -91,7 +91,7 @@ from statistics import NormalDist
 import numpy as np
 import pandas as pd
 
-from .metriche import pips_per_trade
+from .metriche import atr_per_trade, bp_per_trade, netti_in_unita, pips_per_trade
 
 SCARTATA = "SCARTATA"
 CAMPIONE_CORTO = "CAMPIONE CORTO"
@@ -414,7 +414,8 @@ def scheda_strategia(trades: pd.DataFrame, pip_size: float,
                      commission: float = 0.0, n_boot: int = 10_000,
                      montecarlo: bool = True, n_sim: int = 2000,
                      seed: int = 0, min_trades: int = 100,
-                     p_max: float = 5.0, verbose: bool = True) -> dict:
+                     p_max: float = 5.0, verbose: bool = True, atr=None,
+                     unita: str = "pips") -> dict:
     """
     La scheda completa di una strategia: i KPI di scoperta (nostri) e
     quelli di rischio (Lezione 8/9 del corso), su qualunque `.trades()`.
@@ -443,13 +444,31 @@ def scheda_strategia(trades: pd.DataFrame, pip_size: float,
     nel corso: lo stop e' adattivo, quindi un trade con stop da 15 pips e
     uno con stop da 40 non sono confrontabili in pips. NaN se lo stop non
     e' attivo (perc_sl=0).
+
+    L'EV IN BP E IN ATR (20/10/2026, docs/63 §4)
+    ---------------------------------------------
+    `ev_bp`: l'EV netto in punti base del prezzo d'ingresso di ogni trade
+    (pesa allo stesso modo un trade del 2020 e uno del 2025). `ev_atr`:
+    l'EV netto in multipli dell'ATR giornaliero noto al segnale; serve
+    `atr` (indicatori.atr_giornaliero_chiuso sullo storico intero),
+    altrimenti NaN.
+
+    L'UNITA' CHE DECIDE (20/10/2026, U2)
+    -------------------------------------
+    Con unita="bp" EV, t, P(EV<0), intervallo, win rate, reward:risk,
+    profit factor, lati ed ESITO si calcolano sui netti in bp (`ev` e
+    `ev_lordo` in bp). Restano in pips `ev_pips`, `net_pips`, il drawdown e
+    il Monte Carlo (sono soldi: pips x valore del pip) e l'EV in R.
     """
     n_t = int(len(trades)) if trades is not None else 0
     if n_t == 0:
         return {"n_trades": 0, "esito": SCARTATA, "motivo": "nessun trade"}
 
     lordi, netti = pips_per_trade(trades, pip_size, commission)
-    n = netti.to_numpy()
+    n_pips = netti.to_numpy()
+    if unita != "pips":
+        lordi, netti = netti_in_unita(trades, pip_size, commission, unita)
+    n = netti.to_numpy()                  # l'unita' che decide
     lato = np.sign(trades["Size"].to_numpy())
 
     vinc, perd = n[n > 0], n[n <= 0]
@@ -471,18 +490,29 @@ def scheda_strategia(trades: pd.DataFrame, pip_size: float,
                    - trades["SL"].to_numpy(dtype=float)) / pip_size
         ok = np.isfinite(R) & (R > 0)
         if ok.any():
-            ev_r = float((n[ok] / R[ok]).mean())
+            ev_r = float((n_pips[ok] / R[ok]).mean())
 
     ev = float(n.mean())
     p_neg = p_ev_negativo(n, n_boot=n_boot, seed=seed)
     lo, hi = ic_ev(n, n_boot=n_boot, seed=seed)
 
+    ev_bp = float(np.nanmean(bp_per_trade(trades, pip_size, commission)[1].to_numpy()))
+    ev_atr = np.nan
+    if atr is not None:
+        netti_atr = atr_per_trade(trades, atr, pip_size, commission)[1].to_numpy()
+        if np.isfinite(netti_atr).any():
+            ev_atr = float(np.nanmean(netti_atr))
+
     s = {
         "n_trades": n_t,
-        "ev_pips": ev,
+        "unita": unita,
+        "ev": ev,
+        "ev_pips": float(n_pips.mean()),
+        "ev_bp": ev_bp,
+        "ev_atr": ev_atr,
         "ev_lordo": float(lordi.to_numpy().mean()),
         "ev_R": ev_r,
-        "net_pips": float(n.sum()),
+        "net_pips": float(n_pips.sum()),
         "win_rate": wr,
         "wr_pareggio": wr_par,
         "margine_wr": wr - wr_par if np.isfinite(wr_par) else np.nan,
@@ -491,10 +521,10 @@ def scheda_strategia(trades: pd.DataFrame, pip_size: float,
         "t_stat": t_stat(n),
         "p_ev_neg": p_neg,
         "ic_ev_lo": lo, "ic_ev_hi": hi,
-        "dd_chiusi_pips": _drawdown_chiusi(n),
+        "dd_chiusi_pips": _drawdown_chiusi(n_pips),
     }
     if montecarlo:
-        s.update(drawdown_montecarlo(n, n_sim=n_sim, seed=seed))
+        s.update(drawdown_montecarlo(n_pips, n_sim=n_sim, seed=seed))
 
     for segno, et in ((1, "long"), (-1, "short")):
         m = lato == segno
@@ -516,16 +546,23 @@ def stampa_scheda(s: dict, titolo: str = "SCHEDA STRATEGIA") -> None:
         return
     r = "=" * 66
     print(f"\n{r}\n  {titolo}  —  {s['n_trades']} trade\n{r}")
+    u = s.get("unita", "pips")            # 20/10/2026 (U2): l'unita' che decide
+    if u != "pips":
+        print(f"  DECIDE IL {u.upper()}: EV, t, P(EV<0), IC, win rate ed esito sono in {u}")
     print(f"  EV netto per trade      {s['ev_pips']:>9.3f} pips   "
-          f"(lordo {s['ev_lordo']:.3f})")
+          f"(lordo {s['ev_lordo']:.3f} {u})")
     print(f"     cuscinetto sui costi: regge {s['ev_pips']:.3f} pips di attrito "
           "in piu' prima di azzerarsi")
+    if np.isfinite(s.get("ev_bp", np.nan)):
+        print(f"  EV netto in bp          {s['ev_bp']:>9.2f} bp     (sul prezzo d'ingresso)")
+    if np.isfinite(s.get("ev_atr", np.nan)):
+        print(f"  EV netto in ATR         {s['ev_atr']:>9.4f} ATR    (ATR giornaliero al segnale)")
     if np.isfinite(s.get("ev_R", np.nan)):
         print(f"  EV in R multipli        {s['ev_R']:>9.3f} R")
     print(f"  t-stat                  {s['t_stat']:>9.2f}")
     print(f"  P(EV<0)                 {s['p_ev_neg']:>9.1f} %      "
           "soglie: <5% ok, <1% molto buono")
-    print(f"  IC 95% dell'EV          [{s['ic_ev_lo']:.3f} , {s['ic_ev_hi']:.3f}] pips")
+    print(f"  IC 95% dell'EV          [{s['ic_ev_lo']:.3f} , {s['ic_ev_hi']:.3f}] {u}")
     print(f"  win rate                {s['win_rate']:>9.1f} %      "
           f"pareggio a {s['wr_pareggio']:.1f}%  "
           f"(margine {s['margine_wr']:+.1f})")
@@ -538,7 +575,7 @@ def stampa_scheda(s: dict, titolo: str = "SCHEDA STRATEGIA") -> None:
     for et in ("long", "short"):
         if s.get(f"n_{et}", 0) > 1:
             print(f"     solo {et:<6} {s[f'n_{et}']:>5} trade   "
-                  f"EV {s[f'ev_{et}']:+.3f} pips   t {s[f't_{et}']:+.2f}")
+                  f"EV {s[f'ev_{et}']:+.3f} {u}   t {s[f't_{et}']:+.2f}")
     print(f"  ESITO                   {s['esito']}"
           + (f"   ({s['motivo']})" if s.get("motivo") else ""))
     print(r)

@@ -245,7 +245,9 @@ def due_meta(df_is, fs, etichette,
                   quarantena=quarantena, spread_rollover_pips=spread_rollover_pips,
                   # 10/10/2026: il pip e' quello di fs (fisso del symbol), non
                   # ridedotto sul prezzo di ciascuna meta'
-                  pip_size=pip_size if pip_size is not None else getattr(fs, "pip_size", None))
+                  pip_size=pip_size if pip_size is not None else getattr(fs, "pip_size", None),
+                  # 20/10/2026 (U2): la stessa unita' che decide in fs
+                  unita=getattr(fs, "unita", "pips"))
 
     fs1 = run_filter_search_bt(metà1_df, **kwargs)
     fs2 = run_filter_search_bt(metà2_df, **kwargs)

@@ -344,11 +344,34 @@ candidato si distingue abbastanza dal caso; la scelta resta libera.
 | Unità | EURUSD | BTCUSD |
 |---|---|---|
 | **punto** | 0,00001 (quinta cifra) | 0,01 |
-| **pip** (`deduci_pip`) | 0,0001 | 1 USD |
+| **pip** (dal 10/10 fisso in `engine/simboli.py`, non più `deduci_pip`) | 0,0001 | 1 USD |
  
 **Un pip sono 10 punti.** La colonna `spread` del CSV è in **punti**. Su EURUSD a
 prezzo 1,1173: 1 pip = 0,895 bp. Un `picco_pips` di 70 su BTCUSD sono 70 dollari, non
 70 pips valutari — **è il primo controllo da fare portando il tool su un asset nuovo.**
+
+**bp e ATR accanto ai pips (20/10/2026, `63` §4).** Su un asset il cui prezzo
+cambia molto (BTC da 7.000 a 100.000 $) i pips pesano di più gli anni a prezzo
+alto. Due unità in più, per trade e per ogni rendimento a H barre:
+- **bp** = pips × pip ÷ prezzo d'ingresso × 10.000 (1 bp = 0,01% del prezzo): un
+  trade dell'1% vale 100 bp a 7.000 $ come a 70.000 $. I costi si convertono
+  trade per trade; sulle crypto la commissione è una costante (perpetual Binance:
+  2 × 0,05% = 10 bp andata e ritorno);
+- **ATR** = pips × pip ÷ ATR giornaliero a 5 giornate chiuse noto al segnale
+  (lo stesso del money management). Non è la «R» del money management, che è la
+  distanza dallo stop.
+
+Funzioni: `metriche.bp_per_trade`, `metriche.atr_per_trade`,
+`stagionalita.rendimenti_avanti_unita`, parametri `unita` e `unita_extra` di
+`rosa_entry` e `rosa_sistemi`, voci `ev_bp` ed `ev_atr` della scheda.
+
+**Quale unità decide (U2, 20/10/2026).** Sui symbol da exchange **decide il bp** in
+tutti i passi: rosa dei trigger e dei sistemi, ricerca delle uscite, ricerca dei
+filtri (tenuti contro scartati), due metà, scheda (solidità, P(EV<0), verdetto). I
+pips restano accanto, e restano l'unità di totale, drawdown, money management e
+stress test (sono soldi: pips × valore del pip). L'event study misurava già in
+percentuale del prezzo. Sul broker (sospeso) decidono ancora i pips. Confronto fra
+le due unità in `63` §4.7.
  
 ---
  

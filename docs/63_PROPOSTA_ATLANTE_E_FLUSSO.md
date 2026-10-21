@@ -194,6 +194,64 @@ scheda_strategia(...)                         # voci ev_bp, ev_atr accanto a ev_
 
 Tre colonne invece di una possono confondere: il riquadro dice sempre quale decide. Con U1 il rischio di errore è basso (nessun calcolo esistente cambia); con U2 cambiano i numeri che decidono, e per questo U1 e U2 sono due commit separati.
 
+### 4.7 · Confronto pips contro bp (20/10/2026, U2)
+
+Stessi trade, stesso giro del Lab crypto (H = 25, trigger E23 long e short, uscite di default, stop al 90° percentile, scheda sul sistema base); cambia solo l'unità che decide. Prima colonna: il Lab dopo la giornata UTC (decidono i pips); seconda: con U2. Solo per documentare quanto cambia, non per giudicare.
+
+### BINANCE_PERP_BTCUSDT
+
+| passo | voce | decidono i pips | decide il bp |
+|---|---|---|---|
+| rosa dei trigger | trigger misurati | 70 | 70 |
+| | candidati (t > 0, quota di fortuna, due metà) | 3 | 4 |
+| | nella rosa | 2 | 1 |
+| | positivi su entrambe le metà | 16 | 21 |
+| | candidati in comune / solo pips / solo bp | 3 | 0 / 1 |
+| sistema base E23 | Long + Short: guadagno medio netto per trade | -75,57 pips | -15,23 bp |
+| | Long + Short: solidità | -3,62 | -3,27 |
+| sistema base E23 | Solo long: guadagno medio netto per trade | -70,30 pips | -13,76 bp |
+| | Solo long: solidità | -2,56 | -2,30 |
+| sistema base E23 | Solo short: guadagno medio netto per trade | -82,74 pips | -17,16 bp |
+| | Solo short: solidità | -2,58 | -2,34 |
+| rosa dei sistemi | L=— · S=E23_SHORT_PREV_DAY_LOW_BREAKDOWN · X=—: solidità netta, due metà | -2,23, no | -1,72, no |
+| rosa dei sistemi | L=E23_PREV_DAY_HIGH_BREAKOUT · S=— · X=—: solidità netta, due metà | -2,93, no | -2,97, no |
+| rosa dei sistemi | L=E23_PREV_DAY_HIGH_BREAKOUT · S=E23_SHORT_PREV_DAY_LOW_BREAKDOWN · X=—: solidità netta, due metà | -3,64, no | -3,29, no |
+| filtri (prime 8 righe) | promossi alla prima prova | 0 | 0 |
+| | reggono sulle due metà | 0 | 0 |
+| | asticella della prima prova | +3,13 | +3,13 |
+| | primo filtro in classifica | TWO_BARS | TWO_BARS |
+| scheda, sistema base | Solidità (in-sample · out-of-sample) | -3,62 · -1,37 | -3,27 · -1,78 |
+| scheda, sistema base | Probabilità che in realtà perda (%) (in-sample · out-of-sample) | 100,0 · 91,0 | 99,9 · 96,2 |
+| scheda, sistema base | Trade vincenti (%) (in-sample · out-of-sample) | 39,1 · 40,0 | 39,1 · 40,0 |
+| scheda, sistema base | Profit factor (in-sample · out-of-sample) | 0,75 · 0,83 | 0,79 · 0,79 |
+| | Guadagno medio netto per trade (pips) (in-sample · out-of-sample) | -75,57 · -67,34 | -75,57 · -67,34 |
+| | Guadagno medio netto per trade (bp) (in-sample · out-of-sample) | — | -15,23 · -9,73 |
+
+### BYBIT_SPOT_ETHUSDT
+
+| passo | voce | decidono i pips | decide il bp |
+|---|---|---|---|
+| rosa dei trigger | trigger misurati | 33 | 33 |
+| | candidati (t > 0, quota di fortuna, due metà) | 1 | 1 |
+| | nella rosa | 1 | 1 |
+| | positivi su entrambe le metà | 14 | 12 |
+| | candidati in comune / solo pips / solo bp | 1 | 0 / 0 |
+| sistema base E23 | Solo long: guadagno medio netto per trade | -38,90 pips | -14,18 bp |
+| | Solo long: solidità | -1,89 | -1,81 |
+| rosa dei sistemi | L=E23_PREV_DAY_HIGH_BREAKOUT · S=— · X=—: solidità netta, due metà | -2,03, no | -1,98, no |
+| filtri (prime 8 righe) | promossi alla prima prova | 0 | 0 |
+| | reggono sulle due metà | 0 | 0 |
+| | asticella della prima prova | +3,13 | +3,13 |
+| | primo filtro in classifica | F39_INSIDE_DAY | F4_MACD_ABOVE_SIGNAL |
+| scheda, sistema base | Solidità (in-sample · out-of-sample) | -1,89 · -2,38 | -1,81 · -2,35 |
+| scheda, sistema base | Probabilità che in realtà perda (%) (in-sample · out-of-sample) | 96,6 · 99,1 | 96,0 · 99,1 |
+| scheda, sistema base | Trade vincenti (%) (in-sample · out-of-sample) | 41,0 · 38,6 | 41,0 · 38,6 |
+| scheda, sistema base | Profit factor (in-sample · out-of-sample) | 0,81 · 0,57 | 0,82 · 0,59 |
+| | Guadagno medio netto per trade (pips) (in-sample · out-of-sample) | -38,90 · -88,70 | -38,90 · -88,70 |
+| | Guadagno medio netto per trade (bp) (in-sample · out-of-sample) | — | -14,18 · -31,49 |
+
+Cosa cambia con il bp: lo scarto dalla cella e la solidità di trigger e sistemi; gli esiti delle due metà; il confronto tenuti contro scartati dei filtri e quindi la loro classifica (su ETH il primo filtro cambia); la solidità, P(EV<0), il profit factor e il guadagno della scheda. Non cambiano: i trade (stessi ingressi e uscite), il numero di prove e l'asticella, il win rate, il totale e il drawdown in pips, il money management e lo stress test (sono soldi). L'event study (schermata 2) misurava già in percentuale del prezzo: non cambia.
+
 ---
 
 ## 5 · Lavoro B · Funding e basis dei perpetual
@@ -454,7 +512,7 @@ Ordine deciso il 20/10 (§10.2 domanda 19):
 
 0. **Perimetro** · ramo `perimetro-solo-crypto` — `CLAUDE.md`, `docs/00`, riga «sospeso» in testa al Lab broker (§10.0). **Fatto il 20/10.**
 1. **Giornata delle crypto a 00:00 UTC** · ramo piccolo a parte (§10.1 punto 3) — ATR, `gap_trend`, F36, F39, `giorno_fx` sui symbol da exchange. Cambiano i numeri del Lab crypto, money management compreso; sul broker nulla. **Fatto il 20/10** sul ramo `giornata-crypto-utc`: interruttore `imposta_giornata` in `engine/livelli.py`, acceso da `carica_storico`; segue la giornata anche tutto ciò che usa `giorno_fx` o le candele H4, D, W, M (E23, «un trigger al giorno», F38, E31, F37); gli orari delle fonti (E36, E37, E40, sessioni) restano a New York. Collaudo: `test_giornata_utc.py` (25 test); su BINANCE_PERP_BTCUSDT lookahead per troncamento 174 OK su 176 (le 2 uscite «nessuna uscita» non esercitate, attese) e degenerazione 115 OK; E23 long e short risultano «STATO» per una sola coppia di barre ciascuno in sei anni (rottura alle 23:45 UTC e di nuovo alla prima barra della giornata dopo, contro il massimo appena chiuso: due giornate, non un errore; con la giornata di New York la stessa coppia c'era già sul long, 28/1/2021). Giro completo del Lab, prima e dopo, su BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT: tutti i passi senza errori.
-2. **A** · ramo `unita-di-rischio` — U1, poi U2 (§4.2).
+2. **A** · ramo `unita-di-rischio` — U1, poi U2 (§4.2). **U1 fatto il 20/10:** `bp_per_trade`, `atr_alla_entrata`, `atr_per_trade` (`metriche.py`), `in_unita`, `rendimenti_avanti_unita` (`stagionalita.py`), parametri `unita` / `unita_extra` / `atr` di `rosa_entry` e `rosa_sistemi` (colonne `scarto_<u>`, `t_<u>`, `due_meta_<u>`), voci `ev_bp` ed `ev_atr` della scheda; nel Lab crypto il costo per trade in bp, due colonne in bp nelle rose, due righe nella scheda. `barre_superiori` accetta dati senza Volume. Collaudo: `test_unita.py`; identità su BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT (ogni numero di prima identico, 21 aggiunte). Il notebook di ricerca non cambia: chiama le stesse funzioni (l'ATR è causale, calcolato sull'in-sample dà gli stessi valori). **U2 fatto il 20/10:** parametro `unita` ("pips" o "bp", default "pips") in `run_exit_search_bt`, `run_filter_search_bt` (le due metà lo leggono da `fs`), `scheda_strategia`, `rosa_entry`, `rosa_sistemi`; `metriche.netti_in_unita`. Sui symbol da exchange decide il bp nel Lab crypto (`s.unita`, da `prepara`) e nel notebook di ricerca (`UNITA`, passata a ogni motore); i pips restano accanto. Il broker, sospeso, resta in pips: i suoi numeri non cambiano. L'ATR non decide (ha NaN nelle prime giornate): resta una colonna da leggere. Restano in pips totale, drawdown, money management e stress test (soldi). Confronto in §4.7. Collaudo: `test_unita.py` (30 test).
 3. **B** · ramo `funding-perpetual` — costi giusti prima di misurare sulle crypto; la basis serve all'atlante.
 4. **D1** · ramo `mercato-nullo` — la taratura della pipeline di oggi (su BTC può girare di notte mentre si fa B; si rifà dopo B).
 5. **C** · ramo `atlante-trigger`.
