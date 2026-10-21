@@ -100,6 +100,7 @@ from .metriche import UNITA_CHE_DECIDONO, metriche_per_trade, netti_in_unita
 from .controlli import avviso_capitale
 from .giudizio import soglia_rumore, t_stat
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
+from .exchange import aggiungi_funding
 
 
 # ========================================================================
@@ -340,6 +341,7 @@ def run_exit_search_bt(
     n_barre_short=None,
     pip_size=None,
     unita="pips",
+    funding=None,
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -440,6 +442,15 @@ def run_exit_search_bt(
         "bp" le colonne avg_trade, avg_trade_netto, costo_pips sono in bp
         (il nome resta, per compatibilita'), t e P(EV<0) si calcolano sui
         netti in bp, e avg_trade_netto_pips riporta i pips accanto.
+
+    funding (21/10/2026, docs/63 §5.2)
+        Lo storico del funding di un perpetual (engine/exchange.leggi_funding:
+        tasso, intervallo_ore). None (default) = non contato, tutto identico a
+        prima (CFD, spot, funding spento). Se indicato, ogni trade riceve la
+        colonna `FundingPips` (+ = pagato, - = incassato): le liquidazioni con
+        ingresso < S <= uscita, al prezzo Open della barra che inizia in S.
+        Entra nei netti (avg_trade_netto, t, P(EV<0)), NON in pnl_pct, sharpe e
+        max_dd_pct, che vengono dalla libreria.
 
     Ritorna un oggetto ExitSearchBT: .risultati (tabella), .top(),
     .trades(combinazione), .soglia_rumore, .k.
@@ -587,6 +598,7 @@ def run_exit_search_bt(
 
         trades = costo_extra_pips(stats["_trades"], df, quarantena, spread,
                                   spread_rollover_pips, pip_size)
+        trades = aggiungi_funding(trades, df, funding, pip_size)    # 21/10/2026: None = come prima
         etichetta = f"L={l or '—'} · S={s or '—'} | X={pair or '—'}"
 
         # avg_trade (lordo, invariato), avg_trade_netto e costo_pips: il
@@ -650,7 +662,8 @@ def run_exit_search_bt(
                         finestra=finestra, spread=spread, commission=commission,
                         margin=margin, min_trades=min_trades,
                         soglia_rumore=soglia, k=k, alpha=alpha,
-                        n_barre_long=n_long, n_barre_short=n_short, unita=unita)
+                        n_barre_long=n_long, n_barre_short=n_short, unita=unita,
+                        funding=funding)
 
 
 # ========================================================================
@@ -663,10 +676,11 @@ class ExitSearchBT:
     def __init__(self, risultati, trades_per_combo, n_barre, perc_sl,
                  perc_tp, finestra, spread, commission, margin, min_trades,
                  soglia_rumore=np.nan, k=0, alpha=0.05,
-                 n_barre_long=None, n_barre_short=None, unita="pips"):
+                 n_barre_long=None, n_barre_short=None, unita="pips", funding=None):
         self.risultati = risultati
         self._trades_per_combo = trades_per_combo
         self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono
+        self.funding = funding        # 21/10/2026: None = funding non contato
         self.n_barre = n_barre
         # scadenza per lato (6/10/2026): uguali a n_barre se non indicate
         self.n_barre_long = n_barre if n_barre_long is None else n_barre_long

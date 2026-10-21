@@ -61,7 +61,8 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   MAI chiavi API, MAI funzioni di ordine o di saldo.
   Costi: commissione taker per lato dal listino ufficiale, livello base (COMMISSIONI in
   engine/exchange.py); valori nuovi solo dal listino, con la fonte. Il funding dei perpetual
-  non e' ancora contato. Leva: mai oltre il tetto italiano (perpetual 2, spot 1).
+  e' contato dal 21/10/2026 (dati/<SYMBOL>_FUNDING.csv, docs/63 §5). Leva: mai oltre il
+  tetto italiano (perpetual 2, spot 1).
 - Spread: solo dal listino del conto Standard, SPREAD_LISTINO_PIPS in engine/vetrina.py,
   commissione zero. Se un symbol non ha la riga NON inventare lo spread: il notebook si
   ferma con la riga esatta da aggiungere (rollover proposto dai dati); lo spread normale

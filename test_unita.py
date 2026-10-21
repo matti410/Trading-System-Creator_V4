@@ -289,7 +289,12 @@ def main() -> int:
     import engine.vetrina as v
     from engine import exchange as X
     with tempfile.TemporaryDirectory() as tmp:
-        X.salva_csv(storico(giorni=200, da=20_000.0, a=60_000.0), os.path.join(tmp, "BINANCE_PERP_BTCUSDT_M15.csv"))
+        barre = storico(giorni=200, da=20_000.0, a=60_000.0)
+        X.salva_csv(barre, os.path.join(tmp, "BINANCE_PERP_BTCUSDT_M15.csv"))
+        # 21/10/2026: sui perpetual il funding e' acceso di default, serve il suo CSV (test_funding.py)
+        orari = pd.date_range(barre.index[0].floor("8h"), barre.index[-1].ceil("8h"), freq="8h")
+        X.salva_funding(X.con_intervalli(pd.DataFrame({"tasso": 0.0001}, index=orari.rename("Date"))),
+                        X.file_funding("BINANCE_PERP_BTCUSDT", tmp))
         s = muto(v.prepara, "BINANCE_PERP_BTCUSDT", H=8, cartella=tmp)
     rie = s.tabelle["riepilogo"].set_index("")[" "]
     check("F1. sessione con l'ATR sullo storico intero",

@@ -104,6 +104,10 @@ def pips_per_trade(trades: pd.DataFrame, pip_size: float,
     # comportamento e' quello di prima.
     if "CostoExtraPips" in trades.columns:
         netti = netti - trades["CostoExtraPips"].fillna(0.0)
+    # 21/10/2026 (docs/63 §5.2): il funding dei perpetual, con il segno (+ = pagato,
+    # - = incassato), se il motore l'ha contato (engine/exchange.aggiungi_funding)
+    if "FundingPips" in trades.columns:
+        netti = netti - trades["FundingPips"].fillna(0.0)
     return lordi, netti
 
 

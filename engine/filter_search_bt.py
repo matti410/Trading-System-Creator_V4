@@ -91,6 +91,7 @@ from .exit_search_bt import (soglie_adattive, _StrategiaGenerica,
 from .metriche import UNITA_CHE_DECIDONO, metriche_per_trade, netti_in_unita
 from .controlli import avviso_capitale
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
+from .exchange import aggiungi_funding
 from .giudizio import (RIFERIMENTO, p_ev_negativo, soglia_rumore, t_stat,
                        tenuti_scartati, verdetto)
 
@@ -215,6 +216,7 @@ def run_filter_search_bt(
     pip_size=None,
     processi=None,
     unita="pips",
+    funding=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -289,6 +291,15 @@ def run_filter_search_bt(
         Quanti processi usare per le righe. None (default) = automatico (i
         core del computer, vedi il docstring del modulo); 1 = in sequenza.
         I risultati non cambiano.
+
+    funding (21/10/2026, docs/63 §5.2)
+        Lo storico del funding di un perpetual (engine/exchange.leggi_funding:
+        tasso, intervallo_ore). None (default) = non contato, tutto identico a
+        prima (CFD, spot, funding spento). Se indicato, ogni trade riceve la
+        colonna `FundingPips` (+ = pagato, - = incassato): le liquidazioni con
+        ingresso < S <= uscita, al prezzo Open della barra che inizia in S.
+        Entra nei netti (avg_trade_netto, t, P(EV<0), guadagno), NON in pnl_pct, sharpe e
+        max_dd_pct, che vengono dalla libreria.
 
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
@@ -462,6 +473,7 @@ def run_filter_search_bt(
          m_long, m_short), stats in zip(piano_colonne, tutti_stats):
         trades = costo_extra_pips(stats["_trades"], df, quarantena, spread,
                                   spread_rollover_pips, pip_size)
+        trades = aggiungi_funding(trades, df, funding, pip_size)    # 21/10/2026: None = come prima
 
         # stesso calcolo di exit_search_bt: engine/metriche.py, un posto solo.
         m = metriche_per_trade(trades, pip_size, commission, unita)
@@ -579,7 +591,8 @@ def run_filter_search_bt(
                           exit_rule_pair=exit_rule_pair, n_barre=n_barre,
                           min_trades=min_trades, soglia_rumore=soglia,
                           pip_size=pip_size, commission=commission,
-                          n_barre_long=n_long, n_barre_short=n_short, unita=unita)
+                          n_barre_long=n_long, n_barre_short=n_short, unita=unita,
+                          funding=funding)
 
 
 class FilterSearchBT:
@@ -588,9 +601,10 @@ class FilterSearchBT:
     def __init__(self, risultati, trades_per_filtro, entry_long, entry_short,
                  exit_rule_pair, n_barre, min_trades, soglia_rumore=None,
                  pip_size=None, commission=None,
-                 n_barre_long=None, n_barre_short=None, unita="pips"):
+                 n_barre_long=None, n_barre_short=None, unita="pips", funding=None):
         self.risultati = risultati
         self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono
+        self.funding = funding        # 21/10/2026: None = funding non contato (due_meta lo rilegge)
         self._trades_per_filtro = trades_per_filtro
         self.entry_long = entry_long
         self.entry_short = entry_short

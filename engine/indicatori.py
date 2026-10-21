@@ -1894,3 +1894,43 @@ COLONNE_INDICATORI = (
     "vsa_asta", "vsa_bias", "vsa_go", "vsa_sr",
     "imm_r1", "imm_r12", "ora_r8", "ora_r12", "salto", "quintile_giorno",
 )
+
+
+# ------------------------------------------------------------------------
+# Stati dei perpetual (21/10/2026, docs/63 §5.3): FUORI da aggiungi_indicatori,
+# le colonne del catalogo non cambiano. Leggono le colonne grezze di
+# exchange.colonne_perpetual (funding_tasso, funding_intervallo_ore,
+# spot_close); senza quelle colonne (CFD, spot, mercato sintetico) danno NaN.
+# ------------------------------------------------------------------------
+
+def funding_liquidato(df: pd.DataFrame) -> pd.Series:
+    """
+    L'ultimo tasso del funding gia' liquidato all'inizio della barra (una
+    liquidazione che cade all'inizio della barra conta: e' passata prima di
+    ogni suo prezzo), riportato a 8 ore: tasso x 8 / intervallo_ore. Una
+    liquidazione futura non si vede prima che avvenga. NaN prima del primo
+    tasso, dove l'intervallo non e' noto, e senza le colonne grezze.
+    """
+    if not {"funding_tasso", "funding_intervallo_ore"} <= set(df.columns):
+        return pd.Series(np.nan, index=df.index, name="funding_liquidato")
+    tasso = df["funding_tasso"].astype(float)
+    ore = df["funding_intervallo_ore"].astype(float)
+    segna = tasso.notna()
+    valore = (tasso * 8.0 / ore.where(ore > 0)).where(segna)
+    gruppo = segna.cumsum()
+    esito = valore.groupby(gruppo).transform("first").where(gruppo > 0)
+    return esito.rename("funding_liquidato")
+
+
+def basis_bp(df: pd.DataFrame) -> pd.Series:
+    """
+    La basis del perpetual sullo spot, in punti base, sulla stessa barra:
+    (Close perpetual - Close spot) / Close spot x 10.000. NaN dove lo spot
+    manca (Bybit spot parte nel 2021, Binance spot ha dei buchi) e senza la
+    colonna spot_close.
+    """
+    if "spot_close" not in df.columns:
+        return pd.Series(np.nan, index=df.index, name="basis_bp")
+    spot = df["spot_close"].astype(float)
+    spot = spot.where(spot > 0)
+    return ((df["Close"].astype(float) - spot) / spot * 10_000.0).rename("basis_bp")

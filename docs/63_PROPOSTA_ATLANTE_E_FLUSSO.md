@@ -295,7 +295,7 @@ funding_liquidato(df) -> pd.Series   # ultimo tasso già liquidato prima dell'in
 basis_bp(df) -> pd.Series            # (Close perpetual − Close spot) ÷ Close spot × 10.000, stessa barra
 ```
 
-Le colonne grezze (`funding_tasso`, `spot_close`) le aggiunge `carica_storico` al DataFrame dei perpetual; le due funzioni le leggono. Così il collaudo di lookahead per troncamento funziona come per ogni altro indicatore. Sui dati senza quelle colonne (CFD, spot, mercato sintetico del collaudo) le funzioni danno NaN e le celle non esistono.
+Le colonne grezze (`funding_tasso`, `funding_intervallo_ore`, `spot_close`) le aggiunge `exchange.colonne_perpetual` al DataFrame dei perpetual; le due funzioni le leggono. **Correzione del 21/10:** non le aggiunge `carica_storico`, perché `aggiungi_indicatori` toglie le righe con un NaN e quelle colonne sono vuote quasi ovunque: si aggiungono dopo gli indicatori, nel lavoro C, dove servono. Così il collaudo di lookahead per troncamento funziona come per ogni altro indicatore. Sui dati senza quelle colonne (CFD, spot, mercato sintetico del collaudo) le funzioni danno NaN e le celle non esistono.
 
 ### 5.4 · Orari con un motivo
 
@@ -317,6 +317,24 @@ Le liquidazioni (00:00, 08:00, 16:00 UTC; le ore pari nei periodi a 2 ore) diven
 ### 5.7 · Rischi
 
 Il prezzo «mark» approssimato con l'Open; un tasso eccezionale (−2% su SOL il 9/11/2022) pesa molto su pochi trade: la verifica dei trade lo mostra. Il funding non cambia i trade, solo il loro risultato: nessun rischio di trade diversi fra prima e dopo.
+
+### 5.8 · Con e senza funding (21/10/2026)
+
+Giro completo del Lab crypto (H = 25, E23 long e short, uscite di default, scheda sul sistema base), prima e dopo il funding. Stessi trade (ingressi e uscite identici); cambiano solo i netti. Solo per documentare, non per giudicare.
+
+| | BINANCE_PERP_BTCUSDT senza → con | BYBIT_PERP_SOLUSDT senza → con |
+|---|---|---|
+| trade in-sample / out-of-sample | 1.500 / 400 (identici) | 1.160 / 290 (identici) |
+| guadagno medio netto per trade, in-sample (bp) | −15,23 → −15,44 | −17,82 → −18,17 |
+| guadagno medio netto per trade, out-of-sample (bp) | −9,73 → −9,76 | −23,77 → −24,06 |
+| solidità in-sample | −3,27 → −3,32 | −2,27 → −2,31 |
+| funding medio per trade in-sample, tutti / long / short (bp) | +0,20 / +0,93 / −0,67 | +0,35 / +0,39 / +0,31 |
+| commissione + spread per trade (bp) | 10,02 | 11,98 |
+| money management: percentuale scelta (volatilità) | 1,00% → 1,00% | 1,25% → 1,25% |
+| money management: drawdown 1 su 20 | 18,20% → 18,27% | 17,58% → 17,65% |
+| money management: rischio e costo di ogni trade | identici | identici |
+
+Su SOL in-sample il funding medio degli short è −0,53 pips ma +0,31 bp: in bp ogni trade pesa con il suo prezzo, e gli incassi più grandi in pips sono arrivati con SOL a prezzi alti. Nel notebook di ricerca (stessi due symbol) i trade del sistema base sono identici; il sistema con la soglia di confidenza cambia qualche trade (BTC: 994 → 1.019 in-sample), perché la soglia decide sui pips netti medi passati, che ora contengono il funding.
 
 ---
 
@@ -513,7 +531,7 @@ Ordine deciso il 20/10 (§10.2 domanda 19):
 0. **Perimetro** · ramo `perimetro-solo-crypto` — `CLAUDE.md`, `docs/00`, riga «sospeso» in testa al Lab broker (§10.0). **Fatto il 20/10.**
 1. **Giornata delle crypto a 00:00 UTC** · ramo piccolo a parte (§10.1 punto 3) — ATR, `gap_trend`, F36, F39, `giorno_fx` sui symbol da exchange. Cambiano i numeri del Lab crypto, money management compreso; sul broker nulla. **Fatto il 20/10** sul ramo `giornata-crypto-utc`: interruttore `imposta_giornata` in `engine/livelli.py`, acceso da `carica_storico`; segue la giornata anche tutto ciò che usa `giorno_fx` o le candele H4, D, W, M (E23, «un trigger al giorno», F38, E31, F37); gli orari delle fonti (E36, E37, E40, sessioni) restano a New York. Collaudo: `test_giornata_utc.py` (25 test); su BINANCE_PERP_BTCUSDT lookahead per troncamento 174 OK su 176 (le 2 uscite «nessuna uscita» non esercitate, attese) e degenerazione 115 OK; E23 long e short risultano «STATO» per una sola coppia di barre ciascuno in sei anni (rottura alle 23:45 UTC e di nuovo alla prima barra della giornata dopo, contro il massimo appena chiuso: due giornate, non un errore; con la giornata di New York la stessa coppia c'era già sul long, 28/1/2021). Giro completo del Lab, prima e dopo, su BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT: tutti i passi senza errori.
 2. **A** · ramo `unita-di-rischio` — U1, poi U2 (§4.2). **U1 fatto il 20/10:** `bp_per_trade`, `atr_alla_entrata`, `atr_per_trade` (`metriche.py`), `in_unita`, `rendimenti_avanti_unita` (`stagionalita.py`), parametri `unita` / `unita_extra` / `atr` di `rosa_entry` e `rosa_sistemi` (colonne `scarto_<u>`, `t_<u>`, `due_meta_<u>`), voci `ev_bp` ed `ev_atr` della scheda; nel Lab crypto il costo per trade in bp, due colonne in bp nelle rose, due righe nella scheda. `barre_superiori` accetta dati senza Volume. Collaudo: `test_unita.py`; identità su BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT (ogni numero di prima identico, 21 aggiunte). Il notebook di ricerca non cambia: chiama le stesse funzioni (l'ATR è causale, calcolato sull'in-sample dà gli stessi valori). **U2 fatto il 20/10:** parametro `unita` ("pips" o "bp", default "pips") in `run_exit_search_bt`, `run_filter_search_bt` (le due metà lo leggono da `fs`), `scheda_strategia`, `rosa_entry`, `rosa_sistemi`; `metriche.netti_in_unita`. Sui symbol da exchange decide il bp nel Lab crypto (`s.unita`, da `prepara`) e nel notebook di ricerca (`UNITA`, passata a ogni motore); i pips restano accanto. Il broker, sospeso, resta in pips: i suoi numeri non cambiano. L'ATR non decide (ha NaN nelle prime giornate): resta una colonna da leggere. Restano in pips totale, drawdown, money management e stress test (soldi). Confronto in §4.7. Collaudo: `test_unita.py` (30 test).
-3. **B** · ramo `funding-perpetual` — costi giusti prima di misurare sulle crypto; la basis serve all'atlante.
+3. **B** · ramo `funding-perpetual` — costi giusti prima di misurare sulle crypto; la basis serve all'atlante. **Fatto il 21/10:** `scarica_dati_crypto.py` scarica il funding degli 8 perpetual (`dati/<SYMBOL>_FUNDING.csv`, `--solo-funding` per il solo funding; tabella in `50` §12: nessuna liquidazione mancante, ogni storico copre le sue barre); in `engine/exchange.py` `scarica_funding`, `salva_funding`, `leggi_funding`, `controlla_funding`, `copertura_funding`, `funding_per_trade`, `aggiungi_funding`, `funding_avanti`, `colonne_perpetual`; colonna `FundingPips` (+ = pagato) sottratta da `pips_per_trade`; parametro `funding` dei due motori (lo rilegge `due_meta` da `fs`); fuori dal rischio di `mm_adattatore.tabella_trade`; stati `funding_liquidato` e `basis_bp` in `engine/indicatori.py`, fuori dal catalogo (colonne grezze aggiunte da `colonne_perpetual` dopo gli indicatori, §5.3). Vetrina: `carica_funding` (si ferma se il file manca o non copre le barre), `costi_storico(..., funding=)`, `prepara(..., funding=True)`, riga «Funding (perpetual): contato», tabella del costo in tre righe nella scheda e nella verifica dei trade, colonna «Funding (pips)» nel registro dei trade. Notebook di ricerca: `FUNDING = True`, `carica_funding`, `costi_storico(..., funding=funding)`. Collaudo: `test_funding.py` (47 test); identità con il funding spento su BINANCE_PERP_BTCUSDT e BYBIT_PERP_SOLUSDT (Lab: ogni numero identico; notebook di ricerca: 48 celle uguali, l'unica diversa stampa la cartella) e su BYBIT_SPOT_ETHUSDT; confronto con il funding acceso in §5.8. Non fatto: la colonna «liquidazione del funding» nel profilo orario (§5.4), che serve all'atlante: va con il lavoro C.
 4. **D1** · ramo `mercato-nullo` — la taratura della pipeline di oggi (su BTC può girare di notte mentre si fa B; si rifà dopo B).
 5. **C** · ramo `atlante-trigger`.
 6. **D2** · sullo stesso ramo del mercato nullo o su uno nuovo — il confronto.
