@@ -92,6 +92,7 @@ import numpy as np
 import pandas as pd
 
 from .metriche import atr_per_trade, bp_per_trade, netti_in_unita, pips_per_trade
+from .motore_veloce import DISPONIBILE, njit   # numba, se c'e' (21/10/2026, E4)
 
 SCARTATA = "SCARTATA"
 CAMPIONE_CORTO = "CAMPIONE CORTO"
@@ -157,9 +158,120 @@ def p_ev_negativo(pips, n_boot: int = 10_000, seed: int = 0) -> float:
     x = x[np.isfinite(x)]
     if x.size < 2:
         return np.nan
-    rng = np.random.default_rng(seed)
-    medie = rng.choice(x, size=(int(n_boot), x.size), replace=True).mean(axis=1)
+    medie = _medie_bootstrap(x, n_boot, seed)
     return float((medie < 0).mean() * 100.0)
+
+
+# 21/10/2026 (E4, docs/65 §16): il bootstrap piu' veloce, stessi numeri al bit.
+# Prima: rng.choice(x, size=(n_boot, n), replace=True).mean(axis=1). Ora gli
+# stessi indici casuali (rng.integers(0, n, size), cio' che choice fa dentro)
+# e la media di ogni riga calcolata in un passaggio compilato, sommando come
+# numpy (somma a coppie, blocchi di 8): niente matrice n_boot x n di pips.
+# Identita' con il calcolo di prima: test_motore_veloce.py, sezione G.
+
+@njit(cache=True)
+def _blocco(a, s, n):
+    """La somma di a[s:s+n] con n <= 128, come pairwise_sum di numpy."""
+    if n < 8:
+        r = 0.0
+        for i in range(n):
+            r += a[s + i]
+        return r
+    if n <= 128:
+        r0 = a[s]
+        r1 = a[s + 1]
+        r2 = a[s + 2]
+        r3 = a[s + 3]
+        r4 = a[s + 4]
+        r5 = a[s + 5]
+        r6 = a[s + 6]
+        r7 = a[s + 7]
+        i = 8
+        while i < n - (n % 8):
+            r0 += a[s + i]
+            r1 += a[s + i + 1]
+            r2 += a[s + i + 2]
+            r3 += a[s + i + 3]
+            r4 += a[s + i + 4]
+            r5 += a[s + i + 5]
+            r6 += a[s + i + 6]
+            r7 += a[s + i + 7]
+            i += 8
+        r = ((r0 + r1) + (r2 + r3)) + ((r4 + r5) + (r6 + r7))
+        while i < n:
+            r += a[s + i]
+            i += 1
+        return r
+    return np.nan              # mai: sopra 128 ci pensa _somma_a_coppie
+
+
+@njit(cache=True)
+def _somma_a_coppie(a, s0, n0):
+    """
+    La somma di a[s0:s0+n0] come np.add.reduce (pairwise_sum di numpy):
+    sopra 128 elementi divide in due (la prima meta' multipla di 8), somma
+    le due parti e le addiziona. Scritta senza ricorsione, con una pila:
+    una funzione ricorsiva letta dalla cache di numba manda in crash Python
+    (trovato il 21/10/2026). Stesse somme nello stesso ordine.
+    """
+    if n0 <= 128:
+        return _blocco(a, s0, n0)
+    ps = np.empty(64, np.int64)          # inizio, lunghezza, fase, somma di sinistra
+    pn = np.empty(64, np.int64)
+    fase = np.zeros(64, np.int64)
+    sinistra = np.empty(64)
+    cima = 0
+    ps[0] = s0
+    pn[0] = n0
+    ritorno = 0.0
+    while cima >= 0:
+        s = ps[cima]
+        n = pn[cima]
+        if n <= 128:
+            ritorno = _blocco(a, s, n)
+            cima -= 1
+            continue
+        n2 = n // 2
+        n2 -= n2 % 8
+        if fase[cima] == 0:              # prima la meta' di sinistra
+            fase[cima] = 1
+            cima += 1
+            ps[cima] = s
+            pn[cima] = n2
+            fase[cima] = 0
+        elif fase[cima] == 1:            # poi quella di destra
+            sinistra[cima] = ritorno
+            fase[cima] = 2
+            cima += 1
+            ps[cima] = s + n2
+            pn[cima] = n - n2
+            fase[cima] = 0
+        else:                            # sinistra + destra
+            ritorno = sinistra[cima] + ritorno
+            cima -= 1
+    return ritorno
+
+
+@njit(cache=True)
+def _medie_righe(x, indici):
+    """x[indici].mean(axis=1), senza costruire x[indici]."""
+    n_boot, n = indici.shape
+    medie = np.empty(n_boot)
+    riga = np.empty(n)
+    for b in range(n_boot):
+        for j in range(n):
+            riga[j] = x[indici[b, j]]
+        medie[b] = (0.0 + _somma_a_coppie(riga, 0, n)) / n
+    return medie
+
+
+def _medie_bootstrap(x, n_boot, seed):
+    """Le medie dei `n_boot` ricampionamenti di `x`, come
+    np.random.default_rng(seed).choice(x, size=(n_boot, x.size)).mean(axis=1)."""
+    indici = np.random.default_rng(seed).integers(0, x.size, size=(int(n_boot), x.size))
+    if not DISPONIBILE:
+        return x[indici].mean(axis=1)
+    return _medie_righe(np.ascontiguousarray(x), indici)
 
 
 def ic_ev(pips, livello: float = 95.0, n_boot: int = 10_000,
@@ -169,8 +281,7 @@ def ic_ev(pips, livello: float = 95.0, n_boot: int = 10_000,
     x = x[np.isfinite(x)]
     if x.size < 2:
         return (np.nan, np.nan)
-    rng = np.random.default_rng(seed)
-    medie = rng.choice(x, size=(int(n_boot), x.size), replace=True).mean(axis=1)
+    medie = _medie_bootstrap(x, n_boot, seed)     # 21/10/2026 (E4): come p_ev_negativo
     coda = (100.0 - livello) / 2.0
     lo, hi = np.percentile(medie, [coda, 100.0 - coda])
     return (float(lo), float(hi))

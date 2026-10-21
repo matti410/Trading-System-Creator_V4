@@ -492,8 +492,10 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
      `engine/motore_veloce.py`, parametro `motore=` nei motori, nel Lab
      (`prepara`) e nel notebook di ricerca (`MOTORE`). **E3 fatto il 21/10**
      (ramo `motore-veloce-e3`, `65` §15): «veloce» è il predefinito, «bt»
-     resta e fa da oracolo. Poi E4 (maschere
-     dei filtri in cache, filtri VWAP, bootstrap), la correzione dei
+     resta e fa da oracolo. **E4 fatto il 21/10** (ramo `motore-veloce-e4`,
+     `65` §16): maschere dei filtri in cache nella sessione del Lab, filtri
+     VWAP e bootstrap di P(EV<0) più veloci, identici al bit; studio della
+     suite completa e di una cache su disco in `65` §17, da decidere. Poi la correzione dei
      comportamenti della libreria (prima lo stop sulla barra d'ingresso) e la
      proposta sull'ordinamento di `top()` (il t nell'unità che decide).
   2. **Confidenza in bp** — allineare `engine/confidenza.py` all'unità che

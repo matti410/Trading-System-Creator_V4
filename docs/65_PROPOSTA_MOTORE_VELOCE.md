@@ -1,7 +1,7 @@
 # 65 · Proposta: un motore di backtest veloce al posto di backtesting.py
 
 **Data:** 21 ottobre 2026
-**Stato:** APPROVATA da Mattia il 21/10/2026, decisioni nel §13. **E1 + E2 fatti il 21/10** sul ramo `motore-veloce-e1-e2` (§14, PR #45). **E3 fatto il 21/10** sul ramo `motore-veloce-e3`: «veloce» è il predefinito (§15).
+**Stato:** APPROVATA da Mattia il 21/10/2026, decisioni nel §13. **E1 + E2 fatti il 21/10** sul ramo `motore-veloce-e1-e2` (§14, PR #45). **E3 fatto il 21/10** sul ramo `motore-veloce-e3`: «veloce» è il predefinito (§15, PR #46). **E4 fatto il 21/10** sul ramo `motore-veloce-e4` (§16); studio della suite completa e di una cache su disco (E5) nel §17, da decidere.
 **Incarico:** `docs/64_MOTORE_VELOCE.md`.
 **Letti:** `CLAUDE.md`, `docs/00`, `docs/21` (sezione D), `docs/63` (§7, §10.3), `docs/64`; i moduli `engine/exit_search_bt.py`, `filter_search_bt.py`, `due_meta.py`, `confidenza.py`, `metriche.py`, `quarantena_trade.py`, `exchange.py`, `vetrina.py`, `vetrina_verifica.py`, `equity_plot.py`, `mm_adattatore.py`, `giudizio.py`, `rosa.py`, `mercato_nullo.py`, `test_velocita.py`; il sorgente di `backtesting.py` 0.6.6 (`Backtest.run`, `_Broker.new_order`, `_Broker._process_orders`, `_close_trade`, `_open_trade`, `Trade`, `_stats.compute_stats`).
 **Verifiche fatte il 21/10** (§1, §7): tempi di oggi misurati sul PC; un **prototipo usa e getta**, scritto nella cartella temporanea di Claude (fuori dal repo, niente di committato), confrontato con l'oracolo su 2.000 configurazioni casuali e sul sistema vero di identità. Nessun file del repo modificato, a parte questo documento.
@@ -458,3 +458,122 @@ Su BINANCE_PERP_BTCUSDT sono gli stessi 14 backtest del §14.3. Per il catalogo 
 | un backtest (`run_exit_search_bt`, una combinazione, con metriche e giudizio) | 1,30 s | 0,43 s (il ciclo da solo: millisecondi) |
 | Lab, schermata 5 (trova la strategia) | 33,2 s | **8,7 s** |
 | suite completa, 37/37 | 32,9 min | 28,7 min (quasi tutto il tempo sono indicatori e preparazione) |
+
+## 16 · Fatto: E4 (21/10/2026, ramo `motore-veloce-e4`)
+
+Tre pezzi, ognuno con la sua prova di identità al bit (`test_motore_veloce.py`, sezione G, 11 test).
+
+### 16.1 · Cosa c'è
+
+- **Maschere dei filtri in cache** (`run_filter_search_bt(..., cache_maschere=dict)`, `due_meta(..., cache_maschere=dict)`).
+  - **Cosa fa:** la maschera di un filtro calcolata su un df si tiene da parte e, alla chiamata dopo sullo stesso df, si riusa invece di ricalcolarla.
+  - **Nel Lab:** la sessione tiene una cache per l'in-sample, una per l'out-of-sample e una per ciascuna metà di `due_meta` (`s.maschere`, `vetrina._cache_maschere`). Si usa nella schermata 5 rifatta, nella catena dei filtri e nella scheda out-of-sample.
+  - **Quando si riusa:**
+    - solo se il filtro è la stessa funzione registrata: un filtro registrato di nuovo con lo stesso nome si ricalcola;
+    - solo se il df è lo stesso, controllato con un'impronta (forma, colonne, date e un hash dei prezzi OHLCV): con un df diverso la cache si svuota da sola.
+  - **Sicurezza:** le maschere in cache sono in sola lettura. Senza il parametro tutto è come prima: il notebook di ricerca non lo usa.
+- **I 3 filtri VWAP** (`vwap_ops.regression_trend_fit`).
+  - **Cosa cambia:** prima era un ciclo Python per ogni giorno, dentro `groupby().apply()`. Ora è lo stesso ciclo, compilato con numba su tutta la serie, con le somme che ripartono a ogni giorno.
+  - **Riserva:** senza numba, con una serie vuota o con l'indice non in ordine, si usa il calcolo di prima (`_regression_trend_fit_pandas`).
+  - **Tempo:** su 190.660 barre i 3 filtri passano da **1,48 s a 0,18 s**.
+- **Il bootstrap di P(EV<0)** (`giudizio.p_ev_negativo`, e `ic_ev`, che fa lo stesso calcolo).
+  - **Cosa resta uguale:** gli stessi indici casuali. `rng.integers(0, n, size)` è ciò che `rng.choice` fa dentro, solo più in fretta.
+  - **Cosa cambia:** la media di ogni ricampionamento si calcola in un passaggio compilato, sommando come numpy (somma a coppie, blocchi di 8). Non si costruisce più la matrice 10.000 × n dei pips.
+  - **Tempo:** da 2,1 a 2,4 volte più veloce. Resta il costo dei numeri casuali, che non si può toccare senza cambiarli.
+  - **Riserva:** senza numba, `x[indici].mean(axis=1)`, identico per costruzione.
+- **Trovato durante il lavoro:** la prima versione della somma era ricorsiva. Numba la compilava bene, ma quando la rileggeva dalla sua cache su disco Python andava in crash («Segmentation fault»). Ora la somma è scritta senza ricorsione, con una pila. Il test G11 lancia due processi nuovi di fila per controllare proprio questo.
+
+### 16.2 · Identità
+
+| prova | esito |
+|---|---|
+| G1–G6, cache delle maschere | stessa tabella e stessi trade con e senza cache, alla prima e alla seconda chiamata; riuso vero (il filtro non si richiama); df diverso → cache svuotata; filtro registrato di nuovo → ricalcolato; maschere in sola lettura; `due_meta` identica |
+| G7–G8, filtri VWAP | regressione identica al bit su tutta la serie vera (238.326 barre), su un giorno, con un NaN, senza fuso, su una barra; i 3 filtri accesi danno le stesse maschere |
+| G9–G10, bootstrap | medie identiche al bit a `rng.choice(...).mean(axis=1)` su 147 lunghezze, 2 semi: da 2 a 12.001 trade, anche oltre 8.192, dove numpy potrebbe spezzare la somma; P(EV<0) identica anche senza numba |
+| G11 | funzioni compilate rilette dalla cache di numba: nessun crash, stessi numeri |
+| Lab crypto, main contro questo ramo, BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT: giro completo, più la schermata 5 rifatta e una scheda con due filtri (dove la cache si riusa) | ogni numero identico |
+| notebook di ricerca, main contro questo ramo, gli stessi due symbol | 48 celle su 49 uguali; l'unica diversa stampa la cartella del progetto |
+
+### 16.3 · Tempi prima / dopo (PC di Mattia, BINANCE_PERP_BTCUSDT, motore «veloce»)
+
+| cosa | prima (E3) | dopo (E4) |
+|---|---|---|
+| un backtest con metriche e giudizio (`run_exit_search_bt`, una combinazione) | 0,42 s | 0,42 s |
+| Lab, schermata 5 (trova la strategia) | 8,9 s | **6,2 s** |
+| Lab, schermata 5 rifatta (stesse maschere) | 8,9 s | **2,9 s** |
+| `due_meta`, base + 5 filtri | 1,5 s | 1,1 s |
+| suite completa, 37/37 | 28,7 min | 27,6 min (sotto, §17: quasi tutto il tempo è altrove) |
+
+- **Il backtest singolo non cambia:** E4 non tocca la sua strada. Il suo tempo va nelle soglie adattive di stop e target (quantili mobili di pandas) e nella tabella dei trade in pandas (`MotoreVeloce._tabella`), non nel ciclo.
+- **`due_meta` guadagna poco dalla cache:** con questi 5 filtri le maschere costano poco. Il tempo va nel bootstrap (già più veloce), nei 12 backtest e nelle soglie delle due metà.
+- **Altri passi possibili, solo segnalati, nessuno fatto:**
+  - soglie adattive e tabella dei trade più veloci;
+  - altri filtri lenti: `_stato_isteresi` circa 0,9 s, `ts_rank` circa 0,9 s, `_variazione_notturna` circa 0,8 s, `barre_da_apertura` circa 0,7 s.
+
+## 17 · Studio: dove va il tempo della suite completa, e una cache su disco (E5)
+
+Solo studio, nessun codice. Decide Mattia.
+
+### 17.1 · Come è misurato
+
+- **Riferimento:** la suite completa del 21/10 (E3), 28,7 minuti, con le 37 suite una dopo l'altra.
+- **Profilo:** le 14 suite più lunghe, 1.478 s su 1.722 (l'86%), passate una per una sotto `cProfile`.
+- **Quanto fidarsi delle quote:** sotto profilo i tempi crescono (1.857 s invece di 1.478) e le parti in Python puro crescono più delle altre. Le quote qui sotto sono quindi indicative, al ±10%.
+
+### 17.2 · Dove va il tempo
+
+| suite | secondi (senza profilo) | dove va, sotto profilo |
+|---|---|---|
+| test_vetrina | 277 | money management: il Monte Carlo dei lotti (`montecarlo_mm`), circa metà; ricerca dei filtri 46 s; preparazione dei dati (indicatori) 25 s |
+| test_vetrina_trigger | 226 | preparazione dei dati 47 s (3 volte); ricerca dei filtri 31 s; event study, rose, verifiche |
+| test_indicatori_tradingview | 220 | **verifica di lookahead 215 s**, di cui 173 s a ripreparare gli indicatori su ogni taglio |
+| test_vsa_modulo_unico | 205 | lookahead 124 s (preparazione 115 s); il resto è VSA su storici lunghi |
+| test_idee_articoli, test_regime, test_salto, test_momentum_intraday, test_condizioni_orarie, test_multi_timeframe, test_sentiment, test_algoxplorer | da 42 a 75 ciascuna, 515 in tutto | **lookahead dal 50% all'88%**, quasi tutto preparazione sui tagli (in test_condizioni_orarie, le condizioni stesse) |
+| test_mercato_nullo, test_rosa | 47, 36 | ricerca dei filtri e rose; preparazione 6–11 s |
+| le altre 23 suite | 244 in tutto | brevi, da 1 a 32 s |
+
+In sintesi:
+
+| parte | quota della suite completa (circa) |
+|---|---|
+| verifica di lookahead (`collaudo_catalogo.verifica_lookahead`): ogni taglio riprepara lo storico DA ZERO, indicatori compresi, ed è voluto | **40%**, circa 11 minuti |
+| di cui: preparazione dei dati sui tagli | **33%**, circa 9 minuti |
+| preparazione dei dati sullo storico intero, fuori dal lookahead (`vetrina.prepara`, `aggiungi_indicatori`) | 5%, circa 1,5 minuti |
+| lettura dei CSV e conversione in UTC | 1–2%, meno di 30 s |
+| money management e Monte Carlo (test_vetrina) | 8–10% |
+| ricerca dei filtri e delle uscite, giudizio, event study | 10–15% |
+| il resto (verifiche, rose, test brevi, avvio dei processi) | il resto |
+
+### 17.3 · Una cache su disco dei dati preparati (E5): cosa farebbe risparmiare
+
+**L'idea:** salvare su disco, in una cartella fuori da GitHub, i df già preparati e rileggerli la volta dopo invece di ricalcolarli. Ogni df si ritroverebbe con una chiave fatta di tre impronte: quella dei dati, quella del taglio e quella del codice che prepara.
+
+| cosa si mette in cache | risparmio, quando la cache vale | spazio su disco | quando NON vale |
+|---|---|---|---|
+| A · solo lo storico intero preparato (CSV → UTC → indicatori) | circa **1,5 min** (5%) | poche centinaia di MB | quando cambia il codice degli indicatori |
+| B · anche ogni taglio del lookahead | fino a circa **9–10 min** (33%): leggere un taglio costa qualche millisecondo, prepararlo 0,3–0,6 s | **circa 5–8 GB** (un taglio pesa fino a 4 MB su 8.500 barre, il doppio sulle suite con 15–20.000 barre; circa 200 tagli per verifica, 12 verifiche) | come A, e in più quando cambia la funzione `prepara` del test (molti test ne hanno una propria, con «trappole» apposta) |
+
+**Il punto critico è quando la cache è ancora valida.**
+- **Chiave larga:** comprende tutto il codice che la preparazione usa, in pratica `engine/`, i file delle condizioni e il file del test. La cache vale solo se quel codice non è cambiato. Ma la suite completa serve proprio prima di una PR, cioè dopo aver cambiato codice: spesso la cache non varrebbe.
+- **Chiave stretta:** per esempio solo `engine/indicatori.py`. La cache vale più spesso, ma può rileggere un df vecchio quando è cambiato un modulo usato dagli indicatori (`sessioni.py`, `livelli.py`, `stagionalita.py`…). La verifica di lookahead passerebbe allora su codice che non è quello attuale: è il caso peggiore per un collaudo.
+
+**Stima onesta:**
+- **A** è sicura ma risparmia poco.
+- **B** risparmia fino a un terzo, ma solo nei giri in cui la preparazione non è cambiata. Costa molti GB e una regola di validità che, per essere sicura, la rende spesso inutile.
+
+### 17.4 · Un'alternativa trovata durante lo studio: la suite completa in parallelo
+
+- **Oggi:** `suite_rapida.py --tutte` lancia le 37 suite **una dopo l'altra**.
+- **Perché si possono lanciare insieme:** le suite sono processi indipendenti e non condividono file, quindi possono girare insieme senza cambiare un solo risultato. La rapida lo fa già, 3 alla volta.
+- **Misurato sul PC:** tutte le 37 suite, 3 alla volta (`python suite_rapida.py` con i 37 nomi): **37/37 in 10,6 minuti**, contro 27,6 una dopo l'altra. Il limite sotto è la suite più lunga (circa 4 minuti): con 4–6 alla volta si scenderebbe forse a 7–8 minuti, da misurare.
+- **Rispetto alla cache:**
+  - niente da tenere valido;
+  - niente spazio su disco;
+  - vale sempre, anche dopo aver cambiato il codice.
+- **Costo:** più memoria (3 suite insieme) e il PC più occupato mentre gira.
+
+### 17.5 · Da decidere (Mattia)
+
+1. Suite completa in parallelo (§17.4): sì o no, e quante suite insieme.
+2. Cache su disco: nessuna, A (solo lo storico intero) o B (anche i tagli, e con quale chiave).
+3. Se interessa: i passi in più del §16.3 (soglie adattive, tabella dei trade, altri filtri lenti).

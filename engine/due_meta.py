@@ -193,7 +193,7 @@ def due_meta(df_is, fs, etichette,
              spread=0.0, commission=0.00007, cash=10_000.0, margin=1.0,
              close_col="Close", open_col="Open", high_col="High", low_col="Low",
              verbose=True, quarantena=True, spread_rollover_pips=None,
-             pip_size=None, funding=None, motore=None):
+             pip_size=None, funding=None, motore=None, cache_maschere=None):
     """
     Verifica sulle due meta' (Difesa C, Passo 5) per le `etichette`
     indicate.
@@ -219,6 +219,10 @@ def due_meta(df_is, fs, etichette,
     motore (21/10/2026, docs/65)
         "bt" o "veloce". None = quello di `fs` (fs.motore): le due meta'
         usano lo stesso motore di fs.
+    cache_maschere (21/10/2026, E4, docs/65 §16)
+        Un dizionario in cui tenere le maschere dei filtri delle due meta'
+        (una cache per meta', vedi run_filter_search_bt). None = nessuna
+        cache, come prima. I risultati non cambiano.
     verbose
         Stampa il riepilogo dello split e un blocco esplicito per ogni
         etichetta che non regge o resta sospesa.
@@ -259,8 +263,12 @@ def due_meta(df_is, fs, etichette,
                   # 21/10/2026 (docs/65): lo stesso motore di fs
                   motore=motore if motore is not None else getattr(fs, "motore", None))
 
-    fs1 = run_filter_search_bt(metà1_df, **kwargs)
-    fs2 = run_filter_search_bt(metà2_df, **kwargs)
+    c1 = c2 = None
+    if cache_maschere is not None:          # 21/10/2026 (E4): una cache per meta'
+        c1 = cache_maschere.setdefault("metà 1", {})
+        c2 = cache_maschere.setdefault("metà 2", {})
+    fs1 = run_filter_search_bt(metà1_df, **kwargs, cache_maschere=c1)
+    fs2 = run_filter_search_bt(metà2_df, **kwargs, cache_maschere=c2)
 
     cols = ["filtro", "filtro_long", "filtro_short", "trades", "pnl_pct", "sharpe",
             "guadagno_pips", "t_guadagno", "guadagno_sharpe", "guadagno_avg_trade",

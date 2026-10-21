@@ -71,6 +71,7 @@ qui risultano promettenti — decisione presa il 18/9/2026.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import warnings
@@ -101,6 +102,33 @@ BASELINE = "— baseline —"
 # le sole voci delle statistiche di backtesting.py che le righe usano
 _VOCI_STATS = ("Return [%]", "Sharpe Ratio", "Max. Drawdown [%]",
                "Win Rate [%]", "Profit Factor")
+
+
+# ========================================================================
+# Cache delle maschere dei filtri (21/10/2026, E4, docs/65 §16)
+# ========================================================================
+
+_IMPRONTA = "__impronta_df__"
+
+
+def _impronta(df):
+    """Cosa identifica il df di una cache: forma, colonne, prima e ultima data
+    e un'impronta dei prezzi (blake2b dei byte di OHLC e Volume)."""
+    h = hashlib.blake2b(digest_size=16)
+    for c in ("Open", "High", "Low", "Close", "Volume"):
+        if c in df.columns:
+            h.update(np.ascontiguousarray(df[c].to_numpy(dtype=float)).tobytes())
+    h.update(np.ascontiguousarray(df.index.asi8 if hasattr(df.index, "asi8")
+                                  else np.arange(len(df))).tobytes())
+    return (df.shape, tuple(map(str, df.columns)), h.hexdigest())
+
+
+def _controlla_cache(cache, df):
+    """Se la cache e' di un altro df la svuota; poi ci scrive l'impronta di df."""
+    impronta = _impronta(df)
+    if cache.get(_IMPRONTA) != impronta:
+        cache.clear()
+        cache[_IMPRONTA] = impronta
 
 
 # ========================================================================
@@ -227,6 +255,7 @@ def run_filter_search_bt(
     unita="pips",
     funding=None,
     motore=None,
+    cache_maschere=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -315,6 +344,16 @@ def run_filter_search_bt(
         "bt" = backtesting.py, "veloce" = engine/motore_veloce.py (stessi
         trade al bit, sempre in sequenza: `processi` non serve). None
         (default) = motore_veloce.MOTORE_PREDEFINITO. Vedi run_exit_search_bt.
+
+    cache_maschere (21/10/2026, E4, docs/65 §16)
+        Un dizionario in cui tenere le maschere dei filtri calcolate su
+        QUESTO `df`, per riusarle alla chiamata dopo sullo stesso df (il Lab
+        ne tiene uno per l'in-sample, uno per l'out-of-sample e uno per ogni
+        meta'). None (default) = nessuna cache, come prima. La maschera si
+        riusa solo se il filtro e' la stessa funzione registrata; se il
+        dizionario arriva con un df diverso (forma, colonne, date o prezzi
+        diversi) si svuota e si ricomincia. Le maschere sono in sola lettura.
+        I risultati non cambiano (test_motore_veloce.py, sezione G).
 
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
@@ -431,12 +470,24 @@ def run_filter_search_bt(
     # tenuti/scartati — vedi engine/giudizio.py. Si calcolano una volta
     # sola qui, insieme alle colonne.
     piano_colonne = []  # (etichetta, f_long, f_short, col_long, col_short, m_long, m_short)
-    cache_maschere = {}
+    calcolate = {}
+    if cache_maschere is not None:          # 21/10/2026 (E4): maschere gia' calcolate su questo df
+        _controlla_cache(cache_maschere, df)
 
     def maschera(nome):
-        if nome not in cache_maschere:
-            cache_maschere[nome] = get_filter(nome)(df).astype(bool).to_numpy()
-        return cache_maschere[nome]
+        if nome not in calcolate:
+            funzione = get_filter(nome)
+            voce = cache_maschere.get(nome) if cache_maschere is not None else None
+            if voce is not None and voce[0] is funzione:
+                calcolate[nome] = voce[1]
+            else:
+                m = funzione(df).astype(bool).to_numpy()
+                if cache_maschere is not None:
+                    m = m.copy()
+                    m.setflags(write=False)       # condivisa fra le chiamate: solo lettura
+                    cache_maschere[nome] = (funzione, m)
+                calcolate[nome] = m
+        return calcolate[nome]
 
     for etichetta, filtro_long, filtro_short in piano:
         col_long = col_short = None

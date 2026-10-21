@@ -306,6 +306,7 @@ class Sessione:
         self.unita = "pips"           # 20/10/2026 (U2): l'unita' che decide; "bp" sui symbol da exchange
         self.funding = None           # 21/10/2026: storico del funding (perpetual); None = non contato
         self.motore = None            # 21/10/2026 (docs/65): "bt" o "veloce"; None = il predefinito (E3: "veloce")
+        self.maschere = {}            # 21/10/2026 (E4, docs/65 §16): maschere dei filtri, una cache per df
         self.tabelle = {}
 
     def __repr__(self):
@@ -1069,6 +1070,15 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
 # 4 · Imposta le uscite
 # ========================================================================
 
+def _cache_maschere(s: Sessione, quale: str) -> dict:
+    """La cache delle maschere dei filtri di un df della sessione (21/10/2026, E4):
+    "is", "oos" o "due_meta" (le due meta' dell'in-sample). Vedi
+    run_filter_search_bt: se il df cambia, la cache si svuota da sola."""
+    if not hasattr(s, "maschere"):               # sessioni finte dei test
+        s.maschere = {}
+    return s.maschere.setdefault(quale, {})
+
+
 def _kw_motore(s: Sessione) -> dict:
     """I parametri comuni a ogni backtest della sessione (uscite + costi + unita' che decide)."""
     u = s.uscite
@@ -1374,7 +1384,7 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
             s.df_is, entry_long=s.entry_long, entry_short=s.entry_short,
             exit_rule_pair=s.uscite["regola"], filtri=filtri,
             min_trades_giudizio=MIN_TRADE_GIUDIZIO, p_max=P_MAX, alpha=ALPHA,
-            verbose=False, **kw)
+            verbose=False, cache_maschere=_cache_maschere(s, "is"), **kw)
     r = s.fs.risultati
     prove = r[r["filtro"] != BASELINE]
     promossi = prove.loc[prove["esito"].isin([DA_VALUTARE, CAMPIONE_CORTO]), "filtro"].to_list()
@@ -1386,7 +1396,8 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
                                          "commission", "cash", "spread_rollover_pips", "funding")
                       if k in kw}
         with _zitto():
-            s.dm = due_meta(s.df_is, s.fs, [None, *promossi], verbose=False, **solo_costi)
+            s.dm = due_meta(s.df_is, s.fs, [None, *promossi], verbose=False,
+                            cache_maschere=_cache_maschere(s, "due_meta"), **solo_costi)
         verdetti = s.dm.tabella.set_index("filtro")["verdetto"].to_dict()
     s.sopravvissuti = [f for f in promossi if verdetti.get(f) == "regge"]
     s.filtro = s.oos = s.trades_is = s.trades_oos = None
@@ -1548,7 +1559,8 @@ def _catena_filtri(s: Sessione, scelti: list[str]):
         if k > 0:
             entry_long, entry_short = congela_filtro(fs_k, scelti[k - 1])
             fs_k = run_filter_search_bt(s.df_is, entry_long=entry_long, entry_short=entry_short,
-                                        filtri=_membri_filtro(s, etichetta), **_kw_filtri(s))
+                                        filtri=_membri_filtro(s, etichetta),
+                                        cache_maschere=_cache_maschere(s, "is"), **_kw_filtri(s))
         riga = fs_k.risultati[fs_k.risultati["filtro"] == etichetta].iloc[0]
         passi.append({"Passo": f"+ {etichetta}", "Trade": int(riga["trades"]),
                       **_in_unita(s, "Guadagno medio netto per trade", riga["avg_trade_netto"],
@@ -1648,7 +1660,8 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
             s.df_oos, entry_long=entry_long, entry_short=entry_short,
             exit_rule_pair=s.fs.exit_rule_pair,
             filtri=_membri_filtro(s, ultimo) if ultimo else [],
-            min_trades=s.fs.min_trades, verbose=False, **kw)
+            min_trades=s.fs.min_trades, verbose=False,
+            cache_maschere=_cache_maschere(s, "oos"), **kw)
         tr_is, tr_oos = fs_ultimo.trades(ultimo), s.oos.trades(ultimo)
         k_is = scheda_strategia(tr_is, s.fs.pip_size, s.fs.commission or 0.0,
                                 montecarlo=False, verbose=False, atr=s.atr, unita=s.unita)
