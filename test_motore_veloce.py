@@ -21,6 +21,15 @@ engine/motore_veloce.py deve dare GLI STESSI TRADE, al bit, di backtesting.py
   E. La scelta del motore: predefinito, nome sbagliato, numba assente.
   F. I motori del tool con motore="bt" e motore="veloce": stesse tabelle,
      stessi trade (run_exit_search_bt, run_filter_search_bt, due_meta).
+  G. E4: maschere in cache, filtri VWAP, bootstrap.
+  H. Stop e target attivi sulla barra d'ingresso (21/10/2026): casi a
+     risultato noto, long e short, uscita a tempo, nessun rientro nella
+     stessa barra, funding sui trade di durata zero, lag < 1, troncamento.
+
+Dal 21/10/2026 il motore veloce attiva stop e target gia' sulla barra
+d'ingresso; backtesting.py resta l'oracolo del comportamento VECCHIO. Per
+questo A-F confrontano i due motori dentro `mv.comportamento_vecchio()`
+(l'interruttore interno, solo per i test): stessa severita' di prima, al bit.
 
 Come si lancia (da terminale, dalla cartella del progetto):
 
@@ -64,9 +73,18 @@ def tabella_bt(d, run_kw, **bt_kw):
     return Backtest(d, _StrategiaGenerica, exclusive_orders=True, **bt_kw).run(**run_kw)
 
 
-def veloce(d, run_kw, **bt_kw):
+def veloce(d, run_kw, vecchio=True, **bt_kw):
+    """Il motore veloce; vecchio=True = stop e target dalla barra dopo, come l'oracolo."""
     with contextlib.redirect_stderr(io.StringIO()):
+        if vecchio:
+            with mv.comportamento_vecchio():
+                return mv.MotoreVeloce(d, exclusive_orders=True, **bt_kw).run(**run_kw)
         return mv.MotoreVeloce(d, exclusive_orders=True, **bt_kw).run(**run_kw)
+
+
+def veloce_nuovo(d, run_kw, **bt_kw):
+    """Il motore veloce com'e' dal 21/10/2026: stop e target attivi sulla barra d'ingresso."""
+    return veloce(d, run_kw, vecchio=False, **bt_kw)
 
 
 def stesse_colonne(a: pd.DataFrame, b: pd.DataFrame) -> list[str]:
@@ -330,7 +348,7 @@ def esegui():
     kw = dict(cash=3000.0, spread=0.2, commission=0.0, margin=1.0)
     st_bt = tabella_bt(d, run_kw, **kw)
     err = io.StringIO()
-    with contextlib.redirect_stderr(err):
+    with contextlib.redirect_stderr(err), mv.comportamento_vecchio():
         st_v = mv.MotoreVeloce(d, **kw).run(**run_kw)
     tb, tv = st_bt["_trades"], st_v["_trades"]
     m = len(tb)
@@ -389,6 +407,8 @@ def esegui():
     costi = dict(spread=0.0002, commission=0.0005, cash=float(df["Close"].max()) * 100, pip_size=0.1)
     comuni = dict(n_barre=12, perc_sl=90.0, perc_tp=0.0, finestra=200, lag=1, quarantena=False,
                   inverti_su_opposto=True, verbose=False, unita="bp", **costi)
+    vecchio = mv.comportamento_vecchio()     # confronto con l'oracolo: comportamento vecchio
+    vecchio.__enter__()
     es = {m_: run_exit_search_bt(df, entry_cols_long=["MV_T_LONG", None], entry_cols_short=["MV_T_SHORT", None],
                                  exit_rule_pairs=[None, "MV_X"], motore=m_, **comuni) for m_ in ("bt", "veloce")}
     check("F1. run_exit_search_bt: stessa tabella", es["bt"].risultati.equals(es["veloce"].risultati))
@@ -406,6 +426,7 @@ def esegui():
         dm = {m_: due_meta(df, fs[m_], [None, "MV_F1", "MV_F2"], perc_sl=90.0, finestra=200, lag=1,
                            quarantena=False, verbose=False, **{k: costi[k] for k in ("spread", "commission", "cash")})
               for m_ in ("bt", "veloce")}
+    vecchio.__exit__(None, None, None)
     check("F6. due_meta usa il motore di fs e da' la stessa tabella",
           dm["bt"].tabella.equals(dm["veloce"].tabella) and dm["veloce"].metà1.motore == "veloce")
 
@@ -532,6 +553,160 @@ def esegui():
     check("G11. funzioni compilate rilette dalla cache di numba: nessun crash, stessi numeri",
           all(u.returncode == 0 for u in uscite) and uscite[0].stdout == uscite[1].stdout != "",
           f"codici di uscita {[u.returncode for u in uscite]}")
+
+
+    # ====================================================================
+    # 21/10/2026: stop e target attivi gia' sulla barra d'ingresso
+    print("\nH · Stop e target sulla barra d'ingresso (comportamento nuovo)")
+    # P: Open 100, 101, 102...; High = Open + 0,5; Low = Open - 0,5. Segnale alla barra 1,
+    # ingresso all'Open della barra 2 (102)
+    def uno(d, run_kw, **kw):
+        t_ = veloce_nuovo(d, run_kw, **kw)["_trades"]
+        return t_, [(int(a_), int(b_), float(c_)) for a_, b_, c_ in
+                    zip(t_["EntryBar"], t_["ExitBar"], t_["ExitPrice"])]
+    _, tr = uno(serie(12, P, {"L": [1]}, {"sl_long": 0.01}, basso={2: 90.0}), dict(KW, n_barre=4), **base)
+    check("H1. long: stop toccato nella barra d'ingresso, uscita allo stop nella stessa barra",
+          tr == [(2, 2, 102.0 * (1 - 0.01))], f"{tr}")
+    _, tr = uno(serie(12, P, {"S": [1]}, {"sl_short": 0.01}, alto={2: 110.0}), dict(KW, n_barre=4), **base)
+    check("H2. short: stop toccato nella barra d'ingresso, uscita allo stop nella stessa barra",
+          tr == [(2, 2, 102.0 * (1 + 0.01))], f"{tr}")
+    _, tr = uno(serie(12, P, {"L": [1]}, {"tp_long": 0.003}), dict(KW, n_barre=4), **base)
+    check("H3. long: target toccato nella barra d'ingresso (High 102,5 >= 102,306)",
+          tr == [(2, 2, 102.0 * (1 + 0.003))], f"{tr}")
+    _, tr = uno(serie(12, P, {"S": [1]}, {"tp_short": 0.003}), dict(KW, n_barre=4), **base)
+    check("H4. short: target toccato nella barra d'ingresso (Low 101,5 <= 101,694)",
+          tr == [(2, 2, 102.0 * (1 - 0.003))], f"{tr}")
+    _, tr = uno(serie(12, P, {"L": [1]}, {"sl_long": 0.01, "tp_long": 0.003}, basso={2: 90.0}),
+                dict(KW, n_barre=4), **base)
+    check("H5. long: stop e target nella barra d'ingresso, vince lo stop",
+          tr == [(2, 2, 102.0 * (1 - 0.01))], f"{tr}")
+    _, tr = uno(serie(12, P, {"S": [1]}, {"sl_short": 0.01, "tp_short": 0.003}, alto={2: 110.0}),
+                dict(KW, n_barre=4), **base)
+    check("H6. short: stop e target nella barra d'ingresso, vince lo stop",
+          tr == [(2, 2, 102.0 * (1 + 0.01))], f"{tr}")
+    # spread 1%: ingresso 103,02, stop 0,5% sotto = 102,5049 > Open 102: si esce all'Open
+    _, tr = uno(serie(12, P, {"L": [1]}, {"sl_long": 0.005}), dict(KW, n_barre=4),
+                cash=1e6, spread=0.01, commission=0.0, margin=1.0)
+    check("H7. stop dentro lo spread: uscita all'Open della barra d'ingresso", tr == [(2, 2, 102.0)], f"{tr}")
+    d = serie(12, P, {"L": [1], "S": [7]}, {"sl_long": 0.05, "tp_long": 0.05, "sl_short": 0.05})
+    a, b = tabella_bt(d, dict(KW, n_barre=3), **base), veloce_nuovo(d, dict(KW, n_barre=3), **base)
+    check("H8. stop e target non toccati: trade e statistiche identici a backtesting.py",
+          not stesse_colonne(a["_trades"], b["_trades"]) and not stesse_statistiche(a, b)
+          and len(b["_trades"]) == 2)
+    _, tr = uno(serie(12, P, {"L": [1, 2]}, {"sl_long": 0.01}, basso={2: 90.0}), dict(KW, n_barre=4), **base)
+    check("H9. nessun rientro nella stessa barra: chiuso sulla barra d'ingresso (2), il segnale della "
+          "barra 2 apre all'Open della 3",
+          len(tr) == 2 and tr[0] == (2, 2, 102.0 * (1 - 0.01)) and tr[1][0] == 3, f"{tr}")
+    d = serie(12, P, {"L": [1, 3]}, {"sl_long": 0.01}, basso={2: 90.0})
+    _, tr = uno(d, dict(KW, n_barre=4), **base)
+    tr_v = [(int(a_), int(b_)) for a_, b_ in zip(*(veloce(d, dict(KW, n_barre=4), **base)["_trades"][c]
+                                                   for c in ("EntryBar", "ExitBar")))]
+    check("H10. il posto liberato: col comportamento vecchio un trade (2-6), col nuovo due (2-2 e 4-8)",
+          tr_v == [(2, 6)] and [(x[0], x[1]) for x in tr] == [(2, 2), (4, 8)], f"vecchio {tr_v} · nuovo {tr}")
+    for nb_, atteso in ((1, (2, 3)), (3, (2, 5)), (5, (2, 7))):
+        d = serie(12, P, {"L": [1]}, {"sl_long": 0.05, "tp_long": 0.05})
+        _, tr = uno(d, dict(KW, n_barre=nb_), **base)
+        t_bt = tabella_bt(d, dict(KW, n_barre=nb_), **base)["_trades"]
+        check(f"H11. uscita a tempo dopo {nb_} barre: stesso conteggio di oggi ({atteso[0]}-{atteso[1]})",
+              [(x[0], x[1]) for x in tr] == [atteso]
+              and (int(t_bt["EntryBar"].iloc[0]), int(t_bt["ExitBar"].iloc[0])) == atteso, f"{tr}")
+
+    # funding sui trade di durata zero (perpetual): barre da 07:30 UTC, la barra 2 apre alle 08:00
+    from engine.exchange import funding_per_trade
+    indice_f = pd.date_range("2024-01-02 07:30", periods=12, freq="15min", tz="UTC")
+    funding_f = pd.DataFrame({"tasso": [0.001, 0.001]},
+                             index=pd.DatetimeIndex(["2024-01-02 08:00", "2024-01-02 16:00"], tz="UTC"))
+    pip_f = 0.01
+    esiti_f = {}
+    for nome_, segnali_, soglie_, estremi_ in (
+            ("long", {"L": [1]}, {"sl_long": 0.01}, dict(basso={2: 90.0})),
+            ("short", {"S": [1]}, {"sl_short": 0.01}, dict(alto={2: 110.0}))):
+        d = serie(12, P, segnali_, soglie_, **estremi_)
+        d.index = indice_f
+        t_ = veloce_nuovo(d, dict(KW, n_barre=4), **base)["_trades"]
+        esiti_f[nome_] = (t_, funding_per_trade(t_, d, funding_f, pip_f) if len(t_) else pd.Series(dtype=float))
+    t_l, f_l = esiti_f["long"]
+    t_s, f_s = esiti_f["short"]
+    check("H12. funding, durata zero: long e short entrati all'Open delle 08:00 e usciti nella stessa barra "
+          "non pagano la liquidazione delle 08:00 (regola di oggi: ingresso < S <= uscita)",
+          len(t_l) == len(t_s) == 1 and t_l["EntryTime"].iloc[0] == t_l["ExitTime"].iloc[0] == indice_f[2]
+          and t_s["EntryTime"].iloc[0] == t_s["ExitTime"].iloc[0] == indice_f[2]
+          and f_l.iloc[0] == 0.0 and f_s.iloc[0] == 0.0, f"long {f_l.tolist()} · short {f_s.tolist()}")
+    # controprova: barre da 07:15, ingresso alla barra 2 (07:45), stop toccato nella 3 (08:00)
+    d = serie(12, P, {"L": [1]}, {"sl_long": 0.01}, basso={3: 90.0})
+    d.index = pd.date_range("2024-01-02 07:15", periods=12, freq="15min", tz="UTC")
+    t_c = veloce_nuovo(d, dict(KW, n_barre=4), **base)["_trades"]
+    f_c = funding_per_trade(t_c, d, funding_f, pip_f)
+    atteso_c = 0.001 * float(d["Open"].iloc[3]) / pip_f
+    check("H13. funding, controprova: ingresso alle 07:45, stop nella barra delle 08:00: paga la liquidazione "
+          "delle 08:00 (long, tasso positivo)",
+          len(t_c) == 1 and (int(t_c["EntryBar"].iloc[0]), int(t_c["ExitBar"].iloc[0])) == (2, 3)
+          and np.isclose(f_c.iloc[0], atteso_c), f"{f_c.tolist()} (atteso {atteso_c:.4f})")
+
+    # lag < 1: con il comportamento nuovo i motori si fermano
+    reg.clear_registry()
+    reg.register_entry("MV_T_LONG", 1)(su(sl))
+    reg.register_entry("MV_T_SHORT", -1)(su(ss))
+    kw_lag = dict(comuni, lag=0)
+    errori = {}
+    for nome_, chiama in (("exit", lambda **k: run_exit_search_bt(df, entry_cols_long=["MV_T_LONG"],
+                                                                   entry_cols_short=["MV_T_SHORT"], **k)),
+                          ("filter", lambda **k: run_filter_search_bt(df, entry_long="MV_T_LONG",
+                                                                       entry_short="MV_T_SHORT", filtri=[],
+                                                                       n_boot=200, **k))):
+        try:
+            chiama(motore="veloce", **kw_lag)
+            errori[nome_] = False
+        except ValueError as e:
+            errori[nome_] = "lag" in str(e)
+    senza_stop = dict(kw_lag, perc_sl=0.0, perc_tp=0.0)
+    try:
+        run_exit_search_bt(df, entry_cols_long=["MV_T_LONG"], entry_cols_short=["MV_T_SHORT"],
+                           motore="veloce", **senza_stop)
+        run_exit_search_bt(df, entry_cols_long=["MV_T_LONG"], entry_cols_short=["MV_T_SHORT"],
+                           motore="bt", **kw_lag)
+        with mv.comportamento_vecchio():
+            run_exit_search_bt(df, entry_cols_long=["MV_T_LONG"], entry_cols_short=["MV_T_SHORT"],
+                               motore="veloce", **kw_lag)
+        altri_ok = True
+    except ValueError:
+        altri_ok = False
+    check("H14. lag < 1 con stop o target accesi: run_exit_search_bt e run_filter_search_bt si fermano "
+          "(non con stop e target spenti, non con «bt», non col comportamento vecchio)",
+          all(errori.values()) and altri_ok, f"{errori} · altri casi senza errore: {altri_ok}")
+    reg.clear_registry()
+
+    # lookahead per troncamento: tagliato lo storico alla barra T, i trade chiusi prima di T non cambiano
+    rng_h = np.random.default_rng(21)
+    diversi_h, provati = 0, 0
+    for _k in range(20):
+        df_h = dati_finti(rng_h, 2_000)
+        d, run_kw, bt_kw = configurazione(rng_h, df_h)
+        bt_kw["cash"] = 1e12
+        pieno = veloce_nuovo(d, run_kw, **bt_kw)["_trades"]
+        for T in (700, 1_300, 1_900):
+            # il motore vede solo le prime T barre (segnali e soglie, gia' causali, tagliati)
+            tagliato = veloce_nuovo(d.iloc[:T].copy(), run_kw, **bt_kw)["_trades"]
+            chiusi = pieno[pieno["ExitBar"] < T - 1].reset_index(drop=True)
+            provati += len(chiusi)
+            primi = tagliato.iloc[:len(chiusi)].reset_index(drop=True)
+            if stesse_colonne(chiusi[COLONNE[:10]], primi[COLONNE[:10]]):
+                diversi_h += 1
+    # due trade chiusi nella stessa barra (uno all'Open, l'altro sullo stop dentro la barra)
+    from engine.equity_plot import _equity_strategia
+    d = serie(12, P, {"L": [1], "S": [2]}, {"sl_short": 0.01}, alto={3: 120.0})
+    # long alla barra 2; lo short della barra 2 lo inverte: chiusura e short all'Open della 3,
+    # e lo short tocca lo stop nella stessa barra 3
+    t_eq = veloce_nuovo(d, dict(KW, n_barre=4, inverti_su_opposto=True),
+                        cash=1e6, spread=0.0, commission=0.0, margin=1.0)["_trades"]
+    curva = _equity_strategia(t_eq, d, 1e6)
+    vecchia = (1e6 + t_eq.set_index("ExitTime")["PnL"].sort_index().cumsum()) if t_eq["ExitTime"].is_unique else None
+    check("H16. equity del grafico con due trade chiusi nella stessa barra: i PnL si sommano",
+          len(t_eq) == 2 and t_eq["ExitTime"].iloc[0] == t_eq["ExitTime"].iloc[1] and vecchia is None
+          and np.isclose(curva.iloc[-1], 1e6 + t_eq["PnL"].sum()) and curva.index.equals(d.index),
+          f"{[(int(a_), int(b_)) for a_, b_ in zip(t_eq['EntryBar'], t_eq['ExitBar'])]}")
+    check("H15. troncamento: i trade chiusi prima del taglio non cambiano (20 configurazioni, 3 tagli)",
+          diversi_h == 0 and provati > 0, f"tagli con differenze {diversi_h} · trade confrontati {provati:,}")
 
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)

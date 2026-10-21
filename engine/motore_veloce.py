@@ -12,10 +12,10 @@ DUE LIVELLI
 -----------
 1. Il ciclo per unita' (`_ciclo`, compilato con numba): decide i trade, barra
    per barra, con le regole di docs/65 §2 (ingresso all'Open dopo il segnale,
-   spread nel prezzo d'ingresso, stop e target attivi dalla barra dopo
-   l'ingresso, stop che vince sul target nella stessa barra, gap riempiti
-   all'Open, regola d'uscita, uscita a tempo, inversione, trade aperto alla
-   fine escluso).
+   spread nel prezzo d'ingresso, stop e target attivi GIA' sulla barra
+   d'ingresso (dal 21/10/2026, vedi sotto), stop che vince sul target nella
+   stessa barra, gap riempiti all'Open, regola d'uscita, uscita a tempo,
+   inversione, trade aperto alla fine escluso).
 2. Il livello dei soldi (`_soldi`, compilato): il capitale che
    `backtesting.py` simula trade dopo trade (Size intera = tutto il capitale,
    commissione all'apertura e alla chiusura), la curva del capitale barra per
@@ -23,8 +23,22 @@ DUE LIVELLI
    `Sharpe Ratio`, `Max. Drawdown [%]`, `Win Rate [%]`, `Profit Factor`), con
    le stesse operazioni nello stesso ordine della libreria.
 
-L'UNICA DIFFERENZA DICHIARATA (docs/65 §3.2 e §13, decisione 4)
-------------------------------------------------------------------
+LE DUE DIFFERENZE DICHIARATE DA backtesting.py
+----------------------------------------------
+1. STOP E TARGET SULLA BARRA D'INGRESSO (21/10/2026, decisione di Mattia).
+`backtesting.py` con `_StrategiaGenerica` fissa stop e target in `next()`, a
+fine barra d'ingresso: lavorano solo dalla barra dopo, e un trade che nella
+barra d'ingresso tocca lo stop (o il target) resta aperto. Il motore veloce
+entra all'Open e da quel momento stop e target sono attivi, nella stessa
+barra: long stop se Low <= stop, target se High >= target (short al
+contrario), con le regole di sempre: vince lo stop se si toccano tutti e due,
+riempimento a min/max fra Open e livello. Il trade dopo apre al piu' presto
+all'Open della barra seguente. Serve una frazione gia' nota all'Open
+(soglie_adattive con lag >= 1: i motori lo controllano, `controlla_lag`). Il
+comportamento vecchio resta solo per i test (`comportamento_vecchio()`), dove
+il motore veloce deve restare identico al bit a `backtesting.py`, l'oracolo.
+
+2. IL CAPITALE ESAURITO (docs/65 §3.2 e §13, decisione 4).
 `backtesting.py` annulla in silenzio gli ordini quando il capitale simulato
 non compra piu' una unita' (e ferma tutto se va a zero): da li' i trade
 spariscono, finche' il prezzo non scende abbastanza da tornare a comprarne
@@ -73,6 +87,47 @@ if MOTORE_PREDEFINITO not in MOTORI:
 _FULL_EQUITY = 1 - sys.float_info.epsilon
 _VOCI_STATS = ("Return [%]", "Sharpe Ratio", "Max. Drawdown [%]", "Win Rate [%]", "Profit Factor")
 _avvisato_numba = False
+# SOLO PER I TEST: True = stop e target dalla barra dopo l'ingresso, come
+# backtesting.py (il comportamento fino al 21/10/2026). Non e' una scelta
+# dell'utente: si cambia con `comportamento_vecchio()`.
+_DALLA_BARRA_DOPO = False
+
+
+class comportamento_vecchio:
+    """
+    Solo per i test: dentro `with comportamento_vecchio():` il motore veloce
+    attiva stop e target dalla barra dopo l'ingresso, come backtesting.py,
+    e deve dare gli stessi trade al bit.
+    """
+
+    def __enter__(self):
+        global _DALLA_BARRA_DOPO
+        self._prima = _DALLA_BARRA_DOPO
+        _DALLA_BARRA_DOPO = True
+        return self
+
+    def __exit__(self, *exc):
+        global _DALLA_BARRA_DOPO
+        _DALLA_BARRA_DOPO = self._prima
+        return False
+
+
+def stop_dalla_barra_dopo() -> bool:
+    """True solo dentro `comportamento_vecchio()` (test)."""
+    return _DALLA_BARRA_DOPO
+
+
+def controlla_lag(motore: str, usa_soglie: bool, lag) -> None:
+    """
+    Con il motore veloce stop e target lavorano dall'Open della barra
+    d'ingresso: la frazione letta su quella barra non deve usarne High e Low,
+    quindi serve lag >= 1 in soglie_adattive. Con lag < 1 si ferma.
+    """
+    if motore == "veloce" and usa_soglie and not _DALLA_BARRA_DOPO and int(lag) < 1:
+        raise ValueError(
+            f"lag={lag}: con il motore veloce stop e target sono attivi dall'Open della barra "
+            "d'ingresso, e con lag < 1 la loro soglia userebbe High e Low di quella stessa barra "
+            "(un'occhiata nel futuro). Usa lag=1 (il valore del tool).")
 
 
 def scegli_motore(motore=None) -> str:
@@ -99,12 +154,55 @@ def scegli_motore(motore=None) -> str:
 # ========================================================================
 
 @njit(cache=True)
+def _livelli(pos, t_ep, i, sl_l, tp_l, sl_s, tp_s):
+    """S1, S2: stop e target dal prezzo d'ingresso e dalle frazioni della barra i."""
+    t_sl = np.nan
+    t_tp = np.nan
+    if pos == 1:
+        if not np.isnan(sl_l[i]):
+            t_sl = t_ep * (1 - sl_l[i])
+        if not np.isnan(tp_l[i]):
+            t_tp = t_ep * (1 + tp_l[i])
+    else:
+        if not np.isnan(sl_s[i]):
+            t_sl = t_ep * (1 + sl_s[i])
+        if not np.isnan(tp_s[i]):
+            t_tp = t_ep * (1 - tp_s[i])
+    return t_sl, t_tp
+
+
+@njit(cache=True)
+def _tocco(pos, oi, hi, li, t_sl, t_tp):
+    """S4, S5, S6: il prezzo d'uscita se la barra tocca stop o target (NaN = nessuno)."""
+    uscita = np.nan
+    if not np.isnan(t_sl):           # S4, S6: lo stop e' in testa alla coda
+        if pos == 1 and li <= t_sl:
+            uscita = min(oi, t_sl)
+        elif pos == -1 and hi >= t_sl:
+            uscita = max(oi, t_sl)
+    if np.isnan(uscita) and not np.isnan(t_tp):     # S5
+        if pos == 1 and hi >= t_tp:
+            uscita = max(oi, t_tp)
+        elif pos == -1 and li <= t_tp:
+            uscita = min(oi, t_tp)
+    return uscita
+
+
+@njit(cache=True)
+def _livello_valido(x):
+    """la libreria si ferma (assert 0 < price < inf): NaN = livello assente, valido"""
+    return np.isnan(x) or (0.0 < x < np.inf)
+
+
+@njit(cache=True)
 def _ciclo(o, h, l, seg_l, seg_s, usc_l, usc_s, sl_l, tp_l, sl_s, tp_s,
-           n_long, n_short, spread, inverti):
+           n_long, n_short, spread, inverti, dalla_barra_dopo):
     """
     I trade chiusi (lato, barre, prezzi, stop, target), il trade ancora aperto
     alla fine (lato 0 = nessuno) e la barra di un eventuale errore (-1 = nessuno).
     I commenti R/E/S/U rimandano alle righe dell'inventario di docs/65 §2.
+    dalla_barra_dopo=False (il motore): stop e target attivi gia' sulla barra
+    d'ingresso. True (solo test): dalla barra dopo, come backtesting.py (S3).
     """
     N = o.shape[0]
     lato = np.zeros(N, np.int64)
@@ -130,16 +228,7 @@ def _ciclo(o, h, l, seg_l, seg_s, usc_l, usc_s, sl_l, tp_l, sl_s, tp_s,
             if chiudi:                       # U4: la chiusura in coda prima di stop e target
                 uscita = o[i]
             else:
-                if not np.isnan(t_sl):       # S4, S6: lo stop e' in testa alla coda
-                    if pos == 1 and l[i] <= t_sl:
-                        uscita = min(o[i], t_sl)
-                    elif pos == -1 and h[i] >= t_sl:
-                        uscita = max(o[i], t_sl)
-                if np.isnan(uscita) and not np.isnan(t_tp):     # S5
-                    if pos == 1 and h[i] >= t_tp:
-                        uscita = max(o[i], t_tp)
-                    elif pos == -1 and l[i] <= t_tp:
-                        uscita = min(o[i], t_tp)
+                uscita = _tocco(pos, o[i], h[i], l[i], t_sl, t_tp)
             if not np.isnan(uscita):
                 lato[k] = pos
                 eb[k] = t_eb
@@ -158,24 +247,30 @@ def _ciclo(o, h, l, seg_l, seg_s, usc_l, usc_s, sl_l, tp_l, sl_s, tp_s,
             t_sl = np.nan
             t_tp = np.nan
             entra = 0
-        # --- strategia, barra i (_StrategiaGenerica.next) ------------------
-        if pos != 0:
-            if t_eb == i:                    # S1, S2, S3: fissati sulla barra d'ingresso
-                if pos == 1:
-                    if not np.isnan(sl_l[i]):
-                        t_sl = t_ep * (1 - sl_l[i])
-                    if not np.isnan(tp_l[i]):
-                        t_tp = t_ep * (1 + tp_l[i])
-                else:
-                    if not np.isnan(sl_s[i]):
-                        t_sl = t_ep * (1 + sl_s[i])
-                    if not np.isnan(tp_s[i]):
-                        t_tp = t_ep * (1 - tp_s[i])
-                # la libreria si ferma (assert 0 < price < inf): qui si segnala
-                if not np.isnan(t_sl) and not (0.0 < t_sl < np.inf):
+            if not dalla_barra_dopo:
+                # 21/10/2026: stop e target fissati all'ingresso e attivi da
+                # subito, nella stessa barra (stesse regole S4-S6)
+                t_sl, t_tp = _livelli(pos, t_ep, i, sl_l, tp_l, sl_s, tp_s)
+                if not (_livello_valido(t_sl) and _livello_valido(t_tp)):
                     errore = i
                     break
-                if not np.isnan(t_tp) and not (0.0 < t_tp < np.inf):
+                uscita = _tocco(pos, o[i], h[i], l[i], t_sl, t_tp)
+                if not np.isnan(uscita):
+                    lato[k] = pos
+                    eb[k] = t_eb
+                    xb[k] = i
+                    ep[k] = t_ep
+                    xp[k] = uscita
+                    slv[k] = t_sl
+                    tpv[k] = t_tp
+                    k += 1
+                    pos = 0      # chiuso: un nuovo ingresso al piu' presto all'Open dopo
+        # --- strategia, barra i (_StrategiaGenerica.next) ------------------
+        if pos != 0:
+            if dalla_barra_dopo and t_eb == i:   # S1, S2, S3: fissati sulla barra d'ingresso
+                t_sl, t_tp = _livelli(pos, t_ep, i, sl_l, tp_l, sl_s, tp_s)
+                # la libreria si ferma (assert 0 < price < inf): qui si segnala
+                if not (_livello_valido(t_sl) and _livello_valido(t_tp)):
                     errore = i
                     break
             if inverti:                      # U3: l'inversione prevale su regola e tempo
@@ -434,7 +529,8 @@ class MotoreVeloce:
             self._o, self._h, self._l, self._bool(long_col), self._bool(short_col),
             self._bool(exit_rule_long_col), self._bool(exit_rule_short_col),
             self._float("sl_long"), self._float("tp_long"), self._float("sl_short"),
-            self._float("tp_short"), int(nl), int(ns), self._spread, bool(inverti_su_opposto))
+            self._float("tp_short"), int(nl), int(ns), self._spread, bool(inverti_su_opposto),
+            bool(_DALLA_BARRA_DOPO))
         if errore >= 0:
             raise ValueError(f"MotoreVeloce: stop o target non positivo alla barra {errore} "
                              f"({self._data.index[errore]}): la frazione delle soglie adattive e' >= 1. "
