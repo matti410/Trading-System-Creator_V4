@@ -10,12 +10,28 @@ CRYPTO DA EXCHANGE (Binance, Bybit; spot e perpetual; BTC, ETH, SOL, XRP). Il la
 (MT5, CFD, EURUSD e gli altri 8 symbol) e' SOSPESO: il codice resta nel repo, non si
 cancella, ma non si sviluppa e non si usa per misurare. Dataset di sviluppo e di
 identita': BINANCE_PERP_BTCUSDT (prima era EURUSD). Decisione in docs/63 §10.0.
-Leggi PRIMA di lavorare: docs/00_SCOPO_E_STATO.md (regola che viene prima di tutte:
-i risultati sui dati NON sono il metro di giudizio del progetto, non fare commenti
-tipo "la strategia tiene/non tiene" né proposte di cambiare asset se non richiesti),
-docs/02_KPI_E_GIUDIZIO.md e, per il processo, docs/50_IDEE_DA_ARTICOLI.md
-(dal 10/10/2026 contiene anche l'ex docs/51: regola di consegna in §9, registro in §10,
-filtri di regime in §10 bis, lavoro in locale in §12).
+Regola che viene prima di tutte (docs/00): i risultati sui dati NON sono il metro di
+giudizio del progetto; niente commenti tipo "la strategia tiene/non tiene" né proposte
+di cambiare asset se non richiesti.
+
+## Cosa leggere (dal 21/10/2026)
+- SEMPRE, e solo: questo CLAUDE.md e docs/00_SCOPO_E_STATO.md (lo stato attuale,
+  1-2 pagine).
+- Il resto solo se il lavoro lo richiede, e solo le sezioni utili (ogni documento
+  lungo ha l'indice dei paragrafi in testa):
+  - fonti (articoli, video, libri) → docs/50 §3-§9;
+  - criteri di giudizio e unità → docs/02;
+  - money management → docs/61;
+  - atlante, funding, unità → docs/63;
+  - motore di backtest → docs/65;
+  - riferimenti e storia (metodo passo per passo, moduli, «Cosa manca») →
+    docs/00_ARCHIVIO.md.
+- I resoconti delle fasi chiuse (segnati *resoconto* negli indici) non si rileggono.
+- Se un incarico elenca cosa leggere, si legge solo quello.
+
+## Lavori piccoli e grandi
+Lavori piccoli: niente proposta in docs; una descrizione breve in chat, il via di Mattia,
+poi il codice. La proposta in docs (studio, domande, decisioni) resta per i lavori grandi.
 
 ## Processo per ogni articolo (docs/50)
 1. Leggi la fonte (articolo con Claude in Chrome; se non si apre, l'utente incolla il testo).
@@ -44,7 +60,8 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   Se un test fallisce, fermati e spiega.
 - Dal 21/10/2026: durante il lavoro basta la suite rapida, `python suite_rapida.py`
   (le suite legate al codice cambiato, 2-3 minuti). La completa,
-  `python suite_rapida.py --tutte`, e' obbligatoria prima di ogni Pull request.
+  `python suite_rapida.py --tutte` (3 suite alla volta, circa 11 minuti; alla fine
+  «SUITE COMPLETA: n/n»), e' obbligatoria prima di ogni Pull request.
 
 ## Dati e MT5
 - SOSPESO DAL 20/10/2026: MT5 e scarica_dati.py non si usano. I dati si scaricano solo con
@@ -89,9 +106,10 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 - I Lab non hanno codice nelle celle: chiamano le funzioni di engine/vetrina.py. Allineare
   vuol dire di solito modificare vetrina.py. Dati e costi si leggono con carica_storico e
   costi_storico.
-- Prova per tutti: identita' su BINANCE_PERP_BTCUSDT a parita' di barre (prima e dopo la
-  modifica) nei due notebook vivi, e un giro completo su BYBIT_SPOT_ETHUSDT (altro exchange,
-  spot, solo long).
+- Prove di identita' complete dei notebook SOLO quando il lavoro tocca il motore o i
+  calcoli: identita' su BINANCE_PERP_BTCUSDT a parita' di barre (prima e dopo la modifica)
+  nei due notebook vivi, e un giro completo su BYBIT_SPOT_ETHUSDT (altro exchange, spot,
+  solo long). Per il resto (documenti, test, strumenti) bastano le suite.
 - Tutte le suite test_*.py si lanciano comunque, comprese quelle sui symbol del broker (non
   chiedono MT5): se una si rompe, si e' toccato codice condiviso.
 
