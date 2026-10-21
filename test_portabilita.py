@@ -29,6 +29,7 @@ from engine.controlli import avviso_capitale
 from engine.costi import classifica_simbolo, parametri_backtest
 from engine.exit_search_bt import run_exit_search_bt
 from engine.filter_search_bt import run_filter_search_bt
+from engine.motore_veloce import scegli_motore
 from engine.registry import clear_registry, register_entry
 
 warnings.simplefilter("ignore")
@@ -37,6 +38,14 @@ warnings.simplefilter("ignore")
 def _cattura(funzione, *a, **k):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
+        out = funzione(*a, **k)
+    return out, buf.getvalue()
+
+
+def _cattura_tutto(funzione, *a, **k):
+    """Come _cattura, ma prende anche stderr (dove il motore veloce scrive il suo avviso)."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
         out = funzione(*a, **k)
     return out, buf.getvalue()
 
@@ -116,22 +125,34 @@ def esegui() -> int:
     p = dict(n_barre=8, perc_sl=0.0, perc_tp=0.0, spread=0.0, commission=0.0, verbose=False,
              quarantena=False)   # 5/10/2026: qui si collauda il capitale, non la quarantena
 
-    fs_poco, testo_poco = _cattura(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
-                                   filtri=[], cash=10_000, **p)
-    fs_ok, testo_ok = _cattura(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
-                               filtri=[], cash=10_000_000, **p)
+    # 21/10/2026 (docs/65 §13, decisione 4): backtesting.py senza capitale annulla gli ordini
+    # (zero trade); il motore veloce tiene tutti i trade per unita' e avvisa «capitale esaurito»
+    veloce = scegli_motore() == "veloce"
+    fs_poco, testo_poco = _cattura_tutto(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
+                                         filtri=[], cash=10_000, **p)
+    fs_ok, testo_ok = _cattura_tutto(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
+                                     filtri=[], cash=10_000_000, **p)
     n_poco, n_ok = len(fs_poco.trades()), len(fs_ok.trades())
-    check("10. run_filter_search_bt: avvisa anche con verbose=False, e i trade mancano davvero",
-          "SPARISCONO" in testo_poco and "SPARISCONO" not in testo_ok and n_poco == 0 and n_ok > 50,
+
+    def senza_capitale(testo, n):
+        """Il motore in uso si e' comportato come deve quando il capitale non basta."""
+        if veloce:
+            return "esaurito" in testo and n == n_ok
+        return n == 0
+
+    check("10. run_filter_search_bt: avvisa anche con verbose=False, e i trade mancano davvero"
+          + (" (veloce: restano, con l'avviso)" if veloce else ""),
+          "SPARISCONO" in testo_poco and "SPARISCONO" not in testo_ok and "esaurito" not in testo_ok
+          and senza_capitale(testo_poco, n_poco) and n_ok > 50,
           f"cash 10.000: {n_poco} trade · cash 10.000.000: {n_ok} trade")
 
-    fs_leva, testo_leva = _cattura(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
-                                   filtri=[], cash=10_000, **{**p, "margin": 0.1})
-    fs_leva2, testo_leva2 = _cattura(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
-                                     filtri=[], cash=1_000, **{**p, "margin": 0.1})
+    fs_leva, testo_leva = _cattura_tutto(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
+                                         filtri=[], cash=10_000, **{**p, "margin": 0.1})
+    fs_leva2, testo_leva2 = _cattura_tutto(run_filter_search_bt, df_btc, entry_long="T_PORT_LONG",
+                                           filtri=[], cash=1_000, **{**p, "margin": 0.1})
     check("11. conta la leva (cash / margin), verificato sul motore: 10.000 a leva 10 bastano, 1.000 no",
-          "SPARISCONO" not in testo_leva and len(fs_leva.trades()) == n_ok
-          and "SPARISCONO" in testo_leva2 and len(fs_leva2.trades()) == 0,
+          "SPARISCONO" not in testo_leva and "esaurito" not in testo_leva and len(fs_leva.trades()) == n_ok
+          and "SPARISCONO" in testo_leva2 and senza_capitale(testo_leva2, len(fs_leva2.trades())),
           f"{len(fs_leva.trades())} trade e {len(fs_leva2.trades())} trade")
 
     _, testo_es = _cattura(run_exit_search_bt, df_btc, entry_cols_long=["T_PORT_LONG"],

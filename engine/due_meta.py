@@ -193,7 +193,7 @@ def due_meta(df_is, fs, etichette,
              spread=0.0, commission=0.00007, cash=10_000.0, margin=1.0,
              close_col="Close", open_col="Open", high_col="High", low_col="Low",
              verbose=True, quarantena=True, spread_rollover_pips=None,
-             pip_size=None, funding=None):
+             pip_size=None, funding=None, motore=None):
     """
     Verifica sulle due meta' (Difesa C, Passo 5) per le `etichette`
     indicate.
@@ -216,6 +216,9 @@ def due_meta(df_is, fs, etichette,
     funding (21/10/2026)
         Lo storico del funding (vedi run_filter_search_bt). None = quello di
         `fs` (fs.funding): le due meta' contano il funding come fs.
+    motore (21/10/2026, docs/65)
+        "bt" o "veloce". None = quello di `fs` (fs.motore): le due meta'
+        usano lo stesso motore di fs.
     verbose
         Stampa il riepilogo dello split e un blocco esplicito per ogni
         etichetta che non regge o resta sospesa.
@@ -252,7 +255,9 @@ def due_meta(df_is, fs, etichette,
                   # 20/10/2026 (U2): la stessa unita' che decide in fs
                   unita=getattr(fs, "unita", "pips"),
                   # 21/10/2026: lo stesso funding di fs (None = non contato)
-                  funding=funding if funding is not None else getattr(fs, "funding", None))
+                  funding=funding if funding is not None else getattr(fs, "funding", None),
+                  # 21/10/2026 (docs/65): lo stesso motore di fs
+                  motore=motore if motore is not None else getattr(fs, "motore", None))
 
     fs1 = run_filter_search_bt(metà1_df, **kwargs)
     fs2 = run_filter_search_bt(metà2_df, **kwargs)

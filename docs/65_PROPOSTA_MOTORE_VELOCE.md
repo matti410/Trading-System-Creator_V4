@@ -1,7 +1,7 @@
 # 65 · Proposta: un motore di backtest veloce al posto di backtesting.py
 
 **Data:** 21 ottobre 2026
-**Stato:** PROPOSTA, in attesa delle risposte di Mattia (§12). **Nessun codice nel repo** finché non arriva l'OK.
+**Stato:** APPROVATA da Mattia il 21/10/2026, decisioni nel §13. **E1 + E2 fatti il 21/10** sul ramo `motore-veloce-e1-e2` (§14).
 **Incarico:** `docs/64_MOTORE_VELOCE.md`.
 **Letti:** `CLAUDE.md`, `docs/00`, `docs/21` (sezione D), `docs/63` (§7, §10.3), `docs/64`; i moduli `engine/exit_search_bt.py`, `filter_search_bt.py`, `due_meta.py`, `confidenza.py`, `metriche.py`, `quarantena_trade.py`, `exchange.py`, `vetrina.py`, `vetrina_verifica.py`, `equity_plot.py`, `mm_adattatore.py`, `giudizio.py`, `rosa.py`, `mercato_nullo.py`, `test_velocita.py`; il sorgente di `backtesting.py` 0.6.6 (`Backtest.run`, `_Broker.new_order`, `_Broker._process_orders`, `_close_trade`, `_open_trade`, `Trade`, `_stats.compute_stats`).
 **Verifiche fatte il 21/10** (§1, §7): tempi di oggi misurati sul PC; un **prototipo usa e getta**, scritto nella cartella temporanea di Claude (fuori dal repo, niente di committato), confrontato con l'oracolo su 2.000 configurazioni casuali e sul sistema vero di identità. Nessun file del repo modificato, a parte questo documento.
@@ -334,3 +334,84 @@ Stima dopo E1–E3: **circa 18–20 minuti**. Il guadagno è minore che sul Lab 
 5. **Statistiche in % della libreria** (`pnl_pct`, `sharpe`, `max_dd_pct`) e lo sharpe che ordina `es.top()`: si tengono identiche in E (consigliato) e se ne decide dopo?
 6. **E4** (maschere in cache, VWAP, bootstrap): dentro questo lavoro, subito dopo E3, o più avanti?
 7. **Rami:** E1 ed E2 su un ramo solo (una PR) o separati?
+
+---
+
+## 13 · Decisioni di Mattia (21/10/2026)
+
+| # | decisione |
+|---|---|
+| 1 | **numba 0.68.0, strada A** (ciclo compilato). |
+| 2 | **I comportamenti della libreria si copiano identici** in E. La correzione è un lavoro a parte, **subito dopo E**; per primo lo stop non attivo sulla barra d'ingresso. |
+| 3 | **`confidenza.py` in bp subito dopo E**, su un ramo a parte. |
+| 4 | **Capitale simulato esaurito:** si tengono **tutti i trade per unità**; le statistiche in % (`pnl_pct`, `sharpe`, `max_dd_pct`) diventano NaN da quel trade in poi, con un **avviso con la data**. È l'**unica differenza dichiarata** di E: la PR elenca i sistemi in cui cambia qualcosa. |
+| 5 | **Statistiche in % e sharpe identici in E.** Subito dopo, una proposta per sostituire l'ordinamento per sharpe di `top()` con il **t nell'unità che decide**. |
+| 6 | **E4 subito dopo E3**, PR a parte. |
+| 7 | **E1 + E2 in una PR, E3 in un'altra.** |
+
+**In più:** una **suite rapida** (un comando solo, 2–3 minuti, le suite legate al codice toccato) da usare durante il lavoro; la **suite completa resta obbligatoria prima di ogni PR**.
+
+**Ordine che ne segue:** E1 + E2 (`motore-veloce-e1-e2`) → E3 → E4 → correzione dei comportamenti della libreria (prima lo stop sulla barra d'ingresso) → `confidenza.py` in bp → proposta sull'ordinamento di `top()`. Poi il resto di `docs/63` §10.3 (soglia cumulata, atlante, money management).
+
+---
+
+## 14 · Fatto: E1 + E2 (21/10/2026, ramo `motore-veloce-e1-e2`)
+
+### 14.1 · Cosa c'è
+
+- **`engine/motore_veloce.py`** (nuovo): `MotoreVeloce`, con la stessa interfaccia di `Backtest` (`MotoreVeloce(df_bt, cash=, spread=, commission=, margin=, exclusive_orders=True).run(...)`); il ciclo per unità `_ciclo` e il livello dei soldi `_soldi`, compilati con numba; `_statistiche` (le cinque voci lette dal tool); `scegli_motore`, `MOTORE_PREDEFINITO` (`"bt"` fino a E3; la variabile d'ambiente `TSC_MOTORE` lo cambia), `DISPONIBILE` (senza numba «veloce» ripiega su «bt» con un avviso). Il risultato di `run` ha anche `_capitale_esaurito` (la data, o None) e `_trade_esaurito` (da quale trade).
+- **Parametro `motore=`** (None = il predefinito) in `run_exit_search_bt`, `run_filter_search_bt` (con «veloce» sempre in sequenza: i processi non servono), `due_meta` (None = quello di `fs`), `vetrina.prepara` (`s.motore`, passato a ogni backtest da `_kw_motore`). `ExitSearchBT` e `FilterSearchBT` ricordano `.motore`. Modifiche additive: con «bt» tutto come prima.
+- **Notebook di ricerca:** `MOTORE = None` nella cella dei dati (accanto a `UNITA` e `FUNDING`), passato a ogni motore. **Cella d'installazione** dei due notebook vivi e del notebook di collaudo: `numba==0.68.0` accanto alle altre versioni bloccate. Il Lab broker, sospeso, non si tocca.
+- **`test_motore_veloce.py`** (nuovo, 30 test, circa 35 s; `--tante` per 2.000 configurazioni, circa 5 minuti): oracolo, casi limite del §6, sezione D di `docs/21`, capitale esaurito, scelta del motore, i tre motori del tool con «bt» e «veloce».
+- **`suite_rapida.py`** (nuovo, §13): `python suite_rapida.py` (la rapida, 2–3 minuti), `--tutte` (la completa), `--motore veloce`, nomi di suite a mano, `--secondi`.
+
+### 14.2 · Collaudo
+
+| prova | esito |
+|---|---|
+| oracolo, 200 configurazioni (nella suite) | 200 identiche al bit, 84.885 trade |
+| oracolo, 2.000 configurazioni (`--tante`) | 1.998 identiche al bit (1.002.733 trade); 2 con il capitale esaurito, identiche fino a quel trade |
+| casi limite (§6) e sezione D | tutti come atteso, uguali all'oracolo |
+| Lab crypto, main contro questo ramo con «bt», BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT (giro completo, nove schermate) | ogni numero identico |
+| Lab crypto, «bt» contro «veloce», stessi due symbol | ogni numero identico (il sistema E23 non esaurisce il capitale) |
+| notebook di ricerca, main contro «bt», BINANCE_PERP_BTCUSDT | 48 celle su 49 uguali; l'unica diversa stampa la cartella del progetto |
+| notebook di ricerca, «bt» contro «veloce», BINANCE_PERP_BTCUSDT, capitale del tool (10 milioni) | 16 celle diverse: tutte per il capitale esaurito, sotto |
+| notebook di ricerca, «bt» contro «veloce», capitale 10^15 (nessuno dei due si esaurisce) | **49 celle su 49 uguali** |
+| suite completa con «bt» e con «veloce» | §14.4 |
+
+### 14.3 · Dove cambia qualcosa: il capitale esaurito (decisione 4)
+
+**Nel notebook di ricerca** su BINANCE_PERP_BTCUSDT (i trigger predefiniti del notebook sono due composite in OR, con migliaia di trade) il capitale simulato della libreria arriva a −99,5% e in 14 backtest si esaurisce fra febbraio e dicembre 2024: celle 44 e 47 (ricerca delle uscite: 7 combinazioni), 54 (ricerca dei filtri: il sistema base e 4 filtri), 64 (la storia della confidenza), 66 (i filtri di confidenza). Per esempio il sistema base: 4.235 trade con «bt», 5.545 con «veloce». Le celle dopo (classifiche, due metà, money management, stress) cambiano di conseguenza.
+
+**Nel catalogo**, ogni entry da sola con le uscite predefinite del Lab, in-sample, M15, H 25: **48 sistemi su 16 symbol** (11 symbol colpiti; nessuno su BINANCE_SPOT_SOLUSDT, BINANCE_SPOT_XRPUSDT, BINANCE_PERP_XRPUSDT, BYBIT_SPOT_XRPUSDT, BYBIT_PERP_SOLUSDT, BYBIT_PERP_XRPUSDT). In tutti il motore veloce conta più trade (tutto l'in-sample), la libreria meno:
+
+| symbol | sistemi | il caso più grande |
+|---|---|---|
+| BINANCE_SPOT_BTCUSDT | 10 | E24_CYCLE_TURN_UP: 5.553 contro 3.269 |
+| BINANCE_SPOT_ETHUSDT | 2 | E12_ENGULFING: 5.631 contro 4.993 |
+| BINANCE_PERP_BTCUSDT | 8 | E24_SHORT_CYCLE_TURN_DOWN: 5.527 contro 3.867 |
+| BINANCE_PERP_ETHUSDT | 5 | E3_SHORT_INTRABAR_STRENGTH_FADE: 5.163 contro 4.301 |
+| BINANCE_PERP_SOLUSDT | 3 | E24_SHORT_CYCLE_TURN_DOWN: 4.907 contro 3.482 |
+| BYBIT_SPOT_BTCUSDT | 8 | E12_ENGULFING: 4.850 contro 2.984 |
+| BYBIT_SPOT_ETHUSDT | 1 | E12_ENGULFING: 4.801 contro 4.563 |
+| BYBIT_SPOT_SOLUSDT | 1 | E24_CYCLE_TURN_UP: 4.033 contro 3.980 |
+| BYBIT_PERP_BTCUSDT | 9 | E12_SHORT_ENGULFING: 6.002 contro 3.413 |
+| BYBIT_PERP_ETHUSDT | 1 | E12_SHORT_ENGULFING: 5.063 contro 5.060 |
+
+L'elenco completo, entry per entry, è nella descrizione della Pull request. Qualunque altro sistema (altre uscite, filtri, coppie) può esaurire il capitale: il motore veloce lo dice ogni volta, con la data.
+
+**Una correzione al §3.2:** quando il capitale non basta, la libreria annulla gli ordini **finché il prezzo non scende abbastanza** da tornare a comprare una unità; poi riprende, su un'altra strada. I trade coincidono fino al primo ordine annullato, non oltre.
+
+### 14.4 · Tempi (misurati il 21/10 sul PC)
+
+| cosa | «bt» | «veloce» |
+|---|---|---|
+| Lab, schermata 4 (uscite), BINANCE_PERP_BTCUSDT, E23 | 3,2 s | 0,8 s |
+| Lab, schermata 5 (trova la strategia), in sequenza | 33,2 s | **8,7 s** |
+| notebook di ricerca, cella 54 (ricerca dei filtri), in uno script (in sequenza) | 43,1 s | 15,1 s |
+| notebook di ricerca, tutte le celle | 128 s | 84 s |
+| suite completa (37 suite, una dopo l'altra) | 32,9 min, 37/37 | 28,8 min, 37/37 |
+
+Il resto del tempo della schermata 5 sono le maschere dei filtri e il bootstrap: è il lavoro di E4. La suite completa guadagna poco perché quasi tutto il suo tempo sono indicatori e preparazione, non backtest.
+
+**Suite completa con «veloce»:** al primo giro `test_portabilita` dava 11/13. I test 10 e 11 controllano proprio la differenza dichiarata: con capitale troppo piccolo backtesting.py dà zero trade, il motore veloce li tiene tutti e scrive l'avviso «capitale esaurito». Ora i due test controllano, per ciascun motore, il comportamento giusto: 13/13 con tutti e due. Da fare in E3: l'avviso del tool «i trade SPARISCONO» (controlli.avviso_capitale) vale solo per backtesting.py; quando il veloce diventa il predefinito va riscritto.

@@ -183,6 +183,7 @@ escluso (in M15 solo da gennaio 2025).
 |---|---|
 | `engine/event_study.py` | 1–2, orizzonti e ingressi |
 | `engine/exit_search_bt.py` | 3, uscite; `_StrategiaGenerica` è la strategia di tutti i backtest (dal 17/10 legge le colonne per indice: più veloce, stessi trade) |
+| `engine/motore_veloce.py` | il motore di backtest veloce (dal 21/10, `65`): stessi trade di `_StrategiaGenerica` su `backtesting.py` al bit, circa 100 volte più veloce; si sceglie con `motore="veloce"` (`"bt"` = la libreria) |
 | `engine/giudizio.py` | 4, t, P(EV<0), soglia rumore, scheda, verdetto |
 | `engine/filter_search_bt.py` | 5, filtri; dal 17/10 i backtest girano su più processi (`processi=None` automatico, `1` in sequenza: stessi risultati, `test_velocita.py`) |
 | `engine/due_meta.py` | 5, stabilità sulle due metà |
@@ -283,9 +284,17 @@ A1 trappole di lookahead · A2 casi di degenerazione · B lookahead sul catalogo
 intero (atteso: 0 LOOKAHEAD) · C degenerazione su EURUSD vero · D e E
 comportamenti di `backtesting.py`. Dettagli in `21_COLLAUDO_CATALOGO.md`.
 
-**Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6` (cella di avvio dei
-tre notebook). Si cambiano solo insieme, poi si rilancia il collaudo: la
-sezione D dice se il tool regge.
+**Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`
+(dal 21/10, per il motore veloce) nella cella di avvio dei notebook. Si cambiano
+solo insieme, poi si rilancia il collaudo: la sezione D e `test_motore_veloce.py`
+dicono se il tool regge.
+
+**Suite rapida (dal 21/10, `65` §13):** `python suite_rapida.py` sceglie le
+suite legate al codice cambiato rispetto a main e le fa girare tre alla volta in
+2–3 minuti; serve durante il lavoro. **Prima di ogni Pull request la suite
+completa:** `python suite_rapida.py --tutte` (una suite dopo l'altra, circa 32
+minuti; non serve `PYTHONIOENCODING`). `--motore veloce` le fa girare con il
+motore veloce.
 
 **Da rilanciare ogni volta che si aggiunge una condizione.**
 
@@ -362,9 +371,10 @@ Resta: strumenti senza weekend e orari diversi provati solo sui dati veri,
 mai su asset sintetici costruiti apposta (`mercato_sintetico()` genera solo
 forex con weekend, prezzo 1,10).
 
-### 6. Un runner unico dei test
+### ~~6. Un runner unico dei test~~ — FATTO il 21/10
 
-Ventiquattro suite da terminale più un notebook di collaudo, da lanciare a mano.
+`suite_rapida.py`: la rapida (le suite legate al codice cambiato, 2–3 minuti)
+e, con `--tutte`, la completa. Il notebook di collaudo resta da lanciare a mano.
 
 ### 7. Etichetta UTC fantasma — origine non confermata
 
@@ -477,10 +487,17 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   un ramo ciascuno:
   1. **E · motore veloce** — un motore di backtest proprio, stessi trade di
      `backtesting.py` al centesimo, almeno 50 volte più veloce; `backtesting.py`
-     resta come oracolo nei test. Incarico in `64`, proposta in `65`. Prossimo.
+     resta come oracolo nei test. Incarico in `64`, proposta e decisioni in
+     `65` (§13). **E1 + E2 fatti il 21/10** (ramo `motore-veloce-e1-e2`):
+     `engine/motore_veloce.py`, parametro `motore=` nei motori, nel Lab
+     (`prepara`) e nel notebook di ricerca (`MOTORE`); il predefinito resta
+     «bt» fino a E3. Poi E3 (il predefinito diventa «veloce»), E4 (maschere
+     dei filtri in cache, filtri VWAP, bootstrap), la correzione dei
+     comportamenti della libreria (prima lo stop sulla barra d'ingresso) e la
+     proposta sull'ordinamento di `top()` (il t nell'unità che decide).
   2. **Confidenza in bp** — allineare `engine/confidenza.py` all'unità che
      decide (bp sulle crypto); oggi le sue soglie («pips netti medi») sono
-     ancora in pips. Piccolo, può entrare in E.
+     ancora in pips. Piccolo, subito dopo E, su un ramo a parte (`65` §13).
   3. **Soglia cumulata nel Lab** — piccolo («Cosa manca», punto 3).
   4. **C · atlante del trigger** (`63` §6), con la soglia del passo 5 a k =
      celle dell'atlante (`63` §10.1 punto 1). Grande.
