@@ -457,7 +457,7 @@ def run_exit_search_bt(
     motore (21/10/2026, docs/65)
         "bt" = backtesting.py con _StrategiaGenerica, "veloce" = il ciclo
         compilato di engine/motore_veloce.py: stessi trade al bit. None
-        (default) = motore_veloce.MOTORE_PREDEFINITO ("bt" fino al passo E3).
+        (default) = motore_veloce.MOTORE_PREDEFINITO ("veloce" dal passo E3).
         Unica differenza dichiarata: se il capitale simulato si esaurisce,
         "veloce" tiene tutti i trade per unita' e mette NaN in pnl_pct,
         sharpe e max_dd_pct (docs/65 §3.2).
@@ -572,8 +572,9 @@ def run_exit_search_bt(
         pair_cols[pair] = (col_long, col_short)
 
     # --- backtest, una sola costruzione, riusata per ogni combinazione --
-    avviso_capitale(df, cash, margin, close_col, contesto="run_exit_search_bt")  # 25/9: prezzo > capitale
     motore = scegli_motore(motore)    # 21/10/2026 (docs/65): "bt" o "veloce", stessi trade
+    avviso_capitale(df, cash, margin, close_col, contesto="run_exit_search_bt",
+                    motore=motore)    # 25/9: prezzo > capitale (solo "bt", E3)
     if motore == "veloce":
         bt = MotoreVeloce(df_bt, cash=cash, spread=spread, commission=commission,
                           margin=margin, exclusive_orders=True)
@@ -692,7 +693,7 @@ class ExitSearchBT:
                  perc_tp, finestra, spread, commission, margin, min_trades,
                  soglia_rumore=np.nan, k=0, alpha=0.05,
                  n_barre_long=None, n_barre_short=None, unita="pips", funding=None,
-                 motore="bt"):
+                 motore=None):
         self.risultati = risultati
         self._trades_per_combo = trades_per_combo
         self.motore = motore          # 21/10/2026 (docs/65): "bt" o "veloce"

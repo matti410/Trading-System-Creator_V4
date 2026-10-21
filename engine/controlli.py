@@ -29,7 +29,7 @@ import pandas as pd
 
 
 def avviso_capitale(df: pd.DataFrame, cash: float, margin: float = 1.0,
-                    close_col: str = "Close", contesto: str = "") -> bool:
+                    close_col: str = "Close", contesto: str = "", motore: str = "bt") -> bool:
     """
     Controlla che il capitale basti a comprare almeno un'unita' su ogni barra.
 
@@ -39,8 +39,16 @@ def avviso_capitale(df: pd.DataFrame, cash: float, margin: float = 1.0,
     massimo, cosi' regge anche un drawdown). Viene stampato sempre, anche
     con verbose=False: e' un problema che cambia i risultati.
 
-    Ritorna True se ha stampato l'avviso, False se il capitale basta.
+    21/10/2026 (E3, docs/65 §15): l'avviso vale solo per `motore="bt"`. Il
+    motore veloce non perde trade: li tiene tutti per unita' e, se il
+    capitale simulato si esaurisce, lo dice lui con la data («capitale
+    esaurito», engine/motore_veloce.py). Con "veloce" qui non si stampa nulla.
+
+    Ritorna True se ha stampato l'avviso, False se il capitale basta (o se
+    il motore e' "veloce").
     """
+    if motore != "bt":
+        return False
     potere = float(cash) / float(margin)
     prezzi = df[close_col].astype(float)
     sopra = prezzi > potere

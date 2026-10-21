@@ -1,7 +1,7 @@
 # 65 · Proposta: un motore di backtest veloce al posto di backtesting.py
 
 **Data:** 21 ottobre 2026
-**Stato:** APPROVATA da Mattia il 21/10/2026, decisioni nel §13. **E1 + E2 fatti il 21/10** sul ramo `motore-veloce-e1-e2` (§14).
+**Stato:** APPROVATA da Mattia il 21/10/2026, decisioni nel §13. **E1 + E2 fatti il 21/10** sul ramo `motore-veloce-e1-e2` (§14, PR #45). **E3 fatto il 21/10** sul ramo `motore-veloce-e3`: «veloce» è il predefinito (§15).
 **Incarico:** `docs/64_MOTORE_VELOCE.md`.
 **Letti:** `CLAUDE.md`, `docs/00`, `docs/21` (sezione D), `docs/63` (§7, §10.3), `docs/64`; i moduli `engine/exit_search_bt.py`, `filter_search_bt.py`, `due_meta.py`, `confidenza.py`, `metriche.py`, `quarantena_trade.py`, `exchange.py`, `vetrina.py`, `vetrina_verifica.py`, `equity_plot.py`, `mm_adattatore.py`, `giudizio.py`, `rosa.py`, `mercato_nullo.py`, `test_velocita.py`; il sorgente di `backtesting.py` 0.6.6 (`Backtest.run`, `_Broker.new_order`, `_Broker._process_orders`, `_close_trade`, `_open_trade`, `Trade`, `_stats.compute_stats`).
 **Verifiche fatte il 21/10** (§1, §7): tempi di oggi misurati sul PC; un **prototipo usa e getta**, scritto nella cartella temporanea di Claude (fuori dal repo, niente di committato), confrontato con l'oracolo su 2.000 configurazioni casuali e sul sistema vero di identità. Nessun file del repo modificato, a parte questo documento.
@@ -414,4 +414,47 @@ L'elenco completo, entry per entry, è nella descrizione della Pull request. Qua
 
 Il resto del tempo della schermata 5 sono le maschere dei filtri e il bootstrap: è il lavoro di E4. La suite completa guadagna poco perché quasi tutto il suo tempo sono indicatori e preparazione, non backtest.
 
-**Suite completa con «veloce»:** al primo giro `test_portabilita` dava 11/13. I test 10 e 11 controllano proprio la differenza dichiarata: con capitale troppo piccolo backtesting.py dà zero trade, il motore veloce li tiene tutti e scrive l'avviso «capitale esaurito». Ora i due test controllano, per ciascun motore, il comportamento giusto: 13/13 con tutti e due. Da fare in E3: l'avviso del tool «i trade SPARISCONO» (controlli.avviso_capitale) vale solo per backtesting.py; quando il veloce diventa il predefinito va riscritto.
+**Suite completa con «veloce»:** al primo giro `test_portabilita` dava 11/13. I test 10 e 11 controllano proprio la differenza dichiarata: con capitale troppo piccolo backtesting.py dà zero trade, il motore veloce li tiene tutti e scrive l'avviso «capitale esaurito». Ora i due test controllano, per ciascun motore, il comportamento giusto: 13/13 con tutti e due. Da fare in E3: l'avviso del tool «i trade SPARISCONO» (controlli.avviso_capitale) vale solo per backtesting.py; quando il veloce diventa il predefinito va riscritto (fatto in E3, §15.1).
+
+## 15 · Fatto: E3 (21/10/2026, ramo `motore-veloce-e3`)
+
+### 15.1 · Cosa cambia
+
+- **«veloce» è il predefinito** (`MOTORE_PREDEFINITO` in `engine/motore_veloce.py`) per Lab, notebook di ricerca (`MOTORE = None`) e motori. «bt» resta: `motore="bt"`, `MOTORE = "bt"` nel notebook, oppure `TSC_MOTORE=bt` per tutto. `backtesting.py` resta l'oracolo dei test. Senza numba si torna da soli a «bt», con un avviso.
+- `Sessione.motore`, `ExitSearchBT.motore` e `FilterSearchBT.motore` valgono `None` se nessuno li sceglie (= il predefinito).
+- **Ricerca dei filtri con «veloce»: in sequenza.** Misurato prima di decidere, 30 righe su BINANCE_PERP_BTCUSDT: **8,5 s in sequenza, 18,2 s con 6 processi** (con «bt»: 33,1 s e 20,1 s). Con «veloce» un backtest dura millisecondi: nei processi andrebbe solo quello, il resto della riga resta nel processo principale, e avviarli costa di più. `processi=` resta per «bt».
+- **Avviso del capitale:** `controlli.avviso_capitale` («i trade SPARISCONO») ha il parametro `motore` e stampa solo con «bt». Con «veloce» non si perde nessun trade: se il capitale simulato si esaurisce, avvisa il motore, con la data e il numero del trade.
+- `test_portabilita.py`: le prove sul capitale girano con tutti e due i motori, ognuno col suo comportamento (18 test).
+
+### 15.2 · Identità «bt» contro «veloce»
+
+| prova | esito |
+|---|---|
+| Lab crypto, giro completo (nove schermate), BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT | ogni numero identico; nessun capitale esaurito |
+| notebook di ricerca, BINANCE_PERP_BTCUSDT, capitale del notebook (10 milioni) | 33 celle uguali, 16 diverse: tutte per il capitale esaurito (sotto) |
+| notebook di ricerca, BYBIT_SPOT_ETHUSDT, capitale del notebook | 36 celle uguali, 13 diverse: tutte per il capitale esaurito (sotto) |
+| notebook di ricerca, tutti e due i symbol, capitale 10^15 (nessuno si esaurisce) | **49 celle su 49 uguali**, nessun avviso |
+
+**I sistemi in cui cambia qualcosa** (capitale esaurito; il motore veloce tiene tutti i trade per unità, la libreria ne annulla una parte da quella data). Le celle dopo queste (classifiche, due metà, Monte Carlo, money management) cambiano di conseguenza.
+
+| symbol | cella | backtest colpiti: esaurito dal (trade k di n, conteggio del veloce) |
+|---|---|---|
+| BINANCE_PERP_BTCUSDT | 44 · ricerca delle uscite, prima combinazione | 01/03/2024 (4.217 di 5.545) |
+| BINANCE_PERP_BTCUSDT | 47 · ricerca delle uscite | 6 combinazioni: 04/03/2024 (4.323 di 5.676), 10/02/2024 (4.986 di 6.623), 07/02/2024 (5.698 di 7.604), 01/03/2024 (4.217 di 5.545), 10/02/2024 (4.328 di 5.749), 01/03/2024 (4.217 di 5.545) |
+| BINANCE_PERP_BTCUSDT | 54 · ricerca dei filtri | sistema base 01/03/2024 (4.217 di 5.545) e 4 filtri: 16/12/2024 (3.597 di 3.962), 08/04/2024 (3.750 di 4.807), 14/11/2024 (2.778 di 3.121), 11/11/2024 (3.167 di 3.567) |
+| BINANCE_PERP_BTCUSDT | 64 · la storia del setup su tutta la serie | 01/03/2024 (4.217 di 6.919) |
+| BINANCE_PERP_BTCUSDT | 66 · filtri di confidenza | 20/05/2024 (4.215 di 5.312) |
+| BYBIT_SPOT_ETHUSDT | 44 · ricerca delle uscite, prima combinazione | 12/08/2025 (3.798 di 3.909) |
+| BYBIT_SPOT_ETHUSDT | 47 · ricerca delle uscite | 6 combinazioni: 09/08/2025 (3.898 di 4.017), 13/12/2024 (3.856 di 4.768), 16/07/2024 (3.887 di 5.481), 12/08/2025 (3.798 di 3.909), 21/07/2025 (3.884 di 4.061), 12/08/2025 (3.798 di 3.909) |
+| BYBIT_SPOT_ETHUSDT | 54 · ricerca dei filtri | sistema base 12/08/2025 (3.798 di 3.909) |
+| BYBIT_SPOT_ETHUSDT | 64 · la storia del setup su tutta la serie | 12/08/2025 (3.798 di 4.858) |
+
+Su BINANCE_PERP_BTCUSDT sono gli stessi 14 backtest del §14.3. Per il catalogo vale l'elenco dei 48 sistemi del §14.3 (PR #45).
+
+### 15.3 · Tempi prima / dopo (PC di Mattia, BINANCE_PERP_BTCUSDT)
+
+| cosa | prima («bt») | dopo («veloce») |
+|---|---|---|
+| un backtest (`run_exit_search_bt`, una combinazione, con metriche e giudizio) | 1,30 s | 0,43 s (il ciclo da solo: millisecondi) |
+| Lab, schermata 5 (trova la strategia) | 33,2 s | **8,7 s** |
+| suite completa, 37/37 | 32,9 min | 28,7 min (quasi tutto il tempo sono indicatori e preparazione) |
