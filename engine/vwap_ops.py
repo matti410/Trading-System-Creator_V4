@@ -19,6 +19,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .motore_veloce import DISPONIBILE, njit   # numba, se c'e' (21/10/2026, E4)
+
 
 def vwap_anchored_daily(df: pd.DataFrame) -> pd.Series:
     """
@@ -36,13 +38,63 @@ def vwap_anchored_daily(df: pd.DataFrame) -> pd.Series:
     return cumulative_tp_vol / cumulative_vol
 
 
+@njit(cache=True)
+def _regressione_giorni(y, inizio_giorno):
+    """Il ciclo di `_cumulative_regression_fitted_fast`, su tutta la serie:
+    le somme ripartono da zero dove `inizio_giorno` e' True. Stesse
+    operazioni nello stesso ordine: stesso risultato al bit."""
+    n = y.size
+    fitted = np.empty(n)
+    sum_y = 0.0
+    sum_xy = 0.0
+    i = 0
+    for k in range(n):
+        if inizio_giorno[k]:
+            sum_y = 0.0
+            sum_xy = 0.0
+            i = 0
+        sum_y += y[k]
+        sum_xy += i * y[k]
+        if i == 0:
+            fitted[k] = y[k]
+        else:
+            n_points = i + 1
+            sum_x = i * (i + 1) / 2
+            sum_x2 = i * (i + 1) * (2 * i + 1) / 6
+            denom = n_points * sum_x2 - sum_x * sum_x
+            slope = (n_points * sum_xy - sum_x * sum_y) / denom
+            intercept = (sum_y - slope * sum_x) / n_points
+            fitted[k] = intercept + slope * i
+        i += 1
+    return fitted
+
+
 def regression_trend_fit(close: pd.Series) -> pd.Series:
     """
     Regressione lineare incrementale (O(n)) del prezzo di chiusura,
     ricalcolata da zero ad ogni nuova sessione (stessa logica di
     `regression_vwap_gap` nel file originale, isolata dal calcolo del gap
     vero e proprio).
+
+    21/10/2026 (E4, docs/65 §16): con numba il ciclo gira compilato su tutta
+    la serie (`_regressione_giorni`), circa 0,02 s invece di 0,7 s su
+    190.000 barre; stesso risultato al bit (test_motore_veloce.py, sezione G).
+    Senza numba, serie vuota o indice non in ordine: il calcolo di prima,
+    `_regression_trend_fit_pandas`.
     """
+    if not DISPONIBILE or len(close) == 0 or not close.index.is_monotonic_increasing:
+        return _regression_trend_fit_pandas(close)
+    giorni = close.index.normalize().asi8          # la data di ogni barra, come index.date
+    inizio = np.empty(len(giorni), dtype=np.bool_)
+    inizio[0] = True
+    inizio[1:] = giorni[1:] != giorni[:-1]
+    y = np.ascontiguousarray(close.to_numpy(dtype=float))
+    return pd.Series(_regressione_giorni(y, inizio), index=close.index, name=close.name)
+
+
+def _regression_trend_fit_pandas(close: pd.Series) -> pd.Series:
+    """Il calcolo originale (gruppi per data con pandas): riserva senza numba
+    e termine di paragone dei test."""
 
     def _cumulative_regression_fitted_fast(close_session: pd.Series) -> pd.Series:
         y = close_session.values

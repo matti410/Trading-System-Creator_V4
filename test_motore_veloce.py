@@ -408,7 +408,130 @@ def esegui():
               for m_ in ("bt", "veloce")}
     check("F6. due_meta usa il motore di fs e da' la stessa tabella",
           dm["bt"].tabella.equals(dm["veloce"].tabella) and dm["veloce"].metà1.motore == "veloce")
+
+    # ====================================================================
+    # 21/10/2026 (E4, docs/65 §16): ogni pezzo con la sua prova di identita'
+    print("\nG · E4: maschere in cache, filtri VWAP, bootstrap (identici al bit)")
+    chiamate = {"n": 0}
+    def contata(a):
+        f_ = su(a)
+        def filtro(x):
+            chiamate["n"] += 1
+            return f_(x)
+        return filtro
+    reg.register_filter("MV_F3", -1)(contata(rng.random(nb) < 0.55))
+    filtri_g = ["MV_F1", "MV_F2", "MV_F3"]
+    kw_fs = dict(entry_long="MV_T_LONG", entry_short="MV_T_SHORT", exit_rule_pair="MV_X",
+                 filtri=filtri_g, n_boot=500, **comuni)
+    senza = run_filter_search_bt(df, **kw_fs)
+    cache = {}
+    prima = run_filter_search_bt(df, cache_maschere=cache, **kw_fs)
+    n_prima = chiamate["n"]
+    dopo = run_filter_search_bt(df, cache_maschere=cache, **kw_fs)
+    def stesso_fs(a, b):
+        return a.risultati.equals(b.risultati) and all(
+            not stesse_colonne(a.trades(f_), b.trades(f_)) for f_ in a.risultati["filtro"])
+    check("G1. cache delle maschere: stessa tabella e stessi trade, alla prima e alla seconda chiamata",
+          stesso_fs(senza, prima) and stesso_fs(senza, dopo))
+    check("G2. alla seconda chiamata sullo stesso df le maschere si riusano",
+          n_prima == 2 and chiamate["n"] == 2, f"chiamate del filtro: {chiamate['n']} (attese 2)")
+    corto = df.iloc[: nb // 2]
+    altro = run_filter_search_bt(corto, cache_maschere=cache, **kw_fs)
+    check("G3. stessa cache con un df diverso: si svuota e ricalcola, risultati giusti",
+          stesso_fs(run_filter_search_bt(corto, **kw_fs), altro) and chiamate["n"] == 4)
     reg.clear_registry()
+    reg.register_entry("MV_T_LONG", 1)(su(sl))
+    reg.register_entry("MV_T_SHORT", -1)(su(ss))
+    reg.register_exit("MV_X_LONG", 1, pair="MV_X")(su(xl))
+    reg.register_exit("MV_X_SHORT", -1, pair="MV_X")(su(xs))
+    reg.register_filter("MV_F1", 0)(su(~f1))          # stesso nome, funzione nuova
+    reg.register_filter("MV_F2", 1)(su(f2))
+    reg.register_filter("MV_F3", -1)(contata(rng.random(nb) < 0.55))
+    nuovo = run_filter_search_bt(corto, cache_maschere=cache, **kw_fs)
+    check("G4. filtro registrato di nuovo con lo stesso nome: la maschera si ricalcola",
+          stesso_fs(run_filter_search_bt(corto, **kw_fs), nuovo))
+    voce = next(v_ for k_, v_ in cache.items() if k_ == "MV_F1")
+    try:
+        voce[1][0] = not voce[1][0]
+        sola_lettura = False
+    except ValueError:
+        sola_lettura = True
+    check("G5. le maschere in cache sono in sola lettura", sola_lettura)
+    fs_c = run_filter_search_bt(df, **kw_fs)
+    with contextlib.redirect_stdout(io.StringIO()):
+        kw_dm = dict(perc_sl=90.0, finestra=200, lag=1, quarantena=False, verbose=False,
+                     **{k: costi[k] for k in ("spread", "commission", "cash")})
+        dm_senza = due_meta(df, fs_c, [None, *filtri_g], **kw_dm)
+        cache_dm = {}
+        dm_1 = due_meta(df, fs_c, [None, *filtri_g], cache_maschere=cache_dm, **kw_dm)
+        dm_2 = due_meta(df, fs_c, [None, *filtri_g], cache_maschere=cache_dm, **kw_dm)
+    check("G6. due_meta con la cache (una per meta'): stessa tabella",
+          dm_senza.tabella.equals(dm_1.tabella) and dm_senza.tabella.equals(dm_2.tabella)
+          and set(cache_dm) == {"metà 1", "metà 2"})
+    reg.clear_registry()
+
+    # filtri VWAP: la regressione compilata contro quella di prima (pandas)
+    from engine import vwap_ops
+    import vwap_regime_filter_conditions as vrf
+    df_v = _veri().copy() if ci_sono_veri else dati_finti(np.random.default_rng(3), 60_000)
+    df_v["vwap"] = vwap_ops.vwap_anchored_daily(df_v)
+    casi = {"tutta la serie": df_v["Close"], "un giorno": df_v["Close"].iloc[:40],
+            "con un NaN": df_v["Close"].where(np.arange(len(df_v)) != 1000),
+            "senza fuso": df_v["Close"].tz_localize(None) if df_v.index.tz is not None else df_v["Close"],
+            "una barra": df_v["Close"].iloc[:1]}
+    diversi = [k_ for k_, c_ in casi.items()
+               if not vwap_ops.regression_trend_fit(c_).equals(vwap_ops._regression_trend_fit_pandas(c_))]
+    check("G7. regression_trend_fit compilata = quella di prima, al bit (serie, giorno, NaN, fuso, una barra)",
+          not diversi, f"diversi: {diversi}" if diversi else f"{len(df_v):,} barre")
+    nuovi = {n_: f_(df_v) for n_, (f_, _, _) in vrf.FILTRI_VWAP.items()}
+    originale = vwap_ops.regression_trend_fit
+    vwap_ops.regression_trend_fit = vrf.regression_trend_fit = vwap_ops._regression_trend_fit_pandas
+    try:
+        vecchi = {n_: f_(df_v) for n_, (f_, _, _) in vrf.FILTRI_VWAP.items()}
+    finally:
+        vwap_ops.regression_trend_fit = vrf.regression_trend_fit = originale
+    check(f"G8. i {len(nuovi)} filtri VWAP accesi: stesse maschere di prima",
+          all(nuovi[n_].equals(vecchi[n_]) for n_ in nuovi), ", ".join(nuovi))
+
+    # bootstrap di P(EV<0): stessi indici casuali e stesse medie di rng.choice(...).mean(axis=1)
+    from engine import giudizio
+    rng_g = np.random.default_rng(11)
+    lunghezze = list(range(2, 140)) + [255, 256, 257, 1000, 1500, 4099, 8191, 8193, 12001]
+    diverse = []
+    for n_ in lunghezze:
+        x_ = rng_g.standard_t(3, size=n_) * rng_g.choice([0.1, 7.0, 300.0]) + rng_g.normal(0, 1)
+        nb_ = 2000 if n_ < 2000 else 300
+        for seme in (0, 5):
+            a_ = np.random.default_rng(seme).choice(x_, size=(nb_, n_), replace=True).mean(axis=1)
+            if not np.array_equal(a_, giudizio._medie_bootstrap(x_, nb_, seme)):
+                diverse.append(n_)
+    check("G9. bootstrap: stesse medie di rng.choice(...).mean(axis=1), al bit",
+          not diverse, f"lunghezze diverse: {diverse[:10]}" if diverse else f"{len(lunghezze)} lunghezze, 2 semi")
+    x_ = rng_g.normal(0.3, 10, 1200)
+    vecchio_p = float((np.random.default_rng(0).choice(x_, size=(10_000, x_.size), replace=True)
+                       .mean(axis=1) < 0).mean() * 100.0)
+    giudizio.DISPONIBILE = False
+    try:
+        p_senza_numba = giudizio.p_ev_negativo(x_)
+    finally:
+        giudizio.DISPONIBILE = mv.DISPONIBILE
+    check("G10. p_ev_negativo = il calcolo di prima, anche senza numba",
+          giudizio.p_ev_negativo(x_) == vecchio_p == p_senza_numba, f"P(EV<0) = {vecchio_p:.2f}%")
+
+    # le funzioni compilate rilette dalla cache di numba (21/10/2026: una funzione
+    # ricorsiva, riletta dalla cache, mandava in crash Python): due processi nuovi di fila
+    import subprocess
+    codice = ("import numpy as np, pandas as pd\n"
+              "from engine.giudizio import p_ev_negativo\n"
+              "from engine.vwap_ops import regression_trend_fit\n"
+              "x = np.random.default_rng(0).normal(0.1, 1, 3000)\n"
+              "i = pd.date_range('2024-01-01', periods=3000, freq='15min', tz='UTC')\n"
+              "print(p_ev_negativo(x), regression_trend_fit(pd.Series(x, index=i)).sum())\n")
+    uscite = [subprocess.run([sys.executable, "-c", codice], capture_output=True, text=True,
+                             cwd=os.path.dirname(os.path.abspath(__file__))) for _ in range(2)]
+    check("G11. funzioni compilate rilette dalla cache di numba: nessun crash, stessi numeri",
+          all(u.returncode == 0 for u in uscite) and uscite[0].stdout == uscite[1].stdout != "",
+          f"codici di uscita {[u.returncode for u in uscite]}")
 
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)

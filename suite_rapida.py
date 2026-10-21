@@ -42,19 +42,19 @@ from pathlib import Path
 
 QUI = Path(__file__).resolve().parent
 
-# secondi di ogni suite, misurati il 21/10/2026 sul PC di Mattia (una alla volta)
+# secondi di ogni suite, misurati il 21/10/2026 sul PC di Mattia (una alla volta, dopo E4)
 DURATE = {
-    "test_vetrina": 416, "test_vetrina_trigger": 293, "test_indicatori_tradingview": 214,
-    "test_vsa_modulo_unico": 198, "test_mercato_nullo": 83, "test_salto": 73,
-    "test_idee_articoli": 72, "test_momentum_intraday": 67, "test_regime": 64,
-    "test_condizioni_orarie": 54, "test_sentiment": 46, "test_multi_timeframe": 46,
-    "test_algoxplorer": 40, "test_rosa": 39, "test_motore_veloce": 35, "test_ore_utc": 31,
-    "test_stagionalita": 28, "test_simboli": 27, "test_exchange": 27, "test_velocita": 25,
-    "test_quarantena_trade": 14, "test_quintili": 13, "test_money_management": 11,
-    "test_funding": 10, "test_confidenza": 8, "test_famiglie": 7, "test_unita": 5,
-    "test_giornata_utc": 3, "test_barre_per_lato": 3, "test_tempo_prezzo": 2,
-    "test_portabilita": 2, "test_montecarlo": 2, "test_inversione": 2,
-    "test_entry_composita": 2, "test_sessioni": 1, "test_filtri_tempo": 1, "test_entry_metro": 1,
+    "test_vetrina": 245, "test_indicatori_tradingview": 215, "test_vetrina_trigger": 207,
+    "test_vsa_modulo_unico": 200, "test_salto": 76, "test_idee_articoli": 73,
+    "test_momentum_intraday": 70, "test_regime": 64, "test_condizioni_orarie": 54,
+    "test_multi_timeframe": 46, "test_sentiment": 45, "test_algoxplorer": 41,
+    "test_motore_veloce": 41, "test_rosa": 36, "test_mercato_nullo": 33, "test_ore_utc": 31,
+    "test_exchange": 27, "test_stagionalita": 27, "test_simboli": 25, "test_velocita": 19,
+    "test_quarantena_trade": 13, "test_quintili": 13, "test_money_management": 11,
+    "test_funding": 9, "test_famiglie": 7, "test_confidenza": 6, "test_unita": 4,
+    "test_barre_per_lato": 3, "test_giornata_utc": 3, "test_entry_composita": 2,
+    "test_filtri_tempo": 2, "test_inversione": 2, "test_montecarlo": 2, "test_portabilita": 2,
+    "test_tempo_prezzo": 2, "test_entry_metro": 1, "test_sessioni": 1
 }
 INSIEME = 3          # suite che girano insieme nella rapida
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")
