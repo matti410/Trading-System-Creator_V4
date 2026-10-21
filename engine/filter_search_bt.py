@@ -169,7 +169,9 @@ def esegui_giri(bt, df_bt, bt_kw, giri, processi=None):
 
     21/10/2026 (docs/65): con il motore veloce (`bt` e' un MotoreVeloce) si
     va sempre in sequenza: un backtest dura millisecondi, avviare i processi
-    costerebbe di piu'. `processi` vale solo per backtesting.py.
+    costerebbe di piu'. `processi` vale solo per backtesting.py. Misurato
+    al passo E3 (docs/65 §15): 30 righe su BINANCE_PERP_BTCUSDT, 8,5 s in
+    sequenza contro 18,2 s con 6 processi.
     """
     if isinstance(bt, MotoreVeloce):
         return [_giro(bt, kw) for kw in giri]
@@ -457,10 +459,11 @@ def run_filter_search_bt(
                               col_long, col_short, m_long, m_short))
 
     # --- backtest, una sola costruzione, riusata per ogni riga ------------
-    avviso_capitale(df, cash, margin, close_col, contesto="run_filter_search_bt")  # 25/9: prezzo > capitale
+    motore = scegli_motore(motore)    # 21/10/2026 (docs/65): "bt" o "veloce", stessi trade
+    avviso_capitale(df, cash, margin, close_col, contesto="run_filter_search_bt",
+                    motore=motore)    # 25/9: prezzo > capitale (solo "bt", E3)
     bt_kw = dict(cash=cash, spread=spread, commission=commission, margin=margin,
                  exclusive_orders=True)
-    motore = scegli_motore(motore)    # 21/10/2026 (docs/65): "bt" o "veloce", stessi trade
     bt = (MotoreVeloce(df_bt, **bt_kw) if motore == "veloce"
           else Backtest(df_bt, _StrategiaGenerica, **bt_kw))
 
@@ -617,7 +620,7 @@ class FilterSearchBT:
                  exit_rule_pair, n_barre, min_trades, soglia_rumore=None,
                  pip_size=None, commission=None,
                  n_barre_long=None, n_barre_short=None, unita="pips", funding=None,
-                 motore="bt"):
+                 motore=None):
         self.risultati = risultati
         self.motore = motore          # 21/10/2026 (docs/65): "bt" o "veloce" (due_meta lo rilegge)
         self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono

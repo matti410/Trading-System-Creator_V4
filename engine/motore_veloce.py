@@ -62,10 +62,10 @@ except Exception:      # numba non installato: il motore "veloce" ripiega su "bt
         return lambda f: f
 
 MOTORI = ("bt", "veloce")
-# Il motore usato quando non se ne indica uno. "bt" fino al passo E3 di
-# docs/65 §8; la variabile d'ambiente TSC_MOTORE lo cambia (serve a far girare
-# tutte le suite con l'uno o con l'altro).
-MOTORE_PREDEFINITO = os.environ.get("TSC_MOTORE", "bt")
+# Il motore usato quando non se ne indica uno: "veloce" dal passo E3 di
+# docs/65 §8 (21/10/2026; prima "bt"). La variabile d'ambiente TSC_MOTORE lo
+# cambia (serve a far girare tutte le suite con l'uno o con l'altro).
+MOTORE_PREDEFINITO = os.environ.get("TSC_MOTORE", "veloce")
 if MOTORE_PREDEFINITO not in MOTORI:
     raise ValueError(f"TSC_MOTORE={MOTORE_PREDEFINITO!r}: usa uno di {MOTORI}.")
 

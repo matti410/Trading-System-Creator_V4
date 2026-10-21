@@ -305,7 +305,7 @@ class Sessione:
         self.atr = None               # 20/10/2026: ATR giornaliero a 5 giornate chiuse (unita' ATR, docs/63 §4)
         self.unita = "pips"           # 20/10/2026 (U2): l'unita' che decide; "bp" sui symbol da exchange
         self.funding = None           # 21/10/2026: storico del funding (perpetual); None = non contato
-        self.motore = "bt"            # 21/10/2026 (docs/65): motore dei backtest, "bt" o "veloce"
+        self.motore = None            # 21/10/2026 (docs/65): "bt" o "veloce"; None = il predefinito (E3: "veloce")
         self.tabelle = {}
 
     def __repr__(self):
