@@ -1682,6 +1682,9 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
               f"perdita media e profit factor sono calcolati sui {s.unita} netti di ogni trade. Totale e drawdown "
               "restano in pips: sono i soldi del conto.")
     _mostra_costi(s, tr_is, tr_oos)       # 21/10/2026: commissione, spread, funding
+    if s.da_exchange:                     # 21/10/2026 (docs/63 §7.6): solo informativa, nessun cancello cambia
+        from .mercato_nullo import frase_mercato_nullo
+        _nota(frase_mercato_nullo(s.symbol, s.timeframe, s.H, float(k_is.get("t_stat", np.nan)), s.cartella))
 
     if len(tr_oos):
         plot_equity(tr_oos, s.df_oos, cash=CASH, etichetta=nome, figsize=(11, 4.8))
