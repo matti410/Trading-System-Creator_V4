@@ -80,6 +80,7 @@ from .event_study import deduci_pip, run_event_study
 from .simboli import da_exchange, in_tabella, info_symbol, pip_symbol
 from .exit_search_bt import barre_per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
+from .motore_veloce import scegli_motore
 from .confidenza import congela_filtro
 from .giudizio import CAMPIONE_CORTO, DA_VALUTARE, scheda_strategia, soglia_rumore
 from .indicatori import aggiungi_indicatori, atr_giornaliero_chiuso
@@ -304,6 +305,7 @@ class Sessione:
         self.atr = None               # 20/10/2026: ATR giornaliero a 5 giornate chiuse (unita' ATR, docs/63 §4)
         self.unita = "pips"           # 20/10/2026 (U2): l'unita' che decide; "bp" sui symbol da exchange
         self.funding = None           # 21/10/2026: storico del funding (perpetual); None = non contato
+        self.motore = "bt"            # 21/10/2026 (docs/65): motore dei backtest, "bt" o "veloce"
         self.tabelle = {}
 
     def __repr__(self):
@@ -642,7 +644,8 @@ def _minuti_barra(timeframe: str) -> int:
 
 
 def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
-            cartella: str = "dati", timeframe: str = "M15", funding: bool = True) -> Sessione:
+            cartella: str = "dati", timeframe: str = "M15", funding: bool = True,
+            motore: str | None = None) -> Sessione:
     """
     Schermata 1. Carica lo storico dal CSV, calcola costi e indicatori,
     divide in-sample / out-of-sample e carica le condizioni dal registro.
@@ -658,6 +661,9 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
                       contato in ogni risultato (carica_funding: si ferma se il
                       file manca o non copre le barre). False = spento: serve
                       solo alla prova di identita' con la versione di prima.
+    motore            21/10/2026 (docs/65): "bt" (backtesting.py) o "veloce"
+                      (engine/motore_veloce.py, stessi trade). None (default) =
+                      il predefinito del tool (motore_veloce.MOTORE_PREDEFINITO).
 
     11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
     symbol solo dalla tabella di engine/simboli.py; spread dal solo listino
@@ -682,6 +688,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
 
     s = Sessione()
     s.funding = storico_funding
+    s.motore = scegli_motore(motore)     # 21/10/2026 (docs/65)
     s.symbol, s.H, s.cartella, s.timeframe = symbol, H, cartella, timeframe
     s.da_exchange = da_exchange(symbol)
     if s.da_exchange:
@@ -1068,7 +1075,8 @@ def _kw_motore(s: Sessione) -> dict:
     return dict(n_barre=u["n_barre"], n_barre_long=u["n_barre_long"],
                 n_barre_short=u["n_barre_short"], perc_sl=u["perc_sl"],
                 perc_tp=u["perc_tp"], finestra=FINESTRA, lag=LAG,
-                inverti_su_opposto=True, unita=s.unita, **s.costi)
+                inverti_su_opposto=True, unita=s.unita,
+                motore=getattr(s, "motore", None), **s.costi)
 
 
 def _altra_unita(s: Sessione) -> str:

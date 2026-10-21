@@ -92,6 +92,7 @@ from .metriche import UNITA_CHE_DECIDONO, metriche_per_trade, netti_in_unita
 from .controlli import avviso_capitale
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
 from .exchange import aggiungi_funding
+from .motore_veloce import MotoreVeloce, scegli_motore
 from .giudizio import (RIFERIMENTO, p_ev_negativo, soglia_rumore, t_stat,
                        tenuti_scartati, verdetto)
 
@@ -165,7 +166,13 @@ def esegui_giri(bt, df_bt, bt_kw, giri, processi=None):
     di `_giro`, nell'ordine di `giri`. Con piu' processi ognuno costruisce il
     suo Backtest su `df_bt` / `bt_kw`; se i processi non partono si torna in
     sequenza su `bt`, con un avviso.
+
+    21/10/2026 (docs/65): con il motore veloce (`bt` e' un MotoreVeloce) si
+    va sempre in sequenza: un backtest dura millisecondi, avviare i processi
+    costerebbe di piu'. `processi` vale solo per backtesting.py.
     """
+    if isinstance(bt, MotoreVeloce):
+        return [_giro(bt, kw) for kw in giri]
     quanti = numero_processi(processi, len(giri))
     contesto = _contesto_processi(processi is not None) if quanti > 1 else None
     if contesto is not None:
@@ -217,6 +224,7 @@ def run_filter_search_bt(
     processi=None,
     unita="pips",
     funding=None,
+    motore=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -300,6 +308,11 @@ def run_filter_search_bt(
         ingresso < S <= uscita, al prezzo Open della barra che inizia in S.
         Entra nei netti (avg_trade_netto, t, P(EV<0), guadagno), NON in pnl_pct, sharpe e
         max_dd_pct, che vengono dalla libreria.
+
+    motore (21/10/2026, docs/65)
+        "bt" = backtesting.py, "veloce" = engine/motore_veloce.py (stessi
+        trade al bit, sempre in sequenza: `processi` non serve). None
+        (default) = motore_veloce.MOTORE_PREDEFINITO. Vedi run_exit_search_bt.
 
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
@@ -447,7 +460,9 @@ def run_filter_search_bt(
     avviso_capitale(df, cash, margin, close_col, contesto="run_filter_search_bt")  # 25/9: prezzo > capitale
     bt_kw = dict(cash=cash, spread=spread, commission=commission, margin=margin,
                  exclusive_orders=True)
-    bt = Backtest(df_bt, _StrategiaGenerica, **bt_kw)
+    motore = scegli_motore(motore)    # 21/10/2026 (docs/65): "bt" o "veloce", stessi trade
+    bt = (MotoreVeloce(df_bt, **bt_kw) if motore == "veloce"
+          else Backtest(df_bt, _StrategiaGenerica, **bt_kw))
 
     if pip_size is None:   # 10/10/2026: di norma arriva fisso da **costi
         pip_size = deduci_pip(float(df[close_col].mean()))
@@ -592,7 +607,7 @@ def run_filter_search_bt(
                           min_trades=min_trades, soglia_rumore=soglia,
                           pip_size=pip_size, commission=commission,
                           n_barre_long=n_long, n_barre_short=n_short, unita=unita,
-                          funding=funding)
+                          funding=funding, motore=motore)
 
 
 class FilterSearchBT:
@@ -601,8 +616,10 @@ class FilterSearchBT:
     def __init__(self, risultati, trades_per_filtro, entry_long, entry_short,
                  exit_rule_pair, n_barre, min_trades, soglia_rumore=None,
                  pip_size=None, commission=None,
-                 n_barre_long=None, n_barre_short=None, unita="pips", funding=None):
+                 n_barre_long=None, n_barre_short=None, unita="pips", funding=None,
+                 motore="bt"):
         self.risultati = risultati
+        self.motore = motore          # 21/10/2026 (docs/65): "bt" o "veloce" (due_meta lo rilegge)
         self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono
         self.funding = funding        # 21/10/2026: None = funding non contato (due_meta lo rilegge)
         self._trades_per_filtro = trades_per_filtro

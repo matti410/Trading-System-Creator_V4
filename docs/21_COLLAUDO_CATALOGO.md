@@ -136,7 +136,8 @@ Il tool si regge su tre comportamenti di `backtesting.py`, verificati a mano in
 passato. Se una versione nuova ne cambia uno, i numeri cambiano **senza nessun
 errore**. Per questo:
  
-- **versioni bloccate**: `TA-Lib==0.8.1` e `backtesting==0.6.6`, nella cella 2
+- **versioni bloccate**: `TA-Lib==0.8.1` e `backtesting==0.6.6` (dal 21/10
+  anche `numba==0.68.0`, per il motore veloce), nella cella 2
   del notebook principale e nella preparazione del notebook di collaudo. Si
   cambiano solo insieme, e dopo si rilancia il collaudo;
 - **sezione D**: una serie di 10 barre a prezzi noti, un trade solo, **usando la
@@ -153,6 +154,11 @@ d'ingresso e farebbe fallire la prova.
  
 Le prove verificano anche i tempi dell'engine: ingresso all'Open della barra
 dopo il segnale, uscita a tempo all'Open della barra `n_barre` dopo l'ingresso.
+
+**Dal 21/10 c'è un secondo motore**, `engine/motore_veloce.py` (`docs/65`): le
+tre prove D1–D3 sono rifatte anche su di lui in `test_motore_veloce.py`
+(sezione C), accanto al confronto trade per trade con questa libreria su
+configurazioni casuali e ai casi limite. `backtesting.py` resta l'oracolo.
  
 ---
  

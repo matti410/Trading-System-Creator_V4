@@ -101,6 +101,7 @@ from .controlli import avviso_capitale
 from .giudizio import soglia_rumore, t_stat
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
 from .exchange import aggiungi_funding
+from .motore_veloce import MotoreVeloce, scegli_motore
 
 
 # ========================================================================
@@ -342,6 +343,7 @@ def run_exit_search_bt(
     pip_size=None,
     unita="pips",
     funding=None,
+    motore=None,
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -451,6 +453,14 @@ def run_exit_search_bt(
         ingresso < S <= uscita, al prezzo Open della barra che inizia in S.
         Entra nei netti (avg_trade_netto, t, P(EV<0)), NON in pnl_pct, sharpe e
         max_dd_pct, che vengono dalla libreria.
+
+    motore (21/10/2026, docs/65)
+        "bt" = backtesting.py con _StrategiaGenerica, "veloce" = il ciclo
+        compilato di engine/motore_veloce.py: stessi trade al bit. None
+        (default) = motore_veloce.MOTORE_PREDEFINITO ("bt" fino al passo E3).
+        Unica differenza dichiarata: se il capitale simulato si esaurisce,
+        "veloce" tiene tutti i trade per unita' e mette NaN in pnl_pct,
+        sharpe e max_dd_pct (docs/65 §3.2).
 
     Ritorna un oggetto ExitSearchBT: .risultati (tabella), .top(),
     .trades(combinazione), .soglia_rumore, .k.
@@ -563,8 +573,13 @@ def run_exit_search_bt(
 
     # --- backtest, una sola costruzione, riusata per ogni combinazione --
     avviso_capitale(df, cash, margin, close_col, contesto="run_exit_search_bt")  # 25/9: prezzo > capitale
-    bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
-                 commission=commission, margin=margin, exclusive_orders=True)
+    motore = scegli_motore(motore)    # 21/10/2026 (docs/65): "bt" o "veloce", stessi trade
+    if motore == "veloce":
+        bt = MotoreVeloce(df_bt, cash=cash, spread=spread, commission=commission,
+                          margin=margin, exclusive_orders=True)
+    else:
+        bt = Backtest(df_bt, _StrategiaGenerica, cash=cash, spread=spread,
+                     commission=commission, margin=margin, exclusive_orders=True)
 
     if pip_size is None:   # 10/10/2026: di norma arriva fisso da **costi
         pip_size = deduci_pip(float(df[close_col].mean()))
@@ -663,7 +678,7 @@ def run_exit_search_bt(
                         margin=margin, min_trades=min_trades,
                         soglia_rumore=soglia, k=k, alpha=alpha,
                         n_barre_long=n_long, n_barre_short=n_short, unita=unita,
-                        funding=funding)
+                        funding=funding, motore=motore)
 
 
 # ========================================================================
@@ -676,9 +691,11 @@ class ExitSearchBT:
     def __init__(self, risultati, trades_per_combo, n_barre, perc_sl,
                  perc_tp, finestra, spread, commission, margin, min_trades,
                  soglia_rumore=np.nan, k=0, alpha=0.05,
-                 n_barre_long=None, n_barre_short=None, unita="pips", funding=None):
+                 n_barre_long=None, n_barre_short=None, unita="pips", funding=None,
+                 motore="bt"):
         self.risultati = risultati
         self._trades_per_combo = trades_per_combo
+        self.motore = motore          # 21/10/2026 (docs/65): "bt" o "veloce"
         self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono
         self.funding = funding        # 21/10/2026: None = funding non contato
         self.n_barre = n_barre

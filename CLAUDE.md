@@ -42,6 +42,9 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 - Prima di ogni commit lancia TUTTI i test_*.py (su Windows con PYTHONIOENCODING=utf-8):
   l'ultima riga di ognuno deve essere "RISULTATO: n/n test superati" con n = totale.
   Se un test fallisce, fermati e spiega.
+- Dal 21/10/2026: durante il lavoro basta la suite rapida, `python suite_rapida.py`
+  (le suite legate al codice cambiato, 2-3 minuti). La completa,
+  `python suite_rapida.py --tutte`, e' obbligatoria prima di ogni Pull request.
 
 ## Dati e MT5
 - SOSPESO DAL 20/10/2026: MT5 e scarica_dati.py non si usano. I dati si scaricano solo con
