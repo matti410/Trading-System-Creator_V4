@@ -8,6 +8,22 @@
 
 ---
 
+**Indice dei paragrafi** (si legge solo la sezione che serve; *resoconto* = fase chiusa, non si rilegge):
+
+- **§0** In breve
+- **§1** Il controllo: i punti del 62 rispetto alle regole e alle milestone del progetto
+- **§2** Le verifiche sui dati (20/10/2026, sola lettura) — *resoconto*: 2.1 Storico del funding (ccxt `fetch_funding_rate_history`, nessuna chiave); 2.2 Open interest storico (ccxt `fetch_open_interest_history`); 2.3 Basis perpetual – spot; 2.4 Tempo di un giro della pipeline (per il mercato nullo)
+- **§3** Il flusso proposto, in una pagina
+- **§4** Lavoro A · Le unità di rischio: 4.1 Cosa si fa e perché; 4.2 Quale unità decide: U1, U2, U3; 4.3 Firme (nomi indicativi); 4.4 Cosa si vede nei notebook; 4.5 Collaudo; 4.6 Rischi; 4.7 Confronto pips contro bp (20/10/2026, U2) *(resoconto)*; BINANCE_PERP_BTCUSDT; BYBIT_SPOT_ETHUSDT
+- **§5** Lavoro B · Funding e basis dei perpetual: 5.1 Dati; 5.2 Costi; 5.3 Stati (per l'atlante); 5.4 Orari con un motivo; 5.5 Cosa si vede; 5.6 Collaudo; 5.7 Rischi; 5.8 Con e senza funding (21/10/2026) *(resoconto)*
+- **§6** Lavoro C · L'atlante del trigger: 6.1 Su quali trigger; 6.2 Le celle (fissate adesso, prima di guardare); 6.3 La variabile dei perpetual: funding o basis; 6.4 La misura in ogni cella; 6.5 Dall'atlante al setup, e la convivenza con il passo 5; 6.6 Firme (nomi indicativi); 6.7 Cosa si vede (Lab, schermata 3c; ricerca, 1.3 ter); 6.8 Collaudo; 6.9 Rischi
+- **§7** Lavoro D · Il mercato nullo: 7.1 Cosa produce; 7.2 I due modi di costruire il nulla; 7.3 La regola automatica delle scelte (al posto di Mattia, scritta adesso); 7.4 Quanti giri e quanto tempo; 7.5 Firme e comando; 7.6 Cosa si vede; 7.7 Collaudo; 7.8 Rischi
+- **§8** Ordine, rami, documenti
+- **§9** Domande per Mattia
+- **§10** Decisioni di Mattia (20/10/2026): 10.0 Perimetro: solo crypto ed exchange (decisione del 20/10); 10.1 Correzioni alla proposta; 10.2 Risposte alle domande; 10.3 Revisione del piano (21/10/2026)
+
+---
+
 ## 0 · In breve
 
 1. **Il controllo con i documenti di progetto** (§1) ha trovato 5 punti del 62 in contrasto (con regole già decise, con un altro punto del 62 o con un fatto tecnico) e 8 da precisare. Nessuno blocca il lavoro; tutti hanno una proposta. I più importanti:

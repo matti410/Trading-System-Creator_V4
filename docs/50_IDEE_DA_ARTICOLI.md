@@ -8,6 +8,31 @@
 **Guida operativa:** `docs/GUIDA_ANALISI_FONTI.md`, con i passi pratici per articoli, video e libri ed elenco dei link da leggere.
 **Codice:** nessuno qui. Le funzioni stanno sul repo (regola di `00`); qui ci sono il metodo, le convenzioni e il registro delle idee.
  
+
+---
+
+**Indice dei paragrafi** (si legge solo la sezione che serve; *resoconto* = fase chiusa, non si rilegge):
+
+- **§0** A cosa serve, e le regole che vengono prima
+- **§1** Il flusso
+- **§2** Lettura della fonte: 2.1 Articoli; 2.2 Video YouTube; 2.3 Libri
+- **§3** La scheda della fonte (modello)
+- **§4** Dove va ogni idea: Setup composti (regola del 9/10/2026); Entry; Filtri; Uscite a regola; Idee a orario (dal 19/10/2026)
+- **§5** Convenzioni di scrittura
+- **§6** Le trappole di lookahead tipiche delle fonti
+- **§7** Il collaudo prima della consegna
+- **§8** Test multipli, doppioni e scarti
+- **§9** Consegna e come si esegue (per Mattia): 9.1 In locale con Claude Code (il modo normale dal 10/10); 9.2 In chat: consegna "a parti"; 9.3 Come si esegue (in entrambi i modi)
+- **§10** Registro delle idee
+- **§10 bis** I filtri di regime F25, F26, F27 (9/10/2026): Come funzionano (per decidere senza codice); Collaudo (9–10/10/2026); Decisioni aperte
+- **§10 ter** Il filtro di sentiment F36 (15/10/2026): Come funziona (per decidere senza codice); Collaudo (15/10/2026); Decisioni
+- **§10 quater** Le condizioni multi timeframe F37, E31, F38, F39 (15/10/2026): Come funzionano (per decidere senza codice); Collaudo (15/10/2026); Decisioni
+- **§10 quinquies** AlgoXplorer 0.1c: E32, E33, X4, F40 (17/10/2026): Come funziona (per decidere senza codice); Collaudo (17/10/2026); Decisioni
+- **§10 sexies** VSA · Modulo Unico: E34, E35 (17/10/2026): Come funziona (per decidere senza codice); Collaudo (17/10/2026)
+- **§10 septies** Sfoltimento del catalogo: un rappresentante per famiglia (17/10/2026)
+- **§11** Esempio guidato — l'articolo Fourier (applicazione della lista, non la scheda)
+- **§12** Lavoro in locale con Claude Code (dal 10/10/2026): Impostazione; Dati; Fuso; Pip e costi per symbol; I due notebook: sempre allineati (regola di Mattia, 11/10/2026); Costi: decisione dell'11/10/2026; Dati da exchange crypto (19/10/2026); Collaudo su 9 symbol (10/10/2026)
+
 ---
  
 ## 0 · A cosa serve, e le regole che vengono prima

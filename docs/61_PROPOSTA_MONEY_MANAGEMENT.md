@@ -9,6 +9,26 @@
 
 ---
 
+**Indice dei paragrafi** (si legge solo la sezione che serve; *resoconto* = fase chiusa, non si rilegge):
+
+- **§0** In breve
+- **§1** Le idee del libro in parole semplici
+- **§2** Quali tecniche hanno senso per il tool, e quali no
+- **§3** Come adattare il libro al tool: 3.1 Da contratti a lotti; 3.2 Il rischio di ogni trade, con lo stop acceso; 3.3 Il rischio di ogni trade, con lo stop spento; 3.4 Il valore del pip, trade per trade; 3.5 Il capitale all'ingresso; 3.6 Il tetto della leva
+- **§4** Le fasi, in ordine: Fase 0 · Preparazione (nessuna novità visibile nei notebook); Fase 1 · La sezione "7 · Money management" (il cuore); Fase 2 · Il piano di lavoro e i controlli (facoltativa, dopo aver visto la fase 1); Fase 3 · Alternative (facoltativa, da discutere una per una)
+- **§5** Input e output della cella: Input (Lab, sezione 7); Output; Come spiegarlo a un trader (bozza del riquadro)
+- **§6** Come progettare il modulo perché sia riusabile nel repo crypto
+- **§7** Come collaudare ogni pezzo
+- **§8** Rischi e punti dubbi
+- **§9** Domande a cui solo Mattia può rispondere
+- **§10** Decisioni di Mattia (16/10/2026)
+- **§11** Fase 0: cosa è stato letto da MT5 (16/10/2026) — *resoconto*
+- **§12** Fase 1: cosa è stato fatto (16/10/2026) — *resoconto*
+- **§13** Proposta per la fase 2 (16/10/2026) — da approvare: 13.1 La tabella di controllo in percentuale (libro, cap. 7, «piano di lavoro»); 13.2 Avviso sulle perdite a grappoli (z-score, cap. 5.7); 13.3 Stress test e money management insieme (decisioni 2 e 8); 13.4 Collaudo previsto; 13.5 Domande per Mattia; 13.6 Decisioni di Mattia (16/10/2026); 13.7 Fase 2: cosa è stato fatto (16/10/2026) *(resoconto)*
+- **§14** Proposta per la fase 3 (16/10/2026) — da approvare: 14.1 Il filtro sulla curva dei profitti (cap. 5.6, p. 103–110; p. 248 e 250); 14.2 Il modello a volatilità (cap. 4.5, p. 81–91; cap. 8 e 10); 14.3 Come convivono; 14.4 Collaudo previsto; 14.5 Domande per Mattia; 14.6 Decisioni di Mattia (16/10/2026); 14.7 Fase 3: cosa è stato fatto (16/10/2026) *(resoconto)*
+
+---
+
 ## 0 · In breve
 
 1. **Il metodo di base è il "rischio fisso in percentuale"** (*fixed fractional*, cap. 4.1): a ogni trade si rischia la stessa percentuale del capitale di quel momento. È il metodo che l'autore usa e preferisce, e si adatta molto bene al tool, perché lo stop adattivo dice già **quanto si rischia su ogni trade prima di entrare**.

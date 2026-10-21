@@ -4,8 +4,13 @@ La suite RAPIDA dei test (21/10/2026, decisione di Mattia in docs/65 §13).
 A cosa serve
 ------------
 Durante il lavoro: in 2-3 minuti fa girare le suite `test_*.py` legate al
-codice toccato, invece di tutte (circa 32 minuti). La suite COMPLETA resta
-obbligatoria prima di ogni Pull request: `python suite_rapida.py --tutte`.
+codice toccato, invece di tutte. La suite COMPLETA resta obbligatoria prima
+di ogni Pull request: `python suite_rapida.py --tutte`. Dal 21/10/2026
+(decisione di Mattia in docs/65 §17.5) anche la completa gira 3 suite alla
+volta, le piu' lunghe per prime: circa 11 minuti invece di 28. Le suite sono
+processi separati e non condividono file, quindi i risultati non cambiano;
+cambia solo l'ordine delle righe a schermo (ognuna appare quando la sua suite
+finisce).
 
 Come sceglie
 ------------
@@ -22,7 +27,8 @@ Se non e' cambiato codice, fa girare le suite piu' brevi come prova generale.
 Come si lancia (dalla cartella del progetto; non serve PYTHONIOENCODING)
 -----------------------------------------------------------------------
     python suite_rapida.py                     # la rapida
-    python suite_rapida.py --tutte             # la completa, una suite dopo l'altra
+    python suite_rapida.py --tutte             # la completa, 3 suite alla volta
+    python suite_rapida.py --tutte --insieme 1 # la completa, una suite dopo l'altra
     python suite_rapida.py test_funding test_unita     # solo quelle indicate
     python suite_rapida.py --motore veloce     # con il motore veloce (TSC_MOTORE)
     python suite_rapida.py --secondi 300       # piu' tempo, piu' suite
@@ -37,7 +43,7 @@ import re
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 QUI = Path(__file__).resolve().parent
@@ -56,7 +62,7 @@ DURATE = {
     "test_filtri_tempo": 2, "test_inversione": 2, "test_montecarlo": 2, "test_portabilita": 2,
     "test_tempo_prezzo": 2, "test_entry_metro": 1, "test_sessioni": 1
 }
-INSIEME = 3          # suite che girano insieme nella rapida
+INSIEME = 3          # suite che girano insieme, nella rapida e nella completa
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")
 
 
@@ -149,7 +155,7 @@ def lancia(nome: str, ambiente: dict) -> tuple[str, bool, str, float]:
 
 def main(argv: list[str]) -> int:
     tutte = "--tutte" in argv
-    secondi, motore, base, nomi = 150.0, None, "main", []
+    secondi, motore, base, nomi, insieme = 150.0, None, "main", [], INSIEME
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -159,6 +165,8 @@ def main(argv: list[str]) -> int:
             motore = argv[i + 1]; i += 1
         elif a == "--base":
             base = argv[i + 1]; i += 1
+        elif a == "--insieme":
+            insieme = max(1, int(argv[i + 1])); i += 1
         elif not a.startswith("--"):
             nomi.append(Path(a).stem)
         i += 1
@@ -166,18 +174,20 @@ def main(argv: list[str]) -> int:
     if motore:
         ambiente["TSC_MOTORE"] = motore
     if tutte:
-        scelte, fuori, perche, insieme, titolo = suite_tutte(), [], "tutte le suite", 1, "SUITE COMPLETA"
+        # le piu' lunghe per prime: cosi' alla fine non resta una suite lunga da sola
+        scelte = sorted(suite_tutte(), key=lambda s: -DURATE.get(s, 30))
+        fuori, perche, titolo = [], "tutte le suite", "SUITE COMPLETA"
     elif nomi:
         mancanti = [n for n in nomi if not (QUI / f"{n}.py").exists()]
         if mancanti:
             print(f"suite inesistenti: {mancanti}")
             return 2
-        scelte, fuori, perche, insieme, titolo = nomi, [], "indicate a mano", INSIEME, "SUITE RAPIDA"
+        scelte, fuori, perche, titolo = nomi, [], "indicate a mano", "SUITE RAPIDA"
     else:
         scelte, fuori, perche = scegli(file_cambiati(base), secondi)
-        insieme, titolo = INSIEME, "SUITE RAPIDA"
+        titolo = "SUITE RAPIDA"
     stima = sum(DURATE.get(s, 30) for s in scelte) / insieme * (1.3 if insieme > 1 else 1)
-    print(f"{titolo} · {perche}" + (f" · motore {motore}" if motore else ""))
+    print(f"{titolo} · {perche} · {insieme} alla volta" + (f" · motore {motore}" if motore else ""))
     print(f"{len(scelte)} suite, circa {stima / 60:.1f} minuti: {', '.join(scelte)}")
     if fuori:
         print(f"lasciate alla suite completa ({len(fuori)}): {', '.join(fuori)}")
@@ -185,10 +195,15 @@ def main(argv: list[str]) -> int:
     t0 = time.perf_counter()
     esiti = []
     with ThreadPoolExecutor(max_workers=insieme) as ex:
-        for nome, ok, riga, dt in ex.map(lambda s: lancia(s, ambiente), scelte):
-            esiti.append(ok)
+        futuri = [ex.submit(lancia, s, ambiente) for s in scelte]
+        for f in as_completed(futuri):          # una riga appena una suite finisce
+            nome, ok, riga, dt = f.result()
+            esiti.append((nome, ok))
             print(f"  [{'OK ' if ok else 'KO '}] {nome:<32} {riga}  ({dt:.0f} s)", flush=True)
-    passate = sum(esiti)
+    passate = sum(ok for _, ok in esiti)
+    falliti = sorted(nome for nome, ok in esiti if not ok)
+    if falliti:
+        print(f"\nNON superate: {', '.join(falliti)}")
     print(f"\n{titolo}: {passate}/{len(esiti)} suite superate in {(time.perf_counter() - t0) / 60:.1f} minuti")
     if not tutte:
         print("Prima della Pull request: python suite_rapida.py --tutte")

@@ -1,10 +1,34 @@
 # 65 · Proposta: un motore di backtest veloce al posto di backtesting.py
 
 **Data:** 21 ottobre 2026
-**Stato:** APPROVATA da Mattia il 21/10/2026, decisioni nel §13. **E1 + E2 fatti il 21/10** sul ramo `motore-veloce-e1-e2` (§14, PR #45). **E3 fatto il 21/10** sul ramo `motore-veloce-e3`: «veloce» è il predefinito (§15, PR #46). **E4 fatto il 21/10** sul ramo `motore-veloce-e4` (§16); studio della suite completa e di una cache su disco (E5) nel §17, da decidere.
+**Stato:** APPROVATA da Mattia il 21/10/2026, decisioni nel §13. **E1 + E2 fatti il 21/10** sul ramo `motore-veloce-e1-e2` (§14, PR #45). **E3 fatto il 21/10** sul ramo `motore-veloce-e3`: «veloce» è il predefinito (§15, PR #46). **E4 fatto il 21/10** sul ramo `motore-veloce-e4` (§16, PR #47); studio della suite completa e di una cache su disco (E5) nel §17, decisioni di Mattia nel §18: suite completa in parallelo (fatta), E5 scartato. Il lavoro E è chiuso.
 **Incarico:** `docs/64_MOTORE_VELOCE.md`.
 **Letti:** `CLAUDE.md`, `docs/00`, `docs/21` (sezione D), `docs/63` (§7, §10.3), `docs/64`; i moduli `engine/exit_search_bt.py`, `filter_search_bt.py`, `due_meta.py`, `confidenza.py`, `metriche.py`, `quarantena_trade.py`, `exchange.py`, `vetrina.py`, `vetrina_verifica.py`, `equity_plot.py`, `mm_adattatore.py`, `giudizio.py`, `rosa.py`, `mercato_nullo.py`, `test_velocita.py`; il sorgente di `backtesting.py` 0.6.6 (`Backtest.run`, `_Broker.new_order`, `_Broker._process_orders`, `_close_trade`, `_open_trade`, `Trade`, `_stats.compute_stats`).
 **Verifiche fatte il 21/10** (§1, §7): tempi di oggi misurati sul PC; un **prototipo usa e getta**, scritto nella cartella temporanea di Claude (fuori dal repo, niente di committato), confrontato con l'oracolo su 2.000 configurazioni casuali e sul sistema vero di identità. Nessun file del repo modificato, a parte questo documento.
+
+---
+
+**Indice dei paragrafi** (si legge solo la sezione che serve; *resoconto* = fase chiusa, non si rilegge):
+
+- **§0** In breve
+- **§1** Dove va il tempo oggi (misurato il 21/10 sul PC)
+- **§2** Inventario del comportamento da replicare: 2.1 Il giro delle barre; 2.2 Ingresso; 2.3 Stop e target; 2.4 Uscite; 2.5 Dopo il motore (non cambiano); 2.6 Le statistiche della libreria: chi le usa
+- **§3** I soldi simulati da backtesting.py: 3.1 Come funzionano (e perché si replicano dopo il ciclo); 3.2 Il capitale che si esaurisce: un difetto silenzioso di oggi
+- **§4** La tecnica: 4.1 Perché «vettorizzare» non basta; 4.2 Le strade confrontate
+- **§5** Firme (nomi indicativi)
+- **§6** Casi limite (dove un motore nuovo sbaglia di solito)
+- **§7** Collaudo: 7.1 `test_motore_veloce.py` (nuovo); 7.2 Il resto
+- **§8** Piano di passaggio
+- **§9** Tempi: prima e dopo: 9 bis La suite dei test
+- **§10** Dopo il passaggio
+- **§11** Rischi
+- **§12** Domande per Mattia
+- **§13** Decisioni di Mattia (21/10/2026)
+- **§14** Fatto: E1 + E2 (21/10/2026, ramo `motore-veloce-e1-e2`) — *resoconto*: 14.1 Cosa c'è; 14.2 Collaudo; 14.3 Dove cambia qualcosa: il capitale esaurito (decisione 4); 14.4 Tempi (misurati il 21/10 sul PC)
+- **§15** Fatto: E3 (21/10/2026, ramo `motore-veloce-e3`) — *resoconto*: 15.1 Cosa cambia; 15.2 Identità «bt» contro «veloce»; 15.3 Tempi prima / dopo (PC di Mattia, BINANCE_PERP_BTCUSDT)
+- **§16** Fatto: E4 (21/10/2026, ramo `motore-veloce-e4`) — *resoconto*: 16.1 Cosa c'è; 16.2 Identità; 16.3 Tempi prima / dopo (PC di Mattia, BINANCE_PERP_BTCUSDT, motore «veloce»)
+- **§17** Studio: dove va il tempo della suite completa, e una cache su disco (E5) — *resoconto*: 17.1 Come è misurato; 17.2 Dove va il tempo; 17.3 Una cache su disco dei dati preparati (E5): cosa farebbe risparmiare; 17.4 Un'alternativa trovata durante lo studio: la suite completa in parallelo; 17.5 Da decidere (Mattia)
+- **§18** Decisioni di Mattia sul §17 (21/10/2026), e cosa è stato fatto
 
 ---
 
@@ -577,3 +601,16 @@ In sintesi:
 1. Suite completa in parallelo (§17.4): sì o no, e quante suite insieme.
 2. Cache su disco: nessuna, A (solo lo storico intero) o B (anche i tagli, e con quale chiave).
 3. Se interessa: i passi in più del §16.3 (soglie adattive, tabella dei trade, altri filtri lenti).
+
+## 18 · Decisioni di Mattia sul §17 (21/10/2026), e cosa è stato fatto
+
+| domanda (§17.5) | decisione |
+|---|---|
+| 1 · suite completa in parallelo | **sì, 3 suite alla volta.** `python suite_rapida.py --tutte` lo fa da solo; l'ordine delle righe a schermo può cambiare, ma alla fine stampa come sempre «SUITE COMPLETA: 37/37» |
+| 2 · cache su disco | **nessuna: E5 scartato** |
+| 3 · passi in più del §16.3 | **non ora** |
+
+**Fatto il 21/10** sul ramo `suite-parallela-e-documenti`:
+- `suite_rapida.py --tutte` lancia 3 suite alla volta, **le più lunghe per prime** (così alla fine non resta una suite lunga da sola). Ogni riga appare quando la sua suite finisce; se una suite non passa, prima della riga finale c'è l'elenco «NON superate».
+- `--insieme 1` rifà la completa una suite dopo l'altra, come prima (per esempio se il PC è carico).
+- Tempo, misurato sul PC il 21/10: **37/37 in 11,2 minuti** (una dopo l'altra erano 27,6; la prova del §17.4, in ordine alfabetico, 10,6: la differenza sta nel rumore del PC). La singola suite rallenta un po' quando ne girano tre insieme (per esempio test_vetrina da 245 a 318 s).
