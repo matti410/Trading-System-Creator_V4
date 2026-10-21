@@ -1,9 +1,10 @@
 # 00 · Scopo del progetto e stato del tool
 
-**Da leggere per primo.** Aggiornato: 20 ottobre 2026 (riscritto per intero il
+**Da leggere per primo.** Aggiornato: 21 ottobre 2026 (riscritto per intero il
 17/10: metodo in sette passi qui dentro, solo documenti che esistono nel repo;
 stato aggiornato al 19/10; **perimetro solo crypto dal 20/10**, `63` §10.0;
-giornata delle crypto a 00:00 UTC dal 20/10).
+giornata delle crypto a 00:00 UTC dal 20/10; **piano rivisto il 21/10**, `63`
+§10.3: mercato nullo sospeso, prossimo lavoro il motore veloce).
 
 **Repo (pubblico):** `github.com/matti410/Trading-System-Creator_V4`
 **Notebook:**
@@ -139,7 +140,8 @@ Le istruzioni per Claude Code sono in `CLAUDE.md`.
 | 60 | `60_MONEY_MANAGEMENT.md` | incarico di studio sul money management (libro di Unger) |
 | 61 | `61_PROPOSTA_MONEY_MANAGEMENT.md` | proposta, decisioni e cosa è stato fatto nelle fasi 0–3 del money management |
 | 62 | `62_ATLANTE_E_FLUSSO.md` | incarico di studio: unità di rischio, funding dei perpetual, atlante del trigger, mercato nullo (20/10) |
-| 63 | `63_PROPOSTA_ATLANTE_E_FLUSSO.md` | la proposta, il controllo con i documenti di progetto e le decisioni di Mattia (perimetro solo crypto in §10.0) |
+| 63 | `63_PROPOSTA_ATLANTE_E_FLUSSO.md` | la proposta, il controllo con i documenti di progetto e le decisioni di Mattia (perimetro solo crypto in §10.0, piano rivisto il 21/10 in §10.3) |
+| 64 | `64_MOTORE_VELOCE.md` | incarico di studio: un motore di backtest proprio, stessi trade di `backtesting.py`, almeno 50 volte più veloce (21/10); proposta attesa in `65` |
 | 93 | `93_QUARANTENA_TRADE_E_COSTI.md` | quarantena applicata ai trade e costi del conto Standard (5/10) |
 | — | `GUIDA_ANALISI_FONTI.md` | guida per Mattia: come portare una fonte (articolo, video, libro) fino al codice |
 
@@ -303,7 +305,7 @@ lookahead vero in `range_finestra` (E22, F21), corretto. Vedi `21`.
 `verifica_degenerazione`, stesso modulo. Si legge sui dati veri, senza
 promosso/bocciato. Vedi `21`.
 
-### 3. Il conteggio dei test multipli — fatto per chiamata il 24/9, resta il cumulato
+### 3. Il conteggio dei test multipli — fatto per chiamata il 24/9, il cumulato è in programma (soglia cumulata, `63` §10.3)
 
 Ogni passo che sceglie «il migliore fra tanti» calcola da sé la soglia di
 rumore sulle prove di **quella chiamata** e mette la colonna `oltre_rumore`:
@@ -319,6 +321,19 @@ Tarate su entry casuali: sezione E del notebook di collaudo, vedi `21`.
 **Resta aperto:** le prove dei passi precedenti non si sommano (entry → uscite →
 filtri → confidenza). Ogni soglia è un pavimento. Per le idee che arrivano da
 fonti testuali il conto cumulato lo tiene a mano il registro di `50` (§10).
+
+**Come si chiude (decisione di Mattia del 21/10, `63` §10.3): la soglia
+cumulata.** Il Lab conterà le prove di tutta la catena (trigger misurati nella
+rosa, uscite provate, filtri provati; con l'atlante, le celle) e mostrerà sotto
+la scheda la soglia di Šidák su quel totale («con tutte le scelte fatte, il
+caso arriva fino a t = X»). È istantanea, vale per ogni symbol, timeframe e H,
+ed è prudente: tratta le prove come indipendenti, quindi è un po' più severa
+del vero. Solo informativa: i cancelli di `02` non cambiano. È il lavoro 3 del
+nuovo ordine, dopo il motore veloce. Prende il posto del **mercato nullo**
+(`63` §7), che serviva a rendere più precisa la stessa soglia ma richiede ore di
+calcolo per ogni symbol × timeframe × H: il suo codice (PR #42) resta nel repo,
+fermo, per una verifica una tantum se un giorno servirà. La difesa indipendente
+resta l'out-of-sample aperto una volta sola.
 
 ### ~~4. Le sovrapposizioni fra condizioni~~ — FATTO il 17/10
 
@@ -416,7 +431,7 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
 
 ---
 
-## Dove siamo (19/10/2026; perimetro aggiornato il 20/10)
+## Dove siamo (19/10/2026; perimetro aggiornato il 20/10, piano il 21/10)
 
 - **Perimetro (20/10):** solo crypto da exchange; lato broker sospeso; dataset
   di sviluppo BINANCE_PERP_BTCUSDT, giro di controllo su BYBIT_SPOT_ETHUSDT
@@ -444,21 +459,35 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   conosce solo a trade chiuso). Acceso di default nei due notebook vivi; il
   notebook si ferma se il file manca o non copre le barre. Stati per l'atlante
   (`funding_liquidato`, `basis_bp`) pronti, fuori dal catalogo.
-- **Mercato nullo D1 (21/10, `63` §7):** `engine/mercato_nullo.py` e
-  `python mercato_nullo.py <SYMBOL> --giri 500`: la pipeline del Lab (rosa,
-  uscite predefinite, filtri a tappeto con le due metà, scheda in-sample)
-  ripetuta su trigger casuali (N1), con la regola automatica del §7.3 e il
-  «migliore dei primi 3» accanto; una riga per giro in
-  `dati/nullo/<SYMBOL>_<TF>_H<H>_A.csv`, si riprende da dove si è fermato.
-  La soglia empirica è un **pavimento** dell'autoinganno ed è **solo
-  informativa**: nessun cancello cambia. Sotto la scheda, nei due notebook,
-  una riga la riporta. Giri da fare su BINANCE_PERP_BTCUSDT e
-  BINANCE_PERP_ETHUSDT (500 ciascuno, funding acceso).
-- **Prossimi lavori, approvati il 20/10 (`63` §10):** atlante del trigger →
-  mercato nullo con l'atlante. Un ramo ciascuno. **Prima del lavoro C** (da
-  fare, annotato il 21/10): allineare `engine/confidenza.py` all'unità che
-  decide (bp sulle crypto); oggi le sue soglie («pips netti medi») sono
-  ancora in pips.
+- **Mercato nullo D1 (21/10, `63` §7): SOSPESO il 21/10 (`63` §10.3).** Il
+  codice (PR #42) resta nel repo, **fermo**: nessun lancio, nessuno sviluppo
+  ulteriore; resta disponibile per una verifica una tantum. Cosa c'è:
+  `engine/mercato_nullo.py` e `python mercato_nullo.py <SYMBOL>`, la pipeline
+  del Lab ripetuta su trigger casuali (N1) con la regola automatica del §7.3 e
+  il «migliore dei primi 3» accanto, una riga per giro in
+  `dati/nullo/<SYMBOL>_<TF>_H<H>_A.csv`. La prova di 10 giri per symbol (circa
+  137 s a giro, 500 giri × 2 symbol ≈ 37 ore) ha mostrato il costo: per questo
+  il suo posto lo prende la **soglia cumulata** («Cosa manca», punto 3). La
+  riga sotto la scheda, nei due notebook, resta com'è: senza un file di giri
+  dice «mercato nullo non ancora calcolato»; con i 10 giri di prova (BTC ed
+  ETH, M15, H 25, in `dati/nullo/` sul PC) li riporta, con il numero dei giri
+  scritto: 10 giri non bastano a leggerli.
+- **Prossimi lavori, nell'ordine deciso da Mattia il 21/10 (`63` §10.3),**
+  un ramo ciascuno:
+  1. **E · motore veloce** — un motore di backtest proprio, stessi trade di
+     `backtesting.py` al centesimo, almeno 50 volte più veloce; `backtesting.py`
+     resta come oracolo nei test. Incarico in `64`, proposta in `65`. Prossimo.
+  2. **Confidenza in bp** — allineare `engine/confidenza.py` all'unità che
+     decide (bp sulle crypto); oggi le sue soglie («pips netti medi») sono
+     ancora in pips. Piccolo, può entrare in E.
+  3. **Soglia cumulata nel Lab** — piccolo («Cosa manca», punto 3).
+  4. **C · atlante del trigger** (`63` §6), con la soglia del passo 5 a k =
+     celle dell'atlante (`63` §10.1 punto 1). Grande.
+  5. **Money management P1–P4** (secure f sulla storia vera, avviso oltre
+     Kelly, confronto a parità di drawdown, decimali dei lotti) e **stress test
+     in bp**. Piccoli, da decidere.
+
+  D1 e D2 (mercato nullo con l'atlante) escono dal piano.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
   testuali: 53 prove al 19/10, registro in `50` §10.
@@ -510,13 +539,13 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   modello a volatilità (predefinito) confrontato con il rischio fisso; lo stress
   test prende il drawdown dalla sezione 7.
 - **Velocità (17/10):** `trova_strategia` da circa 62 a 26 secondi su Colab,
-  risultati identici. Un motore più veloce (simulatore proprio) resta un'opzione
-  solo se servirà.
+  risultati identici. Dal 21/10 un motore più veloce (simulatore proprio) è il
+  prossimo lavoro (`64`).
 
 **Aperti, per scelta di Mattia:** interruttore sulla curva dei profitti.
 **Aperti nel tool:** runner unico (punto 6); lo stress test somma ancora pips
-anche sulle crypto, quindi su BTC pesano di più gli anni a prezzo alto (da
-decidere in un lavoro a parte, annotato il 21/10); Kraken (via API solo le ultime 720
+anche sulle crypto, quindi su BTC pesano di più gli anni a prezzo alto
+(annotato il 21/10; nel piano come lavoro 5, «stress test in bp»); Kraken (via API solo le ultime 720
 barre spot: servono i suoi CSV trimestrali). **Prossimo, approvato da Mattia il 18/10:** fonti con un
 motivo economico, una alla volta con il processo di `50`. Dal 18/10 (Mattia):
 si passerà alle crypto, con dati da exchange e non dal broker CFD; quindi
