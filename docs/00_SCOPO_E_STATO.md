@@ -142,6 +142,7 @@ Le istruzioni per Claude Code sono in `CLAUDE.md`.
 | 62 | `62_ATLANTE_E_FLUSSO.md` | incarico di studio: unità di rischio, funding dei perpetual, atlante del trigger, mercato nullo (20/10) |
 | 63 | `63_PROPOSTA_ATLANTE_E_FLUSSO.md` | la proposta, il controllo con i documenti di progetto e le decisioni di Mattia (perimetro solo crypto in §10.0, piano rivisto il 21/10 in §10.3) |
 | 64 | `64_MOTORE_VELOCE.md` | incarico di studio: un motore di backtest proprio, stessi trade di `backtesting.py`, almeno 50 volte più veloce (21/10); proposta attesa in `65` |
+| 65 | `65_PROPOSTA_MOTORE_VELOCE.md` | la proposta del motore veloce: inventario dei comportamenti di `backtesting.py`, prototipo confrontato con l'oracolo, tempi, il capitale simulato che si esaurisce, domande (21/10) |
 | 93 | `93_QUARANTENA_TRADE_E_COSTI.md` | quarantena applicata ai trade e costi del conto Standard (5/10) |
 | — | `GUIDA_ANALISI_FONTI.md` | guida per Mattia: come portare una fonte (articolo, video, libro) fino al codice |
 
