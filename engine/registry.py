@@ -297,6 +297,19 @@ def list_bidirectional_entries() -> list[str]:
     return sorted(_BIDIR_ENTRY_REGISTRY)
 
 
+def remove_entries(prefisso: str) -> int:
+    """
+    Toglie dal registro le entry il cui nome comincia con `prefisso` (21/10/2026,
+    per le entry finte del mercato nullo, engine/mercato_nullo.py: a ogni giro si
+    ricreano, comprese quelle «congelate» con un filtro). Ritorna quante.
+    """
+    nomi = [n for n in _ENTRY_REGISTRY if n.startswith(prefisso)]
+    for n in nomi:
+        _ENTRY_REGISTRY.pop(n, None)
+        _ENTRY_DIRECTION.pop(n, None)
+    return len(nomi)
+
+
 def clear_registry() -> None:
     """
     Utile in notebook per ricaricare le condizioni da zero dopo una modifica.

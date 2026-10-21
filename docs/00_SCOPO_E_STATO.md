@@ -444,9 +444,21 @@ il collaudo del catalogo tronca invece di sporcare (24/9).
   conosce solo a trade chiuso). Acceso di default nei due notebook vivi; il
   notebook si ferma se il file manca o non copre le barre. Stati per l'atlante
   (`funding_liquidato`, `basis_bp`) pronti, fuori dal catalogo.
-- **Prossimi lavori, approvati il 20/10 (`63` §10):** mercato nullo sulla
-  pipeline di oggi → atlante del trigger → mercato nullo con l'atlante. Un
-  ramo ciascuno.
+- **Mercato nullo D1 (21/10, `63` §7):** `engine/mercato_nullo.py` e
+  `python mercato_nullo.py <SYMBOL> --giri 500`: la pipeline del Lab (rosa,
+  uscite predefinite, filtri a tappeto con le due metà, scheda in-sample)
+  ripetuta su trigger casuali (N1), con la regola automatica del §7.3 e il
+  «migliore dei primi 3» accanto; una riga per giro in
+  `dati/nullo/<SYMBOL>_<TF>_H<H>_A.csv`, si riprende da dove si è fermato.
+  La soglia empirica è un **pavimento** dell'autoinganno ed è **solo
+  informativa**: nessun cancello cambia. Sotto la scheda, nei due notebook,
+  una riga la riporta. Giri da fare su BINANCE_PERP_BTCUSDT e
+  BINANCE_PERP_ETHUSDT (500 ciascuno, funding acceso).
+- **Prossimi lavori, approvati il 20/10 (`63` §10):** atlante del trigger →
+  mercato nullo con l'atlante. Un ramo ciascuno. **Prima del lavoro C** (da
+  fare, annotato il 21/10): allineare `engine/confidenza.py` all'unità che
+  decide (bp sulle crypto); oggi le sue soglie («pips netti medi») sono
+  ancora in pips.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro), collaudate (lookahead e degenerazione) su 9 symbol. Dalle fonti
   testuali: 53 prove al 19/10, registro in `50` §10.
