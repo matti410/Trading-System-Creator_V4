@@ -12,6 +12,8 @@ dove il test lo dice. Sezioni:
     A · gli stati delle celle (engine/indicatori.py): identita' su M15 con
         confidenza.py, durate sugli altri timeframe, niente lookahead,
         sessioni con l'ora legale, basis
+    B · l'atlante (engine/atlante.py): casi a risultato noto, conto a mano,
+        minimo di eventi, mercato senza vantaggi
 """
 from __future__ import annotations
 
@@ -177,6 +179,177 @@ def esegui() -> int:
           np.allclose(b, (ds["Close"] - ds["spot_close"]) / ds["spot_close"] * 1e4)
           and ba.iloc[3000:3010 + 500 - 1].isna().all() and ba.iloc[3010 + 500 - 1:].notna().all()
           and basis_alta(df).isna().all() and basis_bp(df).isna().all())
+
+    # =================================================================== B ==
+    print("\nB · L'atlante (engine/atlante.py)")
+    from engine.atlante import CELLE, _stato, atlante, celle_atlante, registra_filtri_cella
+    from engine.stagionalita import fasce_orarie, in_unita, scarto_orario
+
+    M = Mercato(_indice(giorni=730), seme=5)
+    d0 = M.df()
+    n = len(d0)
+    rng = np.random.default_rng(11)
+    pos = np.sort(rng.choice(np.arange(600, n - 2 * H), size=n // 40, replace=False))
+    vol0 = volatilita_durata(d0).to_numpy()
+    e = 0.0001                                       # 1 bp a barra, 8 bp a evento
+    alta = vol0[pos] == 1
+    extra = _deriva_dopo(n, pos, np.where(alta, e, np.where(vol0[pos] == 0, -e, 0.0)))
+    d1 = M.df(extra)
+    _registra_entry("T_VOL_ALTA", 1, d1.index[pos])
+    t0 = time.time()
+    a1 = atlante(d1, H, PIP, nomi=["T_VOL_ALTA"], fuso="UTC")
+    durata = time.time() - t0
+    passano = sorted(a1.loc[a1["passa"], "cella"])
+    check("9. vantaggio solo in volatilità alta (trigger piatto in media): passano solo le 2 celle "
+          "a volatilità alta, nessuna sessione",
+          passano == ["VOL_ALTA_TREND_CONTRO", "VOL_ALTA_TREND_FAVORE"], f"passano {passano}")
+    check("10. senza lo spot l'atlante ha 8 celle per entry (niente basis)",
+          len(a1) == 8 and set(a1["asse"]) == {"vol_trend", "sessione"})
+
+    # una deriva del mercato solo in EUROPA, trigger senza vantaggio che scatta soprattutto li'
+    sess0 = sessione_ingresso(d0).to_numpy()
+    eu = sess0 == 1
+    deriva = np.where(np.r_[eu[1:], False], 0.00015, 0.0)
+    d2 = M.df(deriva)
+    p_trig = np.where(eu, 1 / 15, 1 / 300)
+    pos2 = np.flatnonzero(rng.random(n) < p_trig)
+    pos2 = pos2[(pos2 > 600) & (pos2 < n - 2 * H)]
+    _registra_entry("T_ORA_EUROPA", 1, d2.index[pos2])
+    a2 = atlante(d2, H, PIP, nomi=["T_ORA_EUROPA"], fuso="UTC")
+    r_eu = a2[a2["cella"] == "EUROPA"].iloc[0]
+    # lo stesso trigger contro il mercato di tutte le ore: la rosa con la baseline globale
+    from engine.rosa import rosa_entry
+    globale = float(rosa_entry(d2, H, PIP, nomi=["T_ORA_EUROPA"], baseline="globale", fuso="UTC",
+                               unita="bp", unita_extra=[])["t_netto"].iat[0])
+    check("11. deriva del mercato solo in EUROPA, trigger senza vantaggio: con il mercato della "
+          "cella lo scarto è circa zero e la cella non passa; contro il mercato di tutte le ore "
+          "sembrerebbe un vantaggio",
+          abs(r_eu["t"]) < 2.5 and not r_eu["passa"] and globale > 4,
+          f"t di cella {r_eu['t']:+.2f}, t contro tutte le ore {globale:+.1f}")
+
+    sess_trig = sess0[pos]
+    quota_eu = float((sess_trig == 1).mean())
+    q3 = np.where(sess_trig == 1, e, -e * quota_eu / (1 - quota_eu))
+    d3 = M.df(_deriva_dopo(n, pos, q3))
+    _registra_entry("T_EUROPA", 1, d3.index[pos])
+    # solo l'asse delle sessioni: la deriva messa dopo i trigger sposta anche il trend dei
+    # trigger che vengono dopo (gap_trend e' della giornata), quindi sul mercato finto
+    # sessione e trend non sono piu' indipendenti e le celle del trend ricevono una parte del vantaggio
+    a3 = atlante(d3, H, PIP, nomi=["T_EUROPA"], fuso="UTC", assi=("sessione",))
+    passano3 = sorted(a3.loc[a3["passa"], "cella"])
+    check("12. vantaggio solo in EUROPA (compensato nelle altre sessioni): fra le sessioni passa solo EUROPA",
+          passano3 == ["EUROPA"], f"passano {passano3}")
+
+    costi = {"commission": 0.0005, "spread": 0.0}     # 10 bp andata e ritorno, piu' del vantaggio (8 bp)
+    a4 = atlante(d1, H, PIP, costi=costi, nomi=["T_VOL_ALTA"], fuso="UTC")
+    va = a4["cella"].str.startswith("VOL_ALTA")
+    check("13. vantaggio lordo più piccolo del costo andata e ritorno: le celle a volatilità alta "
+          "non passano, «non paga i costi»; il lordo non cambia",
+          (a4.loc[va, "motivo"] == "non paga i costi").all() and not a4["passa"].any()
+          and np.allclose(a4["scarto_bp"], a1["scarto_bp"], equal_nan=True),
+          f"netto {a4.loc[va, 'netto_bp'].round(2).tolist()} bp")
+
+    ore = pd.date_range(d1.index[0].floor("D"), d1.index[-1] + pd.Timedelta(days=1), freq="8h", tz="UTC")
+    funding = pd.DataFrame({"tasso": 0.005, "intervallo_ore": 8.0}, index=ore)
+    a5 = atlante(d1, H, PIP, funding=funding, nomi=["T_VOL_ALTA"], fuso="UTC")
+    _registra_entry("T_VOL_ALTA_SHORT", -1, d1.index[pos])
+    a5s = atlante(M.df(-extra), H, PIP, funding=funding, nomi=["T_VOL_ALTA_SHORT"], fuso="UTC")
+    a0s = atlante(M.df(-extra), H, PIP, nomi=["T_VOL_ALTA_SHORT"], fuso="UTC")
+    vs = a5s["cella"].str.startswith("VOL_ALTA")
+    check("14. perpetual finto, funding alto: il long con vantaggio lordo non paga il funding "
+          "(«non paga i costi», lordo invariato); lo short lo incassa e il suo netto sale",
+          (a5.loc[va, "motivo"] == "non paga i costi").all()
+          and np.allclose(a5["scarto_bp"], a1["scarto_bp"], equal_nan=True)
+          and (a5s.loc[vs, "netto_bp"].to_numpy() > a0s.loc[vs, "netto_bp"].to_numpy() + 5).all()
+          and a5s.loc[vs, "passa"].all(),
+          f"long netto {a5.loc[va, 'netto_bp'].round(1).tolist()} bp, short "
+          f"{a0s.loc[vs, 'netto_bp'].round(1).tolist()} → {a5s.loc[vs, 'netto_bp'].round(1).tolist()} bp")
+
+    # il conto a mano di una cella
+    r = a1[(a1["cella"] == "EUROPA")].iloc[0]
+    cel = _stato(d1, "sessione", 1).to_numpy()
+    fas = fasce_orarie(d1.index, "UTC")[0]
+    ing1 = np.r_[d1["Open"].to_numpy()[1:], np.nan]
+    f1 = np.full(n, np.nan)
+    f1[:n - H] = (d1["Close"].to_numpy()[H:] - ing1[:n - H]) / PIP
+    fb = in_unita(f1, "bp", PIP, prezzo=ing1)
+    usa = np.isfinite(fb)
+    cod = fas * 4 + cel.astype(int)
+    pe1 = pos[(cel[pos] == 1) & usa[pos]]
+    sc, se = scarto_orario(fb, cod, usa, pe1, 1, H)
+    medie = {c: fb[usa & (cod == c)].mean() for c in np.unique(cod[pe1])}
+    a_mano = np.mean([fb[p] - medie[cod[p]] for p in pe1])
+    check("15. una cella fatta a mano: eventi, scarto (media meno il mercato della cella e della "
+          "fascia) e t uguali a scarto_orario e all'atlante",
+          r["eventi"] == pe1.size and np.isclose(r["scarto_bp"], a_mano, rtol=1e-9)
+          and np.isclose(r["scarto_bp"], sc, rtol=1e-9) and np.isclose(r["t"], sc / se, rtol=1e-9),
+          f"{pe1.size} eventi, scarto {a_mano:+.4f} bp, t {sc / se:+.3f}")
+    netto_mano = np.mean([fb[p] - 0.0005 * (ing1[p] + d1['Close'].iat[p + H]) / ing1[p] * 1e4 for p in pe1])
+    r4 = a4[a4["cella"] == "EUROPA"].iloc[0]
+    check("16. il netto fatto a mano: rendimento meno la commissione sui due lati (come i trade)",
+          np.isclose(r4["netto_bp"], netto_mano, rtol=1e-9), f"{netto_mano:+.4f} bp")
+
+    soglia = int(a1["eventi"].sort_values().iloc[2]) + 1
+    a6 = atlante(d1, H, PIP, nomi=["T_VOL_ALTA"], fuso="UTC", min_eventi=soglia)
+    sotto = a6["eventi"] < soglia
+    check("17. minimo di eventi: una cella sotto il minimo è «troppo pochi casi», senza t, e non "
+          "conta in k_misurate",
+          sotto.sum() >= 3 and (a6.loc[sotto, "motivo"] == "troppo pochi casi").all()
+          and a6.loc[sotto, "t"].isna().all() and a6.attrs["k_misurate"] == int((~sotto).sum())
+          and a1.attrs["k_misurate"] == 8,
+          f"minimo {soglia}: {int(sotto.sum())} celle fuori, k = {a6.attrs['k_misurate']}")
+
+    dspot = M.df(extra, spot=True)
+    dspot.iloc[20_000:30_000, dspot.columns.get_loc("spot_close")] = np.nan     # un buco dello spot
+    a7 = atlante(dspot, H, PIP, nomi=["T_VOL_ALTA"], fuso="UTC")
+    eventi_basis = a7.loc[a7["asse"] == "basis", "eventi"].sum()
+    validi = int(np.isfinite(celle_atlante(dspot, 1)["basis"].to_numpy()[pos]).sum())
+    check("18. con lo spot agganciato 10 celle (basis alta e bassa); gli eventi della basis sono "
+          "quelli con lo stato calcolabile",
+          len(a7) == 10 and eventi_basis == validi and validi < pos.size - 200
+          and a7.loc[a7["asse"] != "basis", "eventi"].sum() == 2 * pos.size,
+          f"{eventi_basis} eventi su {pos.size}")
+
+    # mercato senza vantaggi: 60 entry casuali, 10 mercati
+    con_celle = 0
+    celle_passate = 0
+    tempi, t_nulli = [], []
+    for seme in range(10):
+        Mn = Mercato(_indice(giorni=365), seme=100 + seme)
+        dn = Mn.df()
+        rn = np.random.default_rng(200 + seme)
+        nomi = []
+        for i in range(60):
+            p = np.sort(rn.choice(np.arange(600, len(dn) - 2 * H), size=len(dn) // 12, replace=False))
+            nome = f"NULLA_{seme}_{i}"
+            _registra_entry(nome, 1 if i % 2 == 0 else -1, dn.index[p])
+            nomi.append(nome)
+        t0 = time.time()
+        an = atlante(dn, H, PIP, nomi=nomi, fuso="UTC")
+        tempi.append(time.time() - t0)
+        t_nulli += list(an.loc[an["misurata"], "t"])
+        k = int(an["passa"].sum())
+        celle_passate += k
+        con_celle += k > 0
+        reg.remove_entries("NULLA_")
+    t_nulli = np.asarray(t_nulli)
+    check("19. mercato senza vantaggi: la solidità delle celle si comporta come il caso "
+          "(deviazione fra 0,9 e 1,1, |t| > 1,96 fra il 3% e il 7% delle celle)",
+          t_nulli.size > 4000 and 0.9 < t_nulli.std() < 1.1 and 0.03 < np.mean(np.abs(t_nulli) > 1.96) < 0.07,
+          f"{t_nulli.size} celle misurate, deviazione {t_nulli.std():.3f}, "
+          f"|t| > 1,96 nel {np.mean(np.abs(t_nulli) > 1.96):.1%}")
+    check("20. mercato senza vantaggi, 60 entry × 8 celle, 10 mercati: con q = 20% in media al massimo "
+          "2 mercati su 10 hanno una cella che passa (tutte finte); ne accettiamo fino a 4",
+          con_celle <= 4, f"mercati con almeno una cella che passa: {con_celle} su 10, celle in tutto "
+          f"{celle_passate} su 4.800; {np.mean(tempi):.1f} s per atlante da 480 celle")
+
+    dc = M.df(extra)
+    cl = celle_atlante(dc, 1)
+    check("21. celle_atlante: una colonna per asse, codici nell'ordine di CELLE",
+          list(cl.columns) == ["vol_trend", "sessione"]
+          and set(np.unique(cl["vol_trend"].dropna())) <= {0.0, 1.0, 2.0, 3.0}
+          and cl["sessione"].equals(pd.Series(sessione_ingresso(dc).to_numpy(), index=dc.index, name="sessione")))
+    print(f"  (atlante di 8 celle su {n} barre: {durata:.2f} s)")
 
     reg.clear_registry()
     print("\n" + "=" * 70)
