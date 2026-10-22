@@ -314,7 +314,10 @@ def due_meta(df_is, fs, etichette,
                 print(f"  pnl_pct           metà1={riga['pnl_pct_metà1']:.3f}"
                       f"   metà2={riga['pnl_pct_metà2']:.3f}")
                 if riga["filtro"] != BASELINE:
-                    print(f"  guadagno_pips     metà1={riga['guadagno_pips_metà1']:+.3f}"
+                    # 22/10/2026: l'etichetta dice l'unita' che decide davvero (la
+                    # colonna guadagno_pips e' in bp quando fs decide in bp)
+                    voce = f"guadagno_{getattr(fs, 'unita', 'pips')}"
+                    print(f"  {voce:<18}metà1={riga['guadagno_pips_metà1']:+.3f}"
                           f"   metà2={riga['guadagno_pips_metà2']:+.3f}   <-- decide")
                     print(f"  guadagno_sharpe   metà1={riga['guadagno_sharpe_metà1']:+.3f}"
                           f"   metà2={riga['guadagno_sharpe_metà2']:+.3f}   (riferimento)")

@@ -17,6 +17,10 @@ C  rosa_entry: colonne di prima invariate e bp/ATR in coda; scarto in bp
 D  rosa_sistemi: lo scarto in bp dei trade veri contro il calcolo a mano;
    con unita="bp" decide il bp;
 E  scheda_strategia: ev_bp ed ev_atr;
+U  U2: decide il bp nei motori (uscite, filtri, due meta');
+O  (22/10/2026) la tabella delle uscite e top() ordinate per t_stat
+   nell'unita' che decide, non per sharpe: tabella a mano, parita', NaN,
+   pochi trade; l'etichetta di due_meta nell'unita' che decide;
 F  vetrina: l'ATR della sessione e il costo per trade in bp nel riepilogo.
 
 Come si lancia (da terminale, dalla cartella del progetto):
@@ -282,6 +286,81 @@ def main() -> int:
               cash=10_000_000, verbose=False)
     check("U6. due meta': le due ricerche usano l'unita' di fs (bp)",
           dm.metà1.unita == "bp" and dm.metà2.unita == "bp")
+
+    # ------------------------------------------- l'ordine delle uscite (22/10) --
+    print("\nO · Le uscite ordinate per il t nell'unita' che decide (22/10/2026)")
+    from engine.exit_search_bt import ORDINE, ExitSearchBT, _ordina_per
+
+    def tabella_a_mano(righe):
+        """righe: (nome, sharpe, t_stat, pochi_trade), nell'ordine in cui si costruiscono."""
+        t = pd.DataFrame([{"combinazione": n, "trades": 50, "pnl_pct": 0.0, "sharpe": s,
+                           "max_dd_pct": 0.0, "win_rate_pct": 50.0, "profit_factor": 1.0,
+                           "avg_trade": 0.0, "avg_trade_netto": 0.0, "t_stat": tt,
+                           "oltre_rumore": False, "durata_media": 1.0, "durata_max": 1,
+                           "pochi_trade": p} for n, s, tt, p in righe])
+        risultati = _ordina_per(t, ORDINE).reset_index(drop=True)
+        scambi = {n: pd.DataFrame({"Size": [1.0], "nome": [n]}) for n, *_ in righe}
+        return ExitSearchBT(risultati, scambi, n_barre=H, perc_sl=0.0, perc_tp=0.0, finestra=500,
+                            spread=0.0, commission=0.0, margin=1.0, min_trades=30)
+
+    # sharpe e t danno ordini diversi; C e F hanno lo stesso t (C costruita prima);
+    # D ha il t piu' alto ma pochi trade; E ha t NaN (meno di 2 trade)
+    righe = [("A", 2.0, 1.0, False), ("B", 1.0, 3.0, False), ("C", 0.5, 2.0, False),
+             ("D", 0.1, 9.0, True), ("E", 3.0, np.nan, False), ("F", 0.2, 2.0, False)]
+    e_m = tabella_a_mano(righe)
+    check("O1. a mano: top() segue il t (B, C, F, A, E), non lo sharpe (E, A, B, C, F)",
+          list(e_m.top()["combinazione"]) == ["B", "C", "F", "A", "E"]
+          and list(e_m.top(per="sharpe")["combinazione"]) == ["E", "A", "B", "C", "F"],
+          f"per t {list(e_m.top()['combinazione'])} · per sharpe {list(e_m.top(per='sharpe')['combinazione'])}")
+    e_f = tabella_a_mano([righe[i] for i in (0, 1, 5, 3, 4, 2)])      # F costruita prima di C
+    check("O2. a parita' di t viene prima la combinazione costruita prima (C,F e poi F,C)",
+          list(e_m.top()["combinazione"])[1:3] == ["C", "F"]
+          and list(e_f.top()["combinazione"])[1:3] == ["F", "C"])
+    check("O3. t NaN in fondo; pochi trade fuori da top(), dentro con solo_valide=False",
+          e_m.top()["combinazione"].iloc[-1] == "E" and "D" not in set(e_m.top()["combinazione"])
+          and e_m.top(solo_valide=False)["combinazione"].iloc[0] == "D"
+          and list(e_m.risultati["combinazione"]) == ["D", "B", "C", "F", "A", "E"])
+    check("O4. trades() senza nome = la prima di top()",
+          e_m.trades()["nome"].iloc[0] == "B" and e_f.trades()["nome"].iloc[0] == "B")
+
+    def coerente(e, unita):
+        """Ogni riga ha il t dei SUOI trade nell'unita' e la tabella e' in ordine di t."""
+        ok = True
+        for _, r in e.risultati.iterrows():
+            _, nt = netti_in_unita(e.trades(r["combinazione"]), pip, 0.0005, unita)
+            ok &= bool(np.isclose(r["t_stat"], t_stat(nt.to_numpy()), equal_nan=True))
+        t = e.risultati["t_stat"].to_numpy()
+        fin = t[np.isfinite(t)]
+        return (ok and (np.diff(fin) <= 0).all() and not np.isfinite(t[len(fin):]).any()
+                and list(e.top(solo_valide=False)["combinazione"]) == list(e.risultati["combinazione"]))
+
+    check("O5. giro vero in pips e in bp: risultati e top() in ordine di t_stat dell'unita' giusta, "
+          "ogni riga con il t dei suoi trade",
+          coerente(es, "pips") and coerente(es_b, "bp"),
+          f"pips {list(es.risultati['t_stat'].round(2))} · bp {list(es_b.risultati['t_stat'].round(2))}")
+    # fuori dall'unita': tutto tranne le medie, il costo, il t e oltre_rumore (che e' |t| > soglia)
+    nell_unita = ["avg_trade", "avg_trade_netto", "costo_pips", "t_stat", "oltre_rumore"]
+    stessi = (es.risultati.set_index("combinazione").drop(columns=nell_unita).sort_index()
+              .equals(es_b.risultati.set_index("combinazione")
+                      .drop(columns=nell_unita + ["avg_trade_netto_pips"]).sort_index()))
+    check("O6. pips e bp: stesse righe e stessi numeri fuori dall'unita' (cambia solo la posizione)",
+          stessi and set(es.risultati["combinazione"]) == set(es_b.risultati["combinazione"]))
+
+    # l'etichetta di due_meta dice l'unita' che decide; i numeri non cambiano
+    out_b, out_p = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out_b):
+        dm_b = due_meta(df, fs_b, [None, "TEST_FILTRO_MATTINA"], spread=0.0, commission=0.0005,
+                        cash=10_000_000, verbose=True)
+    with contextlib.redirect_stdout(out_p):
+        dm_p = due_meta(df, fs_p, [None, "TEST_FILTRO_MATTINA"], spread=0.0, commission=0.0005,
+                        cash=10_000_000, verbose=True)
+    dm_p0 = muto(due_meta, df, fs_p, [None, "TEST_FILTRO_MATTINA"], spread=0.0, commission=0.0005,
+                 cash=10_000_000, verbose=False)
+    sb, sp_ = out_b.getvalue(), out_p.getvalue()
+    check("O7. due_meta: «guadagno_bp … <-- decide» in bp, «guadagno_pips» in pips; tabelle invariate",
+          "  guadagno_bp       metà1=" in sb and "guadagno_pips" not in sb.split("<-- decide")[0].splitlines()[-1]
+          and "  guadagno_pips     metà1=" in sp_ and "guadagno_bp " not in sp_
+          and dm_b.tabella.equals(dm.tabella) and dm_p.tabella.equals(dm_p0.tabella))
     R.clear_registry()
 
     # ---------------------------------------------------------------- vetrina --
