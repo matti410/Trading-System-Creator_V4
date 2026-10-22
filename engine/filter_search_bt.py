@@ -659,7 +659,7 @@ def run_filter_search_bt(
                 .reset_index(drop=True))
 
     if verbose:
-        print(f"{len(piano_colonne)} righe (baseline + {len(piano_colonne) - 1} "
+        print(f"{len(piano_colonne)} righe (baseline + {max(1, len(piano_colonne) - 1)} "
               f"filtri/coppie) · "
               + (f"n_barre={n_barre}" if n_long == n_short == n_barre
                  else f"n_barre long={n_long} · short={n_short}")

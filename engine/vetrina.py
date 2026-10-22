@@ -1127,8 +1127,12 @@ def _strada_b(s: Sessione) -> bool:
     return bool(getattr(s, "cella_long", None) or getattr(s, "cella_short", None))
 
 
-def _grafico_atlante(s: Sessione, tab: pd.DataFrame, trigger: list[str]) -> None:
-    """Per ogni trigger mostrato, la solidita' dello scarto di ogni cella: colorata se passa, grigia se no."""
+def grafico_atlante(tab: pd.DataFrame, trigger: list[str]) -> None:
+    """
+    La mappa dell'atlante (schermata 3c; anche nel notebook di ricerca): per ogni
+    trigger, la solidita' dello scarto di ogni cella, colorata se la cella passa,
+    grigia con il motivo se no.
+    """
     from .atlante import etichetta_cella
     import matplotlib.pyplot as plt
     if not trigger:
@@ -1204,7 +1208,7 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
         })
         s.tabelle[f"atlante_{nome}"] = vista
         _mostra((f"L'atlante di {nome} (in-sample, {s.H} barre)", vista), decimali={"Solidità": 2})
-    _grafico_atlante(s, tab, [m for m in mostra if (tab["candidato"] == m).any()])
+    grafico_atlante(tab, [m for m in mostra if (tab["candidato"] == m).any()])
 
     passano = tab[tab["passa"]]
     if passano.empty:
