@@ -14,6 +14,8 @@ dove il test lo dice. Sezioni:
         sessioni con l'ora legale, basis
     B · l'atlante (engine/atlante.py): casi a risultato noto, conto a mano,
         minimo di eventi, mercato senza vantaggi
+    C · le celle come filtri del passo 5 (strada B): registrazione, coppie,
+        k_prove e rimisura nella ricerca dei filtri
 """
 from __future__ import annotations
 
@@ -350,6 +352,76 @@ def esegui() -> int:
           and set(np.unique(cl["vol_trend"].dropna())) <= {0.0, 1.0, 2.0, 3.0}
           and cl["sessione"].equals(pd.Series(sessione_ingresso(dc).to_numpy(), index=dc.index, name="sessione")))
     print(f"  (atlante di 8 celle su {n} barre: {durata:.2f} s)")
+
+    # =================================================================== C ==
+    print("\nC · Le celle come filtri del passo 5 (strada B)")
+    from engine.atlante import nome_filtro_cella
+    from engine.filter_search_bt import BASELINE, run_filter_search_bt
+    from engine.giudizio import soglia_rumore
+
+    dfc = M.df(extra, spot=True)
+    nomi_c = registra_filtri_cella(dfc, "EUROPA", "EUROPA")
+    coppie = {p: (u, g) for p, u, g in reg.list_filter_pairs()}
+    sess_c = sessione_ingresso(dfc)
+    check("22. stessa cella sui due lati: CELLA_EUROPA_L (+1) e CELLA_EUROPA_S (−1), una coppia "
+          "CELLA_EUROPA; vere dove la barra del segnale è in EUROPA",
+          nomi_c == ["CELLA_EUROPA_L", "CELLA_EUROPA_S"]
+          and coppie.get("CELLA_EUROPA") == ("CELLA_EUROPA_L", "CELLA_EUROPA_S")
+          and nome_filtro_cella("EUROPA", "EUROPA") == "CELLA_EUROPA"
+          and reg.get_filter("CELLA_EUROPA_L")(dfc).equals(sess_c == 1)
+          and reg.get_filter("CELLA_EUROPA_S")(dfc).equals(sess_c == 1))
+
+    nomi_d = registra_filtri_cella(dfc, "VOL_ALTA_TREND_FAVORE", "BASIS_BASSA")
+    coppie = {p: (u, g) for p, u, g in reg.list_filter_pairs()}
+    etichetta = nome_filtro_cella("VOL_ALTA_TREND_FAVORE", "BASIS_BASSA")
+    m_l = reg.get_filter(nomi_d[0])(dfc)
+    m_s = reg.get_filter(nomi_d[1])(dfc)
+    check("23. celle diverse sui due lati: una coppia con il nome delle due celle; il long usa il "
+          "trend del long, lo short la basis; le celle di prima tolte dal registro",
+          etichetta == "CELLA_VOL_ALTA_TREND_FAVORE_L_BASIS_BASSA_S"
+          and coppie.get(etichetta) == tuple(nomi_d)
+          and m_l.equals(cella_vol_trend(dfc, 1) == 3) and m_s.equals(basis_alta(dfc) == 0)
+          and not any(n.startswith("CELLA_EUROPA") for n in reg.list_filters()))
+
+    corto = dfc.iloc[:5000]
+    check("24. il filtro su un pezzo dello storico (in-sample, metà, out-of-sample) dà gli stessi valori "
+          "dello storico intero; non è mai sempre vero o sempre falso",
+          reg.get_filter(nomi_d[0])(corto).equals(m_l.iloc[:5000])
+          and 0.05 < m_l.mean() < 0.95 and 0.05 < m_s.mean() < 0.95)
+
+    errori = []
+    for celle in (("VOL_ALTA", None), ("BASIS_ALTA", None), (None, None)):
+        try:
+            registra_filtri_cella(df if celle[0] == "BASIS_ALTA" else dfc, *celle)
+            errori.append(None)
+        except ValueError as e:
+            errori.append(str(e)[:40])
+    check("25. si ferma con una cella sconosciuta, con la basis senza lo spot e senza celle",
+          all(errori), str(errori))
+
+    nomi_c = registra_filtri_cella(dfc, "EUROPA", "EUROPA")
+    _registra_entry("T_LONG_C", 1, dfc.index[pos])
+    _registra_entry("T_SHORT_C", -1, dfc.index[pos + 3])
+    kw = dict(entry_long="T_LONG_C", entry_short="T_SHORT_C", n_barre=H, filtri=nomi_c,
+              commission=0.0005, spread=0.0, cash=1e6, pip_size=PIP, unita="bp", verbose=False,
+              quarantena=False)
+    fs_a = run_filter_search_bt(dfc, **kw)
+    fs_b = run_filter_search_bt(dfc, k_prove=480, **kw)
+    uguali = fs_a.risultati.drop(columns=["oltre_rumore", "esito", "motivo"]).equals(
+        fs_b.risultati.drop(columns=["oltre_rumore", "esito", "motivo"]))
+    check("26. ricerca dei filtri con k_prove = 480 (le celle dell'atlante): soglia = Šidák a 480 prove, "
+          "segnata come rimisura; senza k_prove soglia delle righe (1) come prima; il resto identico",
+          np.isclose(fs_b.soglia_rumore, soglia_rumore(480)) and fs_b.rimisura
+          and np.isclose(fs_a.soglia_rumore, soglia_rumore(1)) and not fs_a.rimisura and uguali
+          and list(fs_b.risultati["filtro"]) .count("CELLA_EUROPA") == 1
+          and len(fs_b.risultati) == 2,
+          f"soglia {fs_a.soglia_rumore:.2f} → {fs_b.soglia_rumore:.2f}")
+    try:
+        run_filter_search_bt(dfc, k_prove=0, **kw)
+        ferma = False
+    except ValueError:
+        ferma = True
+    check("27. k_prove = 0 si ferma con un errore", ferma)
 
     reg.clear_registry()
     print("\n" + "=" * 70)
