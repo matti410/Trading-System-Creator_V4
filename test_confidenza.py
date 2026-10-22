@@ -417,6 +417,170 @@ def esegui() -> int:
     check("34. lato attivo senza tabella di confidenza -> errore; lato None resta None",
           errore and congela_confidenza_nota(None, "T_RANDOM_SHORT", None, conf_s)[0] is None)
 
+    # ------------------------------------------------ l'unita' bp (22/10) --
+    print("\nG · L'unita' che decide: bp (22/10/2026)")
+
+    # caso a mano: due trade dell'1% a 7.000 e a 70.000, pip 1, niente commissione
+    t_in = [df.index[1000], df.index[2000]]
+    t_out = [df.index[1010], df.index[2010]]
+    tr_mano = pd.DataFrame({"EntryTime": t_in, "ExitTime": t_out, "Size": [1.0, 1.0],
+                            "EntryPrice": [7_000.0, 70_000.0], "ExitPrice": [7_070.0, 70_700.0]})
+    em = esiti_trade(tr_mano, df, 1.0, 0.0, unita="bp")
+    check("35. a mano: +1% a 7.000 e a 70.000 = 70 e 700 pips, 100 bp ciascuno; vinto uguale",
+          np.allclose(em["pips_netti"], [70.0, 700.0]) and np.allclose(em["bp_netti"], [100.0, 100.0])
+          and list(em["vinto"]) == [1, 1], f"bp {list(em['bp_netti'].round(6))}")
+
+    c3 = np.flatnonzero(celle == 3)
+    s1, s2 = int(c3[-300]), int(c3[-250])
+    e_mano = pd.DataFrame({"barra_segnale": [s1, s2], "barra_uscita": [s1 + 5, s2 + 5],
+                           "lato": [1, 1], "pips_netti": [70.0, 700.0], "vinto": [1, 1],
+                           "bp_netti": [100.0, 100.0]})
+    cm = confidenza_rolling(df, e_mano, 1, min_obs=2, unita="bp")
+    dopo = c3[c3 >= s2 + 5]
+    check("36. a mano: nella cella dei due trade bp_medi = 100, pips_medi = 385",
+          len(dopo) > 0 and (cm["bp_medi"].iloc[dopo] == 100.0).all()
+          and (cm["pips_medi"].iloc[dopo] == 385.0).all(), f"{len(dopo)} barre")
+
+    # sul backtest vero: bp_netti = metriche.bp_per_trade, i pips non cambiano
+    from engine.metriche import bp_per_trade
+    es_bp = esiti_trade(tr, df, fs_base.pip_size, costi["commission"], unita="bp")
+    _, bp_atteso = bp_per_trade(tr, fs_base.pip_size, costi["commission"])
+    es_pips = esiti_trade(tr, df, fs_base.pip_size, costi["commission"], unita="pips")
+    check("37. esiti_trade in bp: bp_netti = bp_per_trade; pips e vinto identici; "
+          "unita='pips' = chiamata di prima",
+          np.array_equal(es_bp["bp_netti"].to_numpy(), bp_atteso.to_numpy(dtype=float))
+          and es_bp.drop(columns="bp_netti").equals(es) and es_pips.equals(es)
+          and "bp_netti" not in es_pips.columns,
+          f"bp medi {es_bp['bp_netti'].mean():+.3f}")
+
+    conf_lb = confidenza_rolling(df, es_bp, 1, unita="bp")
+    conf_sb = confidenza_rolling(df, es_bp, -1, unita="bp")
+    elb = es_bp[es_bp["lato"] == 1].copy()
+    elb["cella"] = celle[elb["barra_segnale"]]
+    elb = elb.sort_values("barra_uscita", kind="mergesort")
+    diff = 0.0
+    for t in rng.integers(2000, n, 300):
+        usciti = elb[elb["barra_uscita"] <= t].tail(500)
+        g = usciti[usciti["cella"] == celle[t]]
+        att = g["bp_netti"].mean() if (not np.isnan(celle[t]) and len(g) >= 30) else np.nan
+        got = conf_lb["bp_medi"].iat[t]
+        if np.isnan(att) != np.isnan(got):
+            diff = np.inf
+            break
+        if not np.isnan(att):
+            diff = max(diff, abs(att - got))
+    check("38. bp_medi = media a forza bruta dei bp, stessa cella; colonne in pips identiche",
+          diff < 1e-9 and conf_lb.drop(columns="bp_medi").equals(conf_l)
+          and conf_lb["bp_medi"].isna().equals(conf_l["pips_medi"].isna())
+          and confidenza_rolling(df, es, 1, unita="pips").equals(conf_l),
+          f"scarto massimo {diff:.1e} su 300 barre")
+
+    # il costo andata e ritorno in bp, a mano, dai costi di costi_storico
+    from engine.confidenza import costo_andata_ritorno_bp, soglie_confidenza
+    from engine.vetrina import costi_storico
+    piatto = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+    c_perp, _ = costi_storico("BINANCE_PERP_BTCUSDT", piatto.assign(Open=50_000.0, High=50_000.0,
+                                                                     Low=50_000.0, Close=50_000.0))
+    c_spot, _ = costi_storico("BYBIT_SPOT_ETHUSDT", piatto.assign(Open=2_000.0, High=2_000.0,
+                                                                  Low=2_000.0, Close=2_000.0))
+    k_perp, k_spot = costo_andata_ritorno_bp(c_perp), costo_andata_ritorno_bp(c_spot)
+    # perpetual Binance: 2 x 0,05% = 10 bp + un passo di 0,1 su 50.000 = 0,02 bp
+    # spot Bybit:        2 x 0,10% = 20 bp + un passo di 0,01 su 2.000 = 0,05 bp
+    check("39. costo andata e ritorno in bp, a mano: perpetual 10,02 bp, spot 20,05 bp",
+          np.isclose(k_perp, 10.02, atol=1e-9) and np.isclose(k_spot, 20.05, atol=1e-9),
+          f"perpetual {k_perp:.4f} bp · spot {k_spot:.4f} bp")
+
+    nomi_bp = registra_filtro_confidenza([0.0, 0.5, 0.8], conf_long=conf_lb, conf_short=conf_sb,
+                                         metrica="bp_medi", costo_bp=k_perp)
+    tab_s = soglie_confidenza(nomi_bp).set_index("filtro")
+    nomi_s = registra_filtro_confidenza([0.5], conf_short=conf_sb, metrica="bp_medi",
+                                        costo_bp=k_spot, prefisso="CONFSPOT")
+    soglia_spot = soglie_confidenza(nomi_s)["soglia"].iat[0]
+    check("40. soglia in bp = multiplo x costo, a mano: 0,5 x 10,02 = 5,01; 0,8 x 10,02 = 8,016; "
+          "0,5 x 20,05 = 10,025",
+          nomi_bp == ["CONF_BP_MEDI_0C_L", "CONF_BP_MEDI_0C_S", "CONF_BP_MEDI_0.5C_L",
+                      "CONF_BP_MEDI_0.5C_S", "CONF_BP_MEDI_0.8C_L", "CONF_BP_MEDI_0.8C_S"]
+          and np.isclose(tab_s.loc["CONF_BP_MEDI_0.5C", "soglia"], 5.01)
+          and np.isclose(tab_s.loc["CONF_BP_MEDI_0.8C", "soglia"], 8.016)
+          and tab_s.loc["CONF_BP_MEDI_0C", "soglia"] == 0.0
+          and nomi_s == ["CONFSPOT_BP_MEDI_0.5C_S"] and np.isclose(soglia_spot, 10.025),
+          " · ".join(f"{k} {v:.3f} bp" for k, v in tab_s["soglia"].items()))
+
+    # sul mercato sintetico i bp medi stanno intorno a -1: sopra 5,01 bp quasi nessuna barra,
+    # la divisione non banale si chiede alla soglia 0
+    vero0 = get_filter("CONF_BP_MEDI_0C_L")(df)
+    vero5 = get_filter("CONF_BP_MEDI_0.5C_L")(df)
+    note_l = int(conf_lb["bp_medi"].notna().sum())
+    check("41. il filtro in bp e' vero solo dove bp_medi > multiplo x costo (NaN = falso)",
+          vero0.equals((conf_lb["bp_medi"] > 0.0).fillna(False).astype(bool))
+          and vero5.equals((conf_lb["bp_medi"] > 0.5 * k_perp).fillna(False).astype(bool))
+          and 0 < int(vero0.sum()) < note_l,
+          f"su {note_l} barre note: {int(vero0.sum())} sopra 0 bp, {int(vero5.sum())} sopra 5,01 bp")
+
+    fs_b = run_filter_search_bt(df_is, filtri=nomi_bp[:4], **param, unita="bp")
+    mb = fs_b.risultati.set_index("filtro")
+    base_b = run_filter_search_bt(df_is, filtri=[], **param, unita="bp").trades()
+    e_b = esiti_trade(base_b, df, fs_b.pip_size, costi["commission"], unita="bp")
+    ok = set(mb.index) == {BASELINE, "CONF_BP_MEDI_0C", "CONF_BP_MEDI_0.5C"}
+    for etichetta, mult in (("CONF_BP_MEDI_0C", 0.0), ("CONF_BP_MEDI_0.5C", 0.5)):
+        attesi = sum(
+            int((c["bp_medi"].to_numpy()[e_b.loc[e_b["lato"] == lato, "barra_segnale"]]
+                 > mult * k_perp).sum())
+            for c, lato in ((conf_lb, 1), (conf_sb, -1)))
+        ok &= mb.loc[etichetta, "n_tenuti"] == attesi
+    check("42. nella ricerca dei filtri: tenuti = trade con bp_medi > multiplo x costo al segnale",
+          ok, f"tenuti 0C {int(mb.loc['CONF_BP_MEDI_0C', 'n_tenuti'])} · "
+              f"0.5C {int(mb.loc['CONF_BP_MEDI_0.5C', 'n_tenuti'])}")
+
+    ok = True
+    for t in rng.integers(n // 3, n - 200, 2):
+        svuota_cache()
+        d = df.iloc[:t]
+        fb = run_filter_search_bt(d, filtri=[], **param)
+        est = esiti_trade(fb.trades(), d, fb.pip_size, costi["commission"], unita="bp")
+        a = confidenza_rolling(d, est, 1, unita="bp")["bp_medi"].to_numpy()
+        b = conf_lb["bp_medi"].iloc[:t].to_numpy()
+        ok &= np.allclose(np.nan_to_num(a, nan=-99), np.nan_to_num(b, nan=-99))
+    svuota_cache()
+    check("43. nessun lookahead nella catena in bp (backtest -> esiti -> confidenza), 2 tagli", ok)
+
+    errori = 0
+    for prova in (lambda: esiti_trade(tr, df, fs_base.pip_size, unita="atr"),
+                  lambda: confidenza_rolling(df, es, 1, unita="bp"),
+                  lambda: registra_filtro_confidenza([0.5], conf_long=conf_lb, metrica="bp_medi"),
+                  lambda: registra_filtro_confidenza([0.5], conf_long=conf_l, metrica="bp_medi",
+                                                     costo_bp=10.0),
+                  lambda: registra_filtro_confidenza([0.5], conf_long=conf_l, costo_bp=10.0),
+                  lambda: report_calibrazione(es, df, df_oos.index[0], conf_long=conf_l, unita="bp")):
+        try:
+            prova()
+        except ValueError:
+            errori += 1
+    check("44. errori chiari: unita' sconosciuta, bp senza bp_netti / bp_medi / costo, "
+          "costo con i pips", errori == 6, f"{errori}/6 errori")
+
+    rep_b = report_calibrazione(es_bp, df, df_oos.index[0], conf_long=conf_lb, conf_short=conf_sb,
+                                mostra_oos=True, unita="bp")
+    elb_ = es_bp[es_bp["lato"] == 1]
+    pos = elb_["barra_segnale"].to_numpy()
+    sel = (conf_lb["etichetta"].to_numpy()[pos] == ETICHETTE_CELLA[3]) & \
+          (df.index[pos] >= df_oos.index[0]) & ~np.isnan(conf_lb["bp_medi"].to_numpy()[pos])
+    riga = rep_b[(rep_b["parte"] == "OOS") & (rep_b["lato"] == "long")
+                 & (rep_b["cella"] == ETICHETTE_CELLA[3])].iloc[0]
+    check("45. report_calibrazione in bp: bp previsti e reali alla barra del segnale; "
+          "le colonne in pips identiche",
+          np.isclose(riga["bp_reali"], elb_["bp_netti"].to_numpy()[sel].mean())
+          and np.isclose(riga["bp_previsti"], conf_lb["bp_medi"].to_numpy()[pos][sel].mean())
+          and rep_b.drop(columns=["bp_previsti", "bp_reali"]).equals(rep2))
+
+    ax_b, tab_b = plot_oos_confidenza(oos.trades(), oos.trades("CONF_PIPS_MEDI_0"),
+                                      oos.pip_size, costi["commission"], unita="bp")
+    _, bp_oos = bp_per_trade(oos.trades(), oos.pip_size, costi["commission"])
+    check("46. plot_oos_confidenza in bp: curva, totale e drawdown in pips identici, media in bp accanto",
+          tab_b.drop(columns="avg_trade_netto_bp").equals(tab)
+          and np.isclose(tab_b["avg_trade_netto_bp"].iat[0], bp_oos.mean()),
+          f"senza: {tab_b['avg_trade_netto_bp'].iat[0]:+.3f} bp per trade")
+
     clear_registry()
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)
