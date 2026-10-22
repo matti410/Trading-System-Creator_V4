@@ -155,6 +155,7 @@ Le istruzioni per Claude Code sono in `CLAUDE.md`.
 | 62 | `62_ATLANTE_E_FLUSSO.md` | incarico di studio: unità di rischio, funding dei perpetual, atlante del trigger, mercato nullo (20/10) |
 | 63 | `63_PROPOSTA_ATLANTE_E_FLUSSO.md` | la proposta, il controllo con i documenti di progetto e le decisioni di Mattia (perimetro solo crypto in §10.0, piano rivisto il 21/10 in §10.3) |
 | 64 | `64_MOTORE_VELOCE.md` | incarico di studio: un motore di backtest proprio, stessi trade di `backtesting.py`, almeno 50 volte più veloce (21/10); proposta attesa in `65` |
+| 66 | `66_PROPOSTA_ATLANTE_TRIGGER.md` | la proposta dell'atlante del trigger (lavoro C): celle senza lookahead, dove entra nel Lab e nel notebook, soglia cumulata, tempi, test, decisioni di Mattia (§13) e realizzazione (§14) (22–23/10) |
 | 65 | `65_PROPOSTA_MOTORE_VELOCE.md` | la proposta del motore veloce: inventario dei comportamenti di `backtesting.py`, prototipo confrontato con l'oracolo, tempi, il capitale simulato che si esaurisce, domande (21/10) |
 | 93 | `93_QUARANTENA_TRADE_E_COSTI.md` | quarantena applicata ai trade e costi del conto Standard (5/10) |
 | — | `GUIDA_ANALISI_FONTI.md` | guida per Mattia: come portare una fonte (articolo, video, libro) fino al codice |
@@ -202,6 +203,7 @@ escluso (in M15 solo da gennaio 2025).
 | `engine/due_meta.py` | 5, stabilità sulle due metà |
 | `engine/famiglie.py` | collaudo e scelta delle condizioni: sovrapposizioni, somiglianze, famiglie (dal 17/10) |
 | `engine/rosa.py` | 2–3, la rosa dei candidati: entry dopo l'event study, sistemi dopo le uscite (dal 18/10) |
+| `engine/atlante.py` | 2–3 e 5, l'atlante del trigger: entry × cella (volatilità × trend, sessione, basis), scarto dal mercato della cella e netto; le celle scelte come filtri del passo 5 (dal 22/10, `66`) |
 | `engine/stagionalita.py` | 1–3, profilo orario e baseline oraria della rosa; fasce larghe una barra, per ogni timeframe (dal 18/10) |
 | `condizioni_orarie.py` | 2–3, entry e uscite a orario: `ORA_LONG_@HH:MM`, `ORA_SHORT_@HH:MM`, `X_ORA_@HH:MM`, `X_INVERSIONE_TREND` (dal 19/10) |
 | `engine/confidenza.py` | 5, confidenza dei segnali: griglia volatilità × trend, soglia come filtro |
@@ -241,6 +243,17 @@ costo_andata_ritorno_bp(costi)                                 -> (2 x commissio
 soglie_confidenza(nomi)                                        -> il valore vero di ogni soglia
 report_calibrazione(esiti, df, split, conf_long=, conf_short=, mostra_oos=False, unita="pips")
 plot_oos_confidenza(trades_senza, trades_con, pip_size, commission, unita="pips")
+
+# engine/atlante.py (22/10/2026, docs/66)
+atlante(df_is, H, pip, costi=None, funding=None, nomi=None, assi=None, unita="bp",
+        min_eventi=200, q=0.20, fuso=..., mostra=None) -> una riga per entry x cella;
+        attrs["k_misurate"] = le celle misurate (il k del passo 5 nella strada B)
+celle_atlante(df, direzione) · celle_che_passano(tab, trigger)
+registra_filtri_cella(df_storico, cella_long, cella_short) -> i filtri CELLA_… su richiesta
+nome_filtro_cella(cella_long, cella_short)                  -> il nome della riga del passo 5
+# engine/indicatori.py: volatilita_durata, trend_durata, cella_vol_trend,
+#     sessione_ingresso, basis_alta, barre_per_durata (durate in ore, almeno 20 rendimenti)
+# engine/filter_search_bt.py: run_filter_search_bt(..., k_prove=None) -> .rimisura
 
 # engine/collaudo_catalogo.py
 verifica_lookahead(df_grezzo, prepara=aggiungi_indicatori, tagli_per_condizione=5)
@@ -371,7 +384,10 @@ non conta due volte; con impostazioni diverse le prove si sommano; un
 al posto della riga del mercato nullo: «con k prove il caso arriva fino a una
 solidità di X» (`soglia_rumore(k)`), accanto alla solidità in-sample. Il
 notebook di ricerca usa `vetrina.soglia_cumulata(ev, es, fs)`. Non boccia e
-non blocca niente.
+non blocca niente. Dal 22/10 (atlante, `66` §6) contano anche le celle
+dell'atlante (`soglia_cumulata(..., atlante=...)`); la ricerca dei filtri
+della strada B (`k_prove`, `.rimisura`) non si conta; nel notebook anche le
+soglie della confidenza (`fs = [fs, fs_conf]`).
 
 ### ~~4. Le sovrapposizioni fra condizioni~~ — FATTO il 17/10
 

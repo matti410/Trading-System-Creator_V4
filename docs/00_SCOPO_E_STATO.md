@@ -90,8 +90,12 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    combinazioni di filtri), sotto la scheda al posto della riga del mercato
    nullo; solo informativa. Anche nel notebook di ricerca
    (`vetrina.soglia_cumulata`).
-5. **C · atlante del trigger** (`63` §6). Grande. Proposta in
-   `66_PROPOSTA_ATLANTE_TRIGGER.md`, in attesa del via.
+5. **C · atlante del trigger** — in corso (ramo `atlante-trigger`; proposta
+   e decisioni in `66`). Per ogni entry vera, 8 celle per lato (10 sui
+   perpetual con lo spot): scarto lordo dal mercato della cella e netto dei
+   costi (`02`, «L'atlante del trigger»). Lab 3c–3d, ricerca 1.5. Con una
+   cella scelta (strada B) il passo 5 prova solo la cella, con la soglia a
+   k = celle dell'atlante; senza cella tutto come prima.
 
 Restano aperti: **money management P1–P4** e **stress test in bp**.
 

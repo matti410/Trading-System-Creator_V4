@@ -1,7 +1,7 @@
 # 66 · Proposta: l'atlante del trigger (lavoro C)
 
-Stato: **approvata da Mattia il 22/10/2026** (decisioni nel §13). Nessun codice
-scritto. Le decisioni di partenza sono in `63` §6 e §10–10.3; qui si dice come
+Stato: **approvata da Mattia il 22/10/2026** (decisioni nel §13); codice sul
+ramo `atlante-trigger`, resoconto nel §14. Le decisioni di partenza sono in `63` §6 e §10–10.3; qui si dice come
 realizzarle. Unità: il bp decide, i pips accanto (`02`, «Unità»).
 
 ## Indice
@@ -20,6 +20,7 @@ realizzarle. Unità: il bp decide, i pips accanto (`02`, «Unità»).
 - §11 · Rischi
 - §12 · Domande per Mattia
 - §13 · Decisioni di Mattia (22/10/2026)
+- §14 · Realizzazione (22–23/10/2026) — *resoconto*
 
 ---
 
@@ -420,3 +421,116 @@ proposta), commit nell'ordine del §9 con le suite dopo ognuno. Obiettivo di
 tempo: atlante sotto i 20 s su BTC M15; se non si raggiunge, ci si ferma e
 lo si dice. Prove di identità complete. Prima della Pull request: `python
 suite_rapida.py --tutte` (38/38).
+
+## 14 · Realizzazione (22–23/10/2026) — *resoconto*
+
+Sei commit sul ramo `atlante-trigger`, nell'ordine del §9, con la suite
+rapida dopo ognuno.
+
+**Cosa c'è.**
+- `engine/indicatori.py`: gli stati delle celle con le finestre in ore
+  (`barre_per_durata`, `volatilita_durata`, `trend_durata`,
+  `cella_vol_trend`, `sessione_ingresso`, `basis_alta`).
+- `engine/atlante.py`: l'atlante, `celle_atlante`, `celle_che_passano`,
+  `registra_filtri_cella`, `nome_filtro_cella`.
+- `engine/registry.py`: `remove_filters(prefisso)`, additiva, per ricreare
+  le celle registrate su richiesta con il loro `pair`.
+- `engine/filter_search_bt.py`: `k_prove=None` e `.rimisura`.
+- `engine/vetrina.py`: `aggancia_spot` (riga «Spot» nel riepilogo),
+  `atlante_dei_trigger` (3c), `scegli_cella` (3d), la strada B in
+  `trova_strategia`, le celle nella soglia cumulata (anche
+  `soglia_cumulata(atlante=...)`), `grafico_atlante`, comune ai due notebook.
+- I due notebook vivi.
+- `test_atlante.py`: 37 test in quattro sezioni (stati, atlante, celle come
+  filtri, Lab).
+
+**Differenze dalla proposta, decise scrivendo il codice.**
+- Nomi dei filtri. Il membro long si chiama `CELLA_<cella>_L`, il membro
+  short `CELLA_<cella>_S`. La riga del passo 5 si chiama:
+  - `CELLA_<cella>` se la cella è la stessa sui due lati;
+  - `CELLA_<CL>_L_<CS>_S` se le celle sono diverse;
+  - come il membro, se il lato è uno solo.
+
+  Tutti i membri sono direzionali (+1 al long, −1 allo short), anche quelli
+  di sessione e di basis: così ogni lato può avere la sua cella. Gli stati
+  si calcolano sullo storico intero e il filtro li legge per data (come la
+  confidenza). In questo modo in-sample, metà e out-of-sample non ripartono
+  da una finestra vuota.
+- Nel notebook di ricerca la sezione è la **1.5**, dopo la scelta dei
+  trigger (come la 3c del Lab), non la «1.3 ter»: la mappa si mostra per i
+  trigger scelti.
+- Nella strada B, nel notebook di ricerca, il money management (Sessione 5)
+  e il Monte Carlo (Sessione 6) usano i trade di setup + cella (la riga della
+  3.1, se regge in `due_meta`; altrimenti il setup), perché la confidenza si
+  salta.
+- Nel notebook la soglia cumulata conta l'atlante anche nella strada A, se
+  la 1.5 è stata eseguita: guardare la mappa è comunque una prova (decisione
+  4).
+- La soglia cumulata con le soglie della confidenza (§10) è in una cella
+  nuova dopo la 3.3. La riga sotto la scheda della 3.1 conta `fs_conf` solo
+  se la 3.3 è già stata eseguita.
+
+**Tempi** (questo PC, BINANCE_PERP_BTCUSDT M15, in-sample di 190.420 barre):
+- atlante di 70 trigger × 10 celle in **6–7 s** (obiettivo: sotto 20 s);
+- schermata 3c intera circa 10 s;
+- su BYBIT_SPOT_ETHUSDT 2,2 s.
+
+Lo scarto e la solidità di una cella coincidono con
+`stagionalita.scarto_orario` fino alla 15ª cifra. L'incertezza di un asse si
+calcola in un passaggio con numba.
+
+**Test a risultato noto** (`test_atlante.py`, 37/37). Rispetto al §8:
+- Il caso «vantaggio solo in EUROPA» si legge sul solo asse delle sessioni.
+  Sul mercato finto la deriva messa dopo i trigger sposta anche il trend dei
+  trigger che vengono dopo, quindi sessione e trend non restano indipendenti.
+- Il mercato senza vantaggi è controllato in due modi:
+  - la solidità delle celle si comporta come il caso (deviazione 1,02,
+    |t| > 1,96 nel 5,3%, su 4.800 celle);
+  - con q = 20% i mercati con almeno una cella promossa sono 2 su 10 (ne
+    accettiamo fino a 4).
+
+  La prima stesura del test aveva trigger troppo radi: si misurava solo
+  ASIA_NOTTE.
+- Il test 66 di `test_vetrina.py` (il conto delle prove di una sessione
+  nuova) è rimasto com'era: la voce «celle» nasce alla schermata 3c, non in
+  una sessione nuova.
+
+**Prove di identità (strada A, codice di main contro codice del ramo, a parità di barre).**
+- *Lab* (percorso completo da `prepara` a `stress_test`, su
+  BINANCE_PERP_BTCUSDT e con la lente sullo stesso trade): tutte le tabelle
+  sono identiche al bit tranne il riepilogo, che ha la riga «Spot» in più. Il
+  conto delle prove ha due voci nuove, «celle» e «atlanti», che nel percorso
+  diretto valgono zero; la frase della soglia cumulata è identica.
+- *Lab crypto* (notebook eseguito cella per cella, BINANCE_PERP_BTCUSDT): le
+  stesse tabelle; in più ci sono le tabelle dell'atlante e le sue celle nel
+  conto delle prove.
+- *Notebook di ricerca* (eseguito cella per cella, BINANCE_PERP_BTCUSDT): le
+  25 tabelle sono identiche al bit (event study, rosa, uscite, filtri, due
+  metà, out-of-sample, confidenza, money management, Monte Carlo). Nelle
+  stampe cambiano solo:
+  - la colonna in più dello spot;
+  - le righe dell'atlante;
+  - la soglia cumulata, che conta le celle.
+- `df` senza la colonna `spot_close` è identico al bit.
+
+**Giro completo della strada B** (BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT,
+Lab e notebook di ricerca, H = 25 nel notebook e 41 nel Lab). A questi
+orizzonti **nessuna cella passa** su nessuno dei due symbol: 558 celle
+misurate su BTC, 370 su ETH nel notebook e 186 nel Lab, che sullo spot
+guarda solo i trigger long.
+- Per collaudare il percorso la cella è stata **forzata**, solo nello script
+  di collaudo, scavalcando il controllo «passa»:
+  - su BTC, LONDRA_NY al long e BASIS_ALTA allo short;
+  - su ETH spot, VOL_ALTA_TREND_FAVORE.
+- Il percorso gira fino in fondo, senza errori:
+  - una riga al passo 5, con la soglia a k = celle (3,91 su BTC, 3,81 su
+    ETH);
+  - la soglia cumulata conta trigger, celle e uscite, ma non la cella
+    riprovata;
+  - la confidenza è saltata;
+  - out-of-sample, money management, Monte Carlo, verifica dei trade e
+    stress test vanno.
+- È un collaudo del tool, non una scelta: non si è cambiato orizzonte per
+  far passare una cella.
+
+Prima della Pull request: `python suite_rapida.py --tutte` (38 suite).
