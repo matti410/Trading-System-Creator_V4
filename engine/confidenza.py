@@ -56,6 +56,18 @@ Se al passo 5 si e' scelto un filtro (es. F8_UPTREND_CONTEXT), il setup e'
 «entry + filtro»: `congela_filtro(fs, filtro_scelto)` lo mette dentro le
 entry, e da li' in poi storia, test e OOS usano quel setup.
 
+L'UNITA' CHE DECIDE (22/10/2026, docs/02 «Unita'», docs/63 §4)
+-------------------------------------------------------------
+Parametro `unita` come negli altri moduli (metriche.netti_in_unita):
+"pips" (default, il broker sospeso: tutto come prima, al bit) o "bp" (i
+symbol da exchange). Con "bp" gli esiti hanno anche `bp_netti`, la
+confidenza anche `bp_medi` (i pips restano accanto) e le soglie si danno
+come MULTIPLI DEL COSTO andata e ritorno del symbol in bp (commissione di
+listino + spread, senza funding: `costo_andata_ritorno_bp`), fissati dal
+listino e non dai dati. Nomi: CONF_BP_MEDI_0.5C = «sopra mezzo costo».
+`vinto` non cambia: pips e bp hanno sempre lo stesso segno. Curva, totale e
+drawdown dell'OOS restano in pips (sono soldi), con la media in bp accanto.
+
 Modulo ADDITIVO: legge registry, livelli e metriche, non modifica niente.
 Registra solo nomi nuovi (entry derivate, filtri CONF_...).
 Richiede `engine/volatility_features_engineering.py` (il file di Mattia,
@@ -67,7 +79,7 @@ import numpy as np
 import pandas as pd
 
 from .livelli import giorno_fx
-from .metriche import pips_per_trade
+from .metriche import UNITA_CHE_DECIDONO, bp_per_trade, pips_per_trade
 from .registry import (get_entry, get_entry_direction, get_filter, list_entries,
                        list_filters, register_entry, register_filter)
 from .volatility_features_engineering import (build_labels,
@@ -81,7 +93,27 @@ ETICHETTE_CELLA = {
 }
 
 _FINESTRE_VOL = (5, 20, 50, 200)   # quelle che feat_historical_volatility produce
-_METRICHE = ("pips_medi", "win_rate")
+_METRICHE = ("pips_medi", "bp_medi", "win_rate")
+
+
+def _controlla_unita(unita: str) -> None:
+    if unita not in UNITA_CHE_DECIDONO:
+        raise ValueError(f"unita' che decide {unita!r} non prevista: usa una di {UNITA_CHE_DECIDONO}.")
+
+
+def costo_andata_ritorno_bp(costi: dict) -> float:
+    """
+    Il costo di un trade andata e ritorno in bp del prezzo (22/10/2026), dai
+    costi di vetrina.costi_storico: due commissioni (una per lato) piu' lo
+    spread, pagato una volta. Senza funding (si conosce solo a trade chiuso).
+
+        costo_bp = (2 x commission + spread) x 10.000
+
+    E' lo stesso «Costo per trade» in bp della schermata 1 del Lab. Sul
+    perpetual Binance BTC: 2 x 0,05% = 10 bp di commissione, piu' lo spread
+    di un passo sul prezzo mediano.
+    """
+    return (2.0 * float(costi["commission"]) + float(costi["spread"])) * 10_000.0
 
 
 # ========================================================================
@@ -264,7 +296,7 @@ def cella_contesto(df: pd.DataFrame, direzione: int, finestra: int = 500,
 # ========================================================================
 
 def esiti_trade(trades: pd.DataFrame, df: pd.DataFrame, pip_size: float,
-                commission: float = 0.0) -> pd.DataFrame:
+                commission: float = 0.0, unita: str = "pips") -> pd.DataFrame:
     """
     Una riga per trade, con le posizioni riferite all'indice di `df`.
 
@@ -274,12 +306,17 @@ def esiti_trade(trades: pd.DataFrame, df: pd.DataFrame, pip_size: float,
     pip_size, commission
                 gli stessi del backtest (fs.pip_size, costi["commission"])
 
+    unita       "pips" (default) o "bp": con "bp" c'e' anche la colonna
+                bp_netti (metriche.bp_per_trade), i pips restano accanto
+
     Colonne: barra_segnale (= barra d'ingresso - 1), barra_uscita, lato
-    (+1 / -1), pips_netti, vinto (1 se pips_netti > 0).
+    (+1 / -1), pips_netti, vinto (1 se pips_netti > 0; in bp il segno e' lo
+    stesso), e con unita="bp" bp_netti.
     """
+    _controlla_unita(unita)
     if len(trades) == 0:
-        return pd.DataFrame(columns=["barra_segnale", "barra_uscita", "lato",
-                                     "pips_netti", "vinto"])
+        colonne = ["barra_segnale", "barra_uscita", "lato", "pips_netti", "vinto"]
+        return pd.DataFrame(columns=colonne + (["bp_netti"] if unita == "bp" else []))
     indice = pd.DatetimeIndex(df.index)
     pos_in = indice.get_indexer(pd.DatetimeIndex(trades["EntryTime"]))
     pos_out = indice.get_indexer(pd.DatetimeIndex(trades["ExitTime"]))
@@ -299,6 +336,9 @@ def esiti_trade(trades: pd.DataFrame, df: pd.DataFrame, pip_size: float,
         "pips_netti": netti.to_numpy(dtype=float),
     })
     out["vinto"] = (out["pips_netti"] > 0).astype(int)
+    if unita == "bp":
+        _, netti_bp = bp_per_trade(trades, pip_size, commission)
+        out["bp_netti"] = netti_bp.to_numpy(dtype=float)
     return out.reset_index(drop=True)
 
 
@@ -308,7 +348,8 @@ def esiti_trade(trades: pd.DataFrame, df: pd.DataFrame, pip_size: float,
 
 def confidenza_rolling(df: pd.DataFrame, esiti: pd.DataFrame, direzione: int,
                        finestra_trade: int = 500, min_obs: int = 30,
-                       finestra: int = 500, finestra_vol: int = 20) -> pd.DataFrame:
+                       finestra: int = 500, finestra_vol: int = 20,
+                       unita: str = "pips") -> pd.DataFrame:
     """
     La confidenza di ogni barra per un lato, come se su quella barra
     scattasse un segnale.
@@ -324,10 +365,16 @@ def confidenza_rolling(df: pd.DataFrame, esiti: pd.DataFrame, direzione: int,
         n_storia    trade della stessa cella nella storia
         win_rate    quota di trade vinti fra quelli
         pips_medi   pips netti medi fra quelli
-    win_rate e pips_medi sono NaN se n_storia < min_obs.
+        bp_medi     solo con unita="bp": bp netti medi fra quelli (servono
+                    esiti con la colonna bp_netti, esiti_trade(unita="bp"))
+    win_rate, pips_medi e bp_medi sono NaN se n_storia < min_obs.
     """
     if direzione not in (1, -1):
         raise ValueError("direzione deve essere 1 (long) o -1 (short).")
+    _controlla_unita(unita)
+    if unita == "bp" and "bp_netti" not in esiti.columns:
+        raise ValueError("Con unita='bp' gli esiti devono avere la colonna bp_netti: "
+                         "calcolali con esiti_trade(..., unita='bp').")
     cella = cella_contesto(df, direzione, finestra=finestra, finestra_vol=finestra_vol)
     celle = cella.to_numpy()
     n_barre = len(df)
@@ -344,6 +391,7 @@ def confidenza_rolling(df: pd.DataFrame, esiti: pd.DataFrame, direzione: int,
     n_storia = np.zeros(n_barre)
     somma_pips = np.zeros(n_barre)
     somma_vinti = np.zeros(n_barre)
+    somma_bp = np.zeros(n_barre)
     for c in range(4):
         in_c = (e["cella"].to_numpy() == c)
         cum_n = np.r_[0.0, np.cumsum(in_c)]
@@ -353,19 +401,26 @@ def confidenza_rolling(df: pd.DataFrame, esiti: pd.DataFrame, direzione: int,
         n_storia[qui] = (cum_n[k] - cum_n[k0])[qui]
         somma_pips[qui] = (cum_p[k] - cum_p[k0])[qui]
         somma_vinti[qui] = (cum_v[k] - cum_v[k0])[qui]
+        if unita == "bp":
+            cum_b = np.r_[0.0, np.cumsum(np.where(in_c, e["bp_netti"].to_numpy(dtype=float), 0.0))]
+            somma_bp[qui] = (cum_b[k] - cum_b[k0])[qui]
 
     valida = ~np.isnan(celle) & (n_storia >= int(min_obs))
     with np.errstate(invalid="ignore", divide="ignore"):
         pips_medi = np.where(valida, somma_pips / n_storia, np.nan)
         win_rate = np.where(valida, somma_vinti / n_storia, np.nan)
+        bp_medi = np.where(valida, somma_bp / n_storia, np.nan) if unita == "bp" else None
 
-    return pd.DataFrame({
+    colonne = {
         "cella": cella.to_numpy(),
         "etichetta": pd.Series(cella.to_numpy()).map(ETICHETTE_CELLA).to_numpy(),
         "n_storia": np.where(np.isnan(celle), np.nan, n_storia),
         "win_rate": win_rate,
         "pips_medi": pips_medi,
-    }, index=df.index)
+    }
+    if unita == "bp":
+        colonne["bp_medi"] = bp_medi
+    return pd.DataFrame(colonne, index=df.index)
 
 
 # ========================================================================
@@ -376,6 +431,8 @@ def confidenza_rolling(df: pd.DataFrame, esiti: pd.DataFrame, direzione: int,
 # legge da qui, cosi' rieseguire la cella aggiorna i valori senza
 # ri-registrare niente.
 _DATI_FILTRI: dict[str, tuple[pd.Series, float]] = {}
+# nome del filtro -> (metrica, multiplo del costo o None, soglia nella metrica)
+_SOGLIE: dict[str, tuple[str, float | None, float]] = {}
 
 
 def _fmt(soglia: float) -> str:
@@ -397,7 +454,8 @@ def _funzione_filtro(nome: str):
 def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
                                conf_short: pd.DataFrame | None = None,
                                metrica: str = "pips_medi",
-                               prefisso: str = "CONF") -> list[str]:
+                               prefisso: str = "CONF",
+                               costo_bp: float | None = None) -> list[str]:
     """
     Registra una soglia di confidenza come filtro, per ogni soglia in `soglie`.
 
@@ -409,6 +467,13 @@ def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
     Il filtro e' vero dove la metrica e' STRETTAMENTE sopra la soglia; dove
     la confidenza non e' nota (NaN) e' falso: il segnale non si trada.
 
+    metrica="bp_medi" (22/10/2026, i symbol da exchange): le soglie sono
+    MULTIPLI del costo andata e ritorno `costo_bp` (costo_andata_ritorno_bp
+    dei costi di costi_storico), fissati dal listino e non dai dati. La
+    soglia vera e' multiplo x costo_bp; il nome porta il multiplo con una C:
+    CONF_BP_MEDI_0.5C = «sopra mezzo costo». `soglie_confidenza` mostra il
+    valore in bp di ogni nome.
+
     Rieseguire con gli stessi nomi aggiorna i valori (niente doppioni nel
     registro). Restituisce la lista dei nomi, da passare a `filtri=`.
     """
@@ -416,6 +481,17 @@ def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
         raise ValueError(f"metrica deve essere una di {_METRICHE}.")
     if conf_long is None and conf_short is None:
         raise ValueError("Serve almeno conf_long o conf_short.")
+    in_costi = metrica == "bp_medi"
+    if in_costi:
+        if costo_bp is None or not np.isfinite(costo_bp) or costo_bp <= 0:
+            raise ValueError("Con metrica='bp_medi' le soglie sono multipli del costo: serve "
+                             "costo_bp > 0 (costo_andata_ritorno_bp(costi)).")
+        for conf in (conf_long, conf_short):
+            if conf is not None and "bp_medi" not in conf.columns:
+                raise ValueError("La tabella di confidenza non ha bp_medi: calcolala con "
+                                 "confidenza_rolling(..., unita='bp').")
+    elif costo_bp is not None:
+        raise ValueError(f"costo_bp serve solo con metrica='bp_medi', non con {metrica!r}.")
     if isinstance(soglie, (int, float)):
         soglie = [soglie]
 
@@ -423,7 +499,12 @@ def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
     nomi = []
     for s in soglie:
         s = float(s)
-        base = f"{prefisso}_{metrica.upper()}_{_fmt(s)}"
+        if in_costi:
+            multiplo, s = s, s * float(costo_bp)
+            base = f"{prefisso}_{metrica.upper()}_{_fmt(multiplo)}C"
+        else:
+            multiplo = None
+            base = f"{prefisso}_{metrica.upper()}_{_fmt(s)}"
         coppia = base if (conf_long is not None and conf_short is not None) else None
         for conf, direzione, suffisso in ((conf_long, 1, "_L"), (conf_short, -1, "_S")):
             if conf is None:
@@ -432,10 +513,36 @@ def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
             if nome in gia and nome not in _DATI_FILTRI:
                 raise ValueError(f"'{nome}' e' gia' registrato e non e' un filtro di confidenza.")
             _DATI_FILTRI[nome] = (conf[metrica], s)
+            _SOGLIE[nome] = (metrica, multiplo, s)
             if nome not in gia:
                 register_filter(nome, direction=direzione, pair=coppia)(_funzione_filtro(nome))
             nomi.append(nome)
     return nomi
+
+
+def soglie_confidenza(nomi) -> pd.DataFrame:
+    """
+    Le soglie dei filtri di confidenza registrati (22/10/2026): una riga per
+    soglia, con la metrica, il multiplo del costo (solo per bp_medi) e il
+    valore vero della soglia nella metrica (in bp per bp_medi). Accetta i
+    nomi di registra_filtro_confidenza (con _L / _S) o le etichette della
+    tabella dei filtri (senza).
+    """
+    righe, viste = [], set()
+    for nome in nomi:
+        chiave = nome if nome in _SOGLIE else next(
+            (nome + suf for suf in ("_L", "_S") if nome + suf in _SOGLIE), None)
+        if chiave is None:
+            raise ValueError(f"'{nome}' non e' un filtro di confidenza registrato.")
+        etichetta = chiave[:-2] if chiave[-2:] in ("_L", "_S") else chiave
+        if etichetta in viste:
+            continue
+        viste.add(etichetta)
+        metrica, multiplo, soglia = _SOGLIE[chiave]
+        righe.append({"filtro": etichetta, "metrica": metrica,
+                      "multiplo_del_costo": np.nan if multiplo is None else multiplo,
+                      "soglia": soglia})
+    return pd.DataFrame(righe)
 
 
 # ========================================================================
@@ -445,7 +552,7 @@ def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
 def report_calibrazione(esiti: pd.DataFrame, df: pd.DataFrame, split,
                         conf_long: pd.DataFrame | None = None,
                         conf_short: pd.DataFrame | None = None,
-                        mostra_oos: bool = False) -> pd.DataFrame:
+                        mostra_oos: bool = False, unita: str = "pips") -> pd.DataFrame:
     """
     Confidenza prevista contro esito reale, per lato e per cella.
 
@@ -457,9 +564,17 @@ def report_calibrazione(esiti: pd.DataFrame, df: pd.DataFrame, split,
     mostra_oos   False (default) = solo In-Sample. Si mette True UNA volta,
                  al passo 6, insieme al resto dell'OOS.
 
+    unita        "pips" (default) o "bp": con "bp" anche bp_previsti e
+                 bp_reali (esiti e tabelle calcolati con unita="bp")
+
     Colonne: parte, lato, cella, trade (quelli con confidenza nota),
-    pips_previsti, pips_reali, win_rate_previsto, win_rate_reale.
+    pips_previsti, pips_reali, win_rate_previsto, win_rate_reale, e con
+    unita="bp" bp_previsti, bp_reali.
     """
+    _controlla_unita(unita)
+    if unita == "bp" and "bp_netti" not in esiti.columns:
+        raise ValueError("Con unita='bp' gli esiti devono avere la colonna bp_netti: "
+                         "calcolali con esiti_trade(..., unita='bp').")
     split = pd.Timestamp(split)
     righe = []
     for conf, lato in ((conf_long, 1), (conf_short, -1)):
@@ -470,20 +585,29 @@ def report_calibrazione(esiti: pd.DataFrame, df: pd.DataFrame, split,
         e["cella"] = conf["etichetta"].to_numpy()[pos]
         e["pips_previsti"] = conf["pips_medi"].to_numpy()[pos]
         e["wr_previsto"] = conf["win_rate"].to_numpy()[pos]
+        if unita == "bp":
+            if "bp_medi" not in conf.columns:
+                raise ValueError("La tabella di confidenza non ha bp_medi: calcolala con "
+                                 "confidenza_rolling(..., unita='bp').")
+            e["bp_previsti"] = conf["bp_medi"].to_numpy()[pos]
         e["parte"] = np.where(df.index[pos] < split, "IS", "OOS")
         e = e[e["pips_previsti"].notna()]
         parti = ["IS", "OOS"] if mostra_oos else ["IS"]
         for parte in parti:
             for cella in ETICHETTE_CELLA.values():
                 g = e[(e["parte"] == parte) & (e["cella"] == cella)]
-                righe.append({
+                riga = {
                     "parte": parte, "lato": "long" if lato == 1 else "short",
                     "cella": cella, "trade": len(g),
                     "pips_previsti": g["pips_previsti"].mean() if len(g) else np.nan,
                     "pips_reali": g["pips_netti"].mean() if len(g) else np.nan,
                     "win_rate_previsto": g["wr_previsto"].mean() if len(g) else np.nan,
                     "win_rate_reale": g["vinto"].mean() if len(g) else np.nan,
-                })
+                }
+                if unita == "bp":
+                    riga["bp_previsti"] = g["bp_previsti"].mean() if len(g) else np.nan
+                    riga["bp_reali"] = g["bp_netti"].mean() if len(g) else np.nan
+                righe.append(riga)
     return pd.DataFrame(righe)
 
 
@@ -499,7 +623,7 @@ def _curva_pips(trades: pd.DataFrame, pip_size: float, commission: float) -> pd.
 def plot_oos_confidenza(trades_senza: pd.DataFrame, trades_con: pd.DataFrame,
                         pip_size: float, commission: float = 0.0,
                         etichetta_con: str = "con confidenza",
-                        titolo: str = "Out-of-Sample"):
+                        titolo: str = "Out-of-Sample", unita: str = "pips"):
     """
     Le due equity in pips netti cumulati, sullo stesso grafico:
 
@@ -510,10 +634,12 @@ def plot_oos_confidenza(trades_senza: pd.DataFrame, trades_con: pd.DataFrame,
     entrano anche trade che senza erano bloccati da una posizione aperta.
 
     Restituisce (ax, tabella): trade, avg_trade_netto, pips_totali,
-    max_dd_pips per le due curve.
+    max_dd_pips per le due curve. Con unita="bp" anche avg_trade_netto_bp:
+    la curva, il totale e il drawdown restano in pips (sono soldi, docs/02).
     """
     import matplotlib.pyplot as plt
 
+    _controlla_unita(unita)
     righe = []
     fig, ax = plt.subplots(figsize=(11, 5))
     for trades, nome in ((trades_senza, "senza confidenza"), (trades_con, etichetta_con)):
@@ -526,8 +652,12 @@ def plot_oos_confidenza(trades_senza: pd.DataFrame, trades_con: pd.DataFrame,
             totale = float(curva.iloc[-1])
         else:
             dd = media = totale = np.nan
-        righe.append({"curva": nome, "trade": len(curva), "avg_trade_netto": media,
-                      "pips_totali": totale, "max_dd_pips": dd})
+        riga = {"curva": nome, "trade": len(curva), "avg_trade_netto": media,
+                "pips_totali": totale, "max_dd_pips": dd}
+        if unita == "bp":
+            riga["avg_trade_netto_bp"] = (float(bp_per_trade(trades, pip_size, commission)[1].mean())
+                                          if len(trades) else np.nan)
+        righe.append(riga)
     ax.axhline(0, color="grey", linewidth=0.8)
     ax.set_title(f"{titolo} · pips netti cumulati")
     ax.set_ylabel("pips netti")

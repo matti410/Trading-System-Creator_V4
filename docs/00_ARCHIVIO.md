@@ -233,11 +233,14 @@ tenuti_scartati(...) · drawdown_montecarlo(pips) · scheda_strategia(...) · ve
 congela_filtro(fs, filtro_scelto)                              -> (entry_long, entry_short) con il filtro dentro
 congela_confidenza_nota(entry_l, entry_s, conf_l, conf_s)       -> entry ristrette ai segnali a confidenza nota
 cella_contesto(df, direzione, finestra=500, finestra_vol=20)   -> 0..3
-esiti_trade(trades, df, pip_size, commission)                  -> una riga per trade
-confidenza_rolling(df, esiti, direzione, finestra_trade=500, min_obs=30)
-registra_filtro_confidenza(soglie, conf_long=, conf_short=, metrica="pips_medi")
-report_calibrazione(esiti, df, split, conf_long=, conf_short=, mostra_oos=False)
-plot_oos_confidenza(trades_senza, trades_con, pip_size, commission)
+esiti_trade(trades, df, pip_size, commission, unita="pips")    -> una riga per trade (bp: anche bp_netti)
+confidenza_rolling(df, esiti, direzione, finestra_trade=500, min_obs=30, unita="pips")
+registra_filtro_confidenza(soglie, conf_long=, conf_short=, metrica="pips_medi", costo_bp=None)
+        # metrica="bp_medi": soglie = multipli di costo_bp, nomi CONF_BP_MEDI_0.5C (22/10/2026)
+costo_andata_ritorno_bp(costi)                                 -> (2 x commission + spread) x 10.000
+soglie_confidenza(nomi)                                        -> il valore vero di ogni soglia
+report_calibrazione(esiti, df, split, conf_long=, conf_short=, mostra_oos=False, unita="pips")
+plot_oos_confidenza(trades_senza, trades_con, pip_size, commission, unita="pips")
 
 # engine/collaudo_catalogo.py
 verifica_lookahead(df_grezzo, prepara=aggiungi_indicatori, tagli_per_condizione=5)
