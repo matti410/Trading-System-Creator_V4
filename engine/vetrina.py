@@ -307,6 +307,9 @@ class Sessione:
         self.funding = None           # 21/10/2026: storico del funding (perpetual); None = non contato
         self.motore = None            # 21/10/2026 (docs/65): "bt" o "veloce"; None = il predefinito (E3: "veloce")
         self.maschere = {}            # 21/10/2026 (E4, docs/65 §16): maschere dei filtri, una cache per df
+        # 22/10/2026 (docs/63 §10.3): le prove della catena, per la soglia cumulata.
+        # Ogni prova e' registrata con le sue impostazioni: rifatta uguale non conta due volte
+        self.prove = {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
         self.tabelle = {}
 
     def __repr__(self):
@@ -824,6 +827,7 @@ def esplora(s: Sessione, quanti: int = 5):
         s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=s.H,
                                min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
     misurati = len(s.ev.sintesi)
+    s.prove["trigger"] = misurati              # 22/10/2026: soglia cumulata (H e' fisso nella sessione)
     _nota(f"{misurati} trigger misurati su {len(candidati)} "
           f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media)."
           + (" Spot: solo i trigger long, lo short non esiste." if s.solo_long else ""))
@@ -1186,6 +1190,9 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
             entry_cols_long=[s.entry_long, None] if entrambi else [s.entry_long],
             entry_cols_short=[s.entry_short, None] if entrambi else [s.entry_short],
             exit_rule_pairs=regola_uscita, verbose=False, **_kw_motore(s))
+    # 22/10/2026: soglia cumulata, i sistemi provati con queste impostazioni
+    s.prove["uscite"][(s.trigger_long, s.trigger_short, bl, bs, float(sl), float(tp),
+                       str(regola_uscita))] = len(s.es.risultati)
 
     r = s.es.risultati.copy()
     r["Sistema"] = r.apply(_nome_sistema, axis=1)
@@ -1387,7 +1394,9 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
             verbose=False, cache_maschere=_cache_maschere(s, "is"), **kw)
     r = s.fs.risultati
     prove = r[r["filtro"] != BASELINE]
-    promossi = prove.loc[prove["esito"].isin([DA_VALUTARE, CAMPIONE_CORTO]), "filtro"].to_list()
+    # 22/10/2026: soglia cumulata, i filtri provati con questi trigger e queste uscite
+    s.prove["filtri"][_chiave_filtri(s)] = len(prove)
+    promossi =prove.loc[prove["esito"].isin([DA_VALUTARE, CAMPIONE_CORTO]), "filtro"].to_list()
 
     verdetti = {}
     s.dm = None
@@ -1636,6 +1645,103 @@ def _mostra_costi(s: Sessione, tr_is, tr_oos) -> pd.DataFrame | None:
     return tabella
 
 
+# ------------------------------------------------------------------------
+# La soglia cumulata (22/10/2026, docs/63 §10.3, «Cosa manca» punto 3)
+# ------------------------------------------------------------------------
+
+def _chiave_filtri(s: Sessione) -> tuple:
+    """Le impostazioni di una ricerca dei filtri: i trigger e le uscite."""
+    return (s.trigger_long, s.trigger_short, tuple(sorted((k, str(v)) for k, v in s.uscite.items())))
+
+
+def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: list, t: float,
+                     schermate: bool, alpha: float = ALPHA) -> dict:
+    """
+    La soglia di Sidak (giudizio.soglia_rumore) sul totale delle prove della
+    catena, e la frase da mostrare sotto la scheda. Solo informativa.
+
+    trigger        i trigger misurati dall'event study
+    uscite         i sistemi provati, uno per ricerca delle uscite
+    filtri         i filtri provati, uno per ricerca dei filtri
+    combinazioni   C(n, m) per ogni scelta a mano di m > 1 filtri fra n
+    """
+    u, f, c = int(sum(uscite)), int(sum(filtri)), int(sum(combinazioni))
+    k = int(trigger) + u + f + c
+    soglia = soglia_rumore(k, alpha) if k else np.nan
+
+    def dove(n):
+        return f" (schermata {n})" if schermate else ""
+
+    parti = [f"{int(trigger)} trigger misurati{dove(2)}"]
+    if uscite:
+        parti.append(f"{u} sistemi provati in {len(uscite)} "
+                     f"{'impostazione' if len(uscite) == 1 else 'impostazioni'} delle uscite{dove(4)}")
+    if filtri:
+        parti.append(f"{f} filtri" + (f" in {len(filtri)} ricerche" if len(filtri) > 1 else "") + dove(5))
+    if c:
+        parti.append(f"{c} combinazioni di filtri scelte a mano{dove(6)}")
+    if k:
+        frase = (f"Soglia cumulata (solo informativa). Lungo la catena hai fatto {k} prove: "
+                 f"{', '.join(parti)}. Con {k} prove il caso da solo arriva fino a una solidità di "
+                 f"{_fmt(soglia)} (Šidák, famiglia {alpha:.0%}).")
+    else:
+        frase = "Soglia cumulata (solo informativa). Nessuna prova contata finora."
+    if np.isfinite(t):
+        frase += f" La solidità in-sample di questa strategia è {_fmt(t)}."
+    frase += (" È un conto prudente: tratta le prove come indipendenti, quindi è un po' più severo del vero. "
+              "Non cambia nessun controllo.")
+    return {"trigger": int(trigger), "uscite": u, "ricerche_uscite": len(uscite), "filtri": f,
+            "ricerche_filtri": len(filtri), "combinazioni": c, "k": k, "soglia": soglia,
+            "alpha": alpha, "t": t, "frase": frase}
+
+
+def _lista(x) -> list:
+    """None -> [], un oggetto -> [oggetto], una lista -> la lista senza doppioni (stesso oggetto)."""
+    if x is None:
+        return []
+    voci = list(x) if isinstance(x, (list, tuple)) else [x]
+    viste, unici = set(), []
+    for v in voci:
+        if v is not None and id(v) not in viste:
+            viste.add(id(v))
+            unici.append(v)
+    return unici
+
+
+def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float = np.nan,
+                    alpha: float = ALPHA) -> dict:
+    """
+    La soglia cumulata per il notebook di ricerca (22/10/2026), con gli
+    stessi conti del Lab:
+
+        ev             l'event study dei trigger (run_event_study): conta
+                       i trigger misurati, len(ev.sintesi)
+        es             una ricerca delle uscite o una lista (le celle 2.2 e
+                       2.3): conta le righe di ciascuna
+        fs             una ricerca dei filtri o una lista: conta le righe
+                       senza la baseline
+        combinazioni   C(n, m) se si sono scelti a mano m > 1 filtri fra n
+        t              la solidita' in-sample della strategia, da mostrare accanto
+
+    Lo stesso oggetto passato due volte conta una volta sola (la stessa
+    ricerca rieseguita non e' una prova in piu'). Solo informativa: non
+    boccia e non blocca niente. Ritorna il dizionario dei conti, con la
+    frase in "frase".
+    """
+    trigger = len(ev.sintesi) if ev is not None else 0
+    uscite = [len(e.risultati) for e in _lista(es)]
+    filtri = [int((f.risultati["filtro"] != BASELINE).sum()) for f in _lista(fs)]
+    return _soglia_da_conti(trigger, uscite, filtri, [int(combinazioni)] if combinazioni else [],
+                            float(t), schermate=False, alpha=alpha)
+
+
+def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
+    """La soglia cumulata delle prove registrate nella sessione (schermate 2, 4, 5, 6)."""
+    p = s.prove
+    return _soglia_da_conti(p["trigger"], list(p["uscite"].values()), list(p["filtri"].values()),
+                            list(p["combinazioni"].values()), t, schermate=True)
+
+
 def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
     """
     Schermata 6. La scheda della strategia scelta: in-sample accanto alla
@@ -1678,6 +1784,8 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         _mostra(("Un filtro sopra l'altro (in-sample, al netto dei costi)", tab_passi))
         n_prove = int((s.fs.risultati["filtro"] != BASELINE).sum())
         combinazioni = math.comb(n_prove, len(scelti))
+        # 22/10/2026: soglia cumulata, la famiglia «m filtri fra n» conta una volta
+        s.prove["combinazioni"][(_chiave_filtri(s), len(scelti))] = combinazioni
         _spiegazione(
             "Combinazione scelta a mano: non è passata dall'imbuto.",
             f"Ogni riga aggiunge un filtro a quella sopra: si entra solo quando sono veri tutti. Guarda quanti trade "
@@ -1703,9 +1811,10 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
               f"perdita media e profit factor sono calcolati sui {s.unita} netti di ogni trade. Totale e drawdown "
               "restano in pips: sono i soldi del conto.")
     _mostra_costi(s, tr_is, tr_oos)       # 21/10/2026: commissione, spread, funding
-    if s.da_exchange:                     # 21/10/2026 (docs/63 §7.6): solo informativa, nessun cancello cambia
-        from .mercato_nullo import frase_mercato_nullo
-        _nota(frase_mercato_nullo(s.symbol, s.timeframe, s.H, float(k_is.get("t_stat", np.nan)), s.cartella))
+    # 22/10/2026 (docs/63 §10.3): la soglia cumulata al posto della riga del mercato
+    # nullo (sospeso, il codice resta). Solo informativa: nessun cancello cambia
+    s.tabelle["soglia_cumulata"] = _soglia_cumulata_lab(s, float(k_is.get("t_stat", np.nan)))
+    _nota(s.tabelle["soglia_cumulata"]["frase"])
 
     if len(tr_oos):
         plot_equity(tr_oos, s.df_oos, cash=CASH, etichetta=nome, figsize=(11, 4.8))

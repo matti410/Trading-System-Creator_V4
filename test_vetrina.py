@@ -314,6 +314,64 @@ def esegui() -> int:
           esiti["T_SHORT_BUONO"] > 0 > esiti["T_SHORT_CATTIVO"],
           f"{esiti['T_SHORT_BUONO']:+.1f} / {esiti['T_SHORT_CATTIVO']:+.1f} pips netti per trade")
 
+    print("\nS · La soglia cumulata sotto la scheda (22/10/2026, docs/63 §10.3)")
+    import math
+    from types import SimpleNamespace
+    from engine.filter_search_bt import BASELINE as _BASE
+    from engine.giudizio import soglia_rumore as _sr
+    a_mano = v._soglia_da_conti(4, [3], [10], [], np.nan, schermate=True)
+    finto_ev = SimpleNamespace(sintesi=pd.DataFrame({"x": range(20)}))
+    finto_es = SimpleNamespace(risultati=pd.DataFrame({"combinazione": ["a", "b", "c"]}))
+    finto_fs = SimpleNamespace(risultati=pd.DataFrame({"filtro": [_BASE] + [f"F{i}" for i in range(19)]}))
+    nb = v.soglia_cumulata(ev=finto_ev, es=[finto_es, finto_es], fs=finto_fs, t=1.5)
+    check("59. Sidak a mano: 4 + 3 + 10 = 17 prove -> 2,97; 20 + 3 + 19 = 42 -> 3,23 "
+          "(la stessa ricerca passata due volte conta una volta)",
+          a_mano["k"] == 17 and round(a_mano["soglia"], 2) == 2.97
+          and nb["k"] == 42 and round(nb["soglia"], 2) == 3.23 and nb["ricerche_uscite"] == 1
+          and "solidità in-sample di questa strategia è 1,50" in nb["frase"] and "schermata" not in nb["frase"],
+          f"{a_mano['soglia']:.3f} · {nb['soglia']:.3f}")
+
+    n_trig = len(s2.ev.sintesi)
+    check("60. schermate 2 e 4: trigger dell'event study; un lato solo = 1 sistema per impostazione",
+          s2.prove["trigger"] == n_trig and sorted(s2.prove["uscite"].values()) == [1, 1],
+          f"{n_trig} trigger, uscite {list(s2.prove['uscite'].values())}")
+    muto(v.imposta_uscite, s2, None, 10, 0, 0)           # stesse impostazioni: non conta due volte
+    stesse = len(s2.prove["uscite"]) == 2
+    muto(v.imposta_uscite, s2, None, 10, 80, 0)          # un altro stop: una prova in piu'
+    check("61. schermata 4 rifatta uguale: +0; con un altro stop: +1 sistema",
+          stesse and sorted(s2.prove["uscite"].values()) == [1, 1, 1])
+    muto(v.trova_strategia, s2)
+    n_f = int((s2.fs.risultati["filtro"] != _BASE).sum())
+    muto(v.trova_strategia, s2)
+    check("62. schermata 5: + i filtri provati, rifatta uguale non conta due volte",
+          list(s2.prove["filtri"].values()) == [n_f], f"{n_f} filtri")
+    due = [f for f in s2.fs.risultati["filtro"] if f != _BASE][:2]
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        tab_scheda = v.scheda(s2, ", ".join(due))
+    conti = s2.tabelle["soglia_cumulata"]
+    k_atteso = n_trig + 3 + n_f + math.comb(n_f, 2)
+    check("63. scheda con 2 filtri: + C(n, 2); totale e soglia = soglia_rumore(k)",
+          conti["combinazioni"] == math.comb(n_f, 2) and conti["k"] == k_atteso
+          and np.isclose(conti["soglia"], _sr(k_atteso, 0.05)),
+          f"k = {conti['k']}, soglia {conti['soglia']:.2f}")
+    from engine.giudizio import scheda_strategia as _ss
+    t_is = _ss(s2.trades_is, s2.fs.pip_size, s2.fs.commission or 0.0, montecarlo=False,
+               verbose=False, atr=s2.atr, unita=s2.unita)["t_stat"]
+    testo = out.getvalue()
+    check("64. la riga sotto la scheda: soglia cumulata al posto del mercato nullo, solidita' della scheda",
+          conti["frase"] in testo and "Soglia cumulata (solo informativa)" in testo
+          and "nullo" not in testo.lower() and np.isclose(conti["t"], t_is)
+          and f"(schermata 6)" in conti["frase"] and isinstance(tab_scheda, pd.DataFrame))
+    with contextlib.redirect_stdout(io.StringIO()):
+        tab_ancora = v.scheda(s2, ", ".join(due))
+    check("65. solo informativa: rifare la scheda non cambia la tabella ne' il conto",
+          tab_ancora.equals(tab_scheda) and s2.tabelle["soglia_cumulata"]["k"] == k_atteso)
+    s4 = muto(v.prepara, "EURUSD", 12)
+    check("66. prepara (symbol, timeframe o H nuovi): il conto riparte da zero",
+          s4.prove == {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
+          and v._soglia_cumulata_lab(s4, np.nan)["k"] == 0)
+
     print("\nE · Piu' filtri insieme e l'asticella della prima prova (7/10/2026)")
     from engine.giudizio import soglia_rumore
     muto(v.scegli_trigger, s, long=LONG, short=SHORT)
