@@ -1,6 +1,6 @@
 # 66 · Proposta: l'atlante del trigger (lavoro C)
 
-Stato: **proposta, in attesa del via di Mattia** (22/10/2026). Nessun codice
+Stato: **approvata da Mattia il 22/10/2026** (decisioni nel §13). Nessun codice
 scritto. Le decisioni di partenza sono in `63` §6 e §10–10.3; qui si dice come
 realizzarle. Unità: il bp decide, i pips accanto (`02`, «Unità»).
 
@@ -19,6 +19,7 @@ realizzarle. Unità: il bp decide, i pips accanto (`02`, «Unità»).
 - §10 · Da fare nello stesso ramo: la confidenza nella soglia cumulata
 - §11 · Rischi
 - §12 · Domande per Mattia
+- §13 · Decisioni di Mattia (22/10/2026)
 
 ---
 
@@ -399,3 +400,23 @@ es=[es_trigger, es], fs=[fs, fs_conf], t=...)`.
 | 5 | Confidenza nella strada B: si salta sempre, o solo quando la cella scelta è di volatilità × trend? | **Sempre**: con una cella di sessione o di basis, la griglia volatilità × trend sarebbe un'altra scelta di contesto sopra la prima. |
 | 6 | Pips e ATR accanto al bp solo per i trigger mostrati nella mappa, non per tutte le celle? | **Sì**: decide il bp, e così l'atlante resta veloce. |
 | 7 | Lo spot si aggancia ai perpetual sempre (in `carica_storico`), o solo quando si apre l'atlante? | **Sempre**, dopo gli indicatori: un solo modo di caricare i dati, controllato dalla prova di identità. |
+
+## 13 · Decisioni di Mattia (22/10/2026)
+
+Proposta approvata. Risposte alle domande del §12:
+
+| # | decisione |
+|---|---|
+| 1 | Il fine settimana resta dentro ASIA_NOTTE, con il nome «ASIA_NOTTE (e fine settimana)». Niente quinta cella. |
+| 2 | Sì: la sessione si legge sulla barra d'ingresso (i+1). |
+| 3 | Sì: `scegli_cella` solo fra le celle che passano, senza una cella di default. |
+| 4 | Sì: nella soglia cumulata si sommano trigger e celle; le celle sotto i 200 eventi non si contano. |
+| 5 | Sì: nella strada B la confidenza si salta sempre. |
+| 6 | Sì: pips e ATR solo per i trigger mostrati. |
+| 7 | Sì: lo spot si aggancia sempre ai perpetual; la prova di identità della strada A deve restare identica al bit. |
+
+Codice sul ramo `atlante-trigger` (che comprende il commit di questa
+proposta), commit nell'ordine del §9 con le suite dopo ognuno. Obiettivo di
+tempo: atlante sotto i 20 s su BTC M15; se non si raggiunge, ci si ferma e
+lo si dice. Prove di identità complete. Prima della Pull request: `python
+suite_rapida.py --tutte` (38/38).
