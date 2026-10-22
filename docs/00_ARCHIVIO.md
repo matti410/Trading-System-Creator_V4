@@ -331,7 +331,7 @@ lookahead vero in `range_finestra` (E22, F21), corretto. Vedi `21`.
 `verifica_degenerazione`, stesso modulo. Si legge sui dati veri, senza
 promosso/bocciato. Vedi `21`.
 
-### 3. Il conteggio dei test multipli — fatto per chiamata il 24/9, il cumulato è in programma (soglia cumulata, `63` §10.3)
+### ~~3. Il conteggio dei test multipli~~ — fatto per chiamata il 24/9, il cumulato il 22/10 (soglia cumulata, `63` §10.3)
 
 Ogni passo che sceglie «il migliore fra tanti» calcola da sé la soglia di
 rumore sulle prove di **quella chiamata** e mette la colonna `oltre_rumore`:
@@ -360,6 +360,18 @@ nuovo ordine, dopo il motore veloce. Prende il posto del **mercato nullo**
 calcolo per ogni symbol × timeframe × H: il suo codice (PR #42) resta nel repo,
 fermo, per una verifica una tantum se un giorno servirà. La difesa indipendente
 resta l'out-of-sample aperto una volta sola.
+
+**Fatto il 22/10/2026 (ramo `soglia-cumulata`).** Il Lab conta, nella
+sessione, i trigger misurati (schermata 2), i sistemi provati per ogni
+impostazione diversa delle uscite (schermata 4), i filtri provati per ogni
+ricerca (schermata 5) e le combinazioni C(n, m) quando si scelgono a mano
+m > 1 filtri (schermata 6). Rifare una schermata con le stesse impostazioni
+non conta due volte; con impostazioni diverse le prove si sommano; un
+`prepara` nuovo (symbol, timeframe o H) riparte da zero. Sotto la scheda,
+al posto della riga del mercato nullo: «con k prove il caso arriva fino a una
+solidità di X» (`soglia_rumore(k)`), accanto alla solidità in-sample. Il
+notebook di ricerca usa `vetrina.soglia_cumulata(ev, es, fs)`. Non boccia e
+non blocca niente.
 
 ### ~~4. Le sovrapposizioni fra condizioni~~ — FATTO il 17/10
 
