@@ -16,6 +16,8 @@ dove il test lo dice. Sezioni:
         minimo di eventi, mercato senza vantaggi
     C · le celle come filtri del passo 5 (strada B): registrazione, coppie,
         k_prove e rimisura nella ricerca dei filtri
+    D · il Lab (engine/vetrina.py): spot agganciato ai perpetual, schermate 3c e
+        3d, strada B al passo 5, celle nella soglia cumulata, strada A identica
 """
 from __future__ import annotations
 
@@ -422,6 +424,121 @@ def esegui() -> int:
     except ValueError:
         ferma = True
     check("27. k_prove = 0 si ferma con un errore", ferma)
+
+    # =================================================================== D ==
+    print("\nD · Il Lab: schermate 3c e 3d, strada B al passo 5, soglia cumulata")
+    import contextlib
+    import io
+    import os
+    import tempfile
+    import engine.exchange as X
+    import engine.vetrina as vt
+
+    def muto(f, *a, **k):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return f(*a, **k)
+
+    def errore(f, testo):
+        try:
+            muto(f)
+        except (ValueError, RuntimeError) as e:
+            return testo in str(e)
+        return False
+
+    ML = Mercato(_indice(giorni=400), seme=7)
+    dl0 = ML.df()
+    nl = len(dl0)
+    rl = np.random.default_rng(17)
+    posl = np.sort(rl.choice(np.arange(600, nl - 2 * H), size=nl // 30, replace=False))
+    vl = volatilita_durata(dl0).to_numpy()[posl]
+    el = 0.0004                                      # 32 bp a evento: piu' dei costi del perpetual Binance
+    dl = ML.df(_deriva_dopo(nl, posl, np.where(vl == 1, el, np.where(vl == 0, -el, 0.0))))
+    _registra_entry("T_LAB_VOL_ALTA", 1, dl.index[posl])
+    spot = dl.copy()
+    spot[["Open", "High", "Low", "Close"]] = spot[["Open", "High", "Low", "Close"]].mul(1 - ML.basis, axis=0)
+    orari = pd.date_range(dl.index[0].floor("8h"), dl.index[-1].ceil("8h"), freq="8h")
+    fund = X.con_intervalli(pd.DataFrame({"tasso": 0.0001}, index=orari))
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as senza:
+        for cartella in (tmp, senza):
+            X.salva_csv(dl, os.path.join(cartella, "BINANCE_PERP_BTCUSDT_M15.csv"))
+            X.salva_funding(fund, X.file_funding("BINANCE_PERP_BTCUSDT", cartella))
+        X.salva_csv(spot, os.path.join(tmp, "BINANCE_SPOT_BTCUSDT_M15.csv"))
+        s = muto(vt.prepara, "BINANCE_PERP_BTCUSDT", H=H, cartella=tmp)
+        s0 = muto(vt.prepara, "BINANCE_PERP_BTCUSDT", H=H, cartella=senza)
+        rie = s.tabelle["riepilogo"].set_index("")[" "]
+        check("28. prepara sul perpetual aggancia lo spot della stessa coppia (riga «Spot» nel "
+              "riepilogo); senza il file dello spot non si ferma e dice quale file serve",
+              "spot_close" in s.df.columns and "BINANCE_SPOT_BTCUSDT" in rie["Spot (perpetual)"]
+              and "spot_close" not in s0.df.columns and "manca" in s0.spot_nota
+              and "scarica_dati_crypto.py BINANCE_SPOT_BTCUSDT" in s0.spot_nota)
+
+        check("29. l'atlante vuole i trigger scelti (schermata 3)",
+              errore(lambda: vt.atlante_dei_trigger(s), "Esplora"))
+        muto(vt.esplora, s)
+        muto(vt.esplora, s0)
+        check("30. scegli_cella vuole l'atlante (schermata 3c)",
+              errore(lambda: vt.scegli_cella(s, long="EUROPA"), "3c"))
+        muto(vt.scegli_trigger, s, long="T_LAB_VOL_ALTA")
+        tab = muto(vt.atlante_dei_trigger, s)
+        k = int(tab.attrs["k_misurate"])
+        passano = sorted(tab.loc[(tab["candidato"] == "T_LAB_VOL_ALTA") & tab["passa"], "cella"])
+        check("31. schermata 3c: tutte le entry vere, 10 celle per entry con la basis; per il trigger "
+              "scelto le colonne in pips accanto; passano solo celle a volatilità alta (con lo spread di un passo a prezzo 100 non sempre tutte e due)",
+              set(tab.attrs["assi"]) == {"vol_trend", "sessione", "basis"}
+              and (tab.groupby("candidato").size() == 10).all()
+              and tab["candidato"].nunique() == len(vt._trigger_candidati(None)) - len(tab.attrs["scartate"])
+              and tab.loc[tab["candidato"] == "T_LAB_VOL_ALTA", "scarto_pips"].notna().any()
+              and tab.loc[tab["candidato"] != "T_LAB_VOL_ALTA", "scarto_pips"].isna().all()
+              and passano and set(passano) <= {"VOL_ALTA_TREND_CONTRO", "VOL_ALTA_TREND_FAVORE"},
+              f"k = {k}, passano {passano}")
+        cella_no = next(c for c in tab.loc[tab["candidato"] == "T_LAB_VOL_ALTA", "cella"] if c not in passano)
+        check("32. scegli_cella si ferma: cella sconosciuta, cella che non passa (con l'elenco di quelle che "
+              "passano), lato senza trigger, due celle sullo stesso lato",
+              errore(lambda: vt.scegli_cella(s, long="VOL_ALTA"), "sconosciuta")
+              and errore(lambda: vt.scegli_cella(s, long=cella_no), "VOL_ALTA_TREND_FAVORE")
+              and errore(lambda: vt.scegli_cella(s, short="EUROPA"), "non ha trigger")
+              and errore(lambda: vt.scegli_cella(s, long="EUROPA, AMERICA"), "Una cella sola"))
+        muto(vt.scegli_cella, s, long="VOL_ALTA_TREND_FAVORE")
+        muto(vt.imposta_uscite, s, barre_long=H, sl=90)
+        muto(vt.trova_strategia, s)
+        r = s.fs.risultati
+        check("33. strada B al passo 5: si prova solo la cella (una riga), asticella = Šidák sulle k celle "
+              "dell'atlante, ricerca segnata come rimisura e non contata fra i filtri",
+              list(r["filtro"]) .count("CELLA_VOL_ALTA_TREND_FAVORE_L") == 1 and len(r) == 2
+              and np.isclose(s.fs.soglia_rumore, soglia_rumore(k)) and s.fs.rimisura
+              and s.prove["filtri"] == {},
+              f"asticella {s.fs.soglia_rumore:.2f} con k = {k}")
+        muto(vt.scheda, s, filtro="CELLA_VOL_ALTA_TREND_FAVORE_L")
+        sc = s.tabelle["soglia_cumulata"]
+        check("34. soglia cumulata sotto la scheda: trigger + celle dell'atlante + uscite; la cella "
+              "riprovata al passo 5 non conta due volte",
+              sc["celle"] == k and sc["filtri"] == 0 and sc["k"] == sc["trigger"] + k + sc["uscite"]
+              and np.isclose(sc["soglia"], soglia_rumore(sc["k"])) and "celle dell'atlante (schermata 3c" in sc["frase"]
+              and "non conta due volte" in sc["frase"], sc["frase"][:150])
+        muto(vt.atlante_dei_trigger, s)
+        check("35. atlante rifatto uguale: le celle non contano due volte; la cella scelta si azzera e "
+              "i suoi filtri escono dal registro",
+              list(s.prove["celle"].values()) == [k] and s.cella_long is None
+              and not any(n.startswith("CELLA_") for n in reg.list_filters()))
+        muto(vt.scegli_cella, s, long="VOL_ALTA_TREND_FAVORE")
+        muto(vt.scegli_cella, s)
+        muto(vt.imposta_uscite, s, barre_long=H, sl=90)
+        muto(vt.trova_strategia, s)
+        muto(vt.scegli_trigger, s0, long="T_LAB_VOL_ALTA")
+        muto(vt.imposta_uscite, s0, barre_long=H, sl=90)
+        muto(vt.trova_strategia, s0)
+        check("36. strada A (nessuna cella): tutti i filtri del catalogo, nessuna cella; risultati identici "
+              "al bit con e senza lo spot agganciato",
+              not s.fs.rimisura and not any(f.startswith("CELLA_") for f in s.fs.risultati["filtro"])
+              and s.fs.risultati.equals(s0.fs.risultati) and s.es.risultati.equals(s0.es.risultati)
+              and s.df_is.drop(columns="spot_close").equals(s0.df_is),
+              f"{len(s.fs.risultati) - 1} filtri")
+        sc_n = vt.soglia_cumulata(ev=s.ev, es=s.es, fs=[s.fs, s.fs], atlante=[tab, tab],
+                                  t=1.5)
+        check("37. soglia_cumulata per il notebook: atlante=… conta le celle una volta; una ricerca con "
+              "rimisura non si conta",
+              sc_n["celle"] == k and sc_n["filtri"] == len(s.fs.risultati) - 1
+              and vt.soglia_cumulata(fs=fs_b)["filtri"] == 0 and vt.soglia_cumulata(fs=fs_a)["filtri"] == 1)
 
     reg.clear_registry()
     print("\n" + "=" * 70)

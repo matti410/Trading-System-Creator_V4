@@ -14,6 +14,8 @@ risultato con un riquadro «Come leggerlo» scritto per un trader.
     classifiche(s)                                           3 · Scegli i trigger
     rosa_dei_trigger(s)                                        (la rosa dei candidati, 18/10)
     scegli_trigger(s, long=[...], short=[...])
+    atlante_dei_trigger(s)                                     3c · dove funziona il trigger (22/10, docs/66)
+    scegli_cella(s, long="EUROPA")                             3d · una cella per lato (facoltativa)
     imposta_uscite(s, barre_long=10, barre_short=18, sl=90)  4 · Imposta le uscite
     rosa_dei_sistemi(s)                                        (la rosa dei sistemi, 18/10)
     trova_strategia(s)                                       5 · Trova la strategia
@@ -309,7 +311,11 @@ class Sessione:
         self.maschere = {}            # 21/10/2026 (E4, docs/65 §16): maschere dei filtri, una cache per df
         # 22/10/2026 (docs/63 §10.3): le prove della catena, per la soglia cumulata.
         # Ogni prova e' registrata con le sue impostazioni: rifatta uguale non conta due volte
+        # (la voce "celle" dell'atlante, 22/10/2026, nasce alla schermata 3c)
         self.prove = {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
+        self.atlante = None           # 22/10/2026 (docs/66): l'atlante del trigger, schermata 3c
+        self.cella_long = self.cella_short = None   # la cella scelta per lato (3d); None = strada di sempre
+        self.spot_nota = None         # lo spot agganciato al perpetual, per la basis
         self.tabelle = {}
 
     def __repr__(self):
@@ -490,7 +496,9 @@ def _trigger_candidati(direzione: int | None = None) -> list[str]:
 
 
 def _tutti_i_filtri() -> list[str]:
-    return reg.list_filters(0) + reg.list_filters(1) + reg.list_filters(-1)
+    # 22/10/2026: senza le celle dell'atlante, registrate su richiesta (strada B, docs/66 §5)
+    return [n for n in reg.list_filters(0) + reg.list_filters(1) + reg.list_filters(-1)
+            if not n.startswith("CELLA_")]
 
 
 TIMEFRAMES = ("M5", "M15", "M30", "H1", "H4")    # 19/10/2026: quelli che il Lab accetta
@@ -625,6 +633,35 @@ def carica_funding(symbol: str, df: pd.DataFrame, cartella="dati") -> pd.DataFra
     return funding
 
 
+def aggancia_spot(symbol: str, df: pd.DataFrame, cartella="dati",
+                  timeframe: str = "M15") -> tuple[pd.DataFrame, str | None]:
+    """
+    Sui perpetual da exchange aggancia il Close dello spot della stessa
+    coppia e dello stesso exchange (22/10/2026, docs/66 §2.3, decisione di
+    Mattia: sempre): colonna spot_close (exchange.colonne_perpetual), che
+    serve alla basis dell'atlante. Da chiamare DOPO aggiungi_indicatori.
+    Comune al Lab e al notebook di ricerca.
+
+    Ritorna (df, frase). Sugli altri symbol: (df com'e', None). Se il CSV
+    dello spot manca non si ferma: df com'e' e la frase dice quale file serve
+    (l'atlante resta senza l'asse della basis).
+    """
+    if not da_exchange(symbol):
+        return df, None
+    from .exchange import colonne_perpetual, leggi_csv, parti_symbol
+    p = parti_symbol(symbol)
+    if p["mercato"] != "PERP":
+        return df, None
+    spot = f"{p['exchange']}_SPOT_{p['coppia']}"
+    percorso = os.path.join(str(cartella), f"{spot}_{timeframe}.csv")
+    if not os.path.exists(percorso):
+        return df, (f"manca {percorso}: l'atlante non avrà l'asse della basis (scaricalo con "
+                    f"«python scarica_dati_crypto.py {spot}»)")
+    out = colonne_perpetual(df, spot=leggi_csv(percorso))
+    quota = float(np.isfinite(out["spot_close"].to_numpy(dtype=float)).mean())
+    return out, f"{spot}, per la basis dell'atlante: c'è sul {_fmt(quota * 100, 1)}% delle barre"
+
+
 def _frase_funding(s) -> str:
     """La riga «Funding (perpetual)» della schermata 1 (21/10/2026, docs/63 §5.5)."""
     if s.funding is None:
@@ -700,6 +737,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
         s.solo_long = solo_long(symbol)
     with _zitto():
         df = aggiungi_indicatori(df)
+        df, s.spot_nota = aggancia_spot(symbol, df, cartella, timeframe)   # 22/10/2026 (docs/66)
         s.df_is, s.df_oos = split_is_oos(df, is_ratio=quota_in_sample)
     s.df, s.costi = df, costi
     s.atr = atr_giornaliero_chiuso(df)   # 20/10/2026: sullo storico intero, noto prima di ogni ingresso
@@ -738,6 +776,9 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     if s.da_exchange and not s.solo_long:
         voci.append("Funding (perpetual)")
         valori.append(_frase_funding(s))      # 21/10/2026
+    if s.spot_nota is not None:
+        voci.append("Spot (perpetual)")
+        valori.append(s.spot_nota)            # 22/10/2026
     # 20/10/2026 (docs/63 §4): lo stesso costo in punti base del prezzo (1 bp = 0,01%)
     mediana = float(s.df_is["Close"].median())
     spread_bp = sp["normale"] * s.pip / mediana * 10_000
@@ -1059,6 +1100,7 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
     # una scelta nuova invalida tutto cio' che viene dopo
     s.uscite = s.es = s.fs = s.dm = s.oos = s.rosa_sistemi = None
     s.sopravvissuti, s.filtro = [], None
+    _azzera_cella(s)                  # 22/10/2026: la cella dell'atlante va scelta di nuovo
 
     scelta = pd.DataFrame({
         "Lato": ["LONG", "SHORT"],
@@ -1068,6 +1110,192 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
     _mostra(("La tua scelta", scelta))
     _nota("Si tiene una posizione alla volta. Se a posizione aperta scatta un trigger del lato opposto, "
           "la posizione si chiude e si apre quella contraria.")
+
+
+# ========================================================================
+# 3c · L'atlante del trigger (22/10/2026, docs/63 §6 e docs/66)
+# ========================================================================
+
+def _azzera_cella(s: Sessione) -> None:
+    """Toglie la cella scelta (si torna alla strada di sempre) e i suoi filtri dal registro."""
+    reg.remove_filters("CELLA_")
+    s.cella_long = s.cella_short = None
+
+
+def _strada_b(s: Sessione) -> bool:
+    """True se e' scelta una cella dell'atlante: il passo 5 misura solo quella."""
+    return bool(getattr(s, "cella_long", None) or getattr(s, "cella_short", None))
+
+
+def _grafico_atlante(s: Sessione, tab: pd.DataFrame, trigger: list[str]) -> None:
+    """Per ogni trigger mostrato, la solidita' dello scarto di ogni cella: colorata se passa, grigia se no."""
+    from .atlante import etichetta_cella
+    import matplotlib.pyplot as plt
+    if not trigger:
+        return
+    fig, assi = plt.subplots(1, len(trigger), figsize=(6.2 * len(trigger), 5.6), squeeze=False)
+    for ax, nome in zip(assi[0], trigger):
+        r = tab[tab["candidato"] == nome].iloc[::-1]
+        t = r["t"].fillna(0.0).to_numpy()
+        colori = np.where(r["passa"], "#1f5f99", "#c8c8c8")
+        y = np.arange(len(r))
+        ax.barh(y, t, color=colori, height=0.7)
+        ax.axvline(0, color="#555555", lw=0.8)
+        ax.set_yticks(y, [etichetta_cella(c) for c in r["cella"]], fontsize=9)
+        for yi, mot in enumerate(r["motivo"]):
+            if mot:
+                ax.text(0.01, yi, mot, transform=ax.get_yaxis_transform(), va="center", fontsize=7.5,
+                        color="#666666")
+        ax.set_title(f"{nome} · solidità dello scarto dal mercato della cella", loc="left", fontsize=10)
+        ax.set_xlabel("solidità (t)")
+    plt.tight_layout()
+    plt.show()
+
+
+def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
+    """
+    Schermata 3c, facoltativa (22/10/2026, docs/66). Dopo la scelta dei
+    trigger: l'atlante di engine/atlante.py su TUTTE le entry vere
+    dell'in-sample, all'orizzonte H. Per ogni entry e cella (4 di volatilita'
+    x trend, 4 sessioni, 2 di basis sui perpetual con lo spot) lo scarto
+    lordo dal mercato della cella, la sua solidita', il netto dei costi e se
+    passa i controlli (200 occasioni, quota di falsi positivi, due meta',
+    netto > 0). Mostra la mappa dei trigger scelti e la tabella delle entry
+    con almeno una cella che passa. Non sceglie niente: la cella si sceglie
+    con scegli_cella.
+
+    Ritorna la tabella completa (anche in `s.atlante`). Rifatta con le stesse
+    impostazioni non conta due volte nella soglia cumulata; la cella scelta
+    prima si azzera.
+    """
+    s._serve("ev", "2 · Esplora")
+    if not (s.trigger_long or s.trigger_short):
+        raise RuntimeError("Manca un passaggio: esegui prima la schermata «3 · Scegli i trigger».")
+    from .atlante import atlante, etichetta_cella
+    nomi = _trigger_candidati(1 if s.solo_long else None)
+    mostra = [*s.trigger_long, *s.trigger_short]
+    with _zitto():
+        tab = atlante(s.df_is, s.H, s.pip, costi=s.costi, funding=s.funding, nomi=nomi, unita=s.unita,
+                      min_eventi=MIN_TRIGGER, fuso=s.fuso, mostra=mostra, atr=s.atr)
+    s.atlante = tab
+    _azzera_cella(s)
+    s.fs = s.dm = s.oos = None
+    s.sopravvissuti, s.filtro = [], None
+    k = int(tab.attrs["k_misurate"])
+    # soglia cumulata: le celle misurate, una volta per impostazione (H e assi; le entry sono tutte)
+    s.prove.setdefault("celle", {})[(s.H, tab.attrs["assi"], tuple(nomi))] = k
+
+    u, a = s.unita, _altra_unita(s)
+    for nome in mostra:
+        r = tab[tab["candidato"] == nome]
+        if r.empty:
+            _nota(f"{nome}: meno di {MIN_TRIGGER} occasioni nell'in-sample, l'atlante non lo misura.")
+            continue
+        vista = pd.DataFrame({
+            "Cella": [etichetta_cella(c) for c in r["cella"]],
+            "Occasioni": r["eventi"].astype(int),
+            f"Più del mercato della cella ({u})": r[f"scarto_{u}"],
+            "Solidità": r["t"],
+            f"Netto per occasione ({u})": r[f"netto_{u}"],
+            f"Più del mercato della cella ({a})": r[f"scarto_{a}"] if f"scarto_{a}" in r else np.nan,
+            f"Netto per occasione ({a})": r[f"netto_{a}"] if f"netto_{a}" in r else np.nan,
+            "Passa": [_si_no(v) for v in r["passa"]],
+            "Perché no": r["motivo"],
+        })
+        s.tabelle[f"atlante_{nome}"] = vista
+        _mostra((f"L'atlante di {nome} (in-sample, {s.H} barre)", vista), decimali={"Solidità": 2})
+    _grafico_atlante(s, tab, [m for m in mostra if (tab["candidato"] == m).any()])
+
+    passano = tab[tab["passa"]]
+    if passano.empty:
+        _nota(f"Nessuna cella passa tutti i controlli, per nessuno dei {tab['candidato'].nunique()} trigger "
+              f"misurati ({k} celle misurate).")
+        riassunto = pd.DataFrame(columns=["Trigger", "Lato", "Celle che passano", "Solidità più alta"])
+    else:
+        g = passano.groupby("candidato", sort=False)
+        riassunto = pd.DataFrame({
+            "Trigger": list(g.groups),
+            "Lato": ["long" if g.get_group(n)["direction"].iat[0] == 1 else "short" for n in g.groups],
+            "Celle che passano": [", ".join(etichetta_cella(c) for c in g.get_group(n)["cella"]) for n in g.groups],
+            "Solidità più alta": [float(g.get_group(n)["t"].max()) for n in g.groups],
+        }).sort_values("Solidità più alta", ascending=False).reset_index(drop=True)
+        _mostra(("I trigger con almeno una cella che passa", riassunto), decimali={"Solidità più alta": 2})
+    s.tabelle["atlante"] = riassunto
+    _riquadro(
+        "Per ogni trigger, dove sembra funzionare. Il mercato è diviso in celle: volatilità alta o bassa per trend a "
+        "favore o contro (4), la sessione in cui si apre il trade (4: ASIA_NOTTE comprende il fine settimana)"
+        + (", la basis del perpetual sullo spot alta o bassa (2)" if "basis" in tab.attrs["assi"] else "")
+        + f". In ogni cella il trigger è confrontato con il mercato della stessa cella e della stessa ora ({u}, "
+        "prima dei costi); accanto, quanto resta dopo commissione, spread"
+        + (" e funding" if s.funding is not None else "") + ".",
+        f"Questa è una mappa: ti dice dove il trigger sembra funzionare, non che funziona. Una cella passa con almeno "
+        f"{MIN_TRIGGER} occasioni, oltre la quota di colpi di fortuna su tutte le {k} celle misurate, positiva nelle "
+        "due metà dell'in-sample e con il netto sopra zero. Se scegli una cella, al passo 5 verrà misurata come un "
+        f"filtro, con un'asticella alta (solidità {_fmt(soglia_rumore(max(k, 1), ALPHA))}) perché tiene conto di "
+        f"tutte le {k} celle che l'atlante ha guardato.",
+        "Se una cella del tuo trigger passa e ti convince, sceglila nella cella sotto con scegli_cella (al massimo una "
+        "per lato). Altrimenti vai alla schermata 4: la strada di sempre, con tutti i filtri al passo 5.")
+    return tab
+
+
+def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None) -> None:
+    """
+    Schermata 3d, facoltativa (22/10/2026, docs/66 §4). La cella dell'atlante
+    in cui opera ogni lato: al massimo una per lato, solo fra quelle che
+    passano per almeno uno dei trigger scelti su quel lato, nessuna cella di
+    default (decisioni di Mattia del 22/10/2026). Le celle diventano filtri
+    su richiesta (atlante.registra_filtri_cella) e il passo 5 misura solo
+    quelli, con l'asticella delle celle dell'atlante (strada B).
+
+    Senza celle (scegli_cella(s)) si torna alla strada di sempre.
+    """
+    s._serve("atlante", "3c · Atlante del trigger")
+    from .atlante import asse_di, celle_che_passano, etichetta_cella, nome_filtro_cella, registra_filtri_cella
+
+    def pulisci(x):
+        if x is None:
+            return None
+        if not isinstance(x, str) or "," in x:
+            raise ValueError("Una cella sola per lato: scrivi un nome, per esempio long='EUROPA'.")
+        x = x.strip().replace(" (e fine settimana)", "")
+        return x or None
+
+    cl, cs = pulisci(long), pulisci(short)
+    s.fs = s.dm = s.oos = None
+    s.sopravvissuti, s.filtro, s.filtri_scelti = [], None, []
+    s.trades_is = s.trades_oos = s.mm = None
+    if not cl and not cs:
+        _azzera_cella(s)
+        _nota("Nessuna cella scelta: al passo 5 si provano tutti i filtri, come sempre.")
+        return
+    righe = []
+    for lato, cella, trigger in (("long", cl, s.trigger_long), ("short", cs, s.trigger_short)):
+        if not cella:
+            continue
+        asse_di(cella)
+        if lato == "short" and s.solo_long:
+            raise ValueError(f"{s.symbol} è spot: lo short non esiste, la cella short non serve.")
+        if not trigger:
+            raise ValueError(f"Il lato {lato} non ha trigger (schermata 3): la cella {cella} non ha a cosa "
+                             "applicarsi.")
+        ok = celle_che_passano(s.atlante, trigger)
+        if cella not in ok:
+            elenco = ", ".join(etichetta_cella(c) for c in ok) if ok else "nessuna"
+            raise ValueError(f"La cella {cella} non passa i controlli dell'atlante per {' / '.join(trigger)}. "
+                             f"Celle che passano su questo lato: {elenco}.")
+        r = s.atlante[s.atlante["candidato"].isin(list(trigger)) & (s.atlante["cella"] == cella)]
+        migliore = r.sort_values("t", ascending=False).iloc[0]
+        righe.append({"Lato": lato.upper(), "Trigger": " oppure ".join(trigger), "Cella": etichetta_cella(cella),
+                      "Occasioni": int(migliore["eventi"]), "Solidità": float(migliore["t"]),
+                      f"Netto per occasione ({s.unita})": float(migliore[f"netto_{s.unita}"])})
+    with _zitto():
+        registra_filtri_cella(s.df, cl, cs)
+    s.cella_long, s.cella_short = cl, cs
+    tabella = pd.DataFrame(righe)
+    s.tabelle["cella"] = tabella
+    _mostra(("La cella scelta", tabella), decimali={"Solidità": 2})
+    _nota(f"Al passo 5 si prova solo la cella: la riga si chiamerà {nome_filtro_cella(cl, cs)}, ed è il nome da "
+          "scrivere nella scheda (schermata 6). Le uscite (schermata 4) si costruiscono sul trigger da solo.")
 
 
 # ========================================================================
@@ -1384,18 +1612,27 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     Ritorna la classifica dei filtri. I sopravvissuti sono in `s.sopravvissuti`.
     """
     s._serve("uscite", "4 · Imposta le uscite")
-    filtri = _tutti_i_filtri()
+    # 22/10/2026 (docs/66 §5): con una cella scelta nell'atlante (strada B) si misura solo la cella,
+    # con l'asticella delle celle misurate dall'atlante; altrimenti tutti i filtri, come sempre
+    strada_b = _strada_b(s)
+    if strada_b:
+        filtri = [n for n in reg.list_filters() if n.startswith("CELLA_")]
+        k_atlante = int(s.atlante.attrs["k_misurate"])
+    else:
+        filtri, k_atlante = _tutti_i_filtri(), None
     kw = _kw_motore(s)
     with _zitto():
         s.fs = run_filter_search_bt(
             s.df_is, entry_long=s.entry_long, entry_short=s.entry_short,
             exit_rule_pair=s.uscite["regola"], filtri=filtri,
             min_trades_giudizio=MIN_TRADE_GIUDIZIO, p_max=P_MAX, alpha=ALPHA,
-            verbose=False, cache_maschere=_cache_maschere(s, "is"), **kw)
+            verbose=False, cache_maschere=_cache_maschere(s, "is"), k_prove=k_atlante, **kw)
     r = s.fs.risultati
     prove = r[r["filtro"] != BASELINE]
-    # 22/10/2026: soglia cumulata, i filtri provati con questi trigger e queste uscite
-    s.prove["filtri"][_chiave_filtri(s)] = len(prove)
+    # 22/10/2026: soglia cumulata, i filtri provati con questi trigger e queste uscite. Nella
+    # strada B la cella e' la seconda misura delle celle dell'atlante, gia' contate: non si somma
+    if not strada_b:
+        s.prove["filtri"][_chiave_filtri(s)] = len(prove)
     promossi =prove.loc[prove["esito"].isin([DA_VALUTARE, CAMPIONE_CORTO]), "filtro"].to_list()
 
     verdetti = {}
@@ -1464,15 +1701,23 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     asticella = float(s.fs.soglia_rumore)
     una_prova = soglia_rumore(1, ALPHA)
     s.tabelle["asticella"] = asticella
-    _spiegazione(
-        f"Dove sta l'asticella della prima prova: solidità del miglioramento di almeno {_fmt(asticella)}.",
-        f"Perché non basta essere sopra 1? Solidità 1 vuol dire che il miglioramento è grande quanto la sua normale "
-        f"oscillazione casuale: è il livello del puro rumore. Se avessi provato un solo filtro basterebbe circa "
-        f"{_fmt(una_prova, 0)}: oltre quel valore un risultato capita per caso meno di 1 volta su 20. "
-        f"Qui però i filtri provati sono {len(prove)}, e fra {len(prove)} tentativi il migliore arriva facilmente a "
-        f"{_fmt(una_prova, 0)} anche quando nessuno vale davvero qualcosa: è come lanciare i dadi {len(prove)} volte "
-        f"e guardare solo il tiro più alto. Per questo l'asticella sale con il numero di filtri provati: "
-        f"con {len(prove)} è {_fmt(asticella)}. Chi la supera passa poi alla seconda prova, sulle due metà dello storico.")
+    if strada_b:
+        _spiegazione(
+            f"Dove sta l'asticella della prima prova: solidità del miglioramento di almeno {_fmt(asticella)}.",
+            f"Qui provi una riga sola, la cella scelta nell'atlante. Ma l'hai scelta guardando {k_atlante} celle "
+            f"sugli stessi dati dell'in-sample: questa è una seconda misura dello stesso effetto, non una prova nuova. "
+            f"Per questo l'asticella è quella di {k_atlante} prove ({_fmt(asticella)}), non quella di una prova sola "
+            f"({_fmt(una_prova, 0)}). Se la supera, passa alla seconda prova, sulle due metà dello storico.")
+    else:
+        _spiegazione(
+            f"Dove sta l'asticella della prima prova: solidità del miglioramento di almeno {_fmt(asticella)}.",
+            f"Perché non basta essere sopra 1? Solidità 1 vuol dire che il miglioramento è grande quanto la sua normale "
+            f"oscillazione casuale: è il livello del puro rumore. Se avessi provato un solo filtro basterebbe circa "
+            f"{_fmt(una_prova, 0)}: oltre quel valore un risultato capita per caso meno di 1 volta su 20. "
+            f"Qui però i filtri provati sono {len(prove)}, e fra {len(prove)} tentativi il migliore arriva facilmente a "
+            f"{_fmt(una_prova, 0)} anche quando nessuno vale davvero qualcosa: è come lanciare i dadi {len(prove)} volte "
+            f"e guardare solo il tiro più alto. Per questo l'asticella sale con il numero di filtri provati: "
+            f"con {len(prove)} è {_fmt(asticella)}. Chi la supera passa poi alla seconda prova, sulle due metà dello storico.")
 
     if s.sopravvissuti:
         adesso = ("Scegli uno dei filtri che «reggono» e scrivine il nome nella schermata 6 (puoi indicarne anche "
@@ -1482,9 +1727,12 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
                   "Puoi andare alla schermata 6 con il sistema base (lasciando vuoto il filtro), oppure tornare indietro "
                   "e cambiare trigger o uscite.")
     _riquadro(
-        "Ogni filtro è una condizione in più per entrare (trend, volatilità, orario…). Lo strumento li prova "
-        "tutti, uno alla volta, e misura di quanto migliorano il guadagno per trade del sistema base scartando i trade "
-        f"peggiori (in {s.unita}).",
+        ("Hai scelto una cella nell'atlante: qui si prova solo quella, come un filtro (si entra solo quando il "
+         "segnale cade nella cella), e si misura di quanto migliora il guadagno per trade del sistema base scartando "
+         f"i trade fuori dalla cella (in {s.unita})." if strada_b else
+         "Ogni filtro è una condizione in più per entrare (trend, volatilità, orario…). Lo strumento li prova "
+         "tutti, uno alla volta, e misura di quanto migliorano il guadagno per trade del sistema base scartando i "
+         f"trade peggiori (in {s.unita})."),
         "Un filtro vale solo se supera due prove. Prima: il miglioramento deve essere più grande di quello che "
         "troveresti per caso provando così tanti filtri. Seconda: deve esserci in entrambe le metà dello storico, "
         "non in una sola. Più cose provi, più è facile trovarne una bella per caso: l'imbuto serve a questo.",
@@ -1655,7 +1903,7 @@ def _chiave_filtri(s: Sessione) -> tuple:
 
 
 def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: list, t: float,
-                     schermate: bool, alpha: float = ALPHA) -> dict:
+                     schermate: bool, alpha: float = ALPHA, celle: list = (), rimisura: bool = False) -> dict:
     """
     La soglia di Sidak (giudizio.soglia_rumore) sul totale delle prove della
     catena, e la frase da mostrare sotto la scheda. Solo informativa.
@@ -1664,15 +1912,22 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
     uscite         i sistemi provati, uno per ricerca delle uscite
     filtri         i filtri provati, uno per ricerca dei filtri
     combinazioni   C(n, m) per ogni scelta a mano di m > 1 filtri fra n
+    celle          22/10/2026 (docs/66 §6): le celle misurate, una voce per atlante
+    rimisura       True se al passo 5 si e' riprovata una cella dell'atlante (strada B):
+                   e' gia' fra le celle, la frase lo dice
     """
-    u, f, c = int(sum(uscite)), int(sum(filtri)), int(sum(combinazioni))
-    k = int(trigger) + u + f + c
+    u, f, c, ce = int(sum(uscite)), int(sum(filtri)), int(sum(combinazioni)), int(sum(celle))
+    k = int(trigger) + ce + u + f + c
     soglia = soglia_rumore(k, alpha) if k else np.nan
 
     def dove(n):
         return f" (schermata {n})" if schermate else ""
 
     parti = [f"{int(trigger)} trigger misurati{dove(2)}"]
+    if celle:
+        parti.append(f"{ce} celle dell'atlante" + (f" in {len(celle)} atlanti" if len(celle) > 1 else "")
+                     + dove("3c")
+                     + (" (la cella riprovata al passo 5 è una di queste: non conta due volte)" if rimisura else ""))
     if uscite:
         parti.append(f"{u} sistemi provati in {len(uscite)} "
                      f"{'impostazione' if len(uscite) == 1 else 'impostazioni'} delle uscite{dove(4)}")
@@ -1691,8 +1946,8 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
     frase += (" È un conto prudente: tratta le prove come indipendenti, quindi è un po' più severo del vero. "
               "Non cambia nessun controllo.")
     return {"trigger": int(trigger), "uscite": u, "ricerche_uscite": len(uscite), "filtri": f,
-            "ricerche_filtri": len(filtri), "combinazioni": c, "k": k, "soglia": soglia,
-            "alpha": alpha, "t": t, "frase": frase}
+            "ricerche_filtri": len(filtri), "combinazioni": c, "celle": ce, "atlanti": len(celle),
+            "k": k, "soglia": soglia, "alpha": alpha, "t": t, "frase": frase}
 
 
 def _lista(x) -> list:
@@ -1709,7 +1964,7 @@ def _lista(x) -> list:
 
 
 def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float = np.nan,
-                    alpha: float = ALPHA) -> dict:
+                    alpha: float = ALPHA, atlante=None) -> dict:
     """
     La soglia cumulata per il notebook di ricerca (22/10/2026), con gli
     stessi conti del Lab:
@@ -1722,6 +1977,10 @@ def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float =
                        senza la baseline
         combinazioni   C(n, m) se si sono scelti a mano m > 1 filtri fra n
         t              la solidita' in-sample della strategia, da mostrare accanto
+        atlante        22/10/2026 (docs/66 §6): la tabella di atlante.atlante, o una
+                       lista: conta le celle misurate (attrs["k_misurate"]). Una
+                       ricerca dei filtri fatta sulla cella scelta (k_prove,
+                       .rimisura) non si conta: e' la seconda misura delle celle
 
     Lo stesso oggetto passato due volte conta una volta sola (la stessa
     ricerca rieseguita non e' una prova in piu'). Solo informativa: non
@@ -1730,16 +1989,22 @@ def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float =
     """
     trigger = len(ev.sintesi) if ev is not None else 0
     uscite = [len(e.risultati) for e in _lista(es)]
-    filtri = [int((f.risultati["filtro"] != BASELINE).sum()) for f in _lista(fs)]
+    ricerche = _lista(fs)
+    filtri = [int((f.risultati["filtro"] != BASELINE).sum()) for f in ricerche
+              if not getattr(f, "rimisura", False)]
+    celle = [int(a.attrs["k_misurate"]) for a in _lista(atlante)]
     return _soglia_da_conti(trigger, uscite, filtri, [int(combinazioni)] if combinazioni else [],
-                            float(t), schermate=False, alpha=alpha)
+                            float(t), schermate=False, alpha=alpha, celle=celle,
+                            rimisura=any(getattr(f, "rimisura", False) for f in ricerche))
 
 
 def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
     """La soglia cumulata delle prove registrate nella sessione (schermate 2, 4, 5, 6)."""
     p = s.prove
     return _soglia_da_conti(p["trigger"], list(p["uscite"].values()), list(p["filtri"].values()),
-                            list(p["combinazioni"].values()), t, schermate=True)
+                            list(p["combinazioni"].values()), t, schermate=True,
+                            celle=list(p.get("celle", {}).values()),
+                            rimisura=bool(getattr(s, "fs", None) is not None and getattr(s.fs, "rimisura", False)))
 
 
 def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
