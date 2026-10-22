@@ -80,11 +80,12 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 1. **Stop e target sulla barra d'ingresso** — fatto (PR #49): con il motore
    veloce stop e target sono attivi dall'Open della barra d'ingresso; «bt»
    resta l'oracolo del comportamento vecchio.
-2. **`confidenza.py` in bp** — fatto (ramo `confidenza-in-bp`): parametro
+2. **`confidenza.py` in bp** — fatto (PR #50): parametro
    `unita`; in bp le soglie sono multipli del costo andata e ritorno
    (`CONF_BP_MEDI_0.5C`), in pips tutto come prima (`02`, «Unità»).
-3. **`top()` ordinato per il t nell'unità che decide** (oggi per `sharpe`).
-   Lavoro piccolo, senza proposta.
+3. **`top()` ordinato per il t nell'unità che decide** — in corso (ramo
+   `top-per-t`): la tabella delle uscite e `top()` ordinate per `t_stat`
+   (bp sulle crypto, pips sul broker), `sharpe` solo informativo.
 4. **Soglia cumulata nel Lab:** Šidák sul totale delle prove della catena,
    solo informativa (`00_ARCHIVIO.md`, «Cosa manca», punto 3).
 5. **C · atlante del trigger** (`63` §6). Grande.
@@ -99,7 +100,7 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 | cosa | stato |
 |---|---|
 | stop e target non attivi sulla barra d'ingresso | risolto (PR #49) |
-| `ExitSearchBT.top()` ordina per `sharpe`: va ordinato per il t nell'unità che decide | punto 3 |
+| `ExitSearchBT.top()` ordina per `sharpe`: va ordinato per il t nell'unità che decide | in corso (punto 3) |
 | `vwap_ops.py` taglia la giornata a mezzanotte UTC: sulle crypto coincide con la giornata, sul broker (sospeso) no | da decidere se si riapre il broker |
 | il notebook di ricerca su Colab chiede il secret `GITHUB_TOKEN` | non bloccante |
 | interruttore sulla curva dei profitti | rimandato da Mattia |

@@ -649,9 +649,9 @@ def run_exit_search_bt(
         })
         trades_per_combo[etichetta] = trades
 
-    risultati = (pd.DataFrame(righe)
-                .sort_values("sharpe", ascending=False)
-                .reset_index(drop=True))
+    # 22/10/2026 (docs/00, punto 3): ordinata per il t nell'unita' che decide,
+    # non piu' per sharpe (che resta come colonna informativa)
+    risultati = _ordina_per(pd.DataFrame(righe), ORDINE).reset_index(drop=True)
 
     # --- soglia di rumore (24/9/2026) -----------------------------------
     # Si sceglie la combinazione migliore fra k righe: oltre questo |t| il
@@ -687,6 +687,14 @@ def run_exit_search_bt(
 # 4 · Contenitore
 # ========================================================================
 
+ORDINE = "t_stat"     # 22/10/2026: la colonna che ordina risultati e top()
+
+
+def _ordina_per(r: pd.DataFrame, per: str) -> pd.DataFrame:
+    """Dal piu' alto al piu' basso, NaN in fondo. Stabile: a parita' resta
+    l'ordine in cui le combinazioni sono state costruite."""
+    return r.sort_values(per, ascending=False, kind="mergesort", na_position="last")
+
 class ExitSearchBT:
     """Risultato di run_exit_search_bt. Vedi .risultati, .top(), .trades()."""
 
@@ -719,8 +727,16 @@ class ExitSearchBT:
     def __repr__(self):
         return f"<ExitSearchBT: {len(self.risultati)} combinazioni, n_barre={self.n_barre}>"
 
-    def top(self, n=10, solo_valide=True, per="sharpe"):
-        """Le migliori combinazioni. `solo_valide` toglie quelle con pochi trade."""
+    def top(self, n=10, solo_valide=True, per=None):
+        """
+        Le migliori combinazioni. `solo_valide` toglie quelle con pochi trade.
+
+        per (22/10/2026): la colonna che ordina. None = `t_stat`, il t sui
+        netti per trade nell'unita' che decide (bp sulle crypto, pips sul
+        broker), lo stesso della soglia di rumore. per="sharpe" da' l'ordine
+        di prima, solo da leggere. A parita' viene prima la combinazione
+        costruita prima; i NaN (meno di 2 trade) vanno in fondo.
+        """
         r = self.risultati
         if solo_valide:
             r = r[~r["pochi_trade"]]
@@ -730,7 +746,7 @@ class ExitSearchBT:
         colonne = ["combinazione", "trades", "pnl_pct", "sharpe", "max_dd_pct",
                    "win_rate_pct", "profit_factor", "avg_trade", "avg_trade_netto",
                    "t_stat", "oltre_rumore", "durata_media", "durata_max"]
-        return r.sort_values(per, ascending=False).head(n)[colonne].round(3)
+        return _ordina_per(r, ORDINE if per is None else per).head(n)[colonne].round(3)
 
     def trades(self, combinazione=None):
         """Trade grezzi (DataFrame nativo di backtesting.py) di una combinazione."""
