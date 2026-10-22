@@ -472,7 +472,7 @@ rapida dopo ognuno.
 
 **Tempi** (questo PC, BINANCE_PERP_BTCUSDT M15, in-sample di 190.420 barre):
 - atlante di 70 trigger × 10 celle in **6–7 s** (obiettivo: sotto 20 s);
-- schermata 3c intera circa 10 s;
+- schermata 3c intera, con tabelle e mappa, 6,5 s;
 - su BYBIT_SPOT_ETHUSDT 2,2 s.
 
 Lo scarto e la solidità di una cella coincidono con
