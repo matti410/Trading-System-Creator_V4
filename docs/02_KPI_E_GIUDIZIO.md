@@ -373,6 +373,17 @@ stress test (sono soldi: pips × valore del pip). L'event study misurava già in
 percentuale del prezzo. Sul broker (sospeso) decidono ancora i pips. Confronto fra
 le due unità in `63` §4.7.
 
+**La confidenza in bp (22/10/2026).** Anche `confidenza.py` ha il parametro
+`unita`: in bp la confidenza è la media dei bp netti (`bp_medi`, i pips
+accanto) e le soglie dei filtri sono **multipli del costo andata e ritorno**
+del symbol in bp (commissione di listino più spread, senza funding,
+`costo_andata_ritorno_bp`), fissati dal listino e non dai dati:
+`CONF_BP_MEDI_0.5C` = sopra mezzo costo (5,0 bp sul perpetual Binance BTC,
+10,0 bp sullo spot Bybit ETH). È la stessa idea delle soglie 0,5 e 0,8 pips
+su EURUSD, circa metà e quasi tutto il costo di un trade. In pips (broker)
+soglie e nomi restano quelli di prima (`CONF_PIPS_MEDI_0.5`). La curva
+dell'OOS, il totale e il drawdown restano in pips, con la media in bp accanto.
+
 **Il funding dei perpetual nei netti (21/10/2026, `63` §5).** Sui perpetual
 i netti di ogni trade tolgono anche il funding, con il segno: ogni
 liquidazione S con ingresso < S ≤ uscita costa lato × tasso × prezzo Open
