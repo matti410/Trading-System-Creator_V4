@@ -1430,10 +1430,11 @@ def _regola_oraria(s: Sessione, regola):
     regola = str(regola).strip()
     if regola == condizioni_orarie.INVERSIONE:
         with _zitto():
-            if s.unita == "pips":
+            u = getattr(s, "unita", "pips")          # sessioni finte dei test: pips, come prima
+            if u == "pips":
                 return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip)
             # 23/10/2026: sulle crypto lo stesso profilo in bp del grafico 2b
-            return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip, unita=s.unita)
+            return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip, unita=u)
     if regola.startswith("X_ORA_@") or regola[:1].isdigit():
         orario, fuso = condizioni_orarie.orario_uscita(regola)    # "_UTC" in fondo: ora UTC fissa
         condizioni_orarie.codice_orario(orario, s.df_is.index, s.fuso if fuso != "UTC" else "UTC")   # orario valido qui
