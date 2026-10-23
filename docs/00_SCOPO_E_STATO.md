@@ -70,7 +70,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 39 suite, 3 alla volta, circa 11 minuti; alla fine deve stampare
+  --tutte`, 40 suite, 3 alla volta, circa 11 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
@@ -103,6 +103,14 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    esposizione a ogni trade a parità di drawdown sfortunato; P4: decimali
    dei lotti dal passo dell'exchange. Stress test delle crypto in bp per
    trade, lotti dal prezzo dell'ultima barra; broker in pips come prima.
+
+7. **Orari e uscite per lato** — in corso (ramo `orari-e-uscite-per-lato`;
+   resoconto in `66` §15). L'atlante misura anche i trigger scelti fuori
+   catalogo (quelli a orario contro il mercato della cella a qualunque ora);
+   stop, target e regola d'uscita per lato nella schermata 4 e nel notebook
+   di ricerca; profilo orario 2b in bp sulle crypto; nella soglia cumulata le
+   fasce del profilo con un trigger a orario; avviso sulla durata con trigger
+   a orario sui due lati.
 
 Prossimi lavori: ancora da decidere (ordine e contenuto li stabilisce
 Mattia).
