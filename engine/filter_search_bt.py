@@ -256,6 +256,7 @@ def run_filter_search_bt(
     funding=None,
     motore=None,
     cache_maschere=None,
+    k_prove=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -354,6 +355,15 @@ def run_filter_search_bt(
         dizionario arriva con un df diverso (forma, colonne, date o prezzi
         diversi) si svuota e si ricomincia. Le maschere sono in sola lettura.
         I risultati non cambiano (test_motore_veloce.py, sezione G).
+
+    k_prove (22/10/2026, atlante del trigger, docs/66 §5)
+        Il numero di prove su cui si calcola la soglia di rumore. None
+        (default) = le righe provate in questa chiamata, come prima. Nella
+        strada B dell'atlante e' il numero di celle misurate dall'atlante
+        (k_misurate): la cella e' stata scelta guardando tutte quelle celle,
+        e qui si misura una seconda volta sugli stessi dati. Con k_prove la
+        ricerca e' segnata come RIMISURA (.rimisura = True): la soglia
+        cumulata non la conta due volte.
 
     Ritorna un oggetto FilterSearchBT: .risultati (tabella), .top(),
     .trades(filtro).
@@ -603,6 +613,10 @@ def run_filter_search_bt(
         base_netti, base_chiavi = np.array([]), set()
 
     k = max(1, len(piano_colonne) - 1)          # quante prove, baseline esclusa
+    if k_prove is not None:                     # 22/10/2026 (docs/66 §5): le celle dell'atlante
+        if int(k_prove) < 1:
+            raise ValueError("k_prove deve essere almeno 1 (le celle misurate dall'atlante).")
+        k = int(k_prove)
     soglia = soglia_rumore(k, alpha=alpha)
 
     extra = []
@@ -645,7 +659,7 @@ def run_filter_search_bt(
                 .reset_index(drop=True))
 
     if verbose:
-        print(f"{len(piano_colonne)} righe (baseline + {k} "
+        print(f"{len(piano_colonne)} righe (baseline + {max(1, len(piano_colonne) - 1)} "
               f"filtri/coppie) · "
               + (f"n_barre={n_barre}" if n_long == n_short == n_barre
                  else f"n_barre long={n_long} · short={n_short}")
@@ -653,8 +667,9 @@ def run_filter_search_bt(
               f"· stop adattivo {perc_sl}°/{perc_tp}° pct (finestra {finestra}) · "
               f"spread {spread:.5f} · commission {commission:.5f} · margin {margin}")
         print(f"soglia di rumore per {k} prove (Sidak, famiglia {alpha:.0%}): "
-              f"|t_guadagno| > {soglia:.2f}  —  conta solo le prove di questa "
-              "chiamata, e' un pavimento")
+              f"|t_guadagno| > {soglia:.2f}  —  "
+              + ("le celle misurate dall'atlante (k_prove)" if k_prove is not None
+                 else "conta solo le prove di questa chiamata, e' un pavimento"))
 
     return FilterSearchBT(risultati=risultati, trades_per_filtro=trades_per_filtro,
                           entry_long=entry_long, entry_short=entry_short,
@@ -662,7 +677,7 @@ def run_filter_search_bt(
                           min_trades=min_trades, soglia_rumore=soglia,
                           pip_size=pip_size, commission=commission,
                           n_barre_long=n_long, n_barre_short=n_short, unita=unita,
-                          funding=funding, motore=motore)
+                          funding=funding, motore=motore, rimisura=k_prove is not None)
 
 
 class FilterSearchBT:
@@ -672,8 +687,9 @@ class FilterSearchBT:
                  exit_rule_pair, n_barre, min_trades, soglia_rumore=None,
                  pip_size=None, commission=None,
                  n_barre_long=None, n_barre_short=None, unita="pips", funding=None,
-                 motore=None):
+                 motore=None, rimisura=False):
         self.risultati = risultati
+        self.rimisura = rimisura      # 22/10/2026: True = seconda misura delle celle dell'atlante (k_prove)
         self.motore = motore          # 21/10/2026 (docs/65): "bt" o "veloce" (due_meta lo rilegge)
         self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono
         self.funding = funding        # 21/10/2026: None = funding non contato (due_meta lo rilegge)

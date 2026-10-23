@@ -85,12 +85,17 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    (`CONF_BP_MEDI_0.5C`), in pips tutto come prima (`02`, «Unità»).
 3. **`top()` ordinato per il t nell'unità che decide** — fatto (PR #51): la tabella delle uscite e `top()` ordinate per `t_stat`
    (bp sulle crypto, pips sul broker), `sharpe` solo informativo.
-4. **Soglia cumulata nel Lab** — in corso (ramo `soglia-cumulata`): Šidák
+4. **Soglia cumulata nel Lab** — fatto (PR #52): Šidák
    sul totale delle prove della catena (trigger, uscite, filtri,
    combinazioni di filtri), sotto la scheda al posto della riga del mercato
    nullo; solo informativa. Anche nel notebook di ricerca
    (`vetrina.soglia_cumulata`).
-5. **C · atlante del trigger** (`63` §6). Grande.
+5. **C · atlante del trigger** — in corso (ramo `atlante-trigger`; proposta
+   e decisioni in `66`). Per ogni entry vera, 8 celle per lato (10 sui
+   perpetual con lo spot): scarto lordo dal mercato della cella e netto dei
+   costi (`02`, «L'atlante del trigger»). Lab 3c–3d, ricerca 1.5. Con una
+   cella scelta (strada B) il passo 5 prova solo la cella, con la soglia a
+   k = celle dell'atlante; senza cella tutto come prima.
 
 Restano aperti: **money management P1–P4** e **stress test in bp**.
 

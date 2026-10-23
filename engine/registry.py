@@ -310,6 +310,20 @@ def remove_entries(prefisso: str) -> int:
     return len(nomi)
 
 
+def remove_filters(prefisso: str) -> int:
+    """
+    Toglie dal registro i filtri il cui nome comincia con `prefisso` (22/10/2026,
+    per le celle dell'atlante registrate su richiesta, engine/atlante.py: a ogni
+    scelta si ricreano, con il loro `pair`). Ritorna quanti.
+    """
+    nomi = [n for n in _FILTER_REGISTRY if n.startswith(prefisso)]
+    for n in nomi:
+        _FILTER_REGISTRY.pop(n, None)
+        _FILTER_DIRECTION.pop(n, None)
+        _FILTER_PAIR.pop(n, None)
+    return len(nomi)
+
+
 def clear_registry() -> None:
     """
     Utile in notebook per ricaricare le condizioni da zero dopo una modifica.

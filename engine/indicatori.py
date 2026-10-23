@@ -1934,3 +1934,106 @@ def basis_bp(df: pd.DataFrame) -> pd.Series:
     spot = df["spot_close"].astype(float)
     spot = spot.where(spot > 0)
     return ((df["Close"].astype(float) - spot) / spot * 10_000.0).rename("basis_bp")
+
+
+# ------------------------------------------------------------------------
+# Stati dell'atlante del trigger (22/10/2026, docs/66 §2): le finestre sono
+# DURATE in ore, convertite nelle barre del timeframe, con almeno 20
+# rendimenti (docs/63 §10.1 punto 2). Su M15 sono le 20 e 500 barre di
+# engine/confidenza.py. FUORI da aggiungi_indicatori: le colonne del catalogo
+# non cambiano. Ogni stato della barra i usa solo dati fino al Close di i.
+# ------------------------------------------------------------------------
+
+ORE_VOLATILITA = 5         # la deviazione dei rendimenti: 20 barre su M15
+ORE_MEDIANA = 125          # la mediana mobile: le 500 barre M15 di confidenza.py (~5,2 giorni)
+MINIMO_RENDIMENTI = 20
+SESSIONI_ATLANTE = ("ASIA_NOTTE", "EUROPA", "LONDRA_NY", "AMERICA")
+
+
+def barre_per_durata(index, ore: float, minimo: int = MINIMO_RENDIMENTI) -> int:
+    """Le barre del timeframe di `index` in `ore` ore, almeno `minimo`."""
+    from engine.quarantena import passo_barre
+    minuti = passo_barre(pd.DatetimeIndex(index)) / pd.Timedelta(minutes=1)
+    return max(int(minimo), int(round(float(ore) * 60.0 / minuti)))
+
+
+def volatilita_durata(df: pd.DataFrame, ore: float = ORE_VOLATILITA, ore_mediana: float = ORE_MEDIANA,
+                      minimo: int = MINIMO_RENDIMENTI) -> pd.Series:
+    """
+    Volatilita' alta (1) o bassa (0) di ogni barra: la deviazione dei
+    log-rendimenti Close su Close delle ultime `ore` ore, sopra o no la sua
+    mediana mobile delle ultime `ore_mediana` ore. NaN finche' le finestre
+    non sono piene. Stesse formule di confidenza.asse_volatilita (file di
+    Mattia volatility_features_engineering.py: std, quantile 0,5): su M15
+    con i valori di default e' identica, bit per bit, a asse_volatilita(df, 20, 500).
+    """
+    w = barre_per_durata(df.index, ore, minimo)
+    m = barre_per_durata(df.index, ore_mediana, minimo)
+    rendimenti = np.log(df["Close"] / df["Close"].shift(1)) * 100
+    deviazione = rendimenti.rolling(window=w).std()
+    mediana = deviazione.rolling(m, min_periods=m).quantile(0.5)
+    classe = np.select([deviazione <= mediana, deviazione > mediana], [0.0, 1.0], default=np.nan)
+    return pd.Series(classe, index=df.index).where(mediana.notna(), other=np.nan).rename("vol")
+
+
+def trend_durata(df: pd.DataFrame, direzione: int, ore_mediana: float = ORE_MEDIANA,
+                 minimo: int = MINIMO_RENDIMENTI) -> pd.Series:
+    """
+    Trend «a favore» (1) o «contro» (0) del lato `direzione`: gap_trend
+    (confidenza.py, regressione della giornata meno il VWAP della giornata)
+    nel verso del trade, sopra o no la sua mediana mobile delle ultime
+    `ore_mediana` ore. «A favore» vuol dire «nella meta' alta degli ultimi
+    giorni», non «il prezzo sta salendo». NaN finche' non e' calcolabile.
+    """
+    if direzione not in (1, -1):
+        raise ValueError("direzione deve essere 1 (long) o -1 (short).")
+    from engine.confidenza import gap_trend
+    m = barre_per_durata(df.index, ore_mediana, minimo)
+    allineato = gap_trend(df) * direzione
+    mediana = allineato.rolling(m, min_periods=m).median()
+    return ((allineato > mediana).astype(float)
+            .where(mediana.notna() & allineato.notna()).rename("trend"))
+
+
+def cella_vol_trend(df: pd.DataFrame, direzione: int, ore: float = ORE_VOLATILITA,
+                    ore_mediana: float = ORE_MEDIANA, minimo: int = MINIMO_RENDIMENTI) -> pd.Series:
+    """
+    La cella 0-3 della griglia volatilita' x trend del lato `direzione`:
+    2 x volatilita' + trend (0 = bassa e contro, 1 = bassa e a favore,
+    2 = alta e contro, 3 = alta e a favore). Su M15 = confidenza.cella_contesto.
+    """
+    vol = volatilita_durata(df, ore, ore_mediana, minimo)
+    trend = trend_durata(df, direzione, ore_mediana, minimo)
+    return (2 * vol + trend).rename("cella")
+
+
+def sessione_ingresso(df: pd.DataFrame) -> pd.Series:
+    """
+    La sessione della barra in cui si apre il trade (la i+1 del segnale sulla
+    barra i), come le condizioni orarie dal 19/10/2026: 0 = ASIA_NOTTE
+    (Londra e New York chiuse, compreso il fine settimana), 1 = EUROPA (solo
+    Londra), 2 = LONDRA_NY (tutte e due), 3 = AMERICA (solo New York). Ora
+    locale delle piazze con l'ora legale (engine/sessioni.py). L'inizio della
+    barra i+1 si conosce dal calendario: inizio della barra i piu' la durata
+    di una barra, anche se la barra i+1 mancasse nei dati.
+    """
+    from engine.quarantena import passo_barre
+    from engine.sessioni import in_sessione
+    prossima = pd.DataFrame(index=pd.DatetimeIndex(df.index) + passo_barre(df.index))
+    londra = in_sessione(prossima, "LONDRA").to_numpy()
+    new_york = in_sessione(prossima, "NEW_YORK").to_numpy()
+    codice = np.select([londra & new_york, londra, new_york], [2.0, 1.0, 3.0], default=0.0)
+    return pd.Series(codice, index=df.index, name="sessione")
+
+
+def basis_alta(df: pd.DataFrame, ore_mediana: float = ORE_MEDIANA,
+               minimo: int = MINIMO_RENDIMENTI) -> pd.Series:
+    """
+    Basis alta (1) o bassa (0): basis_bp sopra o no la sua mediana mobile
+    delle ultime `ore_mediana` ore. NaN dove lo spot manca, finche' la
+    finestra non e' piena, e senza la colonna spot_close (CFD, spot).
+    """
+    m = barre_per_durata(df.index, ore_mediana, minimo)
+    b = basis_bp(df)
+    mediana = b.rolling(m, min_periods=m).median()
+    return (b > mediana).astype(float).where(mediana.notna() & b.notna()).rename("basis")

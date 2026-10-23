@@ -339,6 +339,47 @@ candidato si distingue abbastanza dal caso; la scelta resta libera.
 
 ---
 
+## L'atlante del trigger (dal 22/10)
+
+La rosa misura un trigger su tutto l'in-sample. L'atlante (`engine/atlante.py`,
+`63` §6, `66`) guarda **dove** funziona: per ogni entry vera e ogni **cella**
+del mercato. Le celle, per lato, con assi non incrociati fra loro:
+
+| asse | celle | stato |
+|---|---|---|
+| volatilità × trend | 4: volatilità alta/bassa × trend a favore/contro | la griglia di `confidenza.py`, con finestre in ore (5 e 125, almeno 20 rendimenti; su M15 = 20 e 500 barre) |
+| sessione | 4: ASIA_NOTTE (e fine settimana), EUROPA, LONDRA_NY, AMERICA | la barra d'ingresso (i+1), ora locale di Londra e New York con l'ora legale |
+| basis (solo perpetual con lo spot) | 2: alta/bassa | basis perpetual − spot sulla sua mediana di 125 ore |
+
+Ogni stato della barra del segnale usa solo dati fino al suo Close.
+
+**Due domande, due colonne.** Lo **scarto lordo** dal mercato della stessa
+cella e della stessa fascia oraria (`scarto_<unità>`, `t`: «aggiunge qualcosa
+al mercato della cella?») e il **netto** dopo commissione, spread e funding
+(`netto_<unità>`: «paga i costi?»). Una cella **passa** con almeno 200 eventi,
+t > 0, il controllo della quota di falsi positivi su **tutte** le celle
+misurate (q = 20%), scarto positivo nelle due metà e netto > 0. Le celle
+sotto i 200 eventi non si misurano e non contano.
+
+**Strada B.** Si sceglie al massimo una cella per lato, solo fra quelle che
+passano. Al passo 5 la cella si misura come un filtro (tenuti contro
+scartati, due metà), ma la soglia di rumore usa **k = celle misurate
+dall'atlante**: la cella è stata scelta guardando tutte quelle celle, e il
+passo 5 è una seconda misura dello stesso effetto. Su BINANCE_PERP_BTCUSDT
+sono circa 560 celle, soglia 3,91. Nella soglia cumulata le celle si sommano
+ai trigger; la cella riprovata al passo 5 non conta due volte. Nella strada B
+la confidenza si salta. Senza una cella (strada A) tutto resta come prima.
+
+**Una mappa, non un cancello.** Che una cella passi non vuol dire che il
+trigger funzioni lì: vuol dire che merita la misura del passo 5, con
+l'asticella alta. Nessuna cella che passa non è un giudizio sul trigger.
+
+**Dove si usa:** Lab, schermate 3c e 3d (`atlante_dei_trigger`,
+`scegli_cella`); notebook di ricerca, sezione 1.5. Collaudo:
+`test_atlante.py`.
+
+---
+
 ## Unità: punti, pip e bp
  
 | Unità | EURUSD | BTCUSD |

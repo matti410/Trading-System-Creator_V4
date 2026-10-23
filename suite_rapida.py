@@ -60,7 +60,8 @@ DURATE = {
     "test_funding": 9, "test_famiglie": 7, "test_confidenza": 6, "test_unita": 4,
     "test_barre_per_lato": 3, "test_giornata_utc": 3, "test_entry_composita": 2,
     "test_filtri_tempo": 2, "test_inversione": 2, "test_montecarlo": 2, "test_portabilita": 2,
-    "test_tempo_prezzo": 2, "test_entry_metro": 1, "test_sessioni": 1
+    "test_tempo_prezzo": 2, "test_entry_metro": 1, "test_sessioni": 1,
+    "test_atlante": 25
 }
 INSIEME = 3          # suite che girano insieme, nella rapida e nella completa
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")
