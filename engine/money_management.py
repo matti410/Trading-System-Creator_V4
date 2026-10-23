@@ -373,6 +373,171 @@ def calibra(tabella: pd.DataFrame, capitale: float, drawdown_max_pct: float, n_t
     return t, scelta
 
 
+def tratti_storia(n: int, lunghezza: int) -> np.ndarray:
+    """
+    Gli indici di tutti i tratti di `lunghezza` trade CONSECUTIVI di una
+    storia di `n` trade, uno per riga (il primo dal trade 0, l'ultimo che
+    finisce all'ultimo trade). Con meno trade della lunghezza: un solo tratto,
+    tutta la storia.
+    """
+    if n <= 0:
+        raise ValueError("storia senza trade.")
+    lung = min(int(lunghezza), int(n))
+    return np.arange(n - lung + 1)[:, None] + np.arange(lung)[None, :]
+
+
+def controlla_storia(tabella: pd.DataFrame, capitale: float, drawdown_max_pct: float, n_trade: int,
+                     f_montecarlo: float | None, frazioni=GRIGLIA,
+                     limiti: dict | None = None) -> dict:
+    """
+    P1 (23/10/2026): la secure f controllata anche sulla STORIA VERA.
+
+    La storia vera dei trade (in-sample, nel loro ordine) si taglia in tutti i
+    tratti consecutivi lunghi quanto l'orizzonte del Monte Carlo (`n_trade`
+    trade); ogni tratto parte da `capitale`, con i lotti ricalcolati a ogni
+    trade e gli stessi limiti, proprio come una sequenza simulata. Il
+    drawdown della storia vera, per ogni frazione, e' il peggiore fra i tratti.
+
+    Partendo da `f_montecarlo` (la scelta di `calibra`) si scende lungo la
+    griglia finche' il drawdown della storia vera resta entro
+    `drawdown_max_pct`. None se nessun gradino lo rispetta (o se il Monte
+    Carlo non aveva scelto niente).
+
+    Ritorna un dict:
+        f           la frazione scelta (None = nessuna)
+        deciso      "Monte Carlo" (la storia vera non ha cambiato niente, o il
+                    Monte Carlo non aveva scelto niente) oppure "storia vera"
+        tabella     per ogni frazione: f, drawdown_storia (%), tratto (riga del
+                    tratto peggiore), inizio, fine (posizione nella tabella dei
+                    trade del primo e dell'ultimo trade di quel tratto)
+        f_montecarlo, lunghezza (trade per tratto), tratti (quanti tratti)
+    """
+    _controlla_tabella(tabella)
+    tratti = tratti_storia(len(tabella), n_trade)
+    mc = montecarlo_mm(tabella, capitale, frazioni, tratti.shape[1], limiti=limiti, indici=tratti)
+    righe = []
+    for f, r in mc.items():
+        j = int(np.argmax(r["drawdown_pct"]))
+        righe.append({"f": f, "drawdown_storia": float(r["drawdown_pct"][j]), "tratto": j,
+                      "inizio": int(tratti[j, 0]), "fine": int(tratti[j, -1])})
+    t = pd.DataFrame(righe)
+    scelta = None
+    if f_montecarlo is not None:
+        sotto = t[t["f"] <= float(f_montecarlo) + 1e-12].iloc[::-1]
+        for _, riga in sotto.iterrows():
+            if riga["drawdown_storia"] <= float(drawdown_max_pct):
+                scelta = float(riga["f"])
+                break
+    deciso = ("Monte Carlo" if f_montecarlo is None
+              or (scelta is not None and abs(scelta - float(f_montecarlo)) < 1e-12) else "storia vera")
+    if deciso == "Monte Carlo" and f_montecarlo is not None:
+        scelta = f_montecarlo                       # identica al bit alla scelta del Monte Carlo
+    return {"f": scelta, "deciso": deciso, "tabella": t, "f_montecarlo": f_montecarlo,
+            "lunghezza": int(tratti.shape[1]), "tratti": int(tratti.shape[0])}
+
+
+def _unita_fissa(tabella, per_nozionale):
+    u = tabella["pips_netti"].to_numpy(dtype=float) * tabella["valore_uscita"].to_numpy(dtype=float)
+    if per_nozionale:
+        if "nozionale_lotto" not in tabella:
+            raise ValueError("per_nozionale=True richiede la colonna nozionale_lotto.")
+        noz = tabella["nozionale_lotto"].to_numpy(dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            u = np.where(np.isfinite(noz) & (noz > 0), u / noz, np.nan)
+    return np.where(np.isfinite(u), u, 0.0)
+
+
+def _percorsi_fissi(guadagni_unitari, capitale, esposizione):
+    c = capitale + esposizione * np.cumsum(guadagni_unitari, axis=1)
+    morto = np.maximum.accumulate(c <= 0, axis=1)
+    c = np.where(morto, 0.0, c)
+    c = np.concatenate([np.full((c.shape[0], 1), capitale), c], axis=1)
+    picco = np.maximum.accumulate(c, axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        dd = np.where(picco > 0, (picco - c) / picco, 0.0).max(axis=1)
+    return {"finale": c[:, -1], "drawdown_pct": dd * 100.0}
+
+
+def montecarlo_fisso(tabella: pd.DataFrame, capitale: float, esposizione: float, n_trade: int,
+                     n_sim: int = 10_000, seed: int = 0, per_nozionale: bool = False,
+                     indici: np.ndarray | None = None) -> dict:
+    """
+    P3 (23/10/2026): lo stesso Monte Carlo di `montecarlo_mm` (stesse
+    sequenze a parita' di seme), ma con la STESSA ESPOSIZIONE a ogni trade:
+
+        per_nozionale=False   `esposizione` lotti a ogni trade:
+                              guadagno = lotti x pips_netti x valore_uscita
+        per_nozionale=True    `esposizione` dollari di nozionale a ogni trade
+                              (crypto, coerente con il bp):
+                              guadagno = dollari x pips_netti x valore_uscita / nozionale_lotto
+
+    Esposizione continua: niente passo, minimo o leva. Il capitale non scende
+    sotto zero (da li' resta a zero). Ritorna {"finale", "drawdown_pct"}.
+    """
+    _controlla_tabella(tabella)
+    u = _unita_fissa(tabella, per_nozionale)
+    if indici is None:
+        rng = np.random.default_rng(seed)
+        indici = rng.integers(0, len(tabella), size=(int(n_sim), int(n_trade)))
+    return _percorsi_fissi(u[np.asarray(indici)], float(capitale), float(esposizione))
+
+
+def confronto_esposizione_fissa(tabella: pd.DataFrame, capitale: float, f: float, n_trade: int,
+                                n_sim: int = 10_000, limiti: dict | None = None, seed: int = 0,
+                                per_nozionale: bool = False, percentile: int = 95) -> pd.DataFrame:
+    """
+    P3 (23/10/2026): rischio in percentuale contro stessa esposizione a ogni
+    trade, A PARITA' DI DRAWDOWN SFORTUNATO. L'esposizione fissa si cerca per
+    bisezione: quella il cui drawdown al `percentile`, sulle stesse storie
+    simulate (stesso seme, stessi trade ripescati, stessa lunghezza), e'
+    uguale a quello della frazione f (il drawdown cresce con l'esposizione).
+
+    Ritorna due righe: modo, esposizione (f, oppure lotti o dollari per
+    trade), rendimento_p50, drawdown_p50, drawdown_p<percentile> (in %).
+    Solo da leggere: non decide niente. Esposizione NaN se il drawdown della
+    frazione e' zero o se nessun trade perde.
+    """
+    _controlla_tabella(tabella)
+    rng = np.random.default_rng(seed)
+    indici = rng.integers(0, len(tabella), size=(int(n_sim), int(n_trade)))
+    perc = montecarlo_mm(tabella, capitale, [f], int(n_trade), limiti=limiti, indici=indici)[float(f)]
+    obiettivo = float(np.percentile(perc["drawdown_pct"], percentile))
+    g = _unita_fissa(tabella, per_nozionale)[indici]
+
+    def dd(e):
+        return float(np.percentile(_percorsi_fissi(g, float(capitale), e)["drawdown_pct"], percentile))
+
+    esposizione = float("nan")
+    if obiettivo > 0 and (g < 0).any():
+        basso, alto = 0.0, float(capitale) if per_nozionale else 1.0
+        for _ in range(200):
+            if dd(alto) >= obiettivo:
+                break
+            basso, alto = alto, alto * 2.0
+        for _ in range(50):                     # fino a uno scarto dello 0,01 % sull'esposizione
+            if alto - basso <= 1e-4 * alto:
+                break
+            medio = (basso + alto) / 2.0
+            if dd(medio) < obiettivo:
+                basso = medio
+            else:
+                alto = medio
+        esposizione = (basso + alto) / 2.0
+    if np.isfinite(esposizione):
+        fisso = _percorsi_fissi(g, float(capitale), esposizione)
+    else:
+        fisso = {"finale": np.full(len(g), np.nan), "drawdown_pct": np.full(len(g), np.nan)}
+    righe = []
+    for modo, esp, r in (("rischio in percentuale", float(f), perc),
+                         ("stessa esposizione a ogni trade", esposizione, fisso)):
+        rend = (r["finale"] / float(capitale) - 1.0) * 100.0
+        righe.append({"modo": modo, "esposizione": esp,
+                      "rendimento_p50": float(np.median(rend)),
+                      "drawdown_p50": float(np.percentile(r["drawdown_pct"], 50)),
+                      f"drawdown_p{int(percentile)}": float(np.percentile(r["drawdown_pct"], percentile))})
+    return pd.DataFrame(righe)
+
+
 def zscore(risultati) -> dict:
     """
     z-score della sequenza dei trade (cap. 5.7, p. 110-112): misura se vincite

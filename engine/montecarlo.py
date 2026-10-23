@@ -36,7 +36,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .metriche import pips_per_trade
+from .metriche import bp_per_trade, pips_per_trade
 
 PERCENTILI = (50, 75, 90, 95, 99)
 ORIZZONTI = (10, 20, 40, 100)
@@ -69,6 +69,33 @@ def pips_per_dataset(trades_is: pd.DataFrame | None, trades_oos: pd.DataFrame | 
         if len(t) == 0:
             continue
         _, netti = pips_per_trade(t, pip_size, commission)
+        ordine = np.argsort(pd.DatetimeIndex(t["ExitTime"]).to_numpy(), kind="mergesort")
+        pezzi.append(netti.to_numpy(dtype=float)[ordine])
+    x = np.concatenate(pezzi) if pezzi else np.array([], dtype=float)
+    return x[np.isfinite(x)]
+
+
+def bp_per_dataset(trades_is: pd.DataFrame | None, trades_oos: pd.DataFrame | None,
+                   pip_size: float, commission: float = 0.0,
+                   dataset: str = "FULL") -> np.ndarray:
+    """
+    Come `pips_per_dataset`, ma in BP netti per trade (metriche.bp_per_trade,
+    funding compreso), nello stesso ordine di uscita. 23/10/2026: lo stress
+    test dei symbol da exchange lavora in bp, cioe' con lo stesso valore in
+    dollari a ogni trade (un trade dell'1% pesa uguale a 10.000 e a 50.000 $).
+    """
+    d = str(dataset).upper()
+    if d not in ("IS", "OOS", "FULL"):
+        raise ValueError("dataset deve essere 'IS', 'OOS' o 'FULL'.")
+    parti = {"IS": [("IS", trades_is)], "OOS": [("OOS", trades_oos)],
+             "FULL": [("IS", trades_is), ("OOS", trades_oos)]}[d]
+    pezzi = []
+    for nome, t in parti:
+        if t is None:
+            raise ValueError(f"dataset='{d}' richiede i trade {nome}.")
+        if len(t) == 0:
+            continue
+        _, netti = bp_per_trade(t, pip_size, commission)
         ordine = np.argsort(pd.DatetimeIndex(t["ExitTime"]).to_numpy(), kind="mergesort")
         pezzi.append(netti.to_numpy(dtype=float)[ordine])
     x = np.concatenate(pezzi) if pezzi else np.array([], dtype=float)
@@ -292,9 +319,10 @@ def sizing(yardstick_o_mc, dd_accettabile_usd: float, valore_pip: float,
 
 def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
                        n_sim_grafici: int = 5_000, n_spaghetti: int = 100,
-                       titolo: str = "", seed: int = 0):
+                       titolo: str = "", seed: int = 0, unita: str = "pips"):
     """
-    I grafici del notebook del corso, in pips netti:
+    I grafici del notebook del corso, in pips netti (`unita`, 23/10/2026: solo
+    l'etichetta degli assi, es. "bp" sulle crypto; i numeri sono quelli passati):
 
         1. distribuzione del drawdown massimo sull'intero campione
         2. drawdown e P&L per orizzonte (due righe di istogrammi)
@@ -313,7 +341,7 @@ def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
     ax.hist(mc["_dd"], bins=60)
     ax.axvline(mc["dd_p95"], color="red", linestyle="--", label="95° percentile")
     ax.axvline(mc["dd_reale"], color="black", linewidth=1.5, label="drawdown reale")
-    ax.set_xlabel("drawdown massimo (pips)")
+    ax.set_xlabel(f"drawdown massimo ({unita})")
     ax.set_title(f"Drawdown massimo su {mc['n_trade']} trade{suff}")
     ax.legend()
     fig.tight_layout()
@@ -327,7 +355,7 @@ def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
         assi[1, j].hist(pnl, bins=50)
         assi[1, j].axvline(0, color="red", linestyle="--")
         assi[1, j].set_title(f"P&L dopo {h} trade")
-        assi[1, j].set_xlabel("pips")
+        assi[1, j].set_xlabel(unita)
     fig2.suptitle(f"Yardstick per orizzonte{suff}")
     fig2.tight_layout()
 
@@ -340,7 +368,7 @@ def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
     a1.plot(np.r_[0.0, np.cumsum(x)], color="black", linewidth=1.8, label="sequenza reale")
     a1.set_title(f"{n_spaghetti} curve simulate{suff}")
     a1.set_xlabel("trade")
-    a1.set_ylabel("pips netti")
+    a1.set_ylabel(f"{unita} netti")
     a1.legend()
     passi = np.arange(cammini.shape[1])
     a2.plot(passi, np.median(cammini, axis=0), label="mediana")

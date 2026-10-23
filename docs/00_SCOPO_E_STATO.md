@@ -55,7 +55,8 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Giornata delle crypto da 00:00 a 00:00 UTC** (`63` §10.1); gli orari presi
   dalle fonti restano alle 17:00 di New York.
 - **Unità che decide: il bp** sui symbol da exchange (parametro `unita`); pips e
-  ATR accanto; totale, drawdown, money management e stress test in pips (`02`,
+  ATR accanto; totale, drawdown e money management in pips, stress test in bp
+  sulle crypto (in corso, ramo `mm-e-stress-bp`; sul broker in pips) (`02`,
   «Unità»; `63` §4).
 - **Costi:** commissione taker di listino, livello base, più uno spread di un
   passo; sui perpetual il **funding** trade per trade, acceso di default (`63`
@@ -70,7 +71,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 38 suite, 3 alla volta, circa 11 minuti; alla fine deve stampare
+  --tutte`, 39 suite, 3 alla volta, circa 11 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
@@ -90,15 +91,20 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    combinazioni di filtri), sotto la scheda al posto della riga del mercato
    nullo; solo informativa. Anche nel notebook di ricerca
    (`vetrina.soglia_cumulata`).
-5. **C · atlante del trigger** — fatto (PR #53; proposta e decisioni in
-   `66`). Per ogni entry vera, 8 celle per lato (10 sui perpetual con lo
+5. **C · atlante del trigger** — fatto (PR #53; lo stato aggiornato in
+   questo file con la PR #54, solo testo; proposta e decisioni in `66`). Per ogni entry vera, 8 celle per lato (10 sui perpetual con lo
    spot): scarto lordo dal mercato della cella e netto dei costi (`02`,
    «L'atlante del trigger»). Lab 3c–3d, ricerca 1.5. Con una cella scelta
    (strada B) il passo 5 prova solo la cella, con la soglia a k = celle
    dell'atlante; senza cella tutto come prima.
 
-Prossimi lavori, ancora da decidere (ordine e contenuto li stabilisce
-Mattia): **money management P1–P4** e **stress test in bp**.
+6. **Money management P1–P4 e stress test in bp** — in corso (ramo
+   `mm-e-stress-bp`; resoconto in `61` §15). P1: la percentuale rispetta
+   il limite di drawdown anche sui tratti di storia vera in-sample lunghi
+   quanto l'orizzonte; P2: avviso oltre Kelly; P3: confronto con la stessa
+   esposizione a ogni trade a parità di drawdown sfortunato; P4: decimali
+   dei lotti dal passo dell'exchange. Stress test delle crypto in bp per
+   trade, lotti dal prezzo dell'ultima barra; broker in pips come prima.
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.

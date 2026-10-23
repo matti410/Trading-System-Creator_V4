@@ -208,8 +208,8 @@ escluso (in M15 solo da gennaio 2025).
 | `condizioni_orarie.py` | 2–3, entry e uscite a orario: `ORA_LONG_@HH:MM`, `ORA_SHORT_@HH:MM`, `X_ORA_@HH:MM`, `X_INVERSIONE_TREND` (dal 19/10) |
 | `engine/confidenza.py` | 5, confidenza dei segnali: griglia volatilità × trend, soglia come filtro |
 | `engine/volatility_features_engineering.py` | file di Mattia, invariato: `confidenza.py` usa `feat_historical_volatility` e `build_labels` |
-| `engine/montecarlo.py` | 7, yardstick 10/20/40/100 trade, Monte Carlo, sizing, grafici |
-| `engine/money_management.py` | 7, modulo puro (solo numpy e pandas): rischio fisso, secure f, Kelly e optimal f come riferimento, Monte Carlo moltiplicativo, tabella di controllo, z-score (`61`) |
+| `engine/montecarlo.py` | 7, yardstick 10/20/40/100 trade, Monte Carlo, sizing, grafici; `bp_per_dataset`, lo stress test delle crypto in bp (23/10, `61` §15) |
+| `engine/money_management.py` | 7, modulo puro (solo numpy e pandas): rischio fisso, secure f, Kelly e optimal f come riferimento, Monte Carlo moltiplicativo, tabella di controllo, z-score; dal 23/10 `controlla_storia` (P1, storia vera a tratti) e `confronto_esposizione_fissa` (P3) (`61` §15) |
 | `engine/mm_adattatore.py` | 7, dai trade del V4 alla tabella del money management: rischio a stop o a volatilità, valore del pip trade per trade |
 | `engine/costi.py` | costi per strumento; lo spread usato dai notebook è il listino del conto Standard (`SPREAD_LISTINO_PIPS` in `vetrina.py`) |
 | `engine/exchange.py` | dati e costi da exchange crypto (dal 19/10): commissioni di listino, lettura dei CSV, scaricamento con ccxt in sola lettura, controlli dei dati (`50` §12) |
