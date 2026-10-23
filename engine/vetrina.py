@@ -88,7 +88,7 @@ from .giudizio import CAMPIONE_CORTO, DA_VALUTARE, scheda_strategia, soglia_rumo
 from .indicatori import aggiungi_indicatori, atr_giornaliero_chiuso
 from .livelli import GIORNATA_FX, GIORNATA_UTC, imposta_giornata, quarantena_cached
 from .metriche import netti_in_unita, pips_per_trade
-from .montecarlo import (grafici_montecarlo, montecarlo_completo,
+from .montecarlo import (bp_per_dataset, grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import ROLLOVER_DEFAULT, imposta_rollover, passo_barre, verifica_indice_utc
 from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
@@ -2145,6 +2145,88 @@ def _modello(modello: str) -> str:
     raise ValueError(f"modello sconosciuto: {modello!r}. Usa «volatilità» oppure «rischio fisso».")
 
 
+def _cifre_lotti(passo) -> int:
+    """P4 (23/10/2026): i decimali con cui si scrivono i lotti, dal passo del
+    symbol: 2 sul broker (passo 0,01, come prima), 3 su BTC (passo 0,001)."""
+    if passo is None or not np.isfinite(float(passo)) or float(passo) <= 0:
+        return 2
+    return max(2, int(round(-np.log10(float(passo)))))
+
+
+def _righe_mostrate(cal: pd.DataFrame, col_dd: str, dd_max: float) -> int:
+    """Quante righe della calibrazione mostra la tabella della scelta: fino a 3 oltre la prima
+    percentuale che supera il limite nel Monte Carlo, e almeno 6 (come la tabella stessa)."""
+    sopra = cal[col_dd].to_numpy() > dd_max
+    oltre = int(np.argmax(sopra)) if sopra.any() else len(cal)
+    return min(len(cal), max(6, oltre + 3))
+
+
+def _riga_ha_deciso(storia: dict, tab_is: pd.DataFrame, dd_max: float) -> str:
+    """P1 (23/10/2026): la riga che dice chi ha deciso la percentuale, con le
+    date del tratto peggiore della storia vera quando decide lei."""
+    t = storia["tabella"]
+    fm, f = storia["f_montecarlo"], storia["f"]
+    lung = storia["lunghezza"]
+
+    def tratto(riga):
+        a = tab_is["entrata"].iloc[int(riga["inizio"])] if "entrata" in tab_is else tab_is.index[int(riga["inizio"])]
+        b = tab_is["uscita"].iloc[int(riga["fine"])] if "uscita" in tab_is else tab_is.index[int(riga["fine"])]
+        return f"dal {pd.Timestamp(a):%d/%m/%Y} al {pd.Timestamp(b):%d/%m/%Y}"
+
+    def riga_di(x):
+        return t.iloc[int(np.argmin(np.abs(t["f"].to_numpy() - x)))]
+
+    if fm is None:
+        return ("Ha deciso: il Monte Carlo (nessuna percentuale della griglia rispetta il limite nel caso "
+                "sfortunato; la storia vera non è stata usata per scegliere).")
+    if storia["deciso"] == "Monte Carlo":
+        r = riga_di(fm)
+        return (f"Ha deciso: il Monte Carlo. Con il {_fmt(fm * 100)} % anche la storia vera resta entro il limite: "
+                f"il tratto peggiore di {lung} trade dell'in-sample ({tratto(r)}) arriva al "
+                f"{_fmt(float(r['drawdown_storia']), 1)} % di drawdown, limite {_fmt(dd_max, 1)} %.")
+    r = riga_di(fm)
+    testo = (f"Ha deciso: la storia vera. Il Monte Carlo permetteva il {_fmt(fm * 100)} %, ma con quella "
+             f"percentuale il tratto peggiore di {lung} trade dell'in-sample ({tratto(r)}) arriva al "
+             f"{_fmt(float(r['drawdown_storia']), 1)} % di drawdown, oltre il limite del {_fmt(dd_max, 1)} %")
+    if f is None:
+        return testo + ": nessun gradino della griglia lo rispetta, nemmeno il più basso."
+    r2 = riga_di(f)
+    return (testo + f"; scesa al {_fmt(f * 100)} %, con cui il tratto peggiore ({tratto(r2)}) arriva al "
+            f"{_fmt(float(r2['drawdown_storia']), 1)} %.")
+
+
+def _avviso_kelly(f, k) -> str | None:
+    """P2 (23/10/2026): la riga d'avviso quando la percentuale scelta supera
+    il Kelly dell'in-sample. Avvisa e basta. None = niente da dire."""
+    if f is None:
+        return None
+    if k is None or not np.isfinite(k):
+        return ("Kelly dell'in-sample non calcolabile (servono trade vincenti e perdenti): il confronto con la "
+                f"percentuale scelta ({_pct(f)}) non si può fare.")
+    if k <= 0:
+        return (f"Attenzione: il Kelly dell'in-sample è ≤ 0 ({_pct(k)}): sui trade in-sample nessuna percentuale "
+                f"positiva è giustificata dal Kelly, e la percentuale scelta è {_pct(f)}.")
+    if f > k:
+        return (f"Attenzione: la percentuale scelta ({_pct(f)}) supera il Kelly dell'in-sample ({_pct(k)}).")
+    return None
+
+
+def _tabella_esposizione_fissa(fissa: pd.DataFrame, crypto: bool, cifre: int) -> pd.DataFrame:
+    """P3: la tabellina da mostrare."""
+    col = [c for c in fissa.columns if c.startswith("drawdown_p") and c != "drawdown_p50"][0]
+    perc, fisso = float(fissa["esposizione"].iloc[0]), float(fissa["esposizione"].iloc[1])
+    esp = [f"{_fmt(perc * 100)} % del conto a ogni trade",
+           (f"{_fmt(fisso, 0)} $ di nozionale a ogni trade" if crypto
+            else f"{_fmt(fisso, cifre)} lotti a ogni trade") if np.isfinite(fisso) else "—"]
+    return pd.DataFrame({
+        "Modo": ["Rischio in percentuale", "Stessa esposizione a ogni trade"],
+        "Esposizione": esp,
+        "Rendimento tipico (%)": fissa["rendimento_p50"].to_numpy(),
+        "Drawdown tipico (%)": fissa["drawdown_p50"].to_numpy(),
+        "Drawdown nel caso sfortunato, 1 su 20 (%)": fissa[col].to_numpy(),
+    })
+
+
 def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pip: float,
                            commission: float = 0.0, spread_pips: float = 0.0,
                            perc_sl: float = 90.0, n_barre_long: int = 25, n_barre_short: int = 25,
@@ -2209,13 +2291,26 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         for misura, (t_is, _) in tabelle.items():
             calibrazioni[misura] = mm.calibra(t_is, capitale, dd_max, n_trade, percentile=PERCENTILE_MM,
                                               n_sim=simulazioni, limiti=limiti)
-    cal, f = calibrazioni[scelto]
+        # P1 (23/10/2026): la percentuale deve rispettare il limite anche sui tratti di storia vera
+        # in-sample lunghi quanto l'orizzonte; per i due modelli, cosi' il confronto usa la stessa regola
+        # (solo i gradini che servono: tutti quelli fino alla scelta del Monte Carlo e quelli che la tabella
+        # mostra; la storia vera costa un Monte Carlo con un tratto per ogni trade in-sample)
+        storie = {misura: mm.controlla_storia(tabelle[misura][0], capitale, dd_max, n_trade, fm, limiti=limiti,
+                                              frazioni=c["f"].to_numpy()[:_righe_mostrate(c, col_dd, dd_max)])
+                  for misura, (c, fm) in calibrazioni.items()}
+    cal, f_mc = calibrazioni[scelto]
+    storia_vera = storie[scelto]
+    f = storia_vera["f"]
+    dd_storia = np.full(len(cal), np.nan)                   # i gradini non calcolati restano vuoti
+    dd_storia[:len(storia_vera["tabella"])] = storia_vera["tabella"]["drawdown_storia"].to_numpy()
     righe_conf = []
-    for misura, (c, fm) in calibrazioni.items():
+    for misura, (c, _) in calibrazioni.items():
+        fm = storie[misura]["f"]
         riga = c.iloc[int(np.argmin(np.abs(c["f"].to_numpy() - fm)))] if fm is not None else None
         righe_conf.append({
             "Modello": MODELLI_MM[misura] + ("  ◀ in uso" if misura == scelto else ""),
             "Percentuale scelta (%)": fm * 100 if fm is not None else np.nan,
+            "Ha deciso": storie[misura]["deciso"],
             "Drawdown tipico (%)": riga["drawdown_p50"] if riga is not None else np.nan,
             "Drawdown nel caso sfortunato, 1 su 20 (%)": riga[col_dd] if riga is not None else np.nan,
             "Rendimento tipico (%)": riga["rendimento_p50"] if riga is not None else np.nan,
@@ -2254,6 +2349,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         "Rischio per trade (%)": cal["f"] * 100,
         "Drawdown tipico (%)": cal["drawdown_p50"],
         "Drawdown nel caso sfortunato, 1 su 20 (%)": cal[col_dd],
+        "Drawdown della storia vera, tratto peggiore (%)": dd_storia,
         "Rendimento tipico (%)": cal["rendimento_p50"],
         "Probabilità di chiudere in perdita (%)": cal["p_perdita"],
         "Probabilità di restare bloccati (%)": cal["p_bloccato"],
@@ -2269,6 +2365,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         tab_cal_vista = tab_cal.head(6)
 
     suff = f" · {titolo}" if titolo else ""
+    cifre = _cifre_lotti(limiti["passo"])                   # P4: BTC 0,006 lotti, non «0,01» o «0,00»
     if vol:
         misura_txt = ("modello a volatilità: lotti = capitale × percentuale ÷ (ATR giornaliero a 5 giornate chiuse × "
                       "valore di 1 pip); lo stop non entra nel calcolo.")
@@ -2280,7 +2377,8 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     _nota(f"Capitale iniziale {_fmt(float(capitale), 0)} $ · drawdown accettato {_fmt(dd_max, 1)} % "
           f"su {_fmt(float(anni), 1)} anni = circa {n_trade} trade (dalla frequenza in-sample) · "
           f"caso sfortunato al {PERCENTILE_MM}° percentile · {_fmt(simulazioni)} storie simulate · "
-          f"lotti da {_fmt(limiti['minimo'])} a passi di {_fmt(limiti['passo'])}, massimo {_fmt(limiti['massimo'], 0)}, "
+          f"lotti da {_fmt(limiti['minimo'], cifre)} a passi di {_fmt(limiti['passo'], cifre)}, "
+          f"massimo {_fmt(limiti['massimo'], 0)}, "
           f"leva massima {limiti['leva']} · in uso il {misura_txt}")
     _mostra(("I due modelli a confronto (Monte Carlo sull'in-sample, stessa regola sul drawdown)", tab_confronto),
             decimali={"Percentuale scelta (%)": 2, "Drawdown tipico (%)": 1,
@@ -2290,17 +2388,42 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
           "cambiarlo dopo averlo visto smette di essere una prova. Scegliere guardando questa tabella conta come una "
           "prova in più.")
     _mostra((f"Il rischio dei tuoi trade (in-sample, {MODELLI_MM[scelto]})", tab_rischio),
-            (f"La scelta della percentuale (Monte Carlo sull'in-sample, {MODELLI_MM[scelto]})", tab_cal_vista),
+            (f"La scelta della percentuale (Monte Carlo e storia vera sull'in-sample, {MODELLI_MM[scelto]})",
+             tab_cal_vista),
             decimali={"Rischio per trade (%)": 2, "Drawdown tipico (%)": 1,
-                      "Drawdown nel caso sfortunato, 1 su 20 (%)": 1, "Rendimento tipico (%)": 1,
+                      "Drawdown nel caso sfortunato, 1 su 20 (%)": 1,
+                      "Drawdown della storia vera, tratto peggiore (%)": 1, "Rendimento tipico (%)": 1,
                       "Probabilità di chiudere in perdita (%)": 1, "Probabilità di restare bloccati (%)": 1,
                       "Trade saltati (%)": 1, "Lotti ridotti dalla leva (%)": 1})
+    riga_deciso = _riga_ha_deciso(storia_vera, tab_is, dd_max)
+    _nota(riga_deciso)
+    avviso_k = _avviso_kelly(f, k)                          # P2: avvisa e basta
+    if avviso_k:
+        _nota(avviso_k)
+    tab_fissa = None
+    if f is not None:                                        # P3: solo da leggere
+        with _zitto():
+            fissa = mm.confronto_esposizione_fissa(tab_is, capitale, f, n_trade, n_sim=simulazioni,
+                                                   limiti=limiti, per_nozionale=da_exchange(symbol),
+                                                   percentile=PERCENTILE_MM)
+        tab_fissa = _tabella_esposizione_fissa(fissa, da_exchange(symbol), cifre)
+        _mostra((f"Rischio in percentuale contro stessa esposizione a ogni trade, a parità di drawdown "
+                 f"sfortunato (in-sample, {n_trade} trade)", tab_fissa),
+                decimali={"Rendimento tipico (%)": 1, "Drawdown tipico (%)": 1,
+                          "Drawdown nel caso sfortunato, 1 su 20 (%)": 1})
+        _nota("Solo da leggere, non decide niente. Le due righe sono tarate sullo stesso drawdown sfortunato, "
+              "sulle stesse storie simulate. "
+              + ("«Stessa esposizione» vuol dire lo stesso valore in dollari a ogni trade, come nello stress test "
+                 "in bp. " if da_exchange(symbol) else "«Stessa esposizione» vuol dire gli stessi lotti a ogni trade. ")
+              + "L'esposizione fissa è continua: niente passo, lotto minimo o leva.")
 
     import matplotlib.pyplot as plt
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 4.4))
     x = cal["f"].to_numpy() * 100
     a1.plot(x, cal[col_dd], lw=2, label="drawdown nel caso sfortunato (1 su 20)")
     a1.plot(x, cal["drawdown_p50"], lw=1.2, label="drawdown tipico")
+    a1.plot(x, dd_storia, lw=1.2, ls="--", color="#c26a1b",
+            label="storia vera, tratto peggiore")
     a1.axhline(dd_max, color="red", ls="--", lw=1, label="il tuo limite")
     a2.plot(x, cal["rendimento_p50"], lw=2, color="#1f5f99", label="rendimento tipico")
     for ax in (a1, a2):
@@ -2324,13 +2447,27 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
            "tabella_oos": tab_oos, "kelly": k, "optimal_f": f_opt, "n_trade": n_trade,
            "limiti": limiti, "sintesi": None, "percorso_is": None, "percorso_oos": None,
            "banda": None, "zscore": zs, "controllo": None, "percentile_oos": None,
-           "capitale": float(capitale), "drawdown_max_pct": dd_max}
+           "capitale": float(capitale), "drawdown_max_pct": dd_max,
+           "f_montecarlo": f_mc, "deciso": storia_vera["deciso"], "storia_vera": storia_vera,
+           "riga_deciso": riga_deciso, "avviso_kelly": avviso_k, "esposizione_fissa": tab_fissa}
     if f is None:
+        piu_bassa = _fmt(float(cal['f'].iloc[0]) * 100)
+        storia_no = storia_vera["tabella"]["drawdown_storia"].iloc[0] > dd_max
+        if f_mc is not None:
+            causa = (f"Il Monte Carlo permetteva il {_fmt(f_mc * 100)} %, ma sulla storia vera nessuna percentuale "
+                     f"della griglia, nemmeno la più bassa ({piu_bassa} %), tiene il tratto peggiore sotto il "
+                     f"{_fmt(dd_max, 1)} %")
+        elif storia_no:
+            causa = (f"Nessuna percentuale della griglia (la più bassa è {piu_bassa} %) tiene il drawdown sotto il "
+                     f"{_fmt(dd_max, 1)} %, né nel caso sfortunato del Monte Carlo né nel tratto peggiore della "
+                     "storia vera")
+        else:
+            causa = (f"Nessuna percentuale della griglia (la più bassa è {piu_bassa} %) tiene il drawdown "
+                     f"sfortunato del Monte Carlo sotto il {_fmt(dd_max, 1)} %")
         _riquadro(
-            "Per ogni percentuale di rischio, migliaia di storie simulate con i trade in-sample.",
-            f"Nessuna percentuale della griglia (la più bassa è {_fmt(float(cal['f'].iloc[0]) * 100)} %) tiene il "
-            f"drawdown sfortunato sotto il {_fmt(dd_max, 1)} %: con questi trade e questo capitale il limite che hai "
-            "scelto non si può rispettare.",
+            "Per ogni percentuale di rischio, migliaia di storie simulate con i trade in-sample, e la storia vera "
+            "tagliata in tratti lunghi quanto l'orizzonte.",
+            f"{causa}: con questi trade e questo capitale il limite che hai scelto non si può rispettare.",
             "Puoi alzare il drawdown accettato, il capitale o l'orizzonte, oppure tornare alla scheda strategia. "
             "Lo stress test (schermata 9) resta disponibile.")
         return out
@@ -2345,7 +2482,8 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
             ("capitale_iniziale", "Capitale iniziale ($)", 0), ("capitale_finale", "Capitale finale ($)", 0),
             ("rendimento_pct", "Rendimento (%)", 1), ("drawdown_max_pct", "Drawdown massimo (%)", 1),
             ("perdita_peggiore_pct", "Perdita peggiore su un trade (% del conto)", 2),
-            ("lotti_min", "Lotti minimi", 2), ("lotti_medi", "Lotti medi", 2), ("lotti_max", "Lotti massimi", 2)]
+            ("lotti_min", "Lotti minimi", cifre), ("lotti_medi", "Lotti medi", cifre),
+            ("lotti_max", "Lotti massimi", cifre)]
     sintesi = pd.DataFrame({
         "": [n for _, n, _ in voci],
         "In-sample (storia vera)": [_fmt(s_is[c], d) for c, _, d in voci],
@@ -2368,7 +2506,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         ax.plot(n, np.r_[capitale, p_oos["capitale_dopo"].to_numpy()], lw=2, color="#1f5f99",
                 label=f"out-of-sample, {_fmt(f * 100)} % per trade")
         ax.plot(n, np.r_[capitale, fissi.to_numpy()], lw=1.2, ls="--", color="#c26a1b",
-                label=f"out-of-sample, {_fmt(lotti0)} lotti fissi")
+                label=f"out-of-sample, {_fmt(lotti0, cifre)} lotti fissi")
         ax.axhline(capitale, color="black", lw=.8)
         ax.set_xlabel("trade out-of-sample")
         ax.set_ylabel("capitale ($)")
@@ -2421,9 +2559,9 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     nome_misura = "ATR giornaliero a 5 giornate chiuse" if vol else "rischio del trade"
     parola = "un ATR" if vol else "un rischio"
     _nota(f"Per il live: lotti = capitale × {_fmt(f * 100)} % ÷ ({nome_misura} in pips × valore di 1 pip con "
-          f"1 lotto), arrotondati per difetto al passo di {_fmt(limiti['passo'])}. Esempio: con "
+          f"1 lotto), arrotondati per difetto al passo di {_fmt(limiti['passo'], cifre)}. Esempio: con "
           f"{_fmt(capitale_live, 0)} $ e {parola} di {_fmt(rischio_tipico, 1)} pips "
-          f"({_fmt(valore_tipico)} $ per pip) sono {_fmt(lotti_es)} lotti. Sotto {_fmt(limiti['minimo'])} lotti il "
+          f"({_fmt(valore_tipico)} $ per pip) sono {_fmt(lotti_es, cifre)} lotti. Sotto {_fmt(limiti['minimo'], cifre)} lotti il "
           f"trade si salta; il nozionale non supera {limiti['leva']} volte il capitale.")
     _riquadro(
         "Quanto rischiare su ogni trade, in percentuale del conto. Due modi di misurare il rischio: «rischio fisso» "
@@ -2529,7 +2667,14 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
                        drawdown viene da li' (capitale x drawdown %) e questo
                        valore non si usa; altrimenti si usa questo, come prima.
 
-    Ritorna {"controllo": tabella, "montecarlo": dict, "sizing": dict}.
+    23/10/2026: sui symbol da exchange Monte Carlo, drawdown e tabella di
+    controllo sono in BP per trade (lo stesso valore in dollari a ogni
+    trade), e i lotti consigliati vengono dal drawdown in bp e dal prezzo
+    dell'ultima barra (1 bp con 1 lotto = prezzo / 10.000 $). Sul broker
+    tutto in pips, come prima.
+
+    Ritorna {"controllo": tabella, "montecarlo": dict, "sizing": dict,
+    "drawdown_max_usd", "unita", e sulle crypto "prezzo" e "data_prezzo"}.
     """
     s._serve("oos", "6 · Scheda strategia")
     if s.mm is not None:
@@ -2538,41 +2683,59 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
                    f"= {_fmt(drawdown_max_usd, 0)} $")
     else:
         origine = f"dal campo di questa schermata: {_fmt(float(drawdown_max_usd), 0)} $ (schermata 7 non eseguita)"
-    pips = pips_per_dataset(s.trades_is, s.trades_oos,
-                            s.fs.pip_size, s.fs.commission or 0.0, dataset="FULL")
+    u = "bp" if s.da_exchange else "pips"                 # 23/10/2026: bp sulle crypto
+    if s.da_exchange:
+        valori = bp_per_dataset(s.trades_is, s.trades_oos,
+                                s.fs.pip_size, s.fs.commission or 0.0, dataset="FULL")
+    else:
+        valori = pips_per_dataset(s.trades_is, s.trades_oos,
+                                  s.fs.pip_size, s.fs.commission or 0.0, dataset="FULL")
+    prezzo, data_prezzo = float(s.df["Close"].iloc[-1]), s.df.index[-1]
     with _zitto():
-        orizzonti = tuple(h for h in ORIZZONTI_MC if h <= max(len(pips), 10))
-        yard = yardstick(pips, orizzonti=orizzonti, n_sim=simulazioni)
-        mc = montecarlo_completo(pips, n_sim=simulazioni)
-        valore_pip = valore_pip_lotto(s.symbol, s.fs.pip_size, prezzo=float(s.df["Close"].iloc[-1]),
-                                      cambio=_cambio_ultima_barra(s))
+        orizzonti = tuple(h for h in ORIZZONTI_MC if h <= max(len(valori), 10))
+        yard = yardstick(valori, orizzonti=orizzonti, n_sim=simulazioni)
+        mc = montecarlo_completo(valori, n_sim=simulazioni)
+        if s.da_exchange:
+            valore_unita = prezzo * float(info_symbol(s.symbol)["contratto"]) / 10_000.0   # 1 bp con 1 lotto
+        else:
+            valore_unita = valore_pip_lotto(s.symbol, s.fs.pip_size, prezzo=prezzo,
+                                            cambio=_cambio_ultima_barra(s))
         passo = passo_lotti(s.symbol)
-        sz = sizing(mc, drawdown_max_usd, valore_pip, percentile=95, passo=passo)
-    cifre_lotti = max(2, int(round(-np.log10(passo))))     # BTC: 0,006 lotti, non «0,01»
+        sz = sizing(mc, drawdown_max_usd, valore_unita, percentile=95, passo=passo)
+    cifre_lotti = _cifre_lotti(passo)                      # BTC: 0,006 lotti, non «0,01»
 
     controllo = pd.DataFrame({
         "Dopo quanti trade": [int(h) for h in yard.index],
-        "Risultato tipico (pips)": yard["pnl_p50"].to_numpy(),
-        "Drawdown tipico (pips)": yard["dd_p50"].to_numpy(),
-        "Drawdown da allarme (pips)": yard["dd_p95"].to_numpy(),
+        f"Risultato tipico ({u})": yard["pnl_p50"].to_numpy(),
+        f"Drawdown tipico ({u})": yard["dd_p50"].to_numpy(),
+        f"Drawdown da allarme ({u})": yard["dd_p95"].to_numpy(),
         "Probabilità di essere in perdita (%)": yard["p_pnl_negativo"].to_numpy(),
     })
-    sintesi = pd.DataFrame({
-        "": ["Trade simulati", "Drawdown realmente visto", "Drawdown tipico",
-             "Drawdown nel caso sfortunato (1 su 20)", "Probabilità di chiudere in perdita",
-             "Valore di 1 pip con 1 lotto", "Drawdown che accetti", "Lotti consigliati"],
-        " ": [_fmt(mc["n_trade"]), f"{_fmt(mc['dd_reale'], 0)} pips", f"{_fmt(mc['dd_p50'], 0)} pips",
-              f"{_fmt(mc['dd_p95'], 0)} pips", f"{_fmt(mc['p_pnl_negativo'], 1)} %",
-              f"{_fmt(valore_pip)} $", f"{_fmt(float(drawdown_max_usd), 0)} $",
-              _fmt(sz["lotti_consigliati"], cifre_lotti)
-              + (f" ({info_symbol(s.symbol)['valuta']}: 1 lotto = 1 moneta)" if s.da_exchange else "")],
-    })
+    voci = ["Trade simulati", "Drawdown realmente visto", "Drawdown tipico",
+            "Drawdown nel caso sfortunato (1 su 20)", "Probabilità di chiudere in perdita",
+            f"Valore di 1 {'bp' if s.da_exchange else 'pip'} con 1 lotto", "Drawdown che accetti",
+            "Lotti consigliati"]
+    valori_txt = [_fmt(mc["n_trade"]), f"{_fmt(mc['dd_reale'], 0)} {u}", f"{_fmt(mc['dd_p50'], 0)} {u}",
+                  f"{_fmt(mc['dd_p95'], 0)} {u}", f"{_fmt(mc['p_pnl_negativo'], 1)} %",
+                  f"{_fmt(valore_unita)} $", f"{_fmt(float(drawdown_max_usd), 0)} $",
+                  _fmt(sz["lotti_consigliati"], cifre_lotti)
+                  + (f" ({info_symbol(s.symbol)['valuta']}: 1 lotto = 1 moneta)" if s.da_exchange else "")]
+    if s.da_exchange:
+        voci.insert(5, "Prezzo usato per i lotti")
+        valori_txt.insert(5, f"{_fmt(prezzo)} $, chiusura dell'ultima barra ({data_prezzo:%d/%m/%Y %H:%M} UTC)")
+    sintesi = pd.DataFrame({"": voci, " ": valori_txt})
     s.tabelle["stress"] = {"controllo": controllo, "sintesi": sintesi}
     _nota(f"Drawdown che accetti, {origine}.")
+    if s.da_exchange:
+        _nota("Sulle crypto il Monte Carlo lavora sui bp netti per trade: è come mettere lo stesso valore in "
+              "dollari a ogni trade, così un trade dell'1 % pesa uguale a qualunque prezzo. I lotti consigliati "
+              f"vengono dal drawdown sfortunato in bp e dal prezzo dell'ultima barra dei dati ({_fmt(prezzo)} $): "
+              "il tool non legge il prezzo dal vivo.")
     _mostra(("Stress test · in sintesi", sintesi), ("Tabella di controllo per il live", controllo),
-            decimali={"Dopo quanti trade": 0, "Risultato tipico (pips)": 0, "Drawdown tipico (pips)": 0,
-                      "Drawdown da allarme (pips)": 0, "Probabilità di essere in perdita (%)": 1})
-    grafici_montecarlo(pips, mc=mc, orizzonti=orizzonti, titolo=f"{s.symbol} · {s.filtro or 'sistema base'}")
+            decimali={"Dopo quanti trade": 0, f"Risultato tipico ({u})": 0, f"Drawdown tipico ({u})": 0,
+                      f"Drawdown da allarme ({u})": 0, "Probabilità di essere in perdita (%)": 1})
+    grafici_montecarlo(valori, mc=mc, orizzonti=orizzonti, titolo=f"{s.symbol} · {s.filtro or 'sistema base'}",
+                       unita=u)
     import matplotlib.pyplot as plt
     plt.show()
 
@@ -2586,8 +2749,11 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
         "È il segnale per ridurre i lotti o fermarsi.")
     _nota("Limite da conoscere: le simulazioni trattano i trade come indipendenti e non possono inventare "
           "un trade peggiore del peggiore già visto. Se le perdite arrivano a grappoli, la realtà può essere un po' più dura.")
-    return {"controllo": controllo, "montecarlo": mc, "sizing": sz,
-            "drawdown_max_usd": float(drawdown_max_usd)}
+    out = {"controllo": controllo, "montecarlo": mc, "sizing": sz,
+           "drawdown_max_usd": float(drawdown_max_usd), "unita": u}
+    if s.da_exchange:
+        out.update(prezzo=prezzo, data_prezzo=data_prezzo)
+    return out
 
 
 # ========================================================================
