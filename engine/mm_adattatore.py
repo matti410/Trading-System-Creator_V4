@@ -103,7 +103,8 @@ def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: floa
                 pip del symbol, commissione del backtest, spread di listino normale
     perc_sl, n_barre_long, n_barre_short, finestra, lag
                 gli stessi parametri del backtest: servono allo stop di calcolo
-                quando lo stop e' spento (perc_sl = 0)
+                quando lo stop e' spento (perc_sl = 0). Dal 23/10/2026 perc_sl
+                puo' essere (long, short): ogni lato con la sua regola
     cartella    dove sta {valuta}USD_M15.csv per i symbol non quotati in USD
     misura      "stop" (rischio fisso: distanza dallo stop + costi) oppure
                 "volatilita" (modello a volatilita': ATR giornaliero in pips)
@@ -136,13 +137,20 @@ def tabella_trade(trades: pd.DataFrame, df: pd.DataFrame, symbol: str, pip: floa
     prezzo_segnale = df["Close"].to_numpy(dtype=float)[segnale]
     tempo_segnale = df.index[segnale]
 
-    if perc_sl and perc_sl > 0:
+    # 23/10/2026: perc_sl anche per lato, (long, short); un numero vale per tutti e due
+    sl_l, sl_s = perc_sl if isinstance(perc_sl, (tuple, list)) else (perc_sl, perc_sl)
+    acceso_l, acceso_s = bool(sl_l and sl_l > 0), bool(sl_s and sl_s > 0)
+    if acceso_l and acceso_s:
         frazione = (np.abs(t["EntryPrice"].to_numpy(dtype=float) - t["SL"].to_numpy(dtype=float))
                     / t["EntryPrice"].to_numpy(dtype=float))
     else:
         s = soglie_per_lato(df, int(n_barre_long), int(n_barre_short), int(finestra),
                             PERC_STOP_CALCOLO, 0.0, lag=int(lag))
         frazione = np.where(lato > 0, s["sl_long"].to_numpy()[pos], s["sl_short"].to_numpy()[pos])
+        if acceso_l or acceso_s:                 # un lato con lo stop vero, l'altro con lo stop di calcolo
+            vero = (np.abs(t["EntryPrice"].to_numpy(dtype=float) - t["SL"].to_numpy(dtype=float))
+                    / t["EntryPrice"].to_numpy(dtype=float))
+            frazione = np.where(np.where(lato > 0, acceso_l, acceso_s), vero, frazione)
 
     costo = float(spread_pips) + (lordi - netti).to_numpy(dtype=float)
     # 21/10/2026 (docs/63 §5): il funding resta nel risultato (pips_netti) ma NON

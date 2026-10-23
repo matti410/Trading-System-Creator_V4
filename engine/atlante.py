@@ -186,7 +186,7 @@ def _motivo(r) -> str:
 def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, funding=None,
             nomi=None, assi=None, unita: str = "bp", min_eventi: int = MIN_EVENTI,
             q: float = Q_ROSA, fuso: str = FUSO_PREDEFINITO, quarantena=True,
-            mostra=None, atr=None) -> pd.DataFrame:
+            mostra=None, atr=None, qualunque_ora=None) -> pd.DataFrame:
     """
     L'atlante sull'IN-SAMPLE, a orizzonte H: una riga per entry x cella.
 
@@ -207,6 +207,13 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
                solo da mostrare (decisione di Mattia del 22/10/2026): colonne
                scarto_<u>, t_<u>, netto_<u>; None = nessuna
     atr        indicatori.atr_giornaliero_chiuso (serve solo per l'ATR in `mostra`)
+    qualunque_ora  23/10/2026 (decisione di Mattia): le entry confrontate con il
+               mercato della stessa cella A QUALUNQUE ORA, invece che della stessa
+               cella e della stessa fascia oraria. Serve ai trigger a orario
+               (ORA_LONG_@HH:MM): scattano su tutte le barre della loro fascia,
+               e contro il mercato della fascia lo scarto sarebbe zero per
+               costruzione. None = nessuna, tutte come sempre. In .attrs
+               «qualunque_ora» (l'elenco)
 
     Colonne: candidato, direction, asse, cella, eventi, misurata,
     scarto_<unita>, t, p, bh, due_meta, netto_<unita>, passa, motivo.
@@ -227,6 +234,7 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
             raise ValueError(f"Asse {a!r} sconosciuto: usa uno di {ASSI}.")
     nomi = _entry_vere() if nomi is None else list(nomi)
     mostra = set(mostra or [])
+    qualunque_ora = [x for x in (qualunque_ora or []) if x in set(nomi)]
     costi = costi or {}
     commissione = float(costi.get("commission") or 0.0)
     spread = float(costi.get("spread") or 0.0)
@@ -272,16 +280,21 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
 
     rif = {}
 
-    def riferimento(asse, d, u):
-        """Il mercato della cella e della fascia, nell'unita' u: una volta per asse, lato e unita'."""
-        chiave = (asse, d if asse == "vol_trend" else 0, u)
+    def riferimento(asse, d, u, ora=True):
+        """Il mercato della cella e della fascia (ora=False: della cella a qualunque ora),
+        nell'unita' u: una volta per asse, lato, unita' e confronto."""
+        chiave = (asse, d if asse == "vol_trend" else 0, u) + (() if ora else ("qualunque_ora",))
         if chiave not in rif:
             f = in_u(fwd, u)
             cella = stato(asse, d)
             m = len(CELLE[asse])
             usa = valido & pulito & np.isfinite(f) & (cella >= 0)
-            codici = np.where(cella >= 0, fascia * m + cella, 0)
-            n_cod = n_fasce * m
+            if ora:
+                codici = np.where(cella >= 0, fascia * m + cella, 0)
+                n_cod = n_fasce * m
+            else:
+                codici = np.where(cella >= 0, cella, 0)
+                n_cod = m
             b, barre = _media_per_codice(f, codici, usa, n_cod)
             b_a, _ = _media_per_codice(f, codici, usa & prima, n_cod)
             b_b, _ = _media_per_codice(f, codici, usa & ~prima, n_cod)
@@ -354,7 +367,8 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
         for u in unita_riga[1:]:
             netto[u] = in_u(netto_pips, u)
         for asse in assi:
-            misure = {u: misura(riferimento(asse, d, u), pos[np.isfinite(netto[u][pos])], d, netto[u])
+            ora = nome not in qualunque_ora
+            misure = {u: misura(riferimento(asse, d, u, ora), pos[np.isfinite(netto[u][pos])], d, netto[u])
                       for u in unita_riga}
             for j, cella in enumerate(CELLE[asse]):
                 mm = misure[unita][j]
@@ -374,6 +388,8 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
             colonne += [f"scarto_{u}", f"t_{u}", f"netto_{u}"]
     info = dict(H=H, q=q, unita=unita, assi=assi, min_eventi=int(min_eventi), fuso=fuso,
                 scartate=scartate)
+    if qualunque_ora:
+        info["qualunque_ora"] = list(qualunque_ora)
     if not righe:
         vuota = pd.DataFrame(columns=colonne)
         vuota.attrs.update(k_misurate=0, **info)

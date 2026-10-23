@@ -293,7 +293,7 @@ def deriva_per_barra_oraria(df: pd.DataFrame, pip: float,
 # ========================================================================
 
 def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PREDEFINITO,
-                   q: float | None = None, quarantena=True) -> pd.DataFrame:
+                   q: float | None = None, quarantena=True, unita: str = "pips") -> pd.DataFrame:
     """
     Il profilo orario sull'in-sample: una riga per fascia (larga una barra,
     ora locale di `fuso`).
@@ -312,6 +312,12 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
         due_meta      scarto con lo stesso segno su entrambe le meta' dell'in-sample
 
     In .attrs: fuso, larghezza_min, H, k (fasce), q, media_pips (di tutte le barre).
+
+    unita (23/10/2026): l'unita' che DECIDE, "pips" (come sempre) o "bp"
+    (symbol da exchange: pips x pip / prezzo d'ingresso x 10.000). In bp
+    media_bp, scarto_bp, incertezza, t, p, bh e due_meta sono in bp, e
+    media_pips / scarto_pips restano accanto, da leggere. In .attrs anche
+    unita (e media_bp).
     """
     from .rosa import Q_ROSA, benjamini_hochberg
     q = Q_ROSA if q is None else float(q)
@@ -320,7 +326,12 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
         raise ValueError("H deve essere almeno 1 barra.")
     if pip is None or not float(pip) > 0:
         raise ValueError("pip obbligatorio: il pip fisso del symbol (engine/simboli.py).")
+    if unita not in ("pips", "bp"):
+        raise ValueError(f"unita' del profilo {unita!r}: usa 'pips' o 'bp'.")
     fwd = rendimenti_avanti(df_is, H, pip)
+    fwd_pips = fwd
+    if unita == "bp":
+        fwd = rendimenti_avanti_unita(df_is, H, "bp", pip)    # decide il bp; i pips restano accanto
     usa = np.isfinite(fwd) & maschera_segnali_puliti(df_is, quarantena)
     fwd0 = np.where(usa, fwd, 0.0)
     codici, larghezza = fasce_orarie(df_is.index, fuso)
@@ -330,6 +341,7 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
     prima = np.arange(n) < n // 2
     globale = float(fwd[usa].mean())
     glob_meta = (float(fwd[usa & prima].mean()), float(fwd[usa & ~prima].mean()))
+    globale_pips = float(fwd_pips[usa].mean())
 
     righe = []
     for f in np.unique(codici[usa]):
@@ -350,18 +362,28 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
         dm = bool(a.size and b.size
                   and np.sign(fwd[a].mean() - glob_meta[0]) == np.sign(scarto)
                   and np.sign(fwd[b].mean() - glob_meta[1]) == np.sign(scarto))
-        righe.append({"fascia": etichetta_fascia((f + 1) % nf, larghezza, sfasamento), "barre": int(pos.size),
-                      "media_pips": float(x.mean()), "scarto_pips": scarto,
-                      "incertezza": se, "t": t,
-                      "p": 2.0 * (1.0 - _NORMALE.cdf(abs(t))) if np.isfinite(t) else np.nan,
-                      "due_meta": dm})
+        riga = {"fascia": etichetta_fascia((f + 1) % nf, larghezza, sfasamento), "barre": int(pos.size),
+                f"media_{unita}": float(x.mean()), f"scarto_{unita}": scarto,
+                "incertezza": se, "t": t,
+                "p": 2.0 * (1.0 - _NORMALE.cdf(abs(t))) if np.isfinite(t) else np.nan,
+                "due_meta": dm}
+        if unita != "pips":
+            riga["media_pips"] = float(fwd_pips[pos].mean())
+            riga["scarto_pips"] = float(fwd_pips[pos].mean()) - globale_pips
+        righe.append(riga)
     tab = pd.DataFrame(righe)
+    colonne = ["fascia", "barre", f"media_{unita}", f"scarto_{unita}", "incertezza", "t", "p", "bh", "due_meta"]
+    if unita != "pips":
+        colonne += ["media_pips", "scarto_pips"]
     if len(tab):
         tab["bh"] = benjamini_hochberg(tab["p"].to_numpy(), q)
-        tab = (tab[["fascia", "barre", "media_pips", "scarto_pips", "incertezza", "t", "p",
-                    "bh", "due_meta"]].sort_values("fascia").reset_index(drop=True))
-    tab.attrs.update(fuso=fuso, larghezza_min=larghezza, H=H, k=len(tab), q=q,
-                     media_pips=globale)
+        tab = tab[colonne].sort_values("fascia").reset_index(drop=True)
+    if unita == "pips":
+        tab.attrs.update(fuso=fuso, larghezza_min=larghezza, H=H, k=len(tab), q=q,
+                         media_pips=globale)
+    else:
+        tab.attrs.update(fuso=fuso, larghezza_min=larghezza, H=H, k=len(tab), q=q,
+                         media_pips=globale_pips, media_bp=globale, unita=unita)
     return tab
 
 
@@ -375,13 +397,17 @@ def descrivi_profilo(profilo: pd.DataFrame, pip_nome: str = "pips") -> list[str]
         return ["Nessuna fascia misurabile."]
     H = profilo.attrs.get("H")
     luogo = str(profilo.attrs.get("fuso", "")).split("/")[-1].replace("_", " ")
-    alta = profilo.loc[profilo["scarto_pips"].idxmax()]
-    bassa = profilo.loc[profilo["scarto_pips"].idxmin()]
+    u = profilo.attrs.get("unita", "pips")              # 23/10/2026: l'unita' che decide
+    if u != "pips":
+        pip_nome = u
+    colonna = f"scarto_{u}"
+    alta = profilo.loc[profilo[colonna].idxmax()]
+    bassa = profilo.loc[profilo[colonna].idxmin()]
     righe = [
         f"Se apri un LONG alle {alta['fascia']} (ora di {luogo}) e lo tieni {H} barre, in media guadagni "
-        f"{alta['scarto_pips']:+.1f} {pip_nome} rispetto a un'ora qualsiasi"
+        f"{alta[colonna]:+.1f} {pip_nome} rispetto a un'ora qualsiasi"
         + (" — supera il controllo dei colpi di fortuna." if alta["bh"] else " — ma può essere solo caso."),
-        f"Se apri un LONG alle {bassa['fascia']} il risultato è {bassa['scarto_pips']:+.1f} {pip_nome} rispetto a "
+        f"Se apri un LONG alle {bassa['fascia']} il risultato è {bassa[colonna]:+.1f} {pip_nome} rispetto a "
         f"un'ora qualsiasi: per uno SHORT aperto a quell'ora vale al contrario"
         + (" — supera il controllo dei colpi di fortuna." if bassa["bh"] else " — ma può essere solo caso."),
     ]

@@ -159,6 +159,24 @@ def soglie_adattive(df, n, finestra=500, perc_sl=90.0, perc_tp=90.0,
     }
 
 
+def per_lato(valore):
+    """
+    Un percentile di stop o di target per i due lati (23/10/2026): un numero
+    vale per long e short, come sempre; una coppia (long, short) li separa.
+    Ritorna (long, short).
+    """
+    if isinstance(valore, (tuple, list)):
+        if len(valore) != 2:
+            raise ValueError(f"per lato servono due valori (long, short), non {valore!r}.")
+        return valore[0], valore[1]
+    return valore, valore
+
+
+def acceso(valore) -> bool:
+    """True se un percentile accende la soglia (0 o None = spenta), come `not in (None, 0)`."""
+    return valore not in (None, 0)
+
+
 def barre_per_lato(n_barre, n_barre_long=None, n_barre_short=None):
     """
     Le barre di scadenza dei due lati (6/10/2026): (long, short).
@@ -183,7 +201,21 @@ def soglie_per_lato(df, n_long, n_short, finestra=500, perc_sl=90.0, perc_tp=90.
     del long misurati sulle escursioni a `n_long` barre, quelli dello short
     a `n_short` barre. Con n_long == n_short e' una sola chiamata, identica
     a prima.
+
+    23/10/2026: `perc_sl` e `perc_tp` possono essere coppie (long, short)
+    (vedi `per_lato`): ogni lato usa il suo percentile. Con un numero solo,
+    o con la stessa coppia sui due lati, tutto come prima.
     """
+    if isinstance(perc_sl, (tuple, list)) or isinstance(perc_tp, (tuple, list)):
+        sl_l, sl_s = per_lato(perc_sl)
+        tp_l, tp_s = per_lato(perc_tp)
+        geo = (open_col, high_col, low_col)
+        s_long = soglie_adattive(df, n_long, finestra, sl_l, tp_l, *geo, lag=lag)
+        if (n_short, sl_s, tp_s) == (n_long, sl_l, tp_l):
+            return s_long
+        s_short = soglie_adattive(df, n_short, finestra, sl_s, tp_s, *geo, lag=lag)
+        return {"sl_long": s_long["sl_long"], "tp_long": s_long["tp_long"],
+                "sl_short": s_short["sl_short"], "tp_short": s_short["tp_short"]}
     args = (finestra, perc_sl, perc_tp, open_col, high_col, low_col)
     s_long = soglie_adattive(df, n_long, *args, lag=lag)
     if n_short == n_long:
@@ -380,6 +412,7 @@ def run_exit_search_bt(
         0 (disattivati): la protezione, se la vuoi, va accesa a mano. 0 o
         None disattiva quella soglia (il trade resta protetto solo
         dall'altra, dalla regola di uscita e/o dalla scadenza a tempo).
+        23/10/2026: anche una coppia (long, short), un percentile per lato.
 
     spread / commission
         Come in backtesting.py: spread applicato una volta all'ingresso,
@@ -511,18 +544,21 @@ def run_exit_search_bt(
                 print(f"nota: '{nome}' e' registrata long ed e' tradata short (segnale invertito).")
 
     # --- soglie adattive, una volta sola (n_barre e' unico in questo step)
-    usa_sl = perc_sl not in (None, 0)
-    usa_tp = perc_tp not in (None, 0)
+    # 23/10/2026: perc_sl / perc_tp anche per lato (per_lato); un numero = come prima
+    sl_l, sl_s = per_lato(perc_sl)
+    tp_l, tp_s = per_lato(perc_tp)
     soglie = soglie_per_lato(df, n_long, n_short, finestra, perc_sl, perc_tp,
                              open_col, high_col, low_col, lag=lag)
 
     ok_long = pd.Series(True, index=df.index)
     ok_short = pd.Series(True, index=df.index)
-    if usa_sl:
+    if acceso(sl_l):
         ok_long &= ~soglie["sl_long"].isna()
+    if acceso(sl_s):
         ok_short &= ~soglie["sl_short"].isna()
-    if usa_tp:
+    if acceso(tp_l):
         ok_long &= ~soglie["tp_long"].isna()
+    if acceso(tp_s):
         ok_short &= ~soglie["tp_short"].isna()
     # il segnale nasce alla barra del trigger, la soglia si legge sulla
     # barra d'ingresso (una dopo): la validita' va controllata li'
@@ -573,7 +609,7 @@ def run_exit_search_bt(
 
     # --- backtest, una sola costruzione, riusata per ogni combinazione --
     motore = scegli_motore(motore)    # 21/10/2026 (docs/65): "bt" o "veloce", stessi trade
-    controlla_lag(motore, usa_sl or usa_tp, lag)   # 21/10/2026: stop dall'Open d'ingresso
+    controlla_lag(motore, any(map(acceso, (sl_l, sl_s, tp_l, tp_s))), lag)   # 21/10/2026: stop dall'Open d'ingresso
     avviso_capitale(df, cash, margin, close_col, contesto="run_exit_search_bt",
                     motore=motore)    # 25/9: prezzo > capitale (solo "bt", E3)
     if motore == "veloce":
