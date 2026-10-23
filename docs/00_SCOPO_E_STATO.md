@@ -1,6 +1,6 @@
 # 00 · Scopo del progetto e stato attuale
 
-**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 21 ottobre 2026.
+**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 23 ottobre 2026.
 Questo file è solo lo **stato attuale**, in 1–2 pagine. Riferimenti completi e
 storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
 manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10)
@@ -70,7 +70,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 37 suite, 3 alla volta, circa 11 minuti; alla fine deve stampare
+  --tutte`, 38 suite, 3 alla volta, circa 11 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
@@ -90,14 +90,15 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    combinazioni di filtri), sotto la scheda al posto della riga del mercato
    nullo; solo informativa. Anche nel notebook di ricerca
    (`vetrina.soglia_cumulata`).
-5. **C · atlante del trigger** — in corso (ramo `atlante-trigger`; proposta
-   e decisioni in `66`). Per ogni entry vera, 8 celle per lato (10 sui
-   perpetual con lo spot): scarto lordo dal mercato della cella e netto dei
-   costi (`02`, «L'atlante del trigger»). Lab 3c–3d, ricerca 1.5. Con una
-   cella scelta (strada B) il passo 5 prova solo la cella, con la soglia a
-   k = celle dell'atlante; senza cella tutto come prima.
+5. **C · atlante del trigger** — fatto (PR #53; proposta e decisioni in
+   `66`). Per ogni entry vera, 8 celle per lato (10 sui perpetual con lo
+   spot): scarto lordo dal mercato della cella e netto dei costi (`02`,
+   «L'atlante del trigger»). Lab 3c–3d, ricerca 1.5. Con una cella scelta
+   (strada B) il passo 5 prova solo la cella, con la soglia a k = celle
+   dell'atlante; senza cella tutto come prima.
 
-Restano aperti: **money management P1–P4** e **stress test in bp**.
+Prossimi lavori, ancora da decidere (ordine e contenuto li stabilisce
+Mattia): **money management P1–P4** e **stress test in bp**.
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.
