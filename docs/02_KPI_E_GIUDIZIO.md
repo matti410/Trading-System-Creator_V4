@@ -409,8 +409,20 @@ Funzioni: `metriche.bp_per_trade`, `metriche.atr_per_trade`,
 **Quale unità decide (U2, 20/10/2026).** Sui symbol da exchange **decide il bp** in
 tutti i passi: rosa dei trigger e dei sistemi, ricerca delle uscite, ricerca dei
 filtri (tenuti contro scartati), due metà, scheda (solidità, P(EV<0), verdetto). I
-pips restano accanto, e restano l'unità di totale, drawdown, money management e
-stress test (sono soldi: pips × valore del pip). L'event study misurava già in
+pips restano accanto, e restano l'unità di totale, drawdown e money management
+(sono soldi: pips × valore del pip, trade per trade al prezzo di quel trade).
+
+**Lo stress test in bp sulle crypto (23/10/2026, `61` §15).** Sui symbol da
+exchange Monte Carlo, drawdown e tabella di controllo dello stress test lavorano
+sui **bp netti per trade** (`montecarlo.bp_per_dataset`, funding compreso): è lo
+stesso valore in dollari a ogni trade, quindi un trade dell'1% pesa uguale a
+10.000 e a 50.000 $. Prima si sommavano i pips a quantità fissa di moneta, e gli
+anni a prezzo alto pesavano di più. I lotti consigliati vengono dal drawdown
+sfortunato in bp e dal prezzo dell'ultima barra dei dati (1 bp con 1 lotto =
+prezzo × contratto ÷ 10.000 $), e una riga dice quale prezzo è stato usato. Sul
+broker lo stress test resta in pips, identico a prima. Nella schermata 7 la
+«stessa esposizione a ogni trade» del confronto P3 è, sulle crypto, lo stesso
+valore in dollari: coerente con il bp. L'event study misurava già in
 percentuale del prezzo. Sul broker (sospeso) decidono ancora i pips. Confronto fra
 le due unità in `63` §4.7.
 

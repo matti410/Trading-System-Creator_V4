@@ -26,6 +26,7 @@
 - **§12** Fase 1: cosa è stato fatto (16/10/2026) — *resoconto*
 - **§13** Proposta per la fase 2 (16/10/2026) — da approvare: 13.1 La tabella di controllo in percentuale (libro, cap. 7, «piano di lavoro»); 13.2 Avviso sulle perdite a grappoli (z-score, cap. 5.7); 13.3 Stress test e money management insieme (decisioni 2 e 8); 13.4 Collaudo previsto; 13.5 Domande per Mattia; 13.6 Decisioni di Mattia (16/10/2026); 13.7 Fase 2: cosa è stato fatto (16/10/2026) *(resoconto)*
 - **§14** Proposta per la fase 3 (16/10/2026) — da approvare: 14.1 Il filtro sulla curva dei profitti (cap. 5.6, p. 103–110; p. 248 e 250); 14.2 Il modello a volatilità (cap. 4.5, p. 81–91; cap. 8 e 10); 14.3 Come convivono; 14.4 Collaudo previsto; 14.5 Domande per Mattia; 14.6 Decisioni di Mattia (16/10/2026); 14.7 Fase 3: cosa è stato fatto (16/10/2026) *(resoconto)*
+- **§15** Money management P1–P4 e stress test in bp (23/10/2026) — *resoconto*: 15.1 Decisioni di Mattia; 15.2 Cosa è stato fatto; 15.3 Collaudo; 15.4 Prove d'identità e numeri prima e dopo
 
 ---
 
@@ -546,3 +547,59 @@ Domanda di Mattia sull'accensione/spegnimento delle strategie: nel libro ci sono
 - **Notebook:**
   - Lab EURUSD con "rischio fisso" contro `main`: numeri identici, si aggiungono solo il confronto e i nomi delle tabelle; stress test identico;
   - giri completi con "volatilità" su EURUSD e DE40 per i due notebook.
+
+## 15 · Money management P1–P4 e stress test in bp (23/10/2026) — *resoconto*
+
+Lavoro piccolo (descrizione in chat, via di Mattia del 23/10), ramo `mm-e-stress-bp`. Il money management non cambia i trade: sceglie solo quanto mettere su ognuno.
+
+### 15.1 · Decisioni di Mattia (23/10/2026)
+
+- **P1** sui tratti di storia vera lunghi quanto l'orizzonte del Monte Carlo (`anni`): il drawdown peggiore fra tutti quei tratti dell'in-sample deve stare entro il limite; nella riga «Ha deciso: la storia vera» le date del tratto peggiore. Solo in-sample.
+- **P1 vale anche sul broker**: la schermata 7 del broker può cambiare (va dichiarato); lo stress test del broker resta identico al bit.
+- **P2** avvisa e basta; **P3** solo da leggere; **P4** decimali dal passo dell'exchange; **stress test in bp** sulle crypto, broker in pips.
+
+### 15.2 · Cosa è stato fatto
+
+- **`engine/money_management.py`** (additivo, solo numpy e pandas):
+  - `tratti_storia(n, lunghezza)`: gli indici di tutti i tratti consecutivi di `lunghezza` trade;
+  - `controlla_storia(tabella, capitale, drawdown_max_pct, n_trade, f_montecarlo, frazioni, limiti)` (P1): ogni tratto parte dal capitale iniziale, con i lotti ricalcolati e gli stessi limiti, come una sequenza simulata (è `montecarlo_mm` con le sequenze fissate ai tratti veri). Dalla scelta di `calibra` scende lungo la griglia finché il tratto peggiore sta entro il limite. Ritorna la frazione (None = nessun gradino), chi ha deciso, la tabella per gradino;
+  - `montecarlo_fisso` e `confronto_esposizione_fissa` (P3): stesse storie simulate (stesso seme) con la stessa esposizione a ogni trade, lotti fissi sul broker e dollari di nozionale fissi sulle crypto; l'esposizione si cerca per bisezione finché il drawdown al 95° percentile è uguale a quello della percentuale (precisione 0,01 % sull'esposizione). Esposizione continua: niente passo, minimo o leva.
+  - `calibra`, `kelly`, `tabella_controllo` invariati.
+- **`engine/montecarlo.py`** (additivo): `bp_per_dataset` (i bp netti per trade, funding compreso, nell'ordine di uscita di `pips_per_dataset`); `grafici_montecarlo(..., unita="pips")`, solo l'etichetta degli assi.
+- **`engine/vetrina.py`**:
+  - schermata 7 (`money_management_trade`, quindi anche la Sessione 5 del notebook di ricerca): P1 per i due modelli (la tabella di confronto ha la colonna «Ha deciso»), colonna «Drawdown della storia vera, tratto peggiore (%)» nella tabella della scelta (calcolata solo sui gradini fino alla scelta del Monte Carlo e su quelli mostrati: gli altri restano vuoti), curva tratteggiata nel grafico, riga «Ha deciso: …» con le date del tratto peggiore, riquadro che dice quale controllo ha bocciato quando non resta nessuna percentuale; riga P2 (`_avviso_kelly`); tabellina P3; P4 (`_cifre_lotti`, usata anche dallo stress test);
+  - schermata 9 (`stress_test`): sulle crypto bp per trade, colonne «(bp)», righe «Valore di 1 bp con 1 lotto» e «Prezzo usato per i lotti» (chiusura dell'ultima barra dei dati, con la data), lotti = drawdown accettato ÷ (drawdown sfortunato in bp × prezzo × contratto ÷ 10.000). Sul broker il codice di prima.
+- **Notebook**: Lab crypto, solo i testi delle sezioni 7 e 9 (il codice è in vetrina); notebook di ricerca, Sessione 6 in bp sulle crypto (`UNITA_MC`, `valori_mc`, riga del prezzo) e i testi delle Sessioni 5 e 6.
+- **Documenti**: `02` «Unità» (stress test in bp), `00`.
+
+### 15.3 · Collaudo
+
+- `test_mm_stress_bp.py`, 10/10: storia vera con 10 perdite di fila (P1 scende dal 4,00 % al 2,00 %, date del tratto peggiore); storia innocua (scelta identica al bit); nessun gradino (limite 2 %: 10 perdite allo 0,25 % fanno il 2,47 %); Kelly a mano (10 %, −33 %) e avvisi; P3 (stesso drawdown sfortunato entro 0,05 %, riga della percentuale = calibrazione, due percorsi a mano); P4; due trade del +1 % a 10.000 e 50.000 $ (100 e 100 bp, 100 e 500 pips); lotti in bp (0,8); broker identico al calcolo in pips; percorso del Lab su un perpetual sintetico.
+- Nessun test esistente cambiato; `test_vetrina` 74/74 (schermata 7 e stress test del broker su EURUSD).
+
+### 15.4 · Prove d'identità e numeri prima e dopo (collaudo, non verdetto)
+
+Giri completi dei due notebook vivi su `main` e sul ramo, su BINANCE_PERP_BTCUSDT e BYBIT_SPOT_ETHUSDT, e percorso del Lab sul broker EURUSD.
+
+- **Fino alla schermata 6 identico al bit** in tutti e quattro i giri dei notebook (Lab 15 e 14 variabili tabellari, ricerca 27 e 26); nel notebook di ricerca cambia solo `tabella_yardstick`, che sulle crypto è in bp.
+- **Broker EURUSD**: 33 tabelle su 33 identiche al bit, stress test e schermata 7 compresi (qui P1 non scende). La schermata 7 del broker **può cambiare** quando la storia vera supera il limite; in questo giro non è successo.
+- **Schermata 7 / Sessione 5** (percentuale; chi ha deciso; Kelly; P3):
+
+| giro | prima | dopo | Kelly in-sample | P3: stessa esposizione |
+|---|---|---|---|---|
+| Lab BTC | 1,75 % | 1,75 % (Monte Carlo; tratto peggiore 18,1 %) | −4,40 % (avviso ≤ 0) | 3.332 $ di nozionale a ogni trade |
+| Lab ETH spot | 2,50 % | 2,50 % (Monte Carlo; 15,4 %) | −6,68 % (avviso ≤ 0) | 4.881 $ |
+| ricerca BTC | 1,50 % | **1,25 % (storia vera: con l'1,50 % il tratto dal 22/03/2022 al 19/02/2024 arriva al 20,1 %)** | −12,79 % (avviso ≤ 0) | 2.213 $ |
+| ricerca ETH spot | 2,50 % | 2,50 % (Monte Carlo; 19,8 %) | −18,82 % (avviso ≤ 0) | 4.017 $ |
+
+  Lotti con i decimali del passo: BTC «0,017 / 0,159 / 1,044» al posto di «0,02 / 0,16 / 1,04»; ETH 5 decimali (passo 0,00001); nella nota dei limiti «da 0,001 a passi di 0,001» al posto di «0,00».
+- **Stress test / Sessione 6** (drawdown sfortunato e lotti consigliati):
+
+| giro | prima (pips) | dopo (bp) | prezzo usato | lotti prima → dopo |
+|---|---|---|---|---|
+| Lab BTC | 84.756 pips | 18.798 bp | 82.455,00 $ (19/10/2026 13:15 UTC) | 0,023 → 0,012 |
+| Lab ETH spot | 24.174 pips | 8.650 bp | 2.411,71 $ (19/10/2026 13:30 UTC) | 0,82734 → 0,95868 |
+| ricerca BTC | 105.318 pips | 23.064 bp | 82.455,00 $ | 0,018 → 0,010 |
+| ricerca ETH spot | 40.867 pips | 14.838 bp | 2.411,71 $ | 0,48939 → 0,55890 |
+
+- **Tempo**: schermata 7 su BINANCE_PERP_BTCUSDT con il trigger più frequente (6.412 trade in-sample, orizzonte 1.181 trade): 81 s su `main`, 99 s sul ramo; P1 (due modelli) 8 s, P3 10 s. Nei giri dei notebook (878 e 933 trade in tutto) i giri completi sono durati quanto su `main`.
