@@ -609,12 +609,19 @@ BYBIT_SPOT_ETHUSDT, e percorso del Lab sul broker EURUSD.
   ORA_SHORT_@07:00): trade, uscite, filtri, scheda, money management e stress
   test identici al bit; cambiano, come richiesto, l'atlante (i due trigger ora
   misurati, con le loro tabelle; prima «meno di 200 occasioni») e la soglia
-  cumulata: BTC k 654 → 765 (celle 552 → 567, + 96 fasce), soglia 3,95 → 3,99;
+  cumulata: BTC k 660 → 771 (celle 558 → 573, + 96 fasce), soglia 3,95 → 3,99;
   ETH spot k 249 → 350 (celle 186 → 191, + 96 fasce), soglia 3,71 → 3,80.
+  *Correzione del 24/10:* il primo giro del Lab chiamato «BTC» era in realtà
+  BINANCE_PERP_ETHUSDT (dal commit «Creato con Colab» del 23/10 la moneta
+  predefinita del Lab era ETH, e la sostituzione dei giri cambiava solo
+  l'exchange: k 654 → 765, celle 552 → 567). Rifatto il 24/10 su
+  BINANCE_PERP_BTCUSDT, prima e dopo la PR #57: 12 variabili su 12 identiche al
+  bit oltre alla soglia cumulata, i numeri sono quelli scritti qui sopra.
 - **Broker EURUSD**: 33 tabelle su 33 identiche al bit; nella soglia cumulata
   c'è la voce nuova `fasce` = 0.
 - **Profilo 2b, fasce colorate prima (pips) e dopo (bp)**: ricerca BTC nessuna →
-  22:45, 23:00, 23:15, 23:30; Lab BTC nessuna → 22:45, 23:00, 23:15; ETH spot
+  22:45, 23:00, 23:15, 23:30; Lab BTC (rifatto il 24/10) nessuna → 22:45, 23:00,
+  23:15, 23:30; ETH spot
   nessuna → nessuna (Lab e ricerca).
 - Nei giri del Lab la cella 3d si ferma su `main` come sul ramo: la cella
   predefinita LONDRA_NY non passa per ORA_LONG_@02:15 (che apre in ASIA_NOTTE).
