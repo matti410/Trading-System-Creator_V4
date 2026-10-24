@@ -110,7 +110,9 @@ def _ricalcola(s, df: pd.DataFrame) -> dict:
     q = np.zeros(n, dtype=bool) if q is None else np.asarray(q, dtype=bool)
     q_dopo = np.r_[q[1:], False]
 
-    usa_sl, usa_tp = bool(u["perc_sl"]), bool(u["perc_tp"])
+    from .exit_search_bt import per_lato
+    usa_sl = dict(zip(("long", "short"), (bool(v) for v in per_lato(u["perc_sl"]))))   # 23/10/2026: per lato
+    usa_tp = dict(zip(("long", "short"), (bool(v) for v in per_lato(u["perc_tp"]))))
     soglie = soglie_per_lato(df, u["n_barre_long"], u["n_barre_short"], _v.FINESTRA,
                              u["perc_sl"], u["perc_tp"], lag=_v.LAG)
     out = {"quarantena": q, "n": n, "soglie": soglie}
@@ -128,9 +130,9 @@ def _ricalcola(s, df: pd.DataFrame) -> dict:
         filtro_ok = (np.logical_and.reduce(list(filtri.values())) if filtri
                      else np.ones(n, dtype=bool))
         ok = np.ones(n, dtype=bool)
-        if usa_sl:
+        if usa_sl[lato]:
             ok &= ~soglie[f"sl_{lato}"].isna().to_numpy()
-        if usa_tp:
+        if usa_tp[lato]:
             ok &= ~soglie[f"tp_{lato}"].isna().to_numpy()
         soglia_ok = np.r_[ok[1:], False]       # si legge sulla barra d'ingresso
         out[lato] = {"componenti": componenti, "trigger": trigger, "segnale": segnale,

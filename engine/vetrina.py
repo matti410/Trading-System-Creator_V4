@@ -80,7 +80,7 @@ from .due_meta import due_meta
 from .equity_plot import plot_equity
 from .event_study import deduci_pip, run_event_study
 from .simboli import da_exchange, in_tabella, info_symbol, pip_symbol
-from .exit_search_bt import barre_per_lato, run_exit_search_bt
+from .exit_search_bt import barre_per_lato, per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
 from .motore_veloce import scegli_motore
 from .confidenza import congela_filtro
@@ -92,7 +92,8 @@ from .montecarlo import (bp_per_dataset, grafici_montecarlo, montecarlo_completo
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import ROLLOVER_DEFAULT, imposta_rollover, passo_barre, verifica_indice_utc
 from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
-from .stagionalita import descrivi_profilo, fuso_profilo, profilo_orario
+from .stagionalita import (codice_orario, descrivi_profilo, fasce_orarie, fuso_profilo, n_fasce,
+                           profilo_orario)
 from .splitting import split_is_oos
 
 
@@ -901,26 +902,31 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     E' anche il riferimento della rosa (schermate 3 e 4): ogni trigger si
     confronta con il mercato della sua stessa ora.
 
+    23/10/2026: nell'unita' che decide (bp sui symbol da exchange, con i pips
+    accanto nella tabella; pips sul broker, come prima).
+
     Ritorna la tabella del profilo (anche in `s.profilo`).
     """
     import matplotlib.pyplot as plt
     s._serve("df_is", "1 · Configura")
+    u = s.unita
     with _zitto():
-        s.profilo = profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso)
+        s.profilo = (profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso) if u == "pips"
+                     else profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso, unita=u))
     p = s.profilo
     luogo = s.fuso.split("/")[-1].replace("_", " ")
     fig, ax = plt.subplots(figsize=(11, 4.5))
     x = np.arange(len(p))
-    colori = np.where(p["bh"], np.where(p["scarto_pips"] > 0, "tab:green", "tab:red"), "lightgray")
-    ax.bar(x, p["scarto_pips"], color=colori, width=0.85)
-    ax.errorbar(x, p["scarto_pips"], yerr=2 * p["incertezza"], fmt="none", ecolor="black",
+    colori = np.where(p["bh"], np.where(p[f"scarto_{u}"] > 0, "tab:green", "tab:red"), "lightgray")
+    ax.bar(x, p[f"scarto_{u}"], color=colori, width=0.85)
+    ax.errorbar(x, p[f"scarto_{u}"], yerr=2 * p["incertezza"], fmt="none", ecolor="black",
                 elinewidth=0.6, alpha=0.5)
     ax.axhline(0, color="black", lw=0.8)
     passo = max(1, len(p) // 24)
     ax.set_xticks(x[::passo])
     ax.set_xticklabels(p["fascia"].iloc[::passo], rotation=90, fontsize=8)
     ax.set_xlabel(f"ora in cui apri il trade (ora di {luogo})")
-    ax.set_ylabel(f"guadagno di un LONG tenuto {s.H} barre,\nrispetto a un'ora qualsiasi (pips)")
+    ax.set_ylabel(f"guadagno di un LONG tenuto {s.H} barre,\nrispetto a un'ora qualsiasi ({u})")
     ax.set_title("Se apro un long a quest'ora, guadagno più o meno del solito?   "
                  "(verde = di più, rosso = di meno, grigio = può essere caso)")
     ax.grid(alpha=.3, axis="y")
@@ -934,11 +940,13 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     else:
         tabella = pd.DataFrame({
             "Ora in cui apri il trade": oltre["fascia"],
-            "Long: rispetto a un'ora qualsiasi (pips)": oltre["scarto_pips"],
-            "Oscillazione casuale (pips)": oltre["incertezza"],
+            f"Long: rispetto a un'ora qualsiasi ({u})": oltre[f"scarto_{u}"],
+            f"Oscillazione casuale ({u})": oltre["incertezza"],
             "Solidità": oltre["t"],
             "Regge sulle due metà": [_si_no(v) for v in oltre["due_meta"]],
         })
+        if u != "pips":                             # i pips accanto, solo da leggere
+            tabella.insert(3, "Long: rispetto a un'ora qualsiasi (pips)", oltre["scarto_pips"].to_numpy())
         s.tabelle["profilo"] = tabella
         _mostra((f"Le fasce orarie oltre la quota di fortuna (in-sample, {s.H} barre, prima dei costi)", tabella),
                 decimali={"Solidità": 2})
@@ -1068,6 +1076,37 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     return r
 
 
+def _durate_orarie(s: Sessione, barre_long: int, barre_short: int, origine: str) -> str | None:
+    """
+    23/10/2026: con trigger a orario su TUTTI E DUE i lati il segnale opposto chiude
+    la posizione aperta. La riga che lo dice, con la durata effettiva di ogni lato:
+    il minimo fra le barre di scadenza e la distanza fino al primo orario dell'altro
+    lato (sulle crypto esatta: mercato aperto 24 ore su 24). None se non serve.
+    """
+    import condizioni_orarie
+    orari_l = [n.split("@")[1] for n in s.trigger_long if condizioni_orarie.e_oraria(n)]
+    orari_s = [n.split("@")[1] for n in s.trigger_short if condizioni_orarie.e_oraria(n)]
+    if not orari_l or not orari_s:
+        return None
+    idx = s.df_is.index
+    codice = {o: codice_orario(o, idx, s.fuso)[0] for o in (*orari_l, *orari_s)}
+    nf = n_fasce(fasce_orarie(idx, s.fuso)[1])
+
+    def lato(da, a, barre, nome, altro):
+        altro = {"long": "il long", "short": "lo short"}[altro]
+        distanze = [((codice[y] - codice[x]) % nf, x, y) for x in da for y in a]
+        gap, x, y = min(distanze)
+        gap = gap or nf                      # stesso orario: l'altro lato torna dopo un giorno intero
+        if gap < barre:
+            return (f"{nome} al massimo {gap} barre (dalle {x} alle {y}, poi {altro} lo chiude; "
+                    f"le barre di scadenza sarebbero {barre})")
+        return (f"{nome} {barre} barre, la scadenza ({origine}): dalle {x} alle {y} ce ne sarebbero {gap}")
+
+    return ("Trigger a orario su tutti e due i lati: il segnale opposto chiude la posizione aperta (e apre "
+            "quella contraria). Durata effettiva: " + lato(orari_l, orari_s, int(barre_long), "long", "short")
+            + "; " + lato(orari_s, orari_l, int(barre_short), "short", "long") + ".")
+
+
 def scegli_trigger(s: Sessione, long=None, short=None) -> None:
     """
     Schermata 3 (seconda parte). Registra la scelta dei trigger.
@@ -1110,6 +1149,14 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
     _mostra(("La tua scelta", scelta))
     _nota("Si tiene una posizione alla volta. Se a posizione aperta scatta un trigger del lato opposto, "
           "la posizione si chiude e si apre quella contraria.")
+    # 23/10/2026: un trigger a orario e' una delle fasce del profilo orario (schermata 2b): nella soglia
+    # cumulata si contano tutte le fasce, una volta sola per sessione
+    import condizioni_orarie
+    if any(condizioni_orarie.e_oraria(n) for n in (*tl, *ts)):
+        s.prove["fasce"] = n_fasce(fasce_orarie(s.df_is.index, s.fuso)[1])
+    riga = _durate_orarie(s, s.H, s.H, "l'orizzonte H")
+    if riga:
+        _nota(riga)
 
 
 # ========================================================================
@@ -1176,11 +1223,17 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     if not (s.trigger_long or s.trigger_short):
         raise RuntimeError("Manca un passaggio: esegui prima la schermata «3 · Scegli i trigger».")
     from .atlante import atlante, etichetta_cella
-    nomi = _trigger_candidati(1 if s.solo_long else None)
+    import condizioni_orarie
     mostra = [*s.trigger_long, *s.trigger_short]
+    # 23/10/2026: anche i trigger scelti fuori catalogo (es. ORA_LONG_@05:45), che entrano nel conto k;
+    # quelli a orario si confrontano con il mercato della cella a qualunque ora (decisione di Mattia)
+    catalogo = _trigger_candidati(1 if s.solo_long else None)
+    nomi = catalogo + [m for m in mostra if m not in set(catalogo)]
+    orari = [m for m in mostra if condizioni_orarie.e_oraria(m)]
     with _zitto():
         tab = atlante(s.df_is, s.H, s.pip, costi=s.costi, funding=s.funding, nomi=nomi, unita=s.unita,
-                      min_eventi=MIN_TRIGGER, fuso=s.fuso, mostra=mostra, atr=s.atr)
+                      min_eventi=MIN_TRIGGER, fuso=s.fuso, mostra=mostra, atr=s.atr,
+                      **({"qualunque_ora": orari} if orari else {}))
     s.atlante = tab
     _azzera_cella(s)
     s.fs = s.dm = s.oos = None
@@ -1190,24 +1243,34 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     s.prove.setdefault("celle", {})[(s.H, tab.attrs["assi"], tuple(nomi))] = k
 
     u, a = s.unita, _altra_unita(s)
+    poche = dict(tab.attrs.get("scartate", []))
     for nome in mostra:
         r = tab[tab["candidato"] == nome]
         if r.empty:
-            _nota(f"{nome}: meno di {MIN_TRIGGER} occasioni nell'in-sample, l'atlante non lo misura.")
+            if nome in poche:
+                _nota(f"{nome}: meno di {MIN_TRIGGER} occasioni nell'in-sample ({poche[nome]}), "
+                      "l'atlante non lo misura.")
+            else:
+                _nota(f"{nome}: l'atlante non l'ha misurato.")
             continue
+        confronto = "Più del mercato della cella, a qualunque ora" if nome in orari else "Più del mercato della cella"
         vista = pd.DataFrame({
             "Cella": [etichetta_cella(c) for c in r["cella"]],
             "Occasioni": r["eventi"].astype(int),
-            f"Più del mercato della cella ({u})": r[f"scarto_{u}"],
+            f"{confronto} ({u})": r[f"scarto_{u}"],
             "Solidità": r["t"],
             f"Netto per occasione ({u})": r[f"netto_{u}"],
-            f"Più del mercato della cella ({a})": r[f"scarto_{a}"] if f"scarto_{a}" in r else np.nan,
+            f"{confronto} ({a})": r[f"scarto_{a}"] if f"scarto_{a}" in r else np.nan,
             f"Netto per occasione ({a})": r[f"netto_{a}"] if f"netto_{a}" in r else np.nan,
             "Passa": [_si_no(v) for v in r["passa"]],
             "Perché no": r["motivo"],
         })
         s.tabelle[f"atlante_{nome}"] = vista
         _mostra((f"L'atlante di {nome} (in-sample, {s.H} barre)", vista), decimali={"Solidità": 2})
+        if nome in orari:
+            _nota(f"{nome} è un trigger a orario: scatta tutti i giorni alla stessa ora, quindi coincide con "
+                  "il mercato della sua fascia e lo si confronta con il mercato della cella a qualunque ora. "
+                  "Nell'asse delle sessioni ha occasioni in una cella sola; le altre restano grigie.")
     grafico_atlante(tab, [m for m in mostra if (tab["candidato"] == m).any()])
 
     passano = tab[tab["passa"]]
@@ -1367,7 +1430,11 @@ def _regola_oraria(s: Sessione, regola):
     regola = str(regola).strip()
     if regola == condizioni_orarie.INVERSIONE:
         with _zitto():
-            return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip)
+            u = getattr(s, "unita", "pips")          # sessioni finte dei test: pips, come prima
+            if u == "pips":
+                return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip)
+            # 23/10/2026: sulle crypto lo stesso profilo in bp del grafico 2b
+            return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip, unita=u)
     if regola.startswith("X_ORA_@") or regola[:1].isdigit():
         orario, fuso = condizioni_orarie.orario_uscita(regola)    # "_UTC" in fondo: ora UTC fissa
         condizioni_orarie.codice_orario(orario, s.df_is.index, s.fuso if fuso != "UTC" else "UTC")   # orario valido qui
@@ -1389,7 +1456,8 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     barre_long / barre_short   dopo quante barre il trade si chiude comunque
                                (None = l'orizzonte H)
     sl / tp                    percentile dello stop e del target adattivi
-                               (0 = spento); gli stessi per i due lati
+                               (0 = spento); un numero vale per i due lati,
+                               due valori (long, short) li separano (23/10/2026)
     regola_uscita              None / "nessuna" = solo tempo, stop e target.
                                Dal 19/10/2026: "X_ORA_@HH:MM" chiude il trade
                                alle HH:MM ("X_ORA_@HH:MM_UTC": all'ora UTC
@@ -1398,6 +1466,8 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
                                sull'in-sample) segna colorata contro il trade.
                                Oppure l'etichetta di un'altra coppia del
                                registro (`engine.registry.list_exit_pairs`).
+                               23/10/2026: anche due regole (long, short), una
+                               per lato ("nessuna" = quel lato senza regola).
 
     Ritorna la tabella del confronto.
     """
@@ -1406,12 +1476,25 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     bl = s.H if barre_long is None else int(barre_long)
     bs = s.H if barre_short is None else int(barre_short)
     barre_per_lato(bl, bl, bs)                     # controllo dei valori
-    for nome, v in (("sl", sl), ("tp", tp)):
-        if v is None or not (0 <= float(v) < 100):
-            raise ValueError(f"{nome} è un percentile: da 0 (spento) a 99.")
-    regola_uscita = _regola_oraria(s, regola_uscita)
+
+    def percentile(nome, v):
+        # 23/10/2026: un numero (i due lati) o una coppia (long, short), come le barre
+        coppia = isinstance(v, (tuple, list))
+        valori = per_lato(v) if coppia else (v,)
+        for x in valori:
+            if x is None or not (0 <= float(x) < 100):
+                raise ValueError(f"{nome} è un percentile: da 0 (spento) a 99.")
+        if coppia and float(valori[0]) != float(valori[1]):
+            return (float(valori[0]), float(valori[1]))
+        return float(valori[0])
+    sl, tp = percentile("sl", sl), percentile("tp", tp)
+    if isinstance(regola_uscita, (tuple, list)):
+        rl, rs = per_lato(regola_uscita)
+        regola_uscita = reg.coppia_per_lato(_regola_oraria(s, rl), _regola_oraria(s, rs))
+    else:
+        regola_uscita = _regola_oraria(s, regola_uscita)
     s.uscite = dict(n_barre=bl, n_barre_long=bl, n_barre_short=bs,
-                    perc_sl=float(sl), perc_tp=float(tp), regola=regola_uscita)
+                    perc_sl=sl, perc_tp=tp, regola=regola_uscita)
     s.fs = s.dm = s.oos = s.rosa_sistemi = None
     s.sopravvissuti, s.filtro = [], None
 
@@ -1423,7 +1506,7 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
             entry_cols_short=[s.entry_short, None] if entrambi else [s.entry_short],
             exit_rule_pairs=regola_uscita, verbose=False, **_kw_motore(s))
     # 22/10/2026: soglia cumulata, i sistemi provati con queste impostazioni
-    s.prove["uscite"][(s.trigger_long, s.trigger_short, bl, bs, float(sl), float(tp),
+    s.prove["uscite"][(s.trigger_long, s.trigger_short, bl, bs, sl, tp,
                        str(regola_uscita))] = len(s.es.risultati)
 
     r = s.es.risultati.copy()
@@ -1442,10 +1525,25 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
 
     def soglia(p):
         return "spento" if not p else f"{_fmt(p, 0)}° percentile"
-    _nota(f"Uscita a tempo: long dopo {bl} barre, short dopo {bs} barre · "
-          f"stop {soglia(sl)} · target {soglia(tp)} · chiusura e inversione sul segnale opposto"
-          + (f" · regola di uscita {regola_uscita}." if regola_uscita else "."))
-    if regola_uscita == "X_INVERSIONE_TREND":
+    if isinstance(sl, tuple) or isinstance(tp, tuple) or (regola_uscita and " | " in regola_uscita):
+        # 23/10/2026: uscite diverse sui due lati
+        (sl_l, sl_s), (tp_l, tp_s) = per_lato(sl), per_lato(tp)
+        rl, rs = (regola_uscita.split(" | ") if regola_uscita and " | " in regola_uscita
+                  else (regola_uscita, regola_uscita))
+
+        def regola_txt(r):
+            return f"regola {r}" if r and r != reg.NESSUNA else "nessuna regola"
+        _nota(f"Uscite per lato · long: dopo {bl} barre, stop {soglia(sl_l)}, target {soglia(tp_l)}, "
+              f"{regola_txt(rl)} · short: dopo {bs} barre, stop {soglia(sl_s)}, target {soglia(tp_s)}, "
+              f"{regola_txt(rs)} · chiusura e inversione sul segnale opposto.")
+    else:
+        _nota(f"Uscita a tempo: long dopo {bl} barre, short dopo {bs} barre · "
+              f"stop {soglia(sl)} · target {soglia(tp)} · chiusura e inversione sul segnale opposto"
+              + (f" · regola di uscita {regola_uscita}." if regola_uscita else "."))
+    riga = _durate_orarie(s, bl, bs, "barre impostate")
+    if riga:
+        _nota(riga)
+    if regola_uscita and "X_INVERSIONE_TREND" in regola_uscita.split(" | "):
         import condizioni_orarie
         contro = condizioni_orarie.fasce_contro()
         _nota("X_INVERSIONE_TREND (profilo congelato sull'in-sample): il long si chiude all'arrivo delle ore "
@@ -1907,7 +2005,8 @@ def _chiave_filtri(s: Sessione) -> tuple:
 
 
 def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: list, t: float,
-                     schermate: bool, alpha: float = ALPHA, celle: list = (), rimisura: bool = False) -> dict:
+                     schermate: bool, alpha: float = ALPHA, celle: list = (), rimisura: bool = False,
+                     fasce: int = 0) -> dict:
     """
     La soglia di Sidak (giudizio.soglia_rumore) sul totale delle prove della
     catena, e la frase da mostrare sotto la scheda. Solo informativa.
@@ -1919,15 +2018,19 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
     celle          22/10/2026 (docs/66 §6): le celle misurate, una voce per atlante
     rimisura       True se al passo 5 si e' riprovata una cella dell'atlante (strada B):
                    e' gia' fra le celle, la frase lo dice
+    fasce          23/10/2026: con un trigger a orario, le fasce del profilo orario (una
+                   volta sola: scegliere un'ora e' scegliere fra tutte le fasce)
     """
     u, f, c, ce = int(sum(uscite)), int(sum(filtri)), int(sum(combinazioni)), int(sum(celle))
-    k = int(trigger) + ce + u + f + c
+    k = int(trigger) + int(fasce) + ce + u + f + c
     soglia = soglia_rumore(k, alpha) if k else np.nan
 
     def dove(n):
         return f" (schermata {n})" if schermate else ""
 
     parti = [f"{int(trigger)} trigger misurati{dove(2)}"]
+    if fasce:
+        parti.append(f"{int(fasce)} fasce del profilo orario (trigger a orario){dove('2b')}")
     if celle:
         parti.append(f"{ce} celle dell'atlante" + (f" in {len(celle)} atlanti" if len(celle) > 1 else "")
                      + dove("3c")
@@ -1951,7 +2054,7 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
               "Non cambia nessun controllo.")
     return {"trigger": int(trigger), "uscite": u, "ricerche_uscite": len(uscite), "filtri": f,
             "ricerche_filtri": len(filtri), "combinazioni": c, "celle": ce, "atlanti": len(celle),
-            "k": k, "soglia": soglia, "alpha": alpha, "t": t, "frase": frase}
+            "fasce": int(fasce), "k": k, "soglia": soglia, "alpha": alpha, "t": t, "frase": frase}
 
 
 def _lista(x) -> list:
@@ -1968,7 +2071,7 @@ def _lista(x) -> list:
 
 
 def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float = np.nan,
-                    alpha: float = ALPHA, atlante=None) -> dict:
+                    alpha: float = ALPHA, atlante=None, fasce: int = 0) -> dict:
     """
     La soglia cumulata per il notebook di ricerca (22/10/2026), con gli
     stessi conti del Lab:
@@ -1985,6 +2088,8 @@ def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float =
                        lista: conta le celle misurate (attrs["k_misurate"]). Una
                        ricerca dei filtri fatta sulla cella scelta (k_prove,
                        .rimisura) non si conta: e' la seconda misura delle celle
+        fasce          23/10/2026: se si e' scelto un trigger a orario, le fasce del
+                       profilo orario (profilo.attrs["k"]), contate una volta
 
     Lo stesso oggetto passato due volte conta una volta sola (la stessa
     ricerca rieseguita non e' una prova in piu'). Solo informativa: non
@@ -1999,7 +2104,8 @@ def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float =
     celle = [int(a.attrs["k_misurate"]) for a in _lista(atlante)]
     return _soglia_da_conti(trigger, uscite, filtri, [int(combinazioni)] if combinazioni else [],
                             float(t), schermate=False, alpha=alpha, celle=celle,
-                            rimisura=any(getattr(f, "rimisura", False) for f in ricerche))
+                            rimisura=any(getattr(f, "rimisura", False) for f in ricerche),
+                            fasce=int(fasce))
 
 
 def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
@@ -2008,7 +2114,8 @@ def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
     return _soglia_da_conti(p["trigger"], list(p["uscite"].values()), list(p["filtri"].values()),
                             list(p["combinazioni"].values()), t, schermate=True,
                             celle=list(p.get("celle", {}).values()),
-                            rimisura=bool(getattr(s, "fs", None) is not None and getattr(s.fs, "rimisura", False)))
+                            rimisura=bool(getattr(s, "fs", None) is not None and getattr(s.fs, "rimisura", False)),
+                            fasce=int(p.get("fasce", 0)))
 
 
 def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
@@ -2326,7 +2433,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     f_opt, _ = mm.optimal_f(r)
     rischio_usd = (tab_is["rischio_pips"] * tab_is["valore_entrata"])[ok]
     zs = mm.zscore(tab_is["pips_netti"])               # fase 2 (docs/61 §13.2): solo avviso
-    stop_acceso = bool(perc_sl and perc_sl > 0)
+    stop_acceso = any(bool(v and v > 0) for v in per_lato(perc_sl))     # 23/10/2026: anche per lato
     vol = scelto == "volatilita"
     unita = "ATR" if vol else "R"
     tab_rischio = pd.DataFrame({

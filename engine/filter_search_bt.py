@@ -87,7 +87,7 @@ from backtesting import Backtest
 from .registry import (get_entry, get_exit, get_filter, get_filter_direction,
                         list_exit_pairs, list_filter_pairs)
 from .event_study import deduci_pip
-from .exit_search_bt import (soglie_adattive, _StrategiaGenerica,
+from .exit_search_bt import (acceso, per_lato, soglie_adattive, _StrategiaGenerica,
                              barre_per_lato, soglie_per_lato)
 from .metriche import UNITA_CHE_DECIDONO, metriche_per_trade, netti_in_unita
 from .controlli import avviso_capitale
@@ -284,7 +284,8 @@ def run_filter_search_bt(
         e' attivo viene saltato.
 
     perc_sl / perc_tp, spread, commission, margin, min_trades
-        Stesso significato di run_exit_search_bt.
+        Stesso significato di run_exit_search_bt (perc_sl / perc_tp anche
+        per lato, una coppia (long, short), dal 23/10/2026).
 
     min_trades_giudizio, p_max, alpha
         Soglie del verdetto (vedi engine/giudizio.py). `min_trades_giudizio`
@@ -390,18 +391,21 @@ def run_filter_search_bt(
         exit_long_nome, exit_short_nome = pairs_uscita[exit_rule_pair]
 
     # --- soglie adattive, una volta sola (n_barre unico in questo step) --
-    usa_sl = perc_sl not in (None, 0)
-    usa_tp = perc_tp not in (None, 0)
+    # 23/10/2026: perc_sl / perc_tp anche per lato (exit_search_bt.per_lato)
+    sl_l, sl_s = per_lato(perc_sl)
+    tp_l, tp_s = per_lato(perc_tp)
     soglie = soglie_per_lato(df, n_long, n_short, finestra, perc_sl, perc_tp,
                              open_col, high_col, low_col, lag=lag)
 
     ok_long = pd.Series(True, index=df.index)
     ok_short = pd.Series(True, index=df.index)
-    if usa_sl:
+    if acceso(sl_l):
         ok_long &= ~soglie["sl_long"].isna()
+    if acceso(sl_s):
         ok_short &= ~soglie["sl_short"].isna()
-    if usa_tp:
+    if acceso(tp_l):
         ok_long &= ~soglie["tp_long"].isna()
+    if acceso(tp_s):
         ok_short &= ~soglie["tp_short"].isna()
     ok_long_al_segnale = ok_long.shift(-1, fill_value=False)
     ok_short_al_segnale = ok_short.shift(-1, fill_value=False)
@@ -521,7 +525,7 @@ def run_filter_search_bt(
 
     # --- backtest, una sola costruzione, riusata per ogni riga ------------
     motore = scegli_motore(motore)    # 21/10/2026 (docs/65): "bt" o "veloce", stessi trade
-    controlla_lag(motore, usa_sl or usa_tp, lag)   # 21/10/2026: stop dall'Open d'ingresso
+    controlla_lag(motore, any(map(acceso, (sl_l, sl_s, tp_l, tp_s))), lag)   # 21/10/2026: stop dall'Open d'ingresso
     avviso_capitale(df, cash, margin, close_col, contesto="run_filter_search_bt",
                     motore=motore)    # 25/9: prezzo > capitale (solo "bt", E3)
     bt_kw = dict(cash=cash, spread=spread, commission=commission, margin=margin,

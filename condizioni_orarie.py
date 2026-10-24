@@ -191,7 +191,8 @@ def registra_uscita_oraria(nome_o_orario: str) -> str:
 # Uscita sull'inversione del profilo orario
 # ========================================================================
 
-def registra_inversione_trend(df_is: pd.DataFrame, H: int, pip: float, quarantena=True) -> str:
+def registra_inversione_trend(df_is: pd.DataFrame, H: int, pip: float, quarantena=True,
+                              unita: str = "pips") -> str:
     """
     Calcola il profilo orario sull'IN-SAMPLE (H barre, fuso corrente), lo
     CONGELA e registra la coppia X_INVERSIONE_TREND. Si puo' richiamare: il
@@ -203,13 +204,17 @@ def registra_inversione_trend(df_is: pd.DataFrame, H: int, pip: float, quaranten
         short  lo stesso con le fasce colorate a favore del long
 
     Restituisce l'etichetta della coppia.
+
+    unita (23/10/2026): l'unita' del profilo, "pips" (come sempre) o "bp"
+    (symbol da exchange): lo stesso profilo del grafico della schermata 2b.
     """
     from engine.registry import list_exits, register_exit
     fuso = _FUSO["corrente"]
-    prof = profilo_orario(df_is, H, pip, fuso=fuso, quarantena=quarantena)
+    prof = profilo_orario(df_is, H, pip, fuso=fuso, quarantena=quarantena, unita=unita)
     colorate = prof[prof["bh"]] if len(prof) else prof
-    contro_long = {codice_orario(f, df_is.index, fuso)[0] for f in colorate.loc[colorate["scarto_pips"] < 0, "fascia"]}
-    contro_short = {codice_orario(f, df_is.index, fuso)[0] for f in colorate.loc[colorate["scarto_pips"] > 0, "fascia"]}
+    sc = f"scarto_{unita}"
+    contro_long = {codice_orario(f, df_is.index, fuso)[0] for f in colorate.loc[colorate[sc] < 0, "fascia"]}
+    contro_short = {codice_orario(f, df_is.index, fuso)[0] for f in colorate.loc[colorate[sc] > 0, "fascia"]}
     nuovo = dict(fuso=fuso, H=int(H), contro_long=contro_long, contro_short=contro_short, profilo=prof)
     vecchio = _CONGELATO.get("profilo")
     if vecchio is not None and (_CONGELATO["contro_long"], _CONGELATO["contro_short"], _CONGELATO["fuso"]) != \
@@ -245,5 +250,6 @@ def fasce_contro() -> dict:
     if p is None:
         return {"long": [], "short": []}
     col = p[p["bh"]]
-    return {"long": list(col.loc[col["scarto_pips"] < 0, "fascia"]),
-            "short": list(col.loc[col["scarto_pips"] > 0, "fascia"])}
+    sc = f"scarto_{p.attrs.get('unita', 'pips')}"       # 23/10/2026: l'unita' del profilo congelato
+    return {"long": list(col.loc[col[sc] < 0, "fascia"]),
+            "short": list(col.loc[col[sc] > 0, "fascia"])}

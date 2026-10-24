@@ -21,6 +21,7 @@ realizzarle. Unità: il bp decide, i pips accanto (`02`, «Unità»).
 - §12 · Domande per Mattia
 - §13 · Decisioni di Mattia (22/10/2026)
 - §14 · Realizzazione (22–23/10/2026) — *resoconto*
+- §15 · Orari e uscite per lato (23/10/2026) — *resoconto*
 
 ---
 
@@ -534,3 +535,87 @@ guarda solo i trigger long.
   far passare una cella.
 
 Prima della Pull request: `python suite_rapida.py --tutte` (38 suite).
+
+## 15 · Orari e uscite per lato (23/10/2026) — *resoconto*
+
+Lavoro piccolo (descrizione in chat, via di Mattia del 23/10), ramo
+`orari-e-uscite-per-lato`. Partito da un difetto dell'atlante: i trigger scelti
+alla 3b fuori catalogo (es. ORA_LONG_@05:45) non venivano misurati e la nota
+diceva per errore «meno di 200 occasioni».
+
+### 15.1 · Decisioni di Mattia (23/10/2026)
+
+1. Trigger a orario nell'atlante: confronto con il mercato della stessa cella **a
+   qualunque ora**, dichiarato nelle colonne; i trigger di catalogo restano con il
+   confronto di sempre (cella e fascia).
+2. X_INVERSIONE_TREND sulle crypto usa il profilo in bp, lo stesso del grafico 2b;
+   sul broker invariato.
+3. L'avviso sulla durata anche alla schermata 4, con le barre per lato.
+
+### 15.2 · Cosa è stato fatto
+
+- **Atlante** (`engine/atlante.py`, additivo): parametro `qualunque_ora` (le entry
+  confrontate con il mercato della cella senza la fascia; in `.attrs`). In
+  `vetrina.atlante_dei_trigger` le entry misurate sono il catalogo più i trigger
+  scelti fuori catalogo (entrano nel conto k e nella soglia cumulata); quelli a
+  orario con `qualunque_ora`, colonne «più del mercato della cella, a qualunque
+  ora». La nota «meno di 200 occasioni» solo per i trigger davvero sotto la soglia
+  (`attrs["scartate"]`), con il numero. Notebook di ricerca 1.5 allineato
+  (`ORARI_SCELTI`).
+- **Uscite per lato**: `perc_sl` e `perc_tp` accettano anche una coppia (long,
+  short) in `soglie_per_lato`, `run_exit_search_bt`, `run_filter_search_bt` (e
+  quindi due metà e confidenza), `mm_adattatore.tabella_trade` (un lato con lo
+  stop vero, l'altro con lo stop di calcolo) e `vetrina_verifica`;
+  `registry.coppia_per_lato(long, short)` registra una coppia d'uscita con la
+  regola long di una coppia e quella short di un'altra («X_ORA_@16:00 | nessuna»).
+  `imposta_uscite(sl=, tp=, regola_uscita=)` accetta un valore o due; il Lab ha
+  stop, target e regola per lato (cella 4); nel notebook di ricerca `PERC_SL` e
+  `PERC_TP` (cella 2.2) sostituiscono i `90.0` / `0.0` scritti a mano in tutte le
+  celle, e `EXIT_condition_scelta` ha l'esempio con `coppia_per_lato`. Con un
+  valore solo, o due uguali, tutto identico al bit.
+- **Profilo orario in bp** (`stagionalita.profilo_orario(unita=)`, predefinito
+  «pips»): in bp decidono scarto, solidità, quota di falsi positivi e due metà,
+  i pips restano accanto (`media_pips`, `scarto_pips`). Lab 2b e ricerca 1.2 bis
+  nell'unità che decide; `descrivi_profilo` e `condizioni_orarie.fasce_contro`
+  leggono l'unità del profilo; `registra_inversione_trend(unita=)`.
+- **Soglia cumulata**: con un trigger a orario alla 3b si contano le fasce del
+  profilo (96 su M15, 48 su M30), una volta per sessione (`prove["fasce"]`;
+  nella ricerca `soglia_cumulata(fasce=FASCE_ORARIE)`).
+- **Avviso sulla durata** (`vetrina._durate_orarie`): con trigger a orario sui
+  due lati, alla 3b (con H) e alla 4 (con le barre per lato), la durata
+  effettiva di ogni lato = minimo fra la scadenza e la distanza fino al primo
+  orario dell'altro lato.
+
+### 15.3 · Collaudo
+
+- `test_orari_uscite.py`, 11/11: deriva alle 05:45 solo in volatilità alta →
+  passano solo celle a volatilità alta (con il confronto di sempre lo scarto è
+  zero per costruzione); trigger fuori catalogo misurati e nel conto k; sessioni
+  con una cella sola; «meno di 200» solo quando è vero; fasce nella soglia (96,
+  48, una volta); durate 25 / 71 barre; schermata 4 per lato; profilo in bp
+  rifatto a mano e pips accanto; X_INVERSIONE_TREND sul profilo in bp; uscite
+  per lato (coppia uguale = un numero, al bit; ogni lato come da solo); filtri,
+  due metà e rischio del money management.
+- Nessun test esistente cambiato.
+
+### 15.4 · Prove d'identità (collaudo, non verdetto)
+
+Giri completi dei due notebook vivi su `main` e sul ramo, BINANCE_PERP_BTCUSDT e
+BYBIT_SPOT_ETHUSDT, e percorso del Lab sul broker EURUSD.
+
+- **Notebook di ricerca**: tutte le variabili identiche al bit tranne `profilo`
+  (27/28 su BTC, 26/27 su ETH).
+- **Lab**: i trigger predefiniti della 3b sono a orario (ORA_LONG_@02:15,
+  ORA_SHORT_@07:00): trade, uscite, filtri, scheda, money management e stress
+  test identici al bit; cambiano, come richiesto, l'atlante (i due trigger ora
+  misurati, con le loro tabelle; prima «meno di 200 occasioni») e la soglia
+  cumulata: BTC k 654 → 765 (celle 552 → 567, + 96 fasce), soglia 3,95 → 3,99;
+  ETH spot k 249 → 350 (celle 186 → 191, + 96 fasce), soglia 3,71 → 3,80.
+- **Broker EURUSD**: 33 tabelle su 33 identiche al bit; nella soglia cumulata
+  c'è la voce nuova `fasce` = 0.
+- **Profilo 2b, fasce colorate prima (pips) e dopo (bp)**: ricerca BTC nessuna →
+  22:45, 23:00, 23:15, 23:30; Lab BTC nessuna → 22:45, 23:00, 23:15; ETH spot
+  nessuna → nessuna (Lab e ricerca).
+- Nei giri del Lab la cella 3d si ferma su `main` come sul ramo: la cella
+  predefinita LONDRA_NY non passa per ORA_LONG_@02:15 (che apre in ASIA_NOTTE).
+  Non dipende da questo lavoro.

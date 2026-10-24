@@ -348,3 +348,44 @@ def clear_registry() -> None:
     _ENTRY_DIRECTION.clear()
     _EXIT_DIRECTION.clear()
     _EXIT_PAIR.clear()
+
+
+NESSUNA = "nessuna"        # 23/10/2026: il lato senza regola d'uscita in coppia_per_lato
+
+
+def coppia_per_lato(coppia_long, coppia_short) -> str | None:
+    """
+    Una regola d'uscita per lato (23/10/2026): registra una coppia nuova che
+    prende l'uscita LONG dalla coppia `coppia_long` e l'uscita SHORT dalla
+    coppia `coppia_short` (etichette di list_exit_pairs). None, "" o
+    "nessuna" = su quel lato nessuna regola (un'uscita che non scatta mai).
+    Ritorna l'etichetta, da passare come exit_rule_pair(s), per esempio
+    "X_ORA_@16:00 | nessuna". Con la stessa regola sui due lati ritorna
+    quella regola (o None), senza registrare niente: tutto come prima.
+    """
+    def pulisci(c):
+        if c is None or str(c).strip().lower() in ("", NESSUNA, "none"):
+            return None
+        return str(c).strip()
+
+    cl, cs = pulisci(coppia_long), pulisci(coppia_short)
+    if cl == cs:
+        return cl
+    coppie = {p: (l, s) for p, l, s in list_exit_pairs()}
+    for c in (cl, cs):
+        if c is not None and c not in coppie:
+            raise ValueError(f"Coppia di uscita {c!r} sconosciuta: registrala prima. Disponibili: {sorted(coppie)}.")
+    etichetta = f"{cl or NESSUNA} | {cs or NESSUNA}"
+    for lato, d, sorgente in (("LONG", 1, coppie[cl][0] if cl else None),
+                              ("SHORT", -1, coppie[cs][1] if cs else None)):
+        nome = f"{etichetta}_{lato}"
+        if nome in _EXIT_REGISTRY:
+            continue
+        if sorgente is None:
+            def uscita(df: pd.DataFrame) -> pd.Series:
+                return pd.Series(False, index=df.index)
+        else:
+            def uscita(df: pd.DataFrame, _n=sorgente) -> pd.Series:
+                return _EXIT_REGISTRY[_n](df)            # letta al momento: segue la regola registrata
+        register_exit(nome, direction=d, pair=etichetta)(uscita)
+    return etichetta

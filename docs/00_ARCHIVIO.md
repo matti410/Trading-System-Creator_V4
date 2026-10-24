@@ -196,15 +196,15 @@ escluso (in M15 solo da gennaio 2025).
 | modulo | passo |
 |---|---|
 | `engine/event_study.py` | 1–2, orizzonti e ingressi |
-| `engine/exit_search_bt.py` | 3, uscite; `_StrategiaGenerica` è la strategia di tutti i backtest (dal 17/10 legge le colonne per indice: più veloce, stessi trade) |
+| `engine/exit_search_bt.py` | 3, uscite; `_StrategiaGenerica` è la strategia di tutti i backtest (dal 17/10 legge le colonne per indice: più veloce, stessi trade); dal 23/10 `perc_sl` / `perc_tp` anche per lato (`per_lato`) |
 | `engine/motore_veloce.py` | il motore di backtest veloce (dal 21/10, `65`): stessi trade di `_StrategiaGenerica` su `backtesting.py` al bit, circa 100 volte più veloce; dal 21/10 (E3) è il predefinito; `motore="bt"` = la libreria, che resta l'oracolo dei test |
 | `engine/giudizio.py` | 4, t, P(EV<0), soglia rumore, scheda, verdetto |
 | `engine/filter_search_bt.py` | 5, filtri; dal 17/10 i backtest girano su più processi (`processi=None` automatico, `1` in sequenza: stessi risultati, `test_velocita.py`) |
 | `engine/due_meta.py` | 5, stabilità sulle due metà |
 | `engine/famiglie.py` | collaudo e scelta delle condizioni: sovrapposizioni, somiglianze, famiglie (dal 17/10) |
 | `engine/rosa.py` | 2–3, la rosa dei candidati: entry dopo l'event study, sistemi dopo le uscite (dal 18/10) |
-| `engine/atlante.py` | 2–3 e 5, l'atlante del trigger: entry × cella (volatilità × trend, sessione, basis), scarto dal mercato della cella e netto; le celle scelte come filtri del passo 5 (dal 22/10, `66`) |
-| `engine/stagionalita.py` | 1–3, profilo orario e baseline oraria della rosa; fasce larghe una barra, per ogni timeframe (dal 18/10) |
+| `engine/atlante.py` | 2–3 e 5, l'atlante del trigger: entry × cella (volatilità × trend, sessione, basis), scarto dal mercato della cella e netto; le celle scelte come filtri del passo 5 (dal 22/10, `66`); dal 23/10 `qualunque_ora` per i trigger a orario (`66` §15) |
+| `engine/stagionalita.py` | 1–3, profilo orario e baseline oraria della rosa; fasce larghe una barra, per ogni timeframe (dal 18/10); `profilo_orario(unita=)` in bp sulle crypto (23/10) |
 | `condizioni_orarie.py` | 2–3, entry e uscite a orario: `ORA_LONG_@HH:MM`, `ORA_SHORT_@HH:MM`, `X_ORA_@HH:MM`, `X_INVERSIONE_TREND` (dal 19/10) |
 | `engine/confidenza.py` | 5, confidenza dei segnali: griglia volatilità × trend, soglia come filtro |
 | `engine/volatility_features_engineering.py` | file di Mattia, invariato: `confidenza.py` usa `feat_historical_volatility` e `build_labels` |

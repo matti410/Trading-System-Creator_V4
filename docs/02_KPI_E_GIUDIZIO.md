@@ -361,6 +361,18 @@ t > 0, il controllo della quota di falsi positivi su **tutte** le celle
 misurate (q = 20%), scarto positivo nelle due metà e netto > 0. Le celle
 sotto i 200 eventi non si misurano e non contano.
 
+**I trigger a orario (23/10/2026, decisione di Mattia).** L'atlante misura
+anche i trigger scelti alla 3b fuori catalogo, e le loro celle entrano in k.
+Un trigger a orario (ORA_LONG_@HH:MM) scatta su tutte le barre della sua
+fascia: contro il mercato della stessa cella e fascia lo scarto sarebbe zero
+per costruzione. Per questi trigger lo scarto si misura contro il mercato
+della stessa cella **a qualunque ora** (colonne «più del mercato della cella,
+a qualunque ora»); i trigger di catalogo restano con il confronto di sempre.
+Sull'asse delle sessioni un trigger a orario ha occasioni in una cella sola.
+Con un trigger a orario la soglia cumulata conta anche le fasce del profilo
+orario (96 su M15), una volta per sessione: scegliere un'ora è scegliere fra
+tutte le fasce.
+
 **Strada B.** Si sceglie al massimo una cella per lato, solo fra quelle che
 passano. Al passo 5 la cella si misura come un filtro (tenuti contro
 scartati, due metà), ma la soglia di rumore usa **k = celle misurate
@@ -411,6 +423,12 @@ tutti i passi: rosa dei trigger e dei sistemi, ricerca delle uscite, ricerca dei
 filtri (tenuti contro scartati), due metà, scheda (solidità, P(EV<0), verdetto). I
 pips restano accanto, e restano l'unità di totale, drawdown e money management
 (sono soldi: pips × valore del pip, trade per trade al prezzo di quel trade).
+
+**Il profilo orario in bp sulle crypto (23/10/2026).** Anche il profilo orario
+(schermata 2b, ricerca 1.2 bis) decide in bp sui symbol da exchange: scarto,
+solidità, quota di falsi positivi e due metà in bp, i pips accanto nella tabella.
+X_INVERSIONE_TREND usa lo stesso profilo in bp (decisione di Mattia). Sul broker
+tutto in pips, come prima.
 
 **Lo stress test in bp sulle crypto (23/10/2026, `61` §15).** Sui symbol da
 exchange Monte Carlo, drawdown e tabella di controllo dello stress test lavorano
