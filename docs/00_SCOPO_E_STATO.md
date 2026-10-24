@@ -104,8 +104,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    dei lotti dal passo dell'exchange. Stress test delle crypto in bp per
    trade, lotti dal prezzo dell'ultima barra; broker in pips come prima.
 
-7. **Orari e uscite per lato** — in corso (ramo `orari-e-uscite-per-lato`;
-   resoconto in `66` §15). L'atlante misura anche i trigger scelti fuori
+7. **Orari e uscite per lato** — fatto (PR #57; resoconto in `66` §15). L'atlante misura anche i trigger scelti fuori
    catalogo (quelli a orario contro il mercato della cella a qualunque ora);
    stop, target e regola d'uscita per lato nella schermata 4 e nel notebook
    di ricerca; profilo orario 2b in bp sulle crypto; nella soglia cumulata le
