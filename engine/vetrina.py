@@ -1044,6 +1044,53 @@ def _salva_studio(storia) -> None:
     _SCRITTO[storia.chiave] = _stato_scritto(storia)
 
 
+def oos_fresco(storia, df_oos: pd.DataFrame) -> dict | None:
+    """
+    L'out-of-sample «fresco» (25/10/2026, docs/70 §13): il tratto mai guardato,
+    cioe' le barre dopo l'ultima barra out-of-sample gia' aperta su QUALUNQUE
+    dataset dello studio. Da chiamare PRIMA di scrivere nel diario l'apertura di
+    adesso. Ritorna None senza studio o se l'out-of-sample non e' mai stato
+    aperto (e' tutto fresco); altrimenti {"fino", "dove", "barre"}: l'ultima
+    barra gia' guardata, le aperture per dataset, le barre nuove di df_oos.
+    """
+    if not _nel_studio(storia):
+        return None
+    ctx = _CONTESTO_STUDIO[storia.chiave]
+    fino, dove = _st.ultimo_oos_guardato(ctx["cartella"], ctx["studio"])
+    if fino is None:
+        return None
+    return {"fino": fino, "dove": dove, "barre": df_oos.index[df_oos.index > fino]}
+
+
+def trade_freschi(info: dict | None, trades: pd.DataFrame, df_oos: pd.DataFrame) -> pd.DataFrame | None:
+    """
+    I trade del tratto mai guardato: quelli ENTRATI dopo l'ultima barra gia'
+    guardata (decisione di Mattia del 25/10: un trade a cavallo della data resta
+    fuori, il suo ingresso l'avevi gia' visto). EntryBar e' la barra di df_oos.
+    """
+    if info is None:
+        return None
+    if trades is None or len(trades) == 0:
+        return trades
+    ingresso = pd.DatetimeIndex(df_oos.index)[trades["EntryBar"].to_numpy(dtype=int)]
+    return trades[np.asarray(ingresso > info["fino"])]
+
+
+def _frase_fresco(info: dict, n_trade: int, min_trade: int) -> str:
+    dove = ", ".join(f"{n} {'volta' if n == 1 else 'volte'} su {ds.replace('_M', ' M').replace('_H', ' H')}"
+                     for ds, n in info["dove"].items())
+    if len(info["barre"]) == 0:
+        return (f"Nessuna barra nuova dall'ultima apertura (fino al {_giorno_ora(info['fino'])}): questo "
+                f"out-of-sample l'hai già visto tutto ({dove}).")
+    frase = (f"Mai guardato: dal {_giorno_ora(info['barre'][0])}, {_fmt(len(info['barre']))} barre e "
+             f"{_fmt(n_trade)} trade. Prima di quella data l'out-of-sample l'hai già visto ({dove}).")
+    if n_trade == 0:
+        frase += " Nel tratto nuovo non c'è nessun trade."
+    elif n_trade < min_trade:
+        frase += f" Campione corto (meno di {_fmt(min_trade)} trade): da leggere, non da giudicare."
+    return frase
+
+
 def _nel_studio(storia) -> bool:
     return storia is not None and getattr(storia, "chiave", None) in _CONTESTO_STUDIO
 
@@ -2488,6 +2535,37 @@ def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int,
     return storia
 
 
+def mostra_oos_fresco(info: dict | None, oos, df_oos: pd.DataFrame, atr=None) -> pd.DataFrame | None:
+    """
+    L'out-of-sample «fresco» per il notebook di ricerca (25/10/2026, docs/70 §13):
+    `info` e' quello di oos_fresco, calcolato PRIMA di segna_oos; `oos` il
+    risultato di run_filter_search_bt sull'out-of-sample. Scrive la riga del
+    tratto mai guardato e ritorna una tabella, una riga per filtro (baseline
+    compresa): trade, guadagno medio netto e solidita' su tutto l'out-of-sample
+    e sul solo tratto mai guardato. None se non c'e' un tratto da mostrare.
+    """
+    if info is None:
+        return None
+    unita = getattr(oos, "unita", "pips")
+    righe, n_base = [], 0
+    for etichetta in oos.risultati["filtro"]:
+        nome = None if etichetta == BASELINE else etichetta
+        tutti = oos.trades(nome)
+        fr = trade_freschi(info, tutti, df_oos)
+        if nome is None:
+            n_base = len(fr)
+        k_t = scheda_strategia(tutti, oos.pip_size, oos.commission or 0.0, montecarlo=False, verbose=False,
+                               atr=atr, unita=unita) if len(tutti) else {}
+        k_f = scheda_strategia(fr, oos.pip_size, oos.commission or 0.0, montecarlo=False, verbose=False,
+                               atr=atr, unita=unita) if len(fr) else {}
+        righe.append({"filtro": etichetta, "trade": len(tutti), "trade mai guardati": len(fr),
+                      f"guadagno medio ({unita})": k_t.get(f"ev_{unita}", np.nan),
+                      f"guadagno medio mai guardato ({unita})": k_f.get(f"ev_{unita}", np.nan),
+                      "solidità": k_t.get("t_stat", np.nan), "solidità mai guardato": k_f.get("t_stat", np.nan)})
+    _nota(_frase_fresco(info, n_base, int(getattr(oos, "min_trades", 0) or 0)))
+    return pd.DataFrame(righe) if len(info["barre"]) else None
+
+
 def segna_oos(storia, **scelte) -> int:
     """
     Il diario dell'out-of-sample per il notebook di ricerca (25/10/2026, docs/68
@@ -3294,6 +3372,12 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
                                 montecarlo=False, verbose=False, atr=s.atr, unita=s.unita)
         k_oos = scheda_strategia(tr_oos, s.fs.pip_size, s.fs.commission or 0.0,
                                  montecarlo=False, verbose=False, atr=s.atr, unita=s.unita)
+        # 25/10/2026 (docs/70 §13): il tratto mai guardato, prima di scrivere l'apertura di adesso nel diario
+        fresco = oos_fresco(getattr(s, "storia", None), s.df_oos)
+        tr_fr = trade_freschi(fresco, tr_oos, s.df_oos)
+        k_fr = (scheda_strategia(tr_fr, s.fs.pip_size, s.fs.commission or 0.0, montecarlo=False, verbose=False,
+                                 atr=s.atr, unita=s.unita)
+                if tr_fr is not None and len(tr_fr) and len(fresco["barre"]) else None)
     s.filtri_scelti = scelti
     s.filtro = " + ".join(scelti) if scelti else None
     s.trades_is, s.trades_oos = tr_is, tr_oos
@@ -3326,8 +3410,14 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         "In-sample": [_fmt(k_is.get(k, np.nan), d) for k, _, d in _VOCI_SCHEDA],
         "Out-of-sample": [_fmt(k_oos.get(k, np.nan), d) for k, _, d in _VOCI_SCHEDA],
     })
+    if k_fr is not None:                  # 25/10/2026 (docs/70 §13): accanto, il solo tratto mai guardato
+        tabella["Out-of-sample mai guardato"] = [_fmt(k_fr.get(k, np.nan), d) for k, _, d in _VOCI_SCHEDA]
     s.tabelle["scheda"] = tabella
+    s.tabelle["oos_fresco"] = (None if fresco is None else
+                               {**fresco, "trade": 0 if tr_fr is None else len(tr_fr)})
     nome = s.filtro or "sistema base"
+    if fresco is not None:
+        _nota(_frase_fresco(fresco, 0 if tr_fr is None else len(tr_fr), int(s.fs.min_trades)))
     _mostra((f"Scheda strategia · {s.symbol} · {nome}", tabella))
     if s.unita != "pips":
         _nota(f"Decide il {s.unita}: solidità, probabilità che in realtà perda, trade vincenti, vincita media / "

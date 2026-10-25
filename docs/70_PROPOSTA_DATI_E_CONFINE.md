@@ -811,7 +811,7 @@ La proposta è approvata, con le indicazioni sulla bozza riportate in testa:
 
 | proposta | decisione |
 |---|---|
-| L'out-of-sample «fresco» | **lavoro piccolo dopo questo** |
+| L'out-of-sample «fresco» | **lavoro piccolo dopo questo**; fatto il 25/10: nella scheda e nella Sessione 4 della ricerca, i trade a cavallo della data restano fuori (decisione di Mattia) |
 | Il conto delle prove fra dataset | **si decide nel lavoro dei testimoni**, più avanti |
 
 **Riquadro dell'Avvio (§1.1)**

@@ -154,8 +154,11 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    successiva, `prepara`, Lab e notebook di ricerca). Incarico `69`, proposta,
    decisioni e resoconto in `70`.
 
-Prossimi lavori, in ordine (Mattia, 24 e 25/10): l'out-of-sample «fresco» (lavoro
-piccolo, `70` §13), il volume aggressivo; poi la mappa delle anomalie (il posto
+L'out-of-sample «fresco» (`70` §13) è fatto (25/10): la scheda e la Sessione 4 della ricerca
+mostrano anche i numeri del solo tratto mai guardato (dopo l'ultima apertura del diario, su
+qualunque dataset dello studio; i trade a cavallo della data restano fuori).
+
+Prossimi lavori, in ordine (Mattia, 24 e 25/10): il volume aggressivo; poi la mappa delle anomalie (il posto
 libero 2b del Lab). Orizzonti multipli in un lavoro a parte (`68` §13). Il conto
 delle prove fra dataset si decide nel lavoro dei testimoni.
 

@@ -375,6 +375,28 @@ def diario_altrove(cartella_dati, dataset: str, studio: dict) -> dict:
     return out
 
 
+def ultimo_oos_guardato(cartella_dati, studio: dict) -> tuple[pd.Timestamp | None, dict]:
+    """
+    L'out-of-sample gia' guardato su TUTTO lo studio (25/10/2026, docs/70 §13,
+    l'out-of-sample «fresco»): l'ultima barra out-of-sample (`oos_fino_al`) delle
+    aperture scritte nei giornali di ogni dataset, e quante aperture per dataset.
+    Ritorna (None, {}) se nello studio l'out-of-sample non e' mai stato aperto.
+    """
+    fino, dove = None, {}
+    radice = cartella_studio(cartella_dati)
+    if not radice.is_dir():
+        return None, {}
+    for d in sorted(p for p in radice.iterdir() if p.is_dir() and p.name != ARCHIVIO):
+        for v in leggi_voci(cartella_dati, d.name, studio["id"])[0]:
+            if v.get("voce") != "oos":
+                continue
+            dove[d.name] = dove.get(d.name, 0) + 1
+            t = v.get("voce_diario", {}).get("oos_fino_al")
+            if t is not None and (fino is None or _utc(t) > fino):
+                fino = _utc(t)
+    return fino, dove
+
+
 # ========================================================================
 # Il reset (docs/70 §5)
 # ========================================================================

@@ -21,7 +21,8 @@ D  il reset (16), la contaminazione su tutto lo studio (17), la scrittura
    correzione del 25/10);
 E  prepara con lo studio (parte B): apertura, tabella, giornale, riavvio, H
    diverso, diario, aggiornamento con exchange finto, Colab, confine di
-   collaudo (19), funding meno avanti, l'Avvio.
+   collaudo (19), funding meno avanti, l'Avvio; l'out-of-sample «fresco»
+   (docs/70 §13, E11-E15).
 
 Come si lancia (da terminale, dalla cartella del progetto):
 
@@ -220,6 +221,36 @@ def sezione_e(check, errore, cartella) -> None:
     check("E6c. lo spread (un passo per trade, docs/71) non cambia con le barre nuove",
           s5.costi["spread"] == s4.costi["spread"] == 0.0
           and s5.costi["spread_passo_pips"] == s4.costi["spread_passo_pips"] == 0.1)
+    # l'out-of-sample «fresco» (docs/70 §13): le due aperture del diario arrivano fino all'ultima barra di s4;
+    # dopo l'aggiornamento le 30 barre nuove sono il tratto mai guardato
+    from types import SimpleNamespace
+    fresco = V.oos_fresco(s5.storia, s5.df_oos)
+    check("E11. il tratto mai guardato parte dopo l'ultima barra già aperta: 30 barre, 2 aperture su questo dataset",
+          fresco is not None and fresco["fino"] == s4.df_oos.index[-1] and len(fresco["barre"]) == 30
+          and fresco["dove"] == {f"{SYM}_M15": 2})
+    fine = s5.df_oos.index.get_loc(fresco["fino"])
+    finti = pd.DataFrame({"EntryBar": [fine - 5, fine - 1, fine + 1, fine + 10], "ExitBar": [fine - 2, fine + 3,
+                                                                                           fine + 4, fine + 20],
+                          "Size": 1.0, "EntryPrice": 100.0, "ExitPrice": 101.0})
+    fr = V.trade_freschi(fresco, finti, s5.df_oos)
+    check("E12. trade freschi: solo quelli entrati dopo la data; quello a cavallo resta fuori (decisione del 25/10)",
+          fr["EntryBar"].tolist() == [fine + 1, fine + 10])
+    check("E13. le frasi: 30 barre e 2 trade, campione corto; nessuna barra nuova; nessun trade",
+          "30 barre e 2 trade" in V._frase_fresco(fresco, 2, 30) and "Campione corto" in V._frase_fresco(fresco, 2, 30)
+          and "2 volte su BINANCE_PERP_BTCUSDT M15" in V._frase_fresco(fresco, 2, 30)
+          and "l'hai già visto tutto" in V._frase_fresco(V.oos_fresco(s5.storia, s4.df_oos), 0, 30)
+          and "nessun trade" in V._frase_fresco(fresco, 0, 30))
+    base = V.BASELINE
+    oos_finto = SimpleNamespace(risultati=pd.DataFrame({"filtro": [base]}), unita="bp", pip_size=1.0,
+                                commission=0.0, min_trades=30,
+                                trades=lambda nome=None: finti.assign(EntryTime=s5.df_oos.index[finti["EntryBar"]]))
+    tab_f, testo_f = parlato(V.mostra_oos_fresco, fresco, oos_finto, s5.df_oos)
+    check("E14. ricerca: la tabella del tratto mai guardato (4 trade in tutto, 2 mai guardati) e la sua riga",
+          tab_f is not None and tab_f.loc[0, "trade"] == 4 and tab_f.loc[0, "trade mai guardati"] == 2
+          and "Mai guardato" in testo_f)
+    check("E15. senza studio o alla prima apertura: nessun tratto fresco (tutto l'out-of-sample è nuovo)",
+          V.oos_fresco(s0.storia, s0.df_oos) is None and V.oos_fresco(None, s0.df_oos) is None
+          and V.mostra_oos_fresco(None, oos_finto, s5.df_oos) is None)
     check("E6b. verso l'exchange solo funzioni di lettura",
           set(finto_perp.funzioni) | set(finto_spot.funzioni)
           <= {"load_markets", "fetch_ohlcv", "fetch_funding_rate_history"})
@@ -695,6 +726,20 @@ def esegui() -> int:
         RD.annota_oos(st_, {"H": 1})
         check("D21c. annota_oos senza oos_fino_al resta come prima (nessuna chiave in piu')",
               sorted(st_.diario[-1]) == ["H", "quando"])
+
+        # l'out-of-sample «fresco» su tutto lo studio (docs/70 §13): l'ultima barra guardata su qualunque dataset
+        cu = cartella("d23")
+        su_ = ST.entra(cu, "BINANCE_PERP_BTCUSDT", "H1", mille, "pc").studio
+        vuoto = ST.ultimo_oos_guardato(cu, su_)
+        t1, t2 = mille.index[900], mille.index[950]
+        for ds, fino in (("BINANCE_PERP_BTCUSDT_H1", t1), ("BINANCE_PERP_BTCUSDT_H1", t1), ("BYBIT_SPOT_ETHUSDT_H1", t2)):
+            ST.aggiungi_voce(cu, ds, "pc", su_["id"], {"voce": "oos", "voce_diario": {"H": 41, "oos_fino_al": fino.isoformat()}})
+        ST.aggiungi_voce(cu, "BYBIT_SPOT_ETHUSDT_H1", "colab", "studio-vecchio",
+                         {"voce": "oos", "voce_diario": {"H": 41, "oos_fino_al": mille.index[999].isoformat()}})
+        check("D23. ultima barra guardata su tutto lo studio: la più tarda fra i dataset; le righe di un altro studio "
+              "non contano",
+              vuoto == (None, {}) and ST.ultimo_oos_guardato(cu, su_)
+              == (t2, {"BINANCE_PERP_BTCUSDT_H1": 2, "BYBIT_SPOT_ETHUSDT_H1": 1}))
 
         sezione_e(check, errore, cartella)
     finally:
