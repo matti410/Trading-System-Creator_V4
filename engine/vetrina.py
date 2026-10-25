@@ -602,7 +602,8 @@ def carica_storico(symbol: str, cartella="dati", timeframe: str = "M15") -> pd.D
     return df
 
 
-def costi_storico(symbol: str, df: pd.DataFrame, funding: pd.DataFrame | None = None) -> tuple[dict, dict]:
+def costi_storico(symbol: str, df: pd.DataFrame, funding: pd.DataFrame | None = None,
+                  df_prezzo: pd.DataFrame | None = None) -> tuple[dict, dict]:
     """
     I costi del backtest per `symbol` su `df` (19/10/2026, comune al Lab e al
     notebook di ricerca). Ritorna (costi, sp):
@@ -620,6 +621,13 @@ def costi_storico(symbol: str, df: pd.DataFrame, funding: pd.DataFrame | None = 
     funding (21/10/2026, docs/63 §5): lo storico di carica_funding. Sui
     perpetual finisce in costi["funding"] e con **costi arriva ai motori, che
     lo contano trade per trade (FundingPips). None = non contato, come prima.
+
+    df_prezzo (26/10/2026, docs/70 §15.3, strada A di Mattia): sui symbol da
+    exchange lo spread di un passo diventa una frazione del prezzo con il
+    prezzo mediano di `df_prezzo`. Il Lab e il notebook di ricerca passano
+    l'IN-SAMPLE: nessun dato dell'out-of-sample nei costi, e l'in-sample resta
+    identico quando arrivano barre nuove. None = la mediana di `df`, come prima.
+    Il broker (sospeso) non cambia.
     """
     prezzo_max = float(df["High"].max())
     if CASH < 10 * prezzo_max:
@@ -627,7 +635,7 @@ def costi_storico(symbol: str, df: pd.DataFrame, funding: pd.DataFrame | None = 
                          f"({prezzo_max:,.2f}): alza CASH in engine/vetrina.py.")
     if da_exchange(symbol):
         from .exchange import costi_exchange, parti_symbol
-        c = costi_exchange(symbol, df)
+        c = costi_exchange(symbol, df if df_prezzo is None else df_prezzo)
         p = parti_symbol(symbol)
         costi = {"spread": c["spread"], "commission": c["commission"], "pip_size": c["pip_size"],
                  "cash": CASH, "spread_rollover_pips": None}
@@ -1114,7 +1122,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
                      funding=funding)
     df = dati.df
     storico_funding = dati.funding                       # 21/10/2026
-    costi, sp = costi_storico(symbol, df, funding=storico_funding)
+    grezzo = df                                          # per i costi, dopo la divisione
 
     s = Sessione()
     s.dati = dati
@@ -1129,6 +1137,8 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
         df = aggiungi_indicatori(df)
         df, s.spot_nota = aggancia_spot(symbol, df, cartella, timeframe)   # 22/10/2026 (docs/66)
         s.df_is, s.df_oos = dividi_dati(dati, df)    # 26/10/2026: al confine dello studio, o all'80%
+    # 26/10/2026 (docs/70 §15.3, strada A): lo spread si converte con il prezzo mediano dell'in-sample
+    costi, sp = costi_storico(symbol, grezzo, funding=storico_funding, df_prezzo=s.df_is)
     s.df, s.costi = df, costi
     s.atr = atr_giornaliero_chiuso(df)   # 20/10/2026: sullo storico intero, noto prima di ogni ingresso
     # 20/10/2026 (docs/63 §4.2, U2): sui symbol da exchange decide il bp in ogni passo; il broker,
