@@ -1,6 +1,7 @@
 # 00 · Scopo del progetto e stato attuale
 
-**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 23 ottobre 2026 (dopo la PR #55).
+**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 25 ottobre 2026 (dopo il riordino
+della pipeline del Lab, PR #63 e la successiva).
 Questo file è solo lo **stato attuale**, in 1–2 pagine. Riferimenti completi e
 storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
 manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10)
@@ -67,10 +68,20 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   esaurisce «veloce» tiene i trade e avvisa con la data (`65`). Nei test,
   `comportamento_vecchio()` riporta «veloce» identico al bit a «bt».
 - **Mercato nullo sospeso** (`63` §10.3): il codice resta, fermo.
+- **Lab, schermate 2→4 riordinate** (`67`, `68`, 25/10): un metro solo dalla 2 alla 4
+  (scarto dal mercato della stessa ora, in bp); 2a profilo orario, 2c curve dello
+  scarto, 3a rosa con la classifica a scomparsa, 3b casistiche dalla rosa («togli» /
+  «aggiungi»), la cella dentro la casistica, 4 uscite consigliate (barre = H, stop 90,
+  target spento, picco solo da leggere), 4b il sistema che va al passo 5. Riga delle
+  prove su ogni schermata; dopo la scheda le scelte rifatte si segnalano.
+- **Registro per dataset** (`68` §9.1): symbol, timeframe e confine dell'in-sample.
+  Cambiare H sullo stesso dataset non azzera conto e diario dell'out-of-sample, si
+  segnala e si conta (`soglia_rumore_orizzonte` sugli H provati). Vive finché il
+  kernel è aperto.
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 40 suite, 3 alla volta, circa 11 minuti; alla fine deve stampare
+  --tutte`, 42 suite, 3 alla volta, circa 12 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
@@ -111,8 +122,14 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    fasce del profilo con un trigger a orario; avviso sulla durata con trigger
    a orario sui due lati.
 
-Prossimi lavori: ancora da decidere (ordine e contenuto li stabilisce
-Mattia).
+8. **Riordino della pipeline del Lab, schermate 2→4** — fatto (PR #63, motore e
+   test; PR successiva, Lab e notebook di ricerca). Incarico `67`, proposta e
+   resoconto in `68`.
+
+Prossimi lavori, ordine deciso da Mattia il 24/10: dati in locale con download a
+ogni run, timeframe scelto ogni volta, volume aggressivo; poi la mappa delle
+anomalie (il posto libero 2b del Lab). Orizzonti multipli in un lavoro a parte
+(`68` §13).
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.
@@ -126,6 +143,7 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 | `vwap_ops.py` taglia la giornata a mezzanotte UTC: sulle crypto coincide con la giornata, sul broker (sospeso) no | da decidere se si riapre il broker |
 | il notebook di ricerca su Colab chiede il secret `GITHUB_TOKEN` | non bloccante |
 | interruttore sulla curva dei profitti | rimandato da Mattia |
+| notebook di ricerca: `X_INVERSIONE_TREND` (1.4) usa il profilo in pips, il Lab in bp (dal 23/10) | da decidere: allinearlo cambia i numeri della ricerca (`68` §14) |
 
 ## Convenzioni di lavoro
 
