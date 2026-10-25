@@ -11,7 +11,8 @@ parte, dopo il merge di questa proposta.
 casistica · §4 La scelta delle casistiche (3b) · §5 Le uscite consigliate ·
 §6 Il profilo orario · §7 Dalla 4b al passo 5 · §8 Le prove su ogni schermata
 · §9 Risalire l'imbuto · §10 Il notebook di ricerca · §11 Collaudo, identità,
-tempi · §12 Decisioni di Mattia · §13 Orizzonti multipli (domanda 6 di `67`).
+tempi · §12 Decisioni di Mattia · §13 Orizzonti multipli (domanda 6 di `67`) ·
+§14 Resoconto (*resoconto*).
 
 ---
 
@@ -506,3 +507,70 @@ grappolo è un pavimento, come oggi.
 **Consiglio:** un lavoro dopo questo. Qui si lascia il posto: la schermata 1
 tiene l'orizzonte dichiarato, e `s.prove` ha già la voce in cui contare la
 scelta fra orizzonti.
+
+---
+
+## 14 · Resoconto (*resoconto*, 25/10/2026)
+
+Due Pull request, come chiesto da Mattia.
+
+**A · motore e test (PR #63, unita).** Solo aggiunte: `curva_scarto_orario` e
+`picco_curva` (`engine/stagionalita.py`); `punti=`, `prove_equivalenti`,
+`prove_trigger_orizzonti` (`engine/giudizio.py`); `engine/registro_dataset.py`;
+`profilo=` in `registra_inversione_trend`. `test_riordino_motore.py` 37/37.
+Identità main contro ramo su BINANCE_PERP_BTCUSDT, H = 41: event study, soglia di
+rumore, profilo, `X_INVERSIONE_TREND`, uscite, rosa dei sistemi e 3.954 trade
+identici.
+
+**B · Lab e notebook di ricerca.**
+- `engine/vetrina.py`: le schermate 2a, 2c, 3a, 3b, 3c, 3d, 4, 4b come nel §1;
+  `scegli_casistiche`; la cella nella casistica (`entry_con_cella`); le uscite
+  consigliate; `rosa_dei_sistemi(sistema=)` e il passo 5 sul sistema scelto; la
+  riga delle prove su ogni schermata; il registro del dataset in `prepara`; il
+  diario dell'out-of-sample nella scheda e il riquadro arancione delle risalite.
+  Per il notebook di ricerca, funzioni pubbliche che usano la stessa logica:
+  `casistiche_dalla_rosa`, `uscite_consigliate`, `tabella_uscite_consigliate`,
+  `entry_del_sistema`, `registro_orizzonte`, `segna_oos`, `grafico_scarto`.
+  `classifiche` e `scegli_trigger` restano (test e uso a mano).
+- `Trading_System_Lab_Crypto.ipynb`: celle 2a/2c scambiate, 3a classifiche tolta
+  (è il dettaglio a scomparsa della 3a), 3b con «togli / aggiungi», 4 con le uscite
+  consigliate (barre 0 = H, regola «consigliata»), 4b con il campo «sistema».
+- `Trading_Grid_Search_v4_backtesting.ipynb`: H e registro in testa alla Sessione 1,
+  1.0 profilo orario prima delle curve, 1.3 bis curve dello scarto, casistiche dalla
+  rosa (`TOGLI_*`, `AGGIUNGI_*`), cella nella casistica (`LONG_casistica`),
+  uscite consigliate alla 2.2, `SISTEMA` alla Sessione 3, orizzonti provati nella
+  soglia cumulata, diario dell'out-of-sample alla Sessione 4. Restano entry-metro,
+  la griglia delle uscite (TEST 2) e la confidenza.
+- **Un test esistente cambiato, per la correzione A di Mattia:** `test_vetrina.py`
+  test 66 diceva «prepara (symbol, timeframe o H nuovi): il conto riparte da zero»;
+  ora dice «prepara sullo stesso dataset riprende il conto; con un dataset diverso
+  riparte da zero». Prima dei test 60-65, che misurano il conto da zero, il test
+  svuota il registro (come un riavvio del kernel): i loro controlli non cambiano.
+- `test_riordino_lab.py` 28/28: registro e soglia con due H, 2a/2c/3a, 3b, uscite
+  consigliate e conto delle impostazioni, trigger a orario (`X_ORA_@` = stessi
+  trade), cella nella casistica (forzata solo nel test), 4b → passo 5, diario e
+  risalite.
+
+**Prove d'identità (collaudo, non verdetto).** I due notebook vivi eseguiti cella
+per cella, `main` contro ramo, a scelte uguali (nel ramo: la rosa tolta e i trigger
+di `main` aggiunti, barre 40/25, regola «nessuna», sistema predefinito):
+- BINANCE_PERP_BTCUSDT: Lab, event study, uscite, filtri, out-of-sample, trade,
+  rosa, atlante e conto delle prove identici; tabelle 14/16 identiche: la soglia
+  cumulata ha due voci in più (`orizzonti`, `voce_trigger`) con tutti i valori di
+  prima uguali (dopo i giri, la frase dice «schermata 2c» al posto di «schermata 2»: solo testo), la lente apre un trade a caso a ogni esecuzione (n. 77 contro
+  n. 117 di 145). Ricerca: 78/78 variabili identiche.
+- BYBIT_SPOT_ETHUSDT: lo stesso esito (Lab 10/10 oggetti, tabelle 13/15 con le
+  stesse due differenze; ricerca 76/76).
+- Giro completo del Lab con i valori predefiniti nuovi su BTC perp ed ETH spot: in
+  fondo senza errori (casistica suggerita, uscite consigliate a H = 41, scheda,
+  money management, verifica, stress test).
+
+**Trovato strada facendo, non cambiato (decide Mattia):**
+- nel notebook di ricerca `X_INVERSIONE_TREND` (1.4) usa il profilo in pips, il Lab
+  in bp dal 23/10: allinearlo cambia i numeri della ricerca (in `docs/00`, problemi
+  aperti);
+- la rosa tiene insieme due candidati solo con |rho| ≤ 0,3 sui guadagni
+  giornalieri: un long e uno short che scattano spesso hanno guadagni legati in
+  verso opposto (il mercato li muove al contrario), e la rosa ne tiene uno solo.
+  È il comportamento scritto in `engine/rosa.py`; lo si nota ora perché la 3b
+  parte dalla rosa.

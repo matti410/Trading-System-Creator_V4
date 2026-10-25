@@ -289,6 +289,10 @@ def esegui() -> int:
     reg.register_entry("T_SHORT_CATTIVO", -1)(finto(+1))
     reg.register_entry("T_LONG_BUONO", 1)(finto(+1))
     reg.register_entry("T_LONG_CATTIVO", 1)(finto(-1))
+    # 25/10/2026 (docs/68 §9.1): il conto delle prove vive nel registro del dataset e sopravvive a
+    # prepara sullo stesso dataset; i test 60-65 misurano il conto da zero, come dopo un riavvio del kernel
+    from engine import registro_dataset as _rd
+    _rd.azzera()
     s2 = muto(v.prepara, "EURUSD", 12)
     muto(v.esplora, s2)
     cl = muto(v.classifiche, s2, 1000)
@@ -367,10 +371,14 @@ def esegui() -> int:
         tab_ancora = v.scheda(s2, ", ".join(due))
     check("65. solo informativa: rifare la scheda non cambia la tabella ne' il conto",
           tab_ancora.equals(tab_scheda) and s2.tabelle["soglia_cumulata"]["k"] == k_atteso)
+    # 25/10/2026 (docs/68 §9.1, correzione A di Mattia): prepara sullo stesso dataset (symbol, timeframe,
+    # confine dell'in-sample) riprende il conto; riparte da zero solo con un dataset diverso
     s4 = muto(v.prepara, "EURUSD", 12)
-    check("66. prepara (symbol, timeframe o H nuovi): il conto riparte da zero",
-          s4.prove == {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
-          and v._soglia_cumulata_lab(s4, np.nan)["k"] == 0)
+    s5 = muto(v.prepara, "EURUSD", 12, quota_in_sample=0.7)            # confine spostato: dataset diverso
+    check("66. prepara sullo stesso dataset riprende il conto; con un dataset diverso riparte da zero",
+          s4.prove is s2.prove and v._soglia_cumulata_lab(s4, np.nan)["k"] == k_atteso
+          and s5.prove == {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
+          and v._soglia_cumulata_lab(s5, np.nan)["k"] == 0)
 
     print("\nE · Piu' filtri insieme e l'asticella della prima prova (7/10/2026)")
     from engine.giudizio import soglia_rumore

@@ -9,15 +9,19 @@ ricerca dei filtri, due meta', Out-of-Sample, Monte Carlo) e ne mostra il
 risultato con un riquadro «Come leggerlo» scritto per un trader.
 
     s = prepara("EURUSD", H=25)                              1 · Configura
-    esplora(s)                                               2 · Esplora
-    profilo_delle_ore(s)                                       (il profilo orario, 18/10)
-    classifiche(s)                                           3 · Scegli i trigger
-    rosa_dei_trigger(s)                                        (la rosa dei candidati, 18/10)
-    scegli_trigger(s, long=[...], short=[...])
+    profilo_delle_ore(s)                                     2a · il mercato, ora per ora
+    esplora(s)                                               2c · i trigger contro il mercato della stessa ora
+    rosa_dei_trigger(s)                                      3a · le casistiche suggerite (+ classifica)
+    scegli_casistiche(s, togli_long="", aggiungi_long="")    3b · le tue casistiche (25/10, docs/68)
     atlante_dei_trigger(s)                                     3c · dove funziona il trigger (22/10, docs/66)
     scegli_cella(s, long="EUROPA")                             3d · una cella per lato (facoltativa)
-    imposta_uscite(s, barre_long=10, barre_short=18, sl=90)  4 · Imposta le uscite
-    rosa_dei_sistemi(s)                                        (la rosa dei sistemi, 18/10)
+    imposta_uscite(s, regola_uscita="consigliata")           4 · Le uscite (consigliate: H, stop 90, target spento)
+    rosa_dei_sistemi(s, sistema="Long + Short")              4b · il sistema da portare al passo 5
+
+Dal 25/10/2026 (docs/68) le schermate 2-4 sono riordinate; restano, per i
+test e per chi le usa a mano, classifiche(s) (la classifica di prima, in
+pips) e scegli_trigger(s, long=[...], short=[...]) (le casistiche scritte a
+mano).
     trova_strategia(s)                                       5 · Trova la strategia
     scheda(s, filtro="F1, F2")                               6 · Scheda strategia
     money_management(s, capitale=10_000, drawdown_max_pct=20) 7 · Money management
@@ -69,6 +73,7 @@ import html
 import io
 import math
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -84,7 +89,9 @@ from .exit_search_bt import barre_per_lato, per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
 from .motore_veloce import scegli_motore
 from .confidenza import congela_filtro
-from .giudizio import CAMPIONE_CORTO, DA_VALUTARE, scheda_strategia, soglia_rumore
+from .giudizio import (CAMPIONE_CORTO, DA_VALUTARE, prove_trigger_orizzonti, scheda_strategia,
+                       soglia_rumore)
+from . import registro_dataset as _rd
 from .indicatori import aggiungi_indicatori, atr_giornaliero_chiuso
 from .livelli import GIORNATA_FX, GIORNATA_UTC, imposta_giornata, quarantena_cached
 from .metriche import netti_in_unita, pips_per_trade
@@ -92,8 +99,8 @@ from .montecarlo import (bp_per_dataset, grafici_montecarlo, montecarlo_completo
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import ROLLOVER_DEFAULT, imposta_rollover, passo_barre, verifica_indice_utc
 from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
-from .stagionalita import (codice_orario, descrivi_profilo, fasce_orarie, fuso_profilo, n_fasce,
-                           profilo_orario)
+from .stagionalita import (codice_orario, curva_scarto_orario, descrivi_profilo, fasce_orarie,
+                           fuso_profilo, n_fasce, picco_curva, profilo_orario)
 from .splitting import split_is_oos
 
 
@@ -184,6 +191,12 @@ _CSS = (
     "padding:9px 14px;margin:10px 0 4px;font:13.5px/1.5 system-ui,sans-serif;max-width:900px}"
     ".vt-box b{font-weight:600}"
     ".vt-nota{font:12.5px/1.45 system-ui,sans-serif;opacity:.8;margin:2px 0 8px;max-width:900px}"
+    # 25/10/2026 (docs/68 §8, §9): la risalita dopo l'out-of-sample, la riga delle prove, i dettagli
+    ".vt-avviso{border-left:4px solid #e07b00;background:rgba(224,123,0,.12);"
+    "padding:9px 14px;margin:10px 0 4px;font:13.5px/1.5 system-ui,sans-serif;max-width:900px}"
+    ".vt-prove{font:12.5px/1.45 system-ui,sans-serif;margin:8px 0 4px;padding:5px 10px;max-width:900px;"
+    "border-top:1px solid rgba(128,128,128,.4)}"
+    ".vt-dettaglio summary{cursor:pointer;font:13px/1.4 system-ui,sans-serif;margin:6px 0}"
     "</style>"
 )
 
@@ -268,6 +281,25 @@ def _spiegazione(titolo: str, testo: str) -> None:
         print(f"\n  {titolo}\n  {testo}")
 
 
+def _avviso(testo: str) -> None:
+    """Il riquadro arancione (25/10/2026, docs/68 §9): una scelta rifatta dopo aver visto."""
+    if _in_notebook():
+        _html(f"<div class='vt-avviso'>{html.escape(testo)}</div>")
+    else:
+        print(f"\n  [ATTENZIONE] {testo}")
+
+
+def _dettaglio(titolo: str, *tabelle, decimali=None) -> None:
+    """Tabelle a scomparsa (25/10/2026, docs/68 §2): chiuse, si aprono con un clic."""
+    if _in_notebook():
+        _html(f"<details class='vt-dettaglio'><summary>{html.escape(titolo)}</summary>"
+              "<div class='vt-riga'>" + "".join(_tabella_html(df, t, decimali) for t, df in tabelle)
+              + "</div></details>")
+        return
+    print(f"\n[dettaglio] {titolo}")
+    _mostra(*tabelle, decimali=decimali)
+
+
 # ========================================================================
 # La sessione
 # ========================================================================
@@ -318,6 +350,13 @@ class Sessione:
         self.cella_long = self.cella_short = None   # la cella scelta per lato (3d); None = strada di sempre
         self.spot_nota = None         # lo spot agganciato al perpetual, per la basis
         self.tabelle = {}
+        # 25/10/2026 (docs/68): il riordino delle schermate 2-4
+        self.storia = None            # il registro del dataset (engine/registro_dataset.py, §9.1)
+        self.curve_scarto = None      # le curve dello scarto della schermata 2c (§2.1)
+        self.casistiche = {}          # "long"/"short" -> trigger, origine, cella (§3.1)
+        self.entry_casistica_long = self.entry_casistica_short = None   # con la cella dentro (§3.3)
+        self.consigliate = None       # le uscite consigliate e il picco da leggere (§5)
+        self.sistema = None           # il sistema scelto alla 4b, portato al passo 5 (§7)
 
     def __repr__(self):
         return f"<Sessione {self.symbol} {self.timeframe} · H={self.H}>"
@@ -751,6 +790,13 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     condizioni_orarie.imposta_fuso(s.fuso)   # 19/10/2026: entry e uscite a orario
     s.spread_pips, s.spread_rollover_pips, s.fonte_spread = sp["normale"], sp["rollover"], sp["fonte"]
     _registra_condizioni()
+    # 25/10/2026 (docs/68 §9.1, correzione A di Mattia): il registro del dataset (symbol, timeframe,
+    # confine dell'in-sample). Con lo stesso dataset la sessione nuova riprende il conto delle prove e
+    # il diario dell'out-of-sample; un H diverso e' una risalita, e la scelta fra gli H provati si conta
+    precedente = _ULTIMO_DATASET.get("chiave")
+    s.storia, esito = _rd.apri(symbol, timeframe, s.df_is.index[-1], H, nuove_prove=lambda: s.prove)
+    s.prove = s.storia.prove
+    _ULTIMO_DATASET["chiave"] = s.storia.chiave
 
     def giorno(t):
         return pd.Timestamp(t).strftime("%d/%m/%Y")
@@ -801,9 +847,40 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
            "prezzo di apertura della barra della liquidazione: l'exchange usa il prezzo «mark», che qui non c'è, "
            "e la differenza è di pochi millesimi sul costo." if s.funding is not None else ""),
         "Qui non c'è ancora niente da giudicare. Controlla solo che strumento, periodo e costi "
-        "siano quelli che ti aspetti: ogni risultato che vedrai è già al netto di questi costi.",
-        "Vai alla schermata 2 per vedere come si muove il prezzo dopo ogni trigger.")
+        "siano quelli che ti aspetti: ogni risultato che vedrai è già al netto di questi costi. "
+        "L'orizzonte è la scelta che pesa di più: è il tempo che dai al movimento e, dalla schermata 4, la "
+        "durata consigliata del trade. Sceglilo prima di guardare i risultati.",
+        "Vai alla schermata 2 per vedere come si muove il mercato ora per ora e cosa fanno i trigger.")
+    _nota_dataset(s, esito, precedente)
     return s
+
+
+_ULTIMO_DATASET: dict = {}      # 25/10/2026: la chiave dell'ultimo dataset aperto in questo notebook
+
+
+def _nota_dataset(s: Sessione, esito: str, precedente) -> None:
+    """Cosa e' successo al conto delle prove aprendo questo dataset (docs/68 §9.1)."""
+    storia = s.storia
+    if esito == "nuovo":
+        if precedente is not None and precedente != storia.chiave:
+            _nota("Dataset diverso da quello di prima (strumento, timeframe o confine dell'in-sample): il conto "
+                  "delle prove e il diario dell'out-of-sample ripartono da zero.")
+        _nota("Il conto delle prove e il diario dell'out-of-sample di questo dataset restano finché il notebook "
+              "è aperto: rieseguire questa cella, anche con un altro orizzonte, non li azzera. Riavviare il "
+              "notebook sì.")
+        return
+    if esito == "stesso_h":
+        return
+    r = storia.risalite[-1]
+    h = ", ".join(str(x) for x in storia.h_provati)
+    testo = (f"Hai già lavorato su questo dataset con H = {r['da']}. Cambiare orizzonte dopo aver visto i "
+             f"risultati è una scelta fra orizzonti: si conta. Orizzonti provati su questo dataset: {h}"
+             + (" (questo era già fra loro: nessuna prova in più)." if esito == "h_gia_provato" else ".")
+             + " Il conto delle prove continua da dove era.")
+    if storia.oos_visto:
+        testo += (f" Hai anche già guardato l'out-of-sample ({len(storia.diario)} "
+                  f"{'volta' if len(storia.diario) == 1 else 'volte'}): la prossima scheda non è più una prova pulita.")
+    _avviso(testo)
 
 
 # ========================================================================
@@ -855,15 +932,63 @@ def _grafico_curve(s: Sessione, candidati: list[str], lato: str) -> None:
     plt.show()
 
 
+def _rosa_sessione(s: Sessione) -> pd.DataFrame:
+    """La rosa dei trigger della sessione (rosa_entry), calcolata una volta per orizzonte."""
+    r = getattr(s, "rosa_trigger", None)
+    if r is None or r.attrs.get("H") != s.H:
+        with _zitto():
+            s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip,
+                                        nomi=_trigger_candidati(1 if s.solo_long else None),
+                                        min_eventi=MIN_TRIGGER, fuso=s.fuso, atr=s.atr, unita=s.unita)
+    return s.rosa_trigger
+
+
+def _curve_scarto(s: Sessione, nomi: list[str], qualunque_ora=()) -> pd.DataFrame:
+    """Le curve dello scarto (stagionalita.curva_scarto_orario) dei trigger indicati, nell'unita' che decide."""
+    if not nomi:
+        return pd.DataFrame(index=pd.RangeIndex(1, s.H + 1, name="barre_dal_trigger"))
+    return curva_scarto_orario(s.df_is, list(nomi), s.H, s.pip,
+                               fuso=getattr(s, "fuso", None) or fuso_profilo(getattr(s, "symbol", "")),
+                               unita=getattr(s, "unita", "pips"), qualunque_ora=qualunque_ora,
+                               atr=getattr(s, "atr", None))
+
+
+def _grafico_scarto(s: Sessione, curve: pd.DataFrame, lato: str) -> None:
+    grafico_scarto(curve, s.H, s.unita, lato)
+
+
+def grafico_scarto(curve: pd.DataFrame, H: int, unita: str, lato: str) -> None:
+    """Le curve dello scarto di un lato (25/10/2026, docs/68 §2.1): sopra lo zero = meglio del mercato a quell'ora."""
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for c in curve.columns:
+        ax.plot(curve.index, curve[c], lw=1.7, label=c)
+    ax.axhline(0, color="black", lw=0.8)
+    ax.set_xlabel("barre dal segnale")
+    ax.set_ylabel(f"trade {lato}: in più del mercato della stessa ora\n({unita}, prima dei costi)")
+    ax.set_title(f"Trigger {lato.upper()}: quanto fa meglio del mercato alla stessa ora, nelle {H} barre "
+                 "dopo il segnale   (sopra lo zero = meglio)")
+    ax.grid(alpha=.3)
+    ax.legend(fontsize=8, loc="best")
+    plt.tight_layout()
+    plt.show()
+
+
 def esplora(s: Sessione, quanti: int = 5):
     """
-    Schermata 2. Misura, per ogni trigger del registro, come si muove in
-    media il prezzo nelle H barre dopo il segnale (`run_event_study`,
-    sull'in-sample) e disegna le curve dei `quanti` piu' solidi per lato.
+    Schermata 2c (dal 25/10/2026, docs/68 §2.1; prima schermata 2). Misura,
+    per ogni trigger del registro, come si muove in media il prezzo nelle H
+    barre dopo il segnale (`run_event_study`, sull'in-sample: e' il conto dei
+    trigger misurati) e disegna, per i `quanti` trigger con la solidita' netta
+    piu' alta della rosa per lato, la CURVA DELLO SCARTO: barra per barra,
+    quanto il trade fa meglio del mercato della stessa ora, nell'unita' che
+    decide (stagionalita.curva_scarto_orario). E' lo stesso metro della rosa
+    (schermata 3a): a k = H la curva coincide con lo scarto della rosa.
 
-    Ritorna l'oggetto EventStudy (anche in `s.ev`).
+    Ritorna l'oggetto EventStudy (anche in `s.ev`); le curve sono in `s.curve_scarto`.
     """
     s._serve("df_is", "1 · Configura")
+    _avviso_risalita(s, "rieseguire l'esplorazione")
     candidati = _trigger_candidati(1 if s.solo_long else None)    # spot: solo long (19/10/2026)
     with _zitto():
         s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=s.H,
@@ -873,34 +998,48 @@ def esplora(s: Sessione, quanti: int = 5):
     _nota(f"{misurati} trigger misurati su {len(candidati)} "
           f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media)."
           + (" Spot: solo i trigger long, lo short non esiste." if s.solo_long else ""))
-    for direzione, nome in ((1, "LONG"), (-1, "SHORT")):
-        if direzione not in s.lati():
-            continue
-        lato = _favorevoli(s, direzione)
-        if lato.empty:
-            continue
-        _grafico_curve(s, list(lato["candidato"].head(quanti)), nome.lower())
+    rosa = _rosa_sessione(s)
+    mostrati = []
+    for direzione in (1, -1):
+        if direzione in s.lati():
+            lato = rosa[rosa["direction"] == direzione].sort_values("t_netto", ascending=False)
+            mostrati += list(lato["candidato"].head(quanti))
+    s.curve_scarto = _curve_scarto(s, mostrati)
+    globali = _curve_scarto(s, mostrati, qualunque_ora=mostrati)
+    for direzione, nome in ((1, "long"), (-1, "short")):
+        nomi = [m for m in mostrati if int(reg.get_entry_direction(m)) == direzione]
+        if nomi:
+            _grafico_scarto(s, s.curve_scarto[nomi], nome)
+    if mostrati:
+        punti = sorted({max(1, s.H // 4), max(1, s.H // 2), max(1, (3 * s.H) // 4), s.H})
+        tab_g = pd.DataFrame({"Trigger": mostrati,
+                              **{f"barra {k} ({s.unita})": [globali.loc[k, m] for m in mostrati] for k in punti}})
+        s.tabelle["curve_qualunque_ora"] = tab_g
+        _dettaglio("Lo stesso confronto con il mercato a qualunque ora (quanto pesa l'ora del segnale)",
+                   ("In più del mercato a qualunque ora, prima dei costi", tab_g))
     _riquadro(
-        "Ogni linea è un trigger: quanto guadagna in media un trade aperto su quel segnale, in pips e prima "
-        "dei costi, barra dopo barra. Vale la stessa regola per long e short: la linea sale quando il trade "
-        "guadagna. Per uno short «sale» vuol dire che il prezzo sta scendendo. "
-        "La tratteggiata è quello che otterresti entrando a caso nella stessa direzione.",
-        "Un trigger interessante sta sopra lo zero e sopra la tratteggiata, e ci arriva presto. "
-        "Una linea che scende sotto lo zero è un segnale che in media ti porta dalla parte sbagliata. "
-        "Guarda anche dove la curva smette di salire: è la durata naturale del movimento, "
-        "ti servirà per scegliere dopo quante barre uscire.",
-        "Vai alla schermata 3: trovi gli stessi trigger in classifica, con i numeri.")
+        "Ogni linea è un trigger: barra dopo barra, quanto un trade aperto su quel segnale fa meglio del mercato "
+        f"alla stessa ora del giorno, in {s.unita} e prima dei costi. È il confronto giusto: un trigger che scatta "
+        "sempre in un'ora in cui il prezzo sale da solo non sembra bravo solo per l'ora. Per long e short vale la "
+        "stessa regola: sopra lo zero = il trade fa meglio del mercato. Sono i trigger con la solidità netta più "
+        "alta della rosa (schermata 3a), al massimo " + str(quanti) + " per lato.",
+        "Un trigger interessante sta sopra lo zero e ci resta. La curva si legge, non si sceglie: dove smette di "
+        "salire è la durata naturale del movimento, ma la durata del trade resta l'orizzonte che hai dichiarato "
+        "alla schermata 1. Nel dettaglio sotto il grafico, lo stesso confronto con il mercato a qualunque ora.",
+        "Vai alla schermata 3a: le casistiche suggerite, con i numeri.")
+    _riga_prove(s, f"{misurati} trigger misurati")
     return s.ev
 
 
 def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     """
-    Schermata 2, dopo le curve (18/10/2026). Il profilo orario di
-    engine/stagionalita.py sull'in-sample: per ogni fascia oraria (larga una
-    barra, ora locale della piazza di riferimento) quanto si muove in media
-    il prezzo nelle H barre dopo, rispetto alla media di tutte le barre.
-    E' anche il riferimento della rosa (schermate 3 e 4): ogni trigger si
-    confronta con il mercato della sua stessa ora.
+    Schermata 2a (dal 25/10/2026, docs/68 §6: prima delle curve; prima era la
+    2b). Il profilo orario di engine/stagionalita.py sull'in-sample: per ogni
+    fascia oraria (larga una barra, ora locale della piazza di riferimento)
+    quanto si muove in media il prezzo nelle H barre dopo, rispetto alla
+    media di tutte le barre. E' il metro delle schermate 2c-4 (ogni trigger
+    si confronta con il mercato della sua stessa ora), la fonte dei trigger a
+    orario e quella di X_INVERSIONE_TREND, che riusa questo stesso profilo.
 
     23/10/2026: nell'unita' che decide (bp sui symbol da exchange, con i pips
     accanto nella tabella; pips sul broker, come prima).
@@ -909,6 +1048,7 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     """
     import matplotlib.pyplot as plt
     s._serve("df_is", "1 · Configura")
+    _avviso_risalita(s, "rieseguire il profilo orario")
     u = s.unita
     with _zitto():
         s.profilo = (profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso) if u == "pips"
@@ -957,12 +1097,14 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
         "Verdi e rosse le ore che restano fuori anche contando che le ore provate sono tante; grigie le altre.",
         "Barre vicine raccontano lo stesso fatto (condividono quasi tutte le stesse candele dopo): un gruppo di "
         "barre colorate è UN'idea, non tante. È una media su tutti i giorni: non dice niente del singolo giorno. "
-        "Dalla schermata 3 la rosa confronta ogni trigger con il mercato della sua stessa ora, così un trigger "
-        "non sembra bravo solo perché scatta quando il prezzo sale da solo.",
-        "Per usarla: alla schermata 3 puoi scegliere un trigger a orario, es. ORA_LONG_@12:30 (si entra ogni "
+        "Questo profilo serve tre volte: è il metro delle schermate 2c, 3 e 4 (ogni trigger si confronta con "
+        "il mercato della sua stessa ora, così non sembra bravo solo perché scatta quando il prezzo sale da "
+        "solo); è la fonte dei trigger a orario; è la fonte dell'uscita X_INVERSIONE_TREND.",
+        "Per usarlo: alla schermata 3b puoi aggiungere un trigger a orario, es. ORA_LONG_@12:30 (si entra ogni "
         "giorno alle 12:30) o ORA_SHORT_@12:30, prendendo l'ora da un paper o da un gruppo colorato; alla "
         "schermata 4 puoi chiudere a un orario (X_ORA_@16:00) o quando arriva un'ora rossa per il long / "
-        "verde per lo short (X_INVERSIONE_TREND).")
+        "verde per lo short (X_INVERSIONE_TREND). Adesso vai alla 2c: i trigger contro questo metro.")
+    _riga_prove(s, "nessuna (le fasce si contano solo se scegli un trigger a orario)")
     return p
 
 
@@ -982,8 +1124,12 @@ _COLONNE_CLASSIFICA = {
 
 def classifiche(s: Sessione, quanti: int = 8) -> dict:
     """
-    Schermata 3 (prima parte). Le due classifiche dei trigger, LONG e SHORT,
-    lette dalla sintesi dell'event study e ordinate per solidita'.
+    Le due classifiche dei trigger di prima, LONG e SHORT, lette dalla
+    sintesi dell'event study (picco lordo in pips, «supera il rumore») e
+    ordinate per solidita'. Dal 25/10/2026 (docs/68 §2.2, decisione 5 di
+    Mattia) il Lab non la usa piu': la classifica del Lab e' il dettaglio a
+    scomparsa della rosa (schermata 3a), con lo stesso metro della rosa.
+    Resta per chi la chiama a mano e per i test.
 
     Ritorna {"long": tabella, "short": tabella}.
     """
@@ -1019,22 +1165,22 @@ def _si_no(v) -> str:
 
 def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     """
-    Schermata 3, fra le classifiche e la scelta (18/10/2026). La rosa dei
-    candidati di engine/rosa.py sui trigger dell'event study: andamento netto
-    positivo che regge il controllo della quota di falsi positivi (q = 20%) e
-    le due meta' dell'in-sample, e un gruppo suggerito di trigger diversi fra
-    loro (una famiglia ciascuno, profitti giornalieri poco correlati).
-    Stesso orizzonte H della schermata 1, solo in-sample. E' un suggerimento:
-    la scelta resta nella cella successiva.
+    Schermata 3a, le casistiche suggerite (18/10/2026; dal 25/10/2026, docs/68
+    §2.2 e §4, anche la classifica). La rosa dei candidati di engine/rosa.py
+    sui trigger dell'event study: andamento netto positivo che regge il
+    controllo della quota di falsi positivi (q = 20%) e le due meta'
+    dell'in-sample, e un gruppo suggerito di trigger diversi fra loro (una
+    famiglia ciascuno, profitti giornalieri poco correlati). Stesso orizzonte
+    H della schermata 1, solo in-sample. I trigger «nella rosa» sono le
+    casistiche da cui parte la 3b. Sotto, a scomparsa, la classifica: i primi
+    8 per lato con lo stesso metro (scarto dal mercato della stessa ora), con
+    la barra del picco della curva, solo da leggere.
 
     Ritorna la tabella completa di rosa_entry (anche in `s.rosa_trigger`).
     """
     s._serve("ev", "2 · Esplora")
-    with _zitto():
-        s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip,
-                                    nomi=_trigger_candidati(1 if s.solo_long else None),
-                                    min_eventi=MIN_TRIGGER, fuso=s.fuso, atr=s.atr, unita=s.unita)
-    r = s.rosa_trigger
+    _avviso_risalita(s, "rileggere le casistiche suggerite")
+    r = _rosa_sessione(s)
     vista = r[r["candidata"]]
     if vista.empty:
         _nota(f"Nessun trigger supera i tre controlli della rosa ({len(r)} misurati, orizzonte {s.H} barre). "
@@ -1059,20 +1205,50 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     s.tabelle["rosa_trigger"] = tabella
     _mostra((f"La rosa dei trigger (in-sample, {s.H} barre, prima dei costi)", tabella),
             decimali={"Solidità netta": 2, f"Solidità in {a}": 2})
+    suggerite = {nome: list(r.loc[r["nella_rosa"] & (r["direction"] == d), "candidato"])
+                 for d, nome in ((1, "long"), (-1, "short")) if d in s.lati()}
+    s.tabelle["casistiche_suggerite"] = suggerite
+    _nota("Casistiche suggerite per la 3b · "
+          + " · ".join(f"{nome}: {', '.join(v) if v else 'nessuna'}" for nome, v in suggerite.items()) + ".")
+    # 25/10/2026 (docs/68 §2.2): la classifica, a scomparsa, con lo stesso metro della rosa
+    per_lato, tutti = {}, []
+    for d, nome in ((1, "long"), (-1, "short")):
+        if d in s.lati():
+            per_lato[nome] = r[r["direction"] == d].sort_values("t_netto", ascending=False).head(8)
+            tutti += list(per_lato[nome]["candidato"])
+    curve = _curve_scarto(s, tutti)
+    classi = []
+    for nome, t in per_lato.items():
+        if t.empty:
+            continue
+        picchi = [picco_curva(curve[c], s.H) if c in curve else {"barra": None} for c in t["candidato"]]
+        classi.append((f"Classifica {nome.upper()}", pd.DataFrame({
+            "Trigger": t["candidato"].to_numpy(),
+            f"Più del mercato della stessa ora ({u})": t[f"scarto_{u}"].to_numpy(),
+            "Solidità netta": t["t_netto"].to_numpy(),
+            "Occasioni": t["eventi"].astype(int).to_numpy(),
+            "Barra del picco (solo da leggere)": [p["barra"] for p in picchi],
+            "Nella rosa": [_si_no(v) for v in t["nella_rosa"]],
+        })))
+    s.tabelle["classifiche_rosa"] = dict(classi)
+    if classi:
+        _dettaglio(f"La classifica: i primi 8 per lato, con lo stesso metro (in-sample, {s.H} barre, prima dei costi)",
+                   *classi, decimali={"Solidità netta": 2})
     _riquadro(
         "Un gruppo di trigger suggeriti. Ognuno ha un andamento a favore più grande di quello che il mercato "
-        "fa da solo nelle stesse ore («più del mercato della stessa ora», vedi il profilo orario della "
-        "schermata 2; accanto, il confronto con tutte le ore), difficile da spiegare con la fortuna anche tenendo conto di quanti trigger "
+        "fa da solo nelle stesse ore («più del mercato della stessa ora», il metro del profilo orario della "
+        "schermata 2a; accanto, il confronto con tutte le ore), difficile da spiegare con la fortuna anche tenendo conto di quanti trigger "
         f"hai messo a confronto (al massimo il {Q_ROSA:.0%} di colpi di fortuna nella rosa, in media), e positivo "
         "in entrambe le metà dell'in-sample. Dentro la rosa i trigger sono diversi fra loro: famiglie diverse "
         "(non scattano sulle stesse candele) e guadagni giornalieri poco legati "
-        f"(correlazione entro ±{_fmt(RHO_MAX, 1)}).",
+        f"(correlazione entro ±{_fmt(RHO_MAX, 1)}). Sotto la tabella, a scomparsa, la classifica con lo stesso metro.",
         _frase_unita(s) +
         "È un suggerimento, non una promozione: la verifica vera arriva dopo, con i filtri, le due metà e i dati "
         "mai visti. Un trigger fuori dalla rosa per «famiglia» o «correlata» è buono come quello che lo esclude, "
         "ma ripete la stessa idea. Rosa vuota = nessun trigger si distingue abbastanza dal caso a questo orizzonte.",
-        "Usa la rosa per scegliere nella cella sotto: prendi i trigger «Nella rosa: sì» che ti convincono, "
-        "anche uno solo. La scelta resta tua.")
+        "Vai alla 3b: parte dalle casistiche suggerite («Nella rosa: sì»); puoi toglierne o aggiungerne. "
+        "La scelta resta tua.")
+    _riga_prove(s, "nessuna (i trigger sono già contati alla 2c)")
     return r
 
 
@@ -1107,37 +1283,122 @@ def _durate_orarie(s: Sessione, barre_long: int, barre_short: int, origine: str)
             + "; " + lato(orari_s, orari_l, int(barre_short), "short", "long") + ".")
 
 
+def _lista_nomi(x) -> tuple:
+    """Un nome, piu' nomi separati da virgola, oppure una lista di nomi -> tupla senza vuoti."""
+    if x is None:
+        return ()
+    if isinstance(x, str):
+        x = x.split(",")
+    return tuple(n.strip() for n in x if isinstance(n, str) and n.strip())
+
+
 def scegli_trigger(s: Sessione, long=None, short=None) -> None:
     """
-    Schermata 3 (seconda parte). Registra la scelta dei trigger.
+    Le casistiche scritte a mano (prima del 25/10/2026 la schermata 3b del
+    Lab; dal 25/10 il Lab usa scegli_casistiche, che parte dalla rosa).
+    Registra la scelta dei trigger.
 
     long / short   un nome, piu' nomi separati da virgola o una lista di nomi
                    (lavorano in OR); None o vuoto = quel lato non opera.
                    Almeno un lato deve essere indicato.
     """
     s._serve("ev", "2 · Esplora")
+    tl, ts = _lista_nomi(long), _lista_nomi(short)
+    _imposta_casistiche(s, tl, ts, {n: "a mano" for n in (*tl, *ts)})
+
+
+def scegli_casistiche(s: Sessione, togli_long="", aggiungi_long="", togli_short="",
+                      aggiungi_short="") -> pd.DataFrame:
+    """
+    Schermata 3b, le tue casistiche (25/10/2026, docs/68 §4, decisione 1 di
+    Mattia). Si parte dalle casistiche suggerite dalla rosa (i trigger «nella
+    rosa» di ogni lato, schermata 3a) e si toglie o si aggiunge: due campi per
+    lato, vuoti = la rosa cosi' com'e'. Ogni nome tolto deve essere nella rosa
+    di quel lato; ogni nome aggiunto un trigger del catalogo di quel lato, o
+    un trigger a orario (ORA_LONG_@HH:MM / ORA_SHORT_@HH:MM). Piu' trigger
+    sullo stesso lato lavorano in OR, come prima (decisione 2).
+
+    Togliere o aggiungere non aggiunge prove: i trigger sono gia' tutti
+    contati alla schermata 2c. Un trigger a orario porta le fasce del profilo.
+
+    Ritorna la tabella delle casistiche.
+    """
+    s._serve("ev", "2 · Esplora")
+    r = _rosa_sessione(s)
+    tl, ts = [], []
+    origini = {}
+    for d, togli, aggiungi, out in ((1, togli_long, aggiungi_long, tl), (-1, togli_short, aggiungi_short, ts)):
+        if d not in s.lati():
+            if _lista_nomi(togli) or _lista_nomi(aggiungi):
+                raise ValueError(f"{s.symbol} e' spot: lo short non esiste. Lascia vuoti i campi dello short.")
+            continue
+        nomi, da_dove = casistiche_dalla_rosa(r, d, togli, aggiungi)
+        out.extend(nomi)
+        origini.update(da_dove)
+    if not tl and not ts:
+        raise ValueError("Nessuna casistica: la rosa è vuota (o l'hai svuotata). Aggiungi almeno un trigger, "
+                         "long o short, nei campi «aggiungi».")
+    return _imposta_casistiche(s, tuple(tl), tuple(ts), origini)
+
+
+def casistiche_dalla_rosa(rosa: pd.DataFrame, direzione: int, togli=(), aggiungi=()) -> tuple[list, dict]:
+    """
+    Le casistiche di un lato (25/10/2026, docs/68 §4; anche nel notebook di
+    ricerca): i trigger «nella rosa» di quel lato (rosa_entry), meno quelli in
+    `togli`, piu' quelli in `aggiungi` (un nome, piu' nomi separati da
+    virgola o una lista). Ogni nome tolto deve essere nella rosa del lato;
+    ogni nome aggiunto un trigger del catalogo di quel lato o un trigger a
+    orario dello stesso lato. Ritorna (nomi, da dove viene ognuno).
+    """
+    import condizioni_orarie
+    nome = "long" if direzione == 1 else "short"
+    togli, aggiungi = _lista_nomi(togli), _lista_nomi(aggiungi)
+    rosa_lato = list(rosa.loc[rosa["nella_rosa"] & (rosa["direction"] == direzione), "candidato"])
+    fuori = [x for x in togli if x not in rosa_lato]
+    if fuori:
+        raise ValueError(f"Da togliere ({nome}): {', '.join(fuori)} non è fra le casistiche suggerite. "
+                         f"Casistiche suggerite {nome}: {', '.join(rosa_lato) or 'nessuna'}.")
+    catalogo = set(_trigger_candidati(direzione))
+    sbagliati = [x for x in aggiungi
+                 if not (x in catalogo or (condizioni_orarie.e_oraria(x)
+                                           and x.startswith("ORA_LONG_" if direzione == 1 else "ORA_SHORT_")))]
+    if sbagliati:
+        raise ValueError(f"Da aggiungere ({nome}): {', '.join(sbagliati)} non è un trigger {nome} del catalogo "
+                         f"né un trigger a orario {'ORA_LONG_@HH:MM' if direzione == 1 else 'ORA_SHORT_@HH:MM'}. "
+                         "Copia il nome dalla rosa o dalla classifica della 3a.")
+    nomi, origini = [], {}
+    for x in rosa_lato:
+        if x not in togli:
+            nomi.append(x)
+            origini[x] = "rosa"
+    for x in aggiungi:
+        if x not in nomi:
+            nomi.append(x)
+            origini[x] = "aggiunta"
+    return nomi, origini
+
+
+def _imposta_casistiche(s: Sessione, tl: tuple, ts: tuple, origini: dict) -> pd.DataFrame:
+    """Registra le casistiche (trigger in OR per lato) e azzera tutto quello che viene dopo."""
     from entry_composita import risolvi_scelta
-
-    def lista(x):
-        # un nome, piu' nomi separati da virgola, oppure una lista di nomi
-        if x is None:
-            return ()
-        if isinstance(x, str):
-            x = x.split(",")
-        return tuple(n.strip() for n in x if isinstance(n, str) and n.strip())
-
-    tl, ts = lista(long), lista(short)
     if s.solo_long and ts:
         raise ValueError(f"{s.symbol} e' spot: lo short non esiste. Lascia vuoto il lato short, "
                          "oppure scegli il mercato perpetual (PERP).")
     if not tl and not ts:
         raise ValueError("Scegli almeno un trigger, long o short.")
+    prima = (tuple(s.trigger_long), tuple(s.trigger_short))
+    if getattr(s, "storia", None) is not None and s.storia.oos_visto and prima != (tl, ts):
+        _avviso_risalita(s, "cambiare le casistiche")
+        _rd.annota_risalita(s.storia, "casistiche", da=prima, a=(tl, ts))
     with _zitto():
         s.entry_long = risolvi_scelta(list(tl), lato="long") if tl else None
         s.entry_short = risolvi_scelta(list(ts), lato="short") if ts else None
     s.trigger_long, s.trigger_short = tl, ts
+    s.casistiche = {lato: {"trigger": t, "origine": {n: origini.get(n, "a mano") for n in t}, "cella": None}
+                    for lato, t in (("long", tl), ("short", ts)) if t}
     # una scelta nuova invalida tutto cio' che viene dopo
     s.uscite = s.es = s.fs = s.dm = s.oos = s.rosa_sistemi = None
+    s.consigliate = s.sistema = None
     s.sopravvissuti, s.filtro = [], None
     _azzera_cella(s)                  # 22/10/2026: la cella dell'atlante va scelta di nuovo
 
@@ -1145,11 +1406,14 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
         "Lato": ["LONG", "SHORT"],
         "Trigger scelti": [" oppure ".join(tl) if tl else "nessuno (lato spento)",
                            " oppure ".join(ts) if ts else "nessuno (lato spento)"],
+        "Da dove": [", ".join(f"{n}: {origini.get(n, 'a mano')}" for n in tl) or "—",
+                    ", ".join(f"{n}: {origini.get(n, 'a mano')}" for n in ts) or "—"],
     })
-    _mostra(("La tua scelta", scelta))
+    s.tabelle["casistiche"] = scelta
+    _mostra(("Le tue casistiche", scelta))
     _nota("Si tiene una posizione alla volta. Se a posizione aperta scatta un trigger del lato opposto, "
           "la posizione si chiude e si apre quella contraria.")
-    # 23/10/2026: un trigger a orario e' una delle fasce del profilo orario (schermata 2b): nella soglia
+    # 23/10/2026: un trigger a orario e' una delle fasce del profilo orario (schermata 2a, prima 2b): nella soglia
     # cumulata si contano tutte le fasce, una volta sola per sessione
     import condizioni_orarie
     if any(condizioni_orarie.e_oraria(n) for n in (*tl, *ts)):
@@ -1157,6 +1421,10 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
     riga = _durate_orarie(s, s.H, s.H, "l'orizzonte H")
     if riga:
         _nota(riga)
+    orari = any(condizioni_orarie.e_oraria(n) for n in (*tl, *ts))
+    _riga_prove(s, "le fasce del profilo orario (trigger a orario)" if orari
+                else "nessuna (togliere o aggiungere casistiche non aggiunge prove)")
+    return scelta
 
 
 # ========================================================================
@@ -1164,9 +1432,20 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
 # ========================================================================
 
 def _azzera_cella(s: Sessione) -> None:
-    """Toglie la cella scelta (si torna alla strada di sempre) e i suoi filtri dal registro."""
+    """
+    Toglie la cella scelta (si torna alla strada di sempre) e i suoi filtri dal registro.
+    25/10/2026 (docs/68 §3.3): le uscite si costruiscono con la cella dentro la
+    casistica, quindi se c'era una cella si azzerano anche uscite e sistemi.
+    """
     reg.remove_filters("CELLA_")
+    if _strada_b(s):
+        s.uscite = s.es = s.rosa_sistemi = None
+        s.consigliate = s.sistema = None
     s.cella_long = s.cella_short = None
+    s.entry_casistica_long = getattr(s, "entry_long", None)
+    s.entry_casistica_short = getattr(s, "entry_short", None)
+    for c in (getattr(s, "casistiche", None) or {}).values():
+        c["cella"] = None
 
 
 def _strada_b(s: Sessione) -> bool:
@@ -1221,7 +1500,8 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     """
     s._serve("ev", "2 · Esplora")
     if not (s.trigger_long or s.trigger_short):
-        raise RuntimeError("Manca un passaggio: esegui prima la schermata «3 · Scegli i trigger».")
+        raise RuntimeError("Manca un passaggio: esegui prima la schermata «3b · Le tue casistiche».")
+    _avviso_risalita(s, "rifare l'atlante")
     from .atlante import atlante, etichetta_cella
     import condizioni_orarie
     mostra = [*s.trigger_long, *s.trigger_short]
@@ -1297,11 +1577,13 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
         + (" e funding" if s.funding is not None else "") + ".",
         f"Questa è una mappa: ti dice dove il trigger sembra funzionare, non che funziona. Una cella passa con almeno "
         f"{MIN_TRIGGER} occasioni, oltre la quota di colpi di fortuna su tutte le {k} celle misurate, positiva nelle "
-        "due metà dell'in-sample e con il netto sopra zero. Se scegli una cella, al passo 5 verrà misurata come un "
-        f"filtro, con un'asticella alta (solidità {_fmt(soglia_rumore(max(k, 1), ALPHA))}) perché tiene conto di "
-        f"tutte le {k} celle che l'atlante ha guardato.",
+        "due metà dell'in-sample e con il netto sopra zero. Se scegli una cella, diventa parte della casistica: "
+        "le uscite (schermata 4) si costruiscono già sul trigger dentro la cella, e al passo 5 la cella si misura "
+        f"contro il trigger senza cella, con un'asticella alta (solidità {_fmt(soglia_rumore(max(k, 1), ALPHA))}) "
+        f"perché tiene conto di tutte le {k} celle che l'atlante ha guardato.",
         "Se una cella del tuo trigger passa e ti convince, sceglila nella cella sotto con scegli_cella (al massimo una "
         "per lato). Altrimenti vai alla schermata 4: la strada di sempre, con tutti i filtri al passo 5.")
+    _riga_prove(s, f"{k} celle misurate")
     return tab
 
 
@@ -1314,9 +1596,17 @@ def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None)
     su richiesta (atlante.registra_filtri_cella) e il passo 5 misura solo
     quelli, con l'asticella delle celle dell'atlante (strada B).
 
+    25/10/2026 (docs/68 §3.3, decisione 2 di Mattia): la cella entra nella
+    casistica. L'entry della casistica diventa «TRIGGER+CELLA_…» (vera dove
+    sono veri il trigger e la cella, come congela_filtro), e le uscite
+    (schermata 4) e la rosa dei sistemi (4b) lavorano su quella. Il passo 5
+    resta la strada B: trigger senza cella contro trigger con la cella, con le
+    uscite della casistica.
+
     Senza celle (scegli_cella(s)) si torna alla strada di sempre.
     """
     s._serve("atlante", "3c · Atlante del trigger")
+    prima = (getattr(s, "cella_long", None), getattr(s, "cella_short", None))
     from .atlante import asse_di, celle_che_passano, etichetta_cella, nome_filtro_cella, registra_filtri_cella
 
     def pulisci(x):
@@ -1328,12 +1618,16 @@ def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None)
         return x or None
 
     cl, cs = pulisci(long), pulisci(short)
+    if getattr(s, "storia", None) is not None and s.storia.oos_visto and prima != (cl, cs):
+        _avviso_risalita(s, "cambiare la cella")
+        _rd.annota_risalita(s.storia, "cella", da=prima, a=(cl, cs))
     s.fs = s.dm = s.oos = None
     s.sopravvissuti, s.filtro, s.filtri_scelti = [], None, []
     s.trades_is = s.trades_oos = s.mm = None
     if not cl and not cs:
         _azzera_cella(s)
         _nota("Nessuna cella scelta: al passo 5 si provano tutti i filtri, come sempre.")
+        _riga_prove(s, "nessuna")
         return
     righe = []
     for lato, cella, trigger in (("long", cl, s.trigger_long), ("short", cs, s.trigger_short)):
@@ -1355,14 +1649,51 @@ def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None)
         righe.append({"Lato": lato.upper(), "Trigger": " oppure ".join(trigger), "Cella": etichetta_cella(cella),
                       "Occasioni": int(migliore["eventi"]), "Solidità": float(migliore["t"]),
                       f"Netto per occasione ({s.unita})": float(migliore[f"netto_{s.unita}"])})
+    _azzera_cella(s)                       # le uscite di prima erano costruite senza questa cella
+    s.uscite = s.es = s.rosa_sistemi = None
+    s.consigliate = s.sistema = None
     with _zitto():
         registra_filtri_cella(s.df, cl, cs)
     s.cella_long, s.cella_short = cl, cs
+    # 25/10/2026 (docs/68 §3.3): la cella dentro la casistica, un'entry derivata per lato
+    s.entry_casistica_long = _entry_con_cella(s.entry_long, cl, "_L")
+    s.entry_casistica_short = _entry_con_cella(s.entry_short, cs, "_S")
+    for lato, cella in (("long", cl), ("short", cs)):
+        if lato in (s.casistiche or {}):
+            s.casistiche[lato]["cella"] = cella
     tabella = pd.DataFrame(righe)
     s.tabelle["cella"] = tabella
     _mostra(("La cella scelta", tabella), decimali={"Solidità": 2})
-    _nota(f"Al passo 5 si prova solo la cella: la riga si chiamerà {nome_filtro_cella(cl, cs)}, ed è il nome da "
-          "scrivere nella scheda (schermata 6). Le uscite (schermata 4) si costruiscono sul trigger da solo.")
+    _nota(f"La cella entra nella casistica: le uscite (schermata 4) si costruiscono sul trigger dentro la cella "
+          f"({', '.join(e for e in (s.entry_casistica_long, s.entry_casistica_short) if e and '+' in e)}). Al passo 5 "
+          f"si prova solo la cella: la riga si chiamerà {nome_filtro_cella(cl, cs)}, ed è il nome da scrivere nella "
+          "scheda (schermata 6).")
+    _riga_prove(s, "nessuna (le celle sono già contate alla 3c)")
+
+
+def entry_con_cella(entry: str | None, cella: str | None, suffisso: str) -> str | None:
+    """Come _entry_con_cella, per il notebook di ricerca (suffisso "_L" per il long, "_S" per lo short)."""
+    return _entry_con_cella(entry, cella, suffisso)
+
+
+def _entry_con_cella(entry: str | None, cella: str | None, suffisso: str) -> str | None:
+    """
+    L'entry della casistica con la cella dentro (25/10/2026, docs/68 §3.3):
+    «ENTRY+CELLA_<C>_L», vera dove sono veri l'entry e il filtro della cella,
+    registrata come le entry derivate di confidenza.congela_filtro. Senza
+    cella (o senza entry) l'entry resta quella di prima.
+    """
+    if entry is None or not cella:
+        return entry
+    from .atlante import PREFISSO_FILTRI
+    filtro = f"{PREFISSO_FILTRI}{cella}{suffisso}"
+    nome = f"{entry}+{filtro}"
+    if nome not in reg.list_entries():
+        def derivata(d, _e=entry, _f=filtro):
+            return (reg.get_entry(_e)(d).astype(bool)
+                    & pd.Series(reg.get_filter(_f)(d).astype(bool).to_numpy(), index=d.index))
+        reg.register_entry(nome, reg.get_entry_direction(entry))(derivata)
+    return nome
 
 
 # ========================================================================
@@ -1431,10 +1762,16 @@ def _regola_oraria(s: Sessione, regola):
     if regola == condizioni_orarie.INVERSIONE:
         with _zitto():
             u = getattr(s, "unita", "pips")          # sessioni finte dei test: pips, come prima
+            # 25/10/2026 (docs/68 §6): un solo calcolo, il profilo della schermata 2a se c'e' (stessi H,
+            # fuso e unita': stessi numeri); altrimenti calcolato qui, come prima
+            p = getattr(s, "profilo", None)
+            stesso = (p is not None and p.attrs.get("H") == s.H and p.attrs.get("fuso") == s.fuso
+                      and p.attrs.get("unita", "pips") == u)
+            extra = {"profilo": p} if stesso else {}
             if u == "pips":
-                return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip)
+                return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip, **extra)
             # 23/10/2026: sulle crypto lo stesso profilo in bp del grafico 2b
-            return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip, unita=u)
+            return condizioni_orarie.registra_inversione_trend(s.df_is, s.H, s.pip, unita=u, **extra)
     if regola.startswith("X_ORA_@") or regola[:1].isdigit():
         orario, fuso = condizioni_orarie.orario_uscita(regola)    # "_UTC" in fondo: ora UTC fissa
         condizioni_orarie.codice_orario(orario, s.df_is.index, s.fuso if fuso != "UTC" else "UTC")   # orario valido qui
@@ -1458,7 +1795,12 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     sl / tp                    percentile dello stop e del target adattivi
                                (0 = spento); un numero vale per i due lati,
                                due valori (long, short) li separano (23/10/2026)
-    regola_uscita              None / "nessuna" = solo tempo, stop e target.
+    regola_uscita              25/10/2026 (docs/68 §5): "consigliata" = la regola
+                               consigliata per ogni lato (X_ORA_@ = ingresso + H
+                               barre se le casistiche del lato sono un trigger a
+                               orario, altrimenti nessuna); anche per lato,
+                               ("consigliata", "nessuna").
+                               None / "nessuna" = solo tempo, stop e target.
                                Dal 19/10/2026: "X_ORA_@HH:MM" chiude il trade
                                alle HH:MM ("X_ORA_@HH:MM_UTC": all'ora UTC
                                fissa, per E38 ed E39); "X_INVERSIONE_TREND" chiude quando
@@ -1469,10 +1811,35 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
                                23/10/2026: anche due regole (long, short), una
                                per lato ("nessuna" = quel lato senza regola).
 
+    Le USCITE CONSIGLIATE (25/10/2026, docs/68 §5, decisioni di Mattia): barre
+    = H (l'orizzonte dichiarato alla schermata 1), stop al 90° percentile,
+    target spento, regola "consigliata". Sono i valori predefiniti: non
+    costano prove in piu' delle altre impostazioni (ogni impostazione conta i
+    sistemi che prova). Accanto, il picco della curva dello scarto della
+    casistica, SOLO DA LEGGERE. Con una cella (3d) le uscite si costruiscono
+    sul trigger dentro la cella.
+
     Ritorna la tabella del confronto.
     """
     if s.entry_long is None and s.entry_short is None:
-        raise RuntimeError("Manca un passaggio: esegui prima la schermata «3 · Scegli i trigger».")
+        raise RuntimeError("Manca un passaggio: esegui prima la schermata «3b · Le tue casistiche».")
+    s.consigliate = _uscite_consigliate(s)
+
+    def consigliata(r, lato):
+        if isinstance(r, str) and r.strip().lower() == "consigliata":
+            c = s.consigliate.get(lato)
+            return (c["regola"] if c else None) or "nessuna"
+        return r
+    if isinstance(regola_uscita, (tuple, list)):
+        regola_uscita = tuple(consigliata(r, lato) for r, lato in zip(per_lato(regola_uscita), ("long", "short")))
+    elif isinstance(regola_uscita, str) and regola_uscita.strip().lower() == "consigliata":
+        rl, rs = consigliata(regola_uscita, "long"), consigliata(regola_uscita, "short")
+        # un lato senza casistica non opera: prende la regola dell'altro (una regola sola, come prima)
+        if "short" not in s.consigliate:
+            rs = rl
+        if "long" not in s.consigliate:
+            rl = rs
+        regola_uscita = rl if rl == rs else (rl, rs)
     bl = s.H if barre_long is None else int(barre_long)
     bs = s.H if barre_short is None else int(barre_short)
     barre_per_lato(bl, bl, bs)                     # controllo dei valori
@@ -1496,18 +1863,27 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     s.uscite = dict(n_barre=bl, n_barre_long=bl, n_barre_short=bs,
                     perc_sl=sl, perc_tp=tp, regola=regola_uscita)
     s.fs = s.dm = s.oos = s.rosa_sistemi = None
+    s.sistema = None
     s.sopravvissuti, s.filtro = [], None
+    chiave = _chiave_uscite(s)
+    storia = getattr(s, "storia", None)
+    if storia is not None and storia.oos_visto and storia.diario[-1].get("uscite") != chiave:
+        _avviso_risalita(s, "cambiare le uscite")
+        _rd.annota_risalita(storia, "uscite", a=chiave)
+    _mostra_consigliate(s, bl, bs, sl, tp, regola_uscita)
 
-    entrambi = s.entry_long is not None and s.entry_short is not None
+    el, es_ = _entry_lato(s, 1), _entry_lato(s, -1)      # con la cella dentro, se c'e' (docs/68 §3.3)
+    entrambi = el is not None and es_ is not None
     with _zitto():
         s.es = run_exit_search_bt(
             s.df_is,
-            entry_cols_long=[s.entry_long, None] if entrambi else [s.entry_long],
-            entry_cols_short=[s.entry_short, None] if entrambi else [s.entry_short],
+            entry_cols_long=[el, None] if entrambi else [el],
+            entry_cols_short=[es_, None] if entrambi else [es_],
             exit_rule_pairs=regola_uscita, verbose=False, **_kw_motore(s))
     # 22/10/2026: soglia cumulata, i sistemi provati con queste impostazioni
-    s.prove["uscite"][(s.trigger_long, s.trigger_short, bl, bs, sl, tp,
-                       str(regola_uscita))] = len(s.es.risultati)
+    # (25/10/2026: anche la cella, perche' le uscite si costruiscono con la cella dentro)
+    nuova = chiave not in s.prove["uscite"]
+    s.prove["uscite"][chiave] = len(s.es.risultati)
 
     r = s.es.risultati.copy()
     r["Sistema"] = r.apply(_nome_sistema, axis=1)
@@ -1580,22 +1956,221 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
         "Il guadagno medio netto per trade deve restare sopra zero dopo i costi, e la curva deve salire con "
         "una certa regolarità, non per un solo periodo fortunato. Confronta le tre righe: a volte un lato "
         "da solo rende meglio dei due insieme.",
-        "Se vuoi, cambia barre o percentili e riesegui la cella. Quando il sistema base ti convince, "
-        "vai alla schermata 5 per cercare un filtro che lo migliori.")
+        "Se vuoi, cambia barre o percentili e riesegui la cella: ogni impostazione nuova conta come le altre "
+        "(la riga delle prove qui sotto lo dice subito). Poi vai alla 4b per scegliere il sistema da portare al "
+        "passo 5.")
+    n = len(s.es.risultati)
+    if not nuova:
+        qui = "nessuna (queste uscite le avevi già provate)"
+    elif _sono_consigliate(s, bl, bs, sl, tp, regola_uscita):
+        qui = f"{n} {'sistema' if n == 1 else 'sistemi'} con le uscite consigliate"
+    else:
+        qui = f"{n} {'sistema' if n == 1 else 'sistemi'} (una modifica alle uscite consigliate)"
+    _riga_prove(s, qui)
     return tabella
 
 
-def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
+def _entry_lato(s: Sessione, direzione: int) -> str | None:
+    """L'entry della casistica di un lato: con la cella dentro se c'e' (docs/68 §3.3), altrimenti il trigger."""
+    if direzione == 1:
+        return getattr(s, "entry_casistica_long", None) or s.entry_long
+    return getattr(s, "entry_casistica_short", None) or s.entry_short
+
+
+def _uscite_consigliate(s: Sessione) -> dict:
     """
-    Dopo la schermata 4 (18/10/2026). La rosa di engine/rosa.py sui sistemi
+    Le uscite consigliate per lato (25/10/2026, docs/68 §5): barre = H, stop
+    al 90° percentile, target spento; con un trigger a orario (tutte le
+    casistiche del lato alla stessa ora) la regola X_ORA_@ = ora d'ingresso +
+    H barre, che da' gli stessi trade della scadenza in barre (§5.2), se H e'
+    meno di un giorno. Accanto, il picco della curva dello scarto della
+    casistica (con la cella se c'e'), solo da leggere.
+    """
+    casistiche = {lato: (_entry_lato(s, d), trigger)
+                  for lato, d, trigger in (("long", 1, s.trigger_long), ("short", -1, s.trigger_short))}
+    return uscite_consigliate(s.df_is, s.H, s.pip, getattr(s, "fuso", None) or fuso_profilo(getattr(s, "symbol", "")),
+                              getattr(s, "unita", "pips"), getattr(s, "timeframe", "M15"), casistiche,
+                              atr=getattr(s, "atr", None))
+
+
+def uscite_consigliate(df_is: pd.DataFrame, H: int, pip: float, fuso: str, unita: str, timeframe: str,
+                       casistiche: dict, atr=None) -> dict:
+    """
+    Le uscite consigliate per lato (25/10/2026, docs/68 §5; anche nel notebook
+    di ricerca). `casistiche` = {"long": (entry, trigger), "short": (...)}: l'entry
+    da passare al motore (con la cella dentro, se c'e') e i trigger in OR.
+    Barre = H, stop al 90° percentile, target spento; con un trigger a orario
+    (tutti i trigger del lato alla stessa ora) la regola X_ORA_@ = ora
+    d'ingresso + H barre, che da' gli stessi trade della scadenza in barre
+    (§5.2), se H e' meno di un giorno. Il picco della curva dello scarto e'
+    solo da leggere.
+    """
+    import condizioni_orarie
+    out = {}
+    for lato, (entry, trigger) in casistiche.items():
+        if entry is None or not trigger:
+            continue
+        orari = [n for n in trigger if condizioni_orarie.e_oraria(n)]
+        tutti_orari = len(orari) == len(trigger)
+        regola = None
+        if tutti_orari and len({n.split("@")[1] for n in orari}) == 1:
+            minuti = int(H) * _minuti_barra(timeframe)
+            if minuti < 1440:
+                hh, mm = (int(x) for x in orari[0].split("@")[1].split(":"))
+                t = (hh * 60 + mm + minuti) % 1440
+                regola = f"X_ORA_@{t // 60:02d}:{t % 60:02d}"
+        curva = curva_scarto_orario(df_is, [entry], H, pip, fuso=fuso, unita=unita,
+                                    qualunque_ora=[entry] if tutti_orari else (), atr=atr)
+        picco = picco_curva(curva[entry] if entry in curva else pd.Series(dtype=float), H)
+        out[lato] = dict(barre=int(H), sl=90.0, tp=0.0, regola=regola, picco=picco, entry=entry)
+    return out
+
+
+def tabella_uscite_consigliate(consigliate: dict, unita: str) -> pd.DataFrame:
+    """La tabella delle uscite consigliate, per il notebook di ricerca (il Lab ha _mostra_consigliate)."""
+    return pd.DataFrame([{
+        "lato": lato, "entry": x["entry"], "barre": x["barre"], "stop (percentile)": x["sl"],
+        "target (percentile)": x["tp"], "regola": x["regola"] or "nessuna",
+        "picco: barra (solo da leggere)": x["picco"]["barra"], f"picco ({unita})": x["picco"]["valore"],
+        "nota": x["picco"]["nota"]} for lato, x in consigliate.items()])
+
+
+def entry_del_sistema(sistema, entry_long, entry_short) -> tuple:
+    """
+    Le entry del passo 5 secondo il sistema scelto (25/10/2026, docs/68 §7; anche
+    nel notebook di ricerca): «Long + Short» (o None), «Solo long», «Solo short».
+    """
+    sistema = (str(sistema).strip() if sistema else "") or "Long + Short"
+    if sistema not in SISTEMI:
+        raise ValueError(f"Sistema «{sistema}»: usa uno di {', '.join(SISTEMI)}.")
+    el = entry_long if sistema in ("Long + Short", "Solo long") else None
+    es_ = entry_short if sistema in ("Long + Short", "Solo short") else None
+    if el is None and es_ is None:
+        raise ValueError(f"Il sistema «{sistema}» non ha nessun lato acceso con queste casistiche.")
+    return el, es_
+
+
+def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int):
+    """
+    Il registro del dataset per il notebook di ricerca (25/10/2026, docs/68
+    §9.1): la stessa cosa che fa prepara nel Lab. Da chiamare nella cella
+    dove si sceglie H; dice se H e' cambiato sullo stesso dataset (una
+    risalita: si conta). Ritorna la storia (h_provati, diario, risalite).
+    """
+    precedente = _ULTIMO_DATASET.get("chiave")
+    storia, esito = _rd.apri(symbol, timeframe, df_is.index[-1], H,
+                             nuove_prove=lambda: {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}})
+    _ULTIMO_DATASET["chiave"] = storia.chiave
+    _nota_dataset(SimpleNamespace(storia=storia), esito, precedente)
+    return storia
+
+
+def segna_oos(storia, **scelte) -> int:
+    """
+    Il diario dell'out-of-sample per il notebook di ricerca (25/10/2026, docs/68
+    §9): scrive un'apertura con le scelte di quel momento e, dalla seconda,
+    lo dice. Ritorna quante aperture ci sono.
+    """
+    n = _rd.annota_oos(storia, scelte)
+    if n > 1:
+        prima = storia.diario[0]
+        cambiate = [k for k in scelte if prima.get(k) != scelte[k]]
+        _avviso(f"Out-of-sample già guardato {n} volte. "
+                + (f"Scelte cambiate dopo la prima volta: {', '.join(cambiate)}." if cambiate
+                   else "Stesse scelte della prima volta.")
+                + " Questa verifica non è più una prova pulita.")
+    return n
+
+
+def _sono_consigliate(s: Sessione, bl, bs, sl, tp, regola) -> bool:
+    """Le uscite impostate sono quelle consigliate?"""
+    c = s.consigliate or {}
+    (sl_l, sl_s), (tp_l, tp_s) = per_lato(sl), per_lato(tp)
+    rl, rs = (regola.split(" | ") if regola and " | " in regola else (regola, regola))
+    ok = True
+    for lato, b, sl_, tp_, r in (("long", bl, sl_l, tp_l, rl), ("short", bs, sl_s, tp_s, rs)):
+        if lato not in c:
+            continue
+        r = None if r in (None, reg.NESSUNA) else r
+        ok &= (b == c[lato]["barre"] and float(sl_) == c[lato]["sl"] and float(tp_) == c[lato]["tp"]
+               and r == c[lato]["regola"])
+    return bool(ok)
+
+
+def _mostra_consigliate(s: Sessione, bl, bs, sl, tp, regola) -> None:
+    """La tabella «Uscite consigliate» (25/10/2026, docs/68 §5.3), con la riga «La tua modifica» se diversa."""
+    c = s.consigliate or {}
+    if not c:
+        return
+    (sl_l, sl_s), (tp_l, tp_s) = per_lato(sl), per_lato(tp)
+    rl, rs = (regola.split(" | ") if regola and " | " in regola else (regola, regola))
+
+    def perc(p):
+        return "spento" if not p else f"{_fmt(float(p), 0)}° percentile"
+
+    def reg_txt(r):
+        return "nessuna" if r in (None, reg.NESSUNA) else r
+    righe = []
+    for lato, b, sl_, tp_, r in (("long", bl, sl_l, tp_l, rl), ("short", bs, sl_s, tp_s, rs)):
+        if lato not in c:
+            continue
+        x = c[lato]
+        p = x["picco"]
+        righe.append({"Lato": lato.upper(), "Quali": "consigliate", "Barre": x["barre"], "Stop": perc(x["sl"]),
+                      "Target": perc(x["tp"]), "Regola oraria": reg_txt(x["regola"]),
+                      "Picco della curva (solo da leggere)":
+                          "—" if p["barra"] is None else f"barra {p['barra']}: {_fmt(p['valore'])} {s.unita}"})
+        mie = (b, perc(sl_), perc(tp_), reg_txt(r))
+        if mie != (x["barre"], perc(x["sl"]), perc(x["tp"]), reg_txt(x["regola"])):
+            righe.append({"Lato": lato.upper(), "Quali": "la tua modifica", "Barre": b, "Stop": mie[1],
+                          "Target": mie[2], "Regola oraria": mie[3], "Picco della curva (solo da leggere)": ""})
+    tabella = pd.DataFrame(righe)
+    s.tabelle["uscite_consigliate"] = tabella
+    _mostra(("Uscite consigliate (barre = l'orizzonte H della schermata 1)", tabella))
+    for lato, x in c.items():
+        if x["picco"]["nota"]:
+            _nota(f"{lato.capitalize()}: {x['picco']['nota']}")
+    _nota("Il picco è il punto più alto della curva dell'in-sample: si mostra per capire il movimento, non per "
+          "scegliere l'uscita. Se cambi le barre, la modifica conta come una prova."
+          + (" Con un trigger a orario l'uscita consigliata è la scadenza scritta come orario: stessi trade."
+             if any(x["regola"] for x in c.values()) else ""))
+
+
+SISTEMI = ("Long + Short", "Solo long", "Solo short")
+
+
+def rosa_dei_sistemi(s: Sessione, sistema: str | None = None) -> pd.DataFrame:
+    """
+    Schermata 4b (18/10/2026). La rosa di engine/rosa.py sui sistemi
     provati da `imposta_uscite` (solo long, solo short, entrambi), sui trade
     veri dell'in-sample e al netto dei costi: quali hanno un andamento netto
     positivo che regge il controllo della quota di falsi positivi e le due
     meta', e quali sono abbastanza diversi da stare insieme.
 
+    sistema   25/10/2026 (docs/68 §7, decisioni 6 di Mattia): il sistema da
+              portare al passo 5, «Long + Short», «Solo long» o «Solo short».
+              None = «Long + Short» se c'e' (quello che il passo 5 usava
+              sempre), altrimenti l'unico sistema provato. Non e' una prova in
+              piu': i sistemi sono gia' contati alla schermata 4.
+
     Ritorna la tabella completa di rosa_sistemi (anche in `s.rosa_sistemi`).
     """
     s._serve("es", "4 · Imposta le uscite")
+    provati = [_nome_sistema(riga) for _, riga in s.es.risultati.iterrows()]
+    if sistema is None or str(sistema).strip() == "":
+        sistema = "Long + Short" if "Long + Short" in provati else provati[0]
+    sistema = str(sistema).strip()
+    if sistema not in provati:
+        raise ValueError(f"Sistema «{sistema}» non provato alla schermata 4. Sistemi provati: "
+                         f"{', '.join(provati)}.")
+    if (getattr(s, "storia", None) is not None and s.storia.oos_visto
+            and s.storia.diario[-1].get("sistema") not in (None, sistema)):
+        _avviso_risalita(s, "cambiare il sistema")
+        _rd.annota_risalita(s.storia, "sistema", a=sistema)
+    if sistema != getattr(s, "sistema", None):
+        s.fs = s.dm = s.oos = None
+        s.sopravvissuti, s.filtro = [], None
+    s.sistema = sistema
     with _zitto():
         s.rosa_sistemi = rosa_sistemi(s.es, s.df_is, s.pip, commission=s.costi["commission"],
                                       fuso=s.fuso, atr=s.atr, unita=s.unita)
@@ -1633,8 +2208,21 @@ def rosa_dei_sistemi(s: Sessione) -> pd.DataFrame:
         "Di solito «Long + Short» è molto legato ai due lati da soli, e la rosa ne tiene uno. Due lati da soli "
         "entrambi nella rosa vuol dire che si completano. Rosa vuota = nessun sistema si distingue abbastanza "
         "dal caso: non è una bocciatura, i filtri della schermata 5 possono ancora cambiarlo.",
-        "È un suggerimento: vai alla schermata 5 per cercare un filtro sul sistema base.")
+        "È un suggerimento: scegli nel campo «sistema» quale portare alla schermata 5 (adesso: "
+        f"«{sistema}»), poi vai alla 5 per cercare un filtro sul sistema base.")
+    _nota(f"Al passo 5 va il sistema «{sistema}».")
+    _riga_prove(s, "nessuna (i sistemi sono già contati alla schermata 4)")
     return r
+
+
+def _entry_sistema(s: Sessione) -> tuple:
+    """Le entry del passo 5 secondo il sistema scelto alla 4b (docs/68 §7): un lato spento = None."""
+    sistema = getattr(s, "sistema", None) or "Long + Short"
+    el = s.entry_long if sistema in ("Long + Short", "Solo long") else None
+    es_ = s.entry_short if sistema in ("Long + Short", "Solo short") else None
+    if el is None and es_ is None:          # il sistema scelto non ha entry (non dovrebbe succedere)
+        return s.entry_long, s.entry_short
+    return el, es_
 
 
 # ========================================================================
@@ -1714,6 +2302,7 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     Ritorna la classifica dei filtri. I sopravvissuti sono in `s.sopravvissuti`.
     """
     s._serve("uscite", "4 · Imposta le uscite")
+    _avviso_risalita(s, "rifare la ricerca dei filtri")
     # 22/10/2026 (docs/66 §5): con una cella scelta nell'atlante (strada B) si misura solo la cella,
     # con l'asticella delle celle misurate dall'atlante; altrimenti tutti i filtri, come sempre
     strada_b = _strada_b(s)
@@ -1723,9 +2312,12 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     else:
         filtri, k_atlante = _tutti_i_filtri(), None
     kw = _kw_motore(s)
+    # 25/10/2026 (docs/68 §7): il sistema scelto alla 4b (un lato spento = None); nella strada B
+    # il trigger senza cella, con le uscite della casistica (§3.3)
+    entry_long, entry_short = _entry_sistema(s)
     with _zitto():
         s.fs = run_filter_search_bt(
-            s.df_is, entry_long=s.entry_long, entry_short=s.entry_short,
+            s.df_is, entry_long=entry_long, entry_short=entry_short,
             exit_rule_pair=s.uscite["regola"], filtri=filtri,
             min_trades_giudizio=MIN_TRADE_GIUDIZIO, p_max=P_MAX, alpha=ALPHA,
             verbose=False, cache_maschere=_cache_maschere(s, "is"), k_prove=k_atlante, **kw)
@@ -1839,6 +2431,7 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
         "troveresti per caso provando così tanti filtri. Seconda: deve esserci in entrambe le metà dello storico, "
         "non in una sola. Più cose provi, più è facile trovarne una bella per caso: l'imbuto serve a questo.",
         adesso)
+    _riga_prove(s, "nessuna (la cella è già contata alla 3c)" if strada_b else f"{len(prove)} filtri")
     return tabella
 
 
@@ -2000,16 +2593,23 @@ def _mostra_costi(s: Sessione, tr_is, tr_oos) -> pd.DataFrame | None:
 # ------------------------------------------------------------------------
 
 def _chiave_filtri(s: Sessione) -> tuple:
-    """Le impostazioni di una ricerca dei filtri: i trigger e le uscite."""
-    return (s.trigger_long, s.trigger_short, tuple(sorted((k, str(v)) for k, v in s.uscite.items())))
+    """Le impostazioni di una ricerca dei filtri: i trigger, le uscite e (25/10/2026) il sistema della 4b."""
+    return (s.trigger_long, s.trigger_short, tuple(sorted((k, str(v)) for k, v in s.uscite.items())),
+            getattr(s, "sistema", None) or "Long + Short")
 
 
 def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: list, t: float,
                      schermate: bool, alpha: float = ALPHA, celle: list = (), rimisura: bool = False,
-                     fasce: int = 0) -> dict:
+                     fasce: int = 0, orizzonti=None) -> dict:
     """
     La soglia di Sidak (giudizio.soglia_rumore) sul totale delle prove della
     catena, e la frase da mostrare sotto la scheda. Solo informativa.
+
+    orizzonti      25/10/2026 (docs/68 §9.1): gli H provati sullo stesso dataset. Con
+                   piu' di uno, la voce dei trigger diventa il numero di prove
+                   equivalente alla scelta del migliore fra quegli H
+                   (giudizio.prove_trigger_orizzonti); con uno solo, o None, e' il
+                   conto di prima.
 
     trigger        i trigger misurati dall'event study
     uscite         i sistemi provati, uno per ricerca delle uscite
@@ -2022,15 +2622,23 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
                    volta sola: scegliere un'ora e' scegliere fra tutte le fasce)
     """
     u, f, c, ce = int(sum(uscite)), int(sum(filtri)), int(sum(combinazioni)), int(sum(celle))
-    k = int(trigger) + int(fasce) + ce + u + f + c
-    soglia = soglia_rumore(k, alpha) if k else np.nan
+    h = sorted({int(x) for x in (orizzonti or [])})
+    voce_trigger = prove_trigger_orizzonti(trigger, h, alpha) if len(h) > 1 else int(trigger)
+    k = voce_trigger + int(fasce) + ce + u + f + c
+    if float(k).is_integer():
+        k = int(k)
+    soglia = _soglia_sidak(k, alpha) if k else np.nan
 
     def dove(n):
         return f" (schermata {n})" if schermate else ""
 
-    parti = [f"{int(trigger)} trigger misurati{dove(2)}"]
+    if len(h) > 1:
+        parti = [f"{int(trigger)} trigger misurati con {len(h)} orizzonti provati sullo stesso dataset "
+                 f"(H = {', '.join(str(x) for x in h)}), che valgono {_fmt(voce_trigger, 1)} prove{dove('2c')}"]
+    else:
+        parti = [f"{int(trigger)} trigger misurati{dove('2c')}"]
     if fasce:
-        parti.append(f"{int(fasce)} fasce del profilo orario (trigger a orario){dove('2b')}")
+        parti.append(f"{int(fasce)} fasce del profilo orario (trigger a orario){dove('2a')}")
     if celle:
         parti.append(f"{ce} celle dell'atlante" + (f" in {len(celle)} atlanti" if len(celle) > 1 else "")
                      + dove("3c")
@@ -2042,9 +2650,10 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
         parti.append(f"{f} filtri" + (f" in {len(filtri)} ricerche" if len(filtri) > 1 else "") + dove(5))
     if c:
         parti.append(f"{c} combinazioni di filtri scelte a mano{dove(6)}")
+    k_testo = _fmt(k, 1) if isinstance(k, float) else str(k)
     if k:
-        frase = (f"Soglia cumulata (solo informativa). Lungo la catena hai fatto {k} prove: "
-                 f"{', '.join(parti)}. Con {k} prove il caso da solo arriva fino a una solidità di "
+        frase = (f"Soglia cumulata (solo informativa). Lungo la catena hai fatto {k_testo} prove: "
+                 f"{', '.join(parti)}. Con {k_testo} prove il caso da solo arriva fino a una solidità di "
                  f"{_fmt(soglia)} (Šidák, famiglia {alpha:.0%}).")
     else:
         frase = "Soglia cumulata (solo informativa). Nessuna prova contata finora."
@@ -2054,7 +2663,21 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
               "Non cambia nessun controllo.")
     return {"trigger": int(trigger), "uscite": u, "ricerche_uscite": len(uscite), "filtri": f,
             "ricerche_filtri": len(filtri), "combinazioni": c, "celle": ce, "atlanti": len(celle),
-            "fasce": int(fasce), "k": k, "soglia": soglia, "alpha": alpha, "t": t, "frase": frase}
+            "fasce": int(fasce), "k": k, "soglia": soglia, "alpha": alpha, "t": t, "frase": frase,
+            "orizzonti": h, "voce_trigger": voce_trigger}
+
+
+def _soglia_sidak(k, alpha: float = ALPHA) -> float:
+    """
+    soglia_rumore anche per un numero di prove non intero (25/10/2026, docs/68
+    §9.1: la scelta fra orizzonti sovrapposti vale un numero equivalente di
+    prove). Con k intero e' esattamente soglia_rumore(k).
+    """
+    if float(k).is_integer():
+        return soglia_rumore(int(k), alpha)
+    from statistics import NormalDist
+    per_prova = 1.0 - (1.0 - alpha) ** (1.0 / float(k))
+    return float(NormalDist().inv_cdf(1.0 - per_prova / 2.0))
 
 
 def _lista(x) -> list:
@@ -2071,7 +2694,7 @@ def _lista(x) -> list:
 
 
 def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float = np.nan,
-                    alpha: float = ALPHA, atlante=None, fasce: int = 0) -> dict:
+                    alpha: float = ALPHA, atlante=None, fasce: int = 0, orizzonti=None) -> dict:
     """
     La soglia cumulata per il notebook di ricerca (22/10/2026), con gli
     stessi conti del Lab:
@@ -2090,6 +2713,9 @@ def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float =
                        .rimisura) non si conta: e' la seconda misura delle celle
         fasce          23/10/2026: se si e' scelto un trigger a orario, le fasce del
                        profilo orario (profilo.attrs["k"]), contate una volta
+        orizzonti      25/10/2026 (docs/68 §9.1): gli H provati sullo stesso dataset
+                       (registro_orizzonte(...).h_provati); con piu' di uno la voce dei
+                       trigger conta la scelta fra quegli H
 
     Lo stesso oggetto passato due volte conta una volta sola (la stessa
     ricerca rieseguita non e' una prova in piu'). Solo informativa: non
@@ -2105,17 +2731,95 @@ def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float =
     return _soglia_da_conti(trigger, uscite, filtri, [int(combinazioni)] if combinazioni else [],
                             float(t), schermate=False, alpha=alpha, celle=celle,
                             rimisura=any(getattr(f, "rimisura", False) for f in ricerche),
-                            fasce=int(fasce))
+                            fasce=int(fasce), orizzonti=orizzonti)
 
 
 def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
     """La soglia cumulata delle prove registrate nella sessione (schermate 2, 4, 5, 6)."""
     p = s.prove
+    storia = getattr(s, "storia", None)
     return _soglia_da_conti(p["trigger"], list(p["uscite"].values()), list(p["filtri"].values()),
                             list(p["combinazioni"].values()), t, schermate=True,
                             celle=list(p.get("celle", {}).values()),
                             rimisura=bool(getattr(s, "fs", None) is not None and getattr(s.fs, "rimisura", False)),
-                            fasce=int(p.get("fasce", 0)))
+                            fasce=int(p.get("fasce", 0)),
+                            orizzonti=storia.h_provati if storia is not None else None)
+
+
+def _riga_prove(s: Sessione, qui: str) -> dict:
+    """
+    La riga delle prove in fondo a ogni schermata dalla 2 alla 6 (25/10/2026,
+    docs/68 §8): quante prove ha fatto questa schermata (`qui`, gia' scritto) e
+    quante in tutto fin qui, con la soglia del caso. Gli stessi conti della
+    scheda (_soglia_cumulata_lab). Solo informativa.
+    """
+    conti = _soglia_cumulata_lab(s, np.nan)
+    k = conti["k"]
+    k_testo = _fmt(k, 1) if isinstance(k, float) else _fmt(k)
+    voci = [(("trigger", "trigger"), conti["voce_trigger"]), (("fascia oraria", "fasce orarie"), conti["fasce"]),
+            (("cella", "celle"), conti["celle"]), (("sistema", "sistemi"), conti["uscite"]),
+            (("filtro", "filtri"), conti["filtri"]), (("combinazione", "combinazioni"), conti["combinazioni"])]
+    dettaglio = ", ".join(f"{_fmt(v, 1) if isinstance(v, float) and not float(v).is_integer() else _fmt(int(v))} "
+                          f"{nome[0] if v == 1 else nome[1]}" for nome, v in voci if v)
+    testo = (f"Prove · questa schermata: {qui} · finora: {k_testo}"
+             + (f" ({dettaglio})" if dettaglio else "")
+             + (f" · con {k_testo} prove il caso arriva fino a una solidità di {_fmt(conti['soglia'])}."
+                if k else "."))
+    if _in_notebook():
+        _html(f"<div class='vt-prove'>{html.escape(testo)}</div>")
+    else:
+        print(testo)
+    s.tabelle["riga_prove"] = testo
+    return conti
+
+
+def _avviso_risalita(s: Sessione, cosa: str) -> None:
+    """
+    Il riquadro arancione delle schermate 2-5 rieseguite dopo aver guardato
+    l'out-of-sample (25/10/2026, docs/68 §9). Non blocca niente.
+    """
+    storia = getattr(s, "storia", None)
+    if storia is None or not storia.oos_visto:
+        return
+    quando = pd.Timestamp(storia.diario[0]["quando"]).tz_convert("Europe/Rome").strftime("%d/%m %H:%M")
+    _avviso(f"Hai già guardato l'out-of-sample ({len(storia.diario)} "
+            f"{'volta' if len(storia.diario) == 1 else 'volte'}, la prima il {quando}). Le scelte che fai adesso "
+            f"({cosa}) le fai sapendo come è andata: la prossima scheda non è più una prova pulita.")
+
+
+def _chiave_uscite(s: Sessione) -> tuple:
+    """Le impostazioni delle uscite della schermata 4, con le casistiche e la cella (docs/68 §5.4)."""
+    u = s.uscite
+    return (s.trigger_long, s.trigger_short, u["n_barre_long"], u["n_barre_short"], u["perc_sl"],
+            u["perc_tp"], str(u["regola"]), getattr(s, "cella_long", None), getattr(s, "cella_short", None))
+
+
+_NOMI_SCELTE = {"H": "orizzonte H", "trigger_long": "casistiche long", "trigger_short": "casistiche short",
+                "cella": "cella", "uscite": "uscite", "sistema": "sistema", "filtri": "filtri"}
+
+
+def _diario_oos(s: Sessione, scelti: list) -> None:
+    """
+    Scrive nel diario del dataset un'apertura dell'out-of-sample con le scelte di quel
+    momento (25/10/2026, docs/68 §9). Dalla seconda apertura dice quante sono e quali
+    scelte sono cambiate dopo la prima. Non blocca niente.
+    """
+    storia = getattr(s, "storia", None)
+    if storia is None:
+        return
+    scelte = {"H": s.H, "trigger_long": tuple(s.trigger_long), "trigger_short": tuple(s.trigger_short),
+              "cella": (getattr(s, "cella_long", None), getattr(s, "cella_short", None)),
+              "uscite": _chiave_uscite(s), "sistema": getattr(s, "sistema", None) or "Long + Short",
+              "filtri": tuple(scelti)}
+    n = _rd.annota_oos(storia, scelte)
+    if n > 1:
+        prima = storia.diario[0]
+        cambiate = [_NOMI_SCELTE[k] for k in scelte if prima.get(k) != scelte[k]]
+        _avviso(f"Out-of-sample già guardato {n} volte. "
+                + (f"Scelte cambiate dopo la prima volta: {', '.join(cambiate)}." if cambiate
+                   else "Stesse scelte della prima volta.")
+                + " Questa scheda non è più una prova pulita: i numeri a destra li hai già visti.")
+    s.tabelle["diario_oos"] = list(storia.diario)
 
 
 def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
@@ -2153,6 +2857,7 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
     s.filtro = " + ".join(scelti) if scelti else None
     s.trades_is, s.trades_oos = tr_is, tr_oos
     s.mm = None                     # 16/10/2026: la schermata 7 va rifatta sulla scheda nuova
+    _diario_oos(s, scelti)          # 25/10/2026 (docs/68 §9): ogni apertura dell'out-of-sample
 
     if len(scelti) > 1:
         tab_passi = pd.DataFrame(passi)
