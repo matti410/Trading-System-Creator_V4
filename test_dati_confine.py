@@ -216,9 +216,10 @@ def sezione_e(check, errore, cartella) -> None:
           and "Dati aggiornati" in testo5 and "il confine non si è mosso" in testo5
           and "(di cui 30 arrivate oggi)" in oos5 and (c / f"{SPOT}_M15.csv").exists(),
           f"out-of-sample {len(s4.df_oos)} -> {len(s5.df_oos)}")
-    check("E6c. lo spread (mediana dell'in-sample, docs/70 §15.3) non cambia con le barre nuove",
-          s5.costi["spread"] == s4.costi["spread"]
-          and s5.costi["spread"] == 0.1 / float(s4.df_is["Close"].median()))
+    # 25/10/2026 (docs/71, strada D): lo spread e' un passo per trade, fuori dal prezzo e fuori da ogni mediana
+    check("E6c. lo spread (un passo per trade, docs/71) non cambia con le barre nuove",
+          s5.costi["spread"] == s4.costi["spread"] == 0.0
+          and s5.costi["spread_passo_pips"] == s4.costi["spread_passo_pips"] == 0.1)
     check("E6b. verso l'exchange solo funzioni di lettura",
           set(finto_perp.funzioni) | set(finto_spot.funzioni)
           <= {"load_markets", "fetch_ohlcv", "fetch_funding_rate_history"})

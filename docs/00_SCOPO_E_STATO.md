@@ -61,8 +61,9 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   ATR accanto; totale, drawdown e money management in pips, stress test in bp
   sulle crypto, in pips sul broker (PR #55) (`02`, «Unità»; `63` §4).
 - **Costi:** commissione taker di listino, livello base, più uno spread di un
-  passo, convertito in frazione con il prezzo mediano dell'**in-sample** (`70` §15.3,
-  25/10: nessun dato dell'out-of-sample nei costi); sui perpetual il **funding** trade per trade, acceso di default (`63`
+  passo **per trade** (`71`, 25/10): fuori dal prezzo di fill, un passo in
+  `CostoExtraPips` nei due motori, fisso in pips, passo / prezzo d'ingresso in bp; la
+  confidenza usa il costo della barra del segnale (Close); sui perpetual il **funding** trade per trade, acceso di default (`63`
   §5). Leva mai oltre il tetto italiano (perpetual 2, spot 1).
 - **Motore di backtest:** «veloce» (`engine/motore_veloce.py`, numba) è il
   predefinito; «bt» (`backtesting.py`) resta e fa da oracolo dei test. Due
