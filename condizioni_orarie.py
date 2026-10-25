@@ -192,7 +192,7 @@ def registra_uscita_oraria(nome_o_orario: str) -> str:
 # ========================================================================
 
 def registra_inversione_trend(df_is: pd.DataFrame, H: int, pip: float, quarantena=True,
-                              unita: str = "pips") -> str:
+                              unita: str = "pips", profilo: pd.DataFrame | None = None) -> str:
     """
     Calcola il profilo orario sull'IN-SAMPLE (H barre, fuso corrente), lo
     CONGELA e registra la coppia X_INVERSIONE_TREND. Si puo' richiamare: il
@@ -207,10 +207,23 @@ def registra_inversione_trend(df_is: pd.DataFrame, H: int, pip: float, quaranten
 
     unita (23/10/2026): l'unita' del profilo, "pips" (come sempre) o "bp"
     (symbol da exchange): lo stesso profilo del grafico della schermata 2b.
+
+    profilo (25/10/2026, docs/68 §6): il profilo gia' calcolato (quello del
+    grafico della schermata 2b, profilo_orario sullo stesso in-sample), da
+    riusare invece di rifarlo. Deve avere gli stessi H, fuso e unita':
+    altrimenti si ferma con errore. None (default) = calcolato qui, come prima.
     """
     from engine.registry import list_exits, register_exit
     fuso = _FUSO["corrente"]
-    prof = profilo_orario(df_is, H, pip, fuso=fuso, quarantena=quarantena, unita=unita)
+    if profilo is None:
+        prof = profilo_orario(df_is, H, pip, fuso=fuso, quarantena=quarantena, unita=unita)
+    else:
+        a = profilo.attrs
+        trovato = (a.get("H"), a.get("fuso"), a.get("unita", "pips"))
+        if trovato != (int(H), fuso, unita):
+            raise ValueError(f"Il profilo passato e' calcolato con H, fuso, unita' = {trovato}, non "
+                             f"{(int(H), fuso, unita)}: ricalcolalo con profilo_orario sugli stessi valori.")
+        prof = profilo
     colorate = prof[prof["bh"]] if len(prof) else prof
     sc = f"scarto_{unita}"
     contro_long = {codice_orario(f, df_is.index, fuso)[0] for f in colorate.loc[colorate[sc] < 0, "fascia"]}

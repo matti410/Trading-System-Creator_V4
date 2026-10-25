@@ -289,6 +289,129 @@ def deriva_per_barra_oraria(df: pd.DataFrame, pip: float,
 
 
 # ========================================================================
+# La curva dello scarto, barra per barra (25/10/2026, docs/68 §2.1)
+# ========================================================================
+
+def curva_scarto_orario(df_is: pd.DataFrame, nomi, H: int, pip: float,
+                        fuso: str = FUSO_PREDEFINITO, unita: str = "pips",
+                        quarantena=True, qualunque_ora=(), atr=None) -> pd.DataFrame:
+    """
+    Per ogni trigger, lo scarto medio dal mercato della stessa ora a ogni
+    barra k = 1..H: la misura della rosa (engine/rosa.py, baseline oraria)
+    distesa su tutte le barre invece che solo a H. Stessa convenzione:
+    segnale sulla barra i, ingresso a Open[i+1], misura a Close[i+k], nel
+    verso del trade (sopra lo zero = il trigger fa meglio del mercato a
+    quell'ora). Gli eventi sono gli stessi a ogni barra: quelli che la rosa
+    misura a H, quindi a k = H la curva coincide con `scarto_<unita>` di
+    `rosa_entry`.
+
+    nomi           entry del registro (o un dict nome -> maschera booleana, per i test)
+    unita          "pips", "bp" o "atr" (come rosa_entry; atr = la serie dell'ATR)
+    qualunque_ora  nomi da confrontare con il mercato a qualunque ora invece
+                   che della stessa ora: i trigger a orario (ORA_…), che per
+                   costruzione coincidono con il mercato della loro fascia
+                   (lo stesso confronto della rosa con baseline="globale")
+
+    Ritorna una tabella: indice barre 1..H, una colonna per trigger misurato.
+    In .attrs: eventi (per trigger), unita, H, qualunque_ora. I trigger
+    senza eventi non hanno colonna. Modulo additivo: nessuna funzione
+    esistente cambia.
+    """
+    from . import registry as _reg
+    H = int(H)
+    if H < 1:
+        raise ValueError("H deve essere almeno 1 barra.")
+    if pip is None or not float(pip) > 0:
+        raise ValueError("pip obbligatorio: il pip fisso del symbol (engine/simboli.py).")
+    if unita not in UNITA:
+        raise ValueError(f"unita' {unita!r} sconosciuta: usa una di {UNITA}")
+    pip = float(pip)
+    n = len(df_is)
+    close = df_is["Close"].to_numpy(dtype=float)
+    open_ = df_is["Open"].to_numpy(dtype=float)
+    ingresso = np.full(n, np.nan)
+    ingresso[: n - 1] = open_[1:]
+    ok_ing = np.isfinite(ingresso) & (ingresso > 0)
+    atr_v = None
+    if unita == "atr":
+        if atr is None:
+            from .indicatori import atr_giornaliero_chiuso
+            atr = atr_giornaliero_chiuso(df_is)
+        atr_v = pd.Series(atr).reindex(df_is.index).to_numpy(dtype=float)
+    pulito = maschera_segnali_puliti(df_is, quarantena)
+    codici = fasce_orarie(df_is.index, fuso)[0]
+
+    def avanti(k):
+        """Rendimento long a k barre nell'unita' (NaN dove non misurabile) e barre utili."""
+        f = np.full(n, np.nan)
+        if n > k:
+            f[: n - k] = (close[k:] - ingresso[: n - k]) / pip
+        f = in_unita(f, unita, pip, prezzo=ingresso, atr=atr_v)
+        return f, np.isfinite(f) & ok_ing
+
+    # gli eventi: quelli che la rosa misura a H (rendimento a H misurabile, quarantena)
+    f_H, valido_H = avanti(H)
+    if isinstance(nomi, dict):
+        maschere = {k: (np.asarray(v, dtype=bool), 1) for k, v in nomi.items()}
+    else:
+        maschere = {k: (_reg.get_entry(k)(df_is).fillna(False).to_numpy(dtype=bool),
+                        int(_reg.get_entry_direction(k))) for k in nomi}
+    orari = set(qualunque_ora or ())
+    eventi, pos_d = {}, {}
+    for nome, (m, d) in maschere.items():
+        pos = np.flatnonzero(m & valido_H & pulito)
+        if pos.size:
+            pos_d[nome] = (pos, d)
+            eventi[nome] = int(pos.size)
+
+    curva = pd.DataFrame(index=pd.RangeIndex(1, H + 1, name="barre_dal_trigger"), dtype=float)
+    valori = {nome: np.full(H, np.nan) for nome in pos_d}
+    for k in range(1, H + 1):
+        f, valido = (f_H, valido_H) if k == H else avanti(k)
+        usa = valido & pulito
+        b = media_per_fascia(np.nan_to_num(f), codici, usa)
+        mercato = float(np.nanmean(f)) if np.isfinite(f).any() else np.nan
+        for nome, (pos, d) in pos_d.items():
+            if nome in orari:
+                valori[nome][k - 1] = float(np.mean(d * f[pos])) - d * mercato
+            else:
+                valori[nome][k - 1] = float(np.mean(d * (f[pos] - b[pos])))
+    for nome in pos_d:
+        curva[nome] = valori[nome]
+    curva.attrs.update(eventi=eventi, unita=unita, H=H, qualunque_ora=sorted(orari & set(pos_d)))
+    return curva
+
+
+def picco_curva(curva: pd.Series, H: int | None = None) -> dict:
+    """
+    Il picco di una curva dello scarto (curva_scarto_orario), SOLO DA LEGGERE
+    (25/10/2026, docs/68 §5.1, decisione di Mattia): le uscite consigliate
+    usano H, non questa barra. Ritorna barra, valore, in_coda (picco
+    nell'ultimo quarto di H, la regola di picco_in_coda dell'event study),
+    presto (picco nel primo quarto) e la nota da mostrare accanto.
+    """
+    c = pd.Series(curva, dtype=float).dropna()
+    H = int(H if H is not None else (c.index.max() if len(c) else 0))
+    if c.empty or H < 1:
+        return dict(barra=None, valore=np.nan, in_coda=False, presto=False,
+                    nota="Curva non misurabile.")
+    barra = int(c.idxmax())
+    valore = float(c.loc[barra])
+    in_coda = barra >= int(np.ceil(H * 0.75))
+    presto = (not in_coda) and barra <= max(1, H // 4)
+    if valore <= 0:
+        nota = "La curva non va mai sopra lo zero: il trigger non fa meglio del mercato a nessuna barra."
+    elif in_coda:
+        nota = "Il movimento continua fino all'orizzonte che hai dichiarato."
+    elif presto:
+        nota = ("Il movimento finisce presto: dopo il picco il trade resta aperto fino a H barre, esposto al "
+                "rumore del prezzo e, sui perpetual, al funding, che cresce con la durata.")
+    else:
+        nota = ""
+    return dict(barra=barra, valore=valore, in_coda=bool(in_coda), presto=bool(presto), nota=nota)
+
+
+# ========================================================================
 # Il profilo orario
 # ========================================================================
 
