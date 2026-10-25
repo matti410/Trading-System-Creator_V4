@@ -101,7 +101,8 @@ from .quarantena import ROLLOVER_DEFAULT, imposta_rollover, passo_barre, verific
 from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
 from .stagionalita import (codice_orario, curva_scarto_orario, descrivi_profilo, fasce_orarie,
                            fuso_profilo, n_fasce, picco_curva, profilo_orario)
-from .splitting import split_is_oos
+from .splitting import split_al_confine, split_is_oos
+from . import studio as _st
 
 
 # ========================================================================
@@ -720,13 +721,346 @@ def _frase_funding(s) -> str:
     return frase
 
 
+# ========================================================================
+# 26/10/2026 (docs/70): i dati in locale e lo studio
+# ========================================================================
+#
+# apri_dati    aggiorna i dati (in locale, se richiesto), carica lo storico, fa il reset
+#              del confine se richiesto, entra nello studio (il confine unico, l'impronta),
+#              taglia le barre al funding se il funding e' meno avanti, carica il funding.
+# dividi_dati  in-sample e out-of-sample: al confine dello studio, o all'80% come prima.
+# Il registro del dataset (docs/68 §9.1) si ricostruisce dai giornali dello studio e ogni
+# cambio (H, conto delle prove, diario, risalite) si aggiunge al giornale di questa macchina.
+#
+# confine   None       come prima: 80% delle barre a ogni giro, niente studio, nessun
+#                      avviso (il predefinito delle funzioni, per i test e gli script)
+#           "studio"   il confine unico dello studio (il Lab e il notebook di ricerca)
+#           "80%"      la regola di prima, ma dichiarata: confine di collaudo (prove
+#                      d'identita'), avviso arancione, niente studio
+#           una data   quel confine, di collaudo, niente studio
+
+_CONTESTO_STUDIO: dict = {}     # chiave del registro -> dove scrivere il giornale (cartella, dataset, ...)
+_SCRITTO: dict = {}             # chiave del registro -> quello che e' gia' nel giornale
+
+
+def macchina_predefinita() -> str:
+    """«colab» su Colab, «pc» altrove: il nome del giornale di questa macchina (docs/70 §4.3)."""
+    try:
+        import google.colab  # noqa: F401
+        return "colab"
+    except ImportError:
+        return "pc"
+
+
+def cartella_drive_locale() -> str | None:
+    """
+    La cartella dei dati dentro Google Drive per desktop, se c'e' (docs/70 §4.1):
+    …/Il mio Drive/Trading-System-Creator_V4/dati (anche «My Drive»), su qualunque
+    disco o nella cartella dell'utente. None se non c'e'.
+    """
+    import string
+    from pathlib import Path
+    radici = [Path(f"{lettera}:/") for lettera in string.ascii_uppercase] if os.name == "nt" else []
+    casa = Path.home()
+    radici += [casa, casa / "Google Drive", Path("/Volumes/GoogleDrive")]
+    for r in radici:
+        for nome in ("Il mio Drive", "My Drive"):
+            c = r / nome / "Trading-System-Creator_V4" / "dati"
+            try:
+                if c.is_dir():
+                    return str(c)
+            except OSError:
+                continue
+    return None
+
+
+def file_da_copiare(da, a) -> list[str]:
+    """I file di dati di `da` (CSV) che in `a` mancano o sono piu' vecchi (primo avvio con Drive)."""
+    from pathlib import Path
+    out = []
+    for f in sorted(Path(da).glob("*.csv")):
+        g = Path(a) / f.name
+        if not g.exists() or f.stat().st_mtime > g.stat().st_mtime + 1:
+            out.append(f.name)
+    return out
+
+
+def cartella_dati_avvio(progetto, su_colab: bool, drive_colab, copia_su_drive: bool = False) -> str:
+    """
+    La cartella dei dati per l'Avvio dei due notebook (docs/70 §1.1, §4.1). Su
+    Colab: Drive. In locale: la cartella di Google Drive per desktop se c'e',
+    altrimenti dati/ del progetto. Al primo avvio con Drive, se dati/ ha CSV
+    piu' recenti, li elenca e li copia solo con copia_su_drive=True.
+    """
+    import shutil
+    if su_colab:
+        return str(drive_colab)
+    locale = os.path.join(str(progetto), "dati")
+    drive = cartella_drive_locale()
+    if drive is None:
+        print(f"Dati da {locale}. Google Drive per desktop non trovato: se lavori anche su Colab, dopo un "
+              "aggiornamento carica su Drive i file che la schermata 1 elenca.")
+        return locale
+    print(f"Dati dalla cartella di Google Drive per desktop: {drive} (la stessa che vede Colab).")
+    if os.path.isdir(locale):
+        elenco = file_da_copiare(locale, drive)
+        if elenco and copia_su_drive:
+            for nome in elenco:
+                shutil.copy2(os.path.join(locale, nome), os.path.join(drive, nome))
+            print(f"Copiati su Drive {len(elenco)} file da dati/: {', '.join(elenco)}.")
+        elif elenco:
+            print(f"In dati/ ci sono {len(elenco)} file più recenti di quelli su Drive ({', '.join(elenco[:6])}"
+                  f"{' …' if len(elenco) > 6 else ''}). Per copiarli accendi copia_su_drive e riesegui l'Avvio.")
+    return drive
+
+
+def _modo_confine(confine) -> str:
+    if confine is None:
+        return "vecchio"
+    if confine == "studio":
+        return "studio"
+    if confine == "80%":
+        return "collaudo80"
+    return "data"
+
+
+_TEMPI_PRIMO = {"M5": "circa 5 minuti su Binance, fino a 15 su Bybit",
+                "M15": "circa 1-2 minuti su Binance, fino a 5 su Bybit",
+                "M30": "circa un minuto", "H1": "meno di un minuto", "H4": "pochi secondi"}
+
+
+def apri_dati(symbol: str, timeframe: str = "M15", cartella="dati", confine=None, aggiorna: bool = False,
+              ricalcola_confine: str = "", macchina: str | None = None, quota_in_sample: float = 0.8,
+              funding: bool = True, verbose: bool = True) -> SimpleNamespace:
+    """
+    I dati di un dataset pronti per dividerli (docs/70). Ritorna un oggetto con:
+      df, funding           lo storico (gia' tagliato al funding se serve) e il funding (o None)
+      modo, confine         "vecchio" / "studio" / "collaudo80" / "data" e il confine (None = 80%)
+      ingresso              l'ingresso nello studio (engine/studio.Ingresso), dopo dividi_dati
+      aggiornamento, reset  cosa hanno fatto l'aggiornamento e il reset (o None)
+      tagliate, fino        barre lasciate fuori perche' il funding e' meno avanti, e l'ultima tenuta
+    Con confine=None fa esattamente quello che facevano prima carica_storico e
+    carica_funding. L'ingresso nello studio (e il reset) li fa dividi_dati, sulle
+    barre che si dividono davvero: quelle dopo gli indicatori, che scartano le
+    prime barre di riscaldamento. Cosi' l'80% all'apertura dello studio e'
+    esattamente quello di prima.
+    """
+    macchina = macchina or macchina_predefinita()
+    modo = _modo_confine(confine)
+    d = SimpleNamespace(symbol=symbol, timeframe=timeframe, cartella=cartella, modo=modo, confine=None,
+                        ingresso=None, aggiornamento=None, reset=None, tagliate=0, fino=None, funding=None,
+                        df=None, quota=quota_in_sample, macchina=macchina,
+                        ricalcola_confine=ricalcola_confine or "")
+    if aggiorna:
+        if macchina == "colab" or not da_exchange(symbol):
+            d.aggiornamento = "non qui"
+        else:
+            from .aggiorna_dati import aggiorna_per_lab, file_storico
+            if not file_storico(symbol, timeframe, cartella).exists():
+                _nota(f"Primo download completo di {symbol} {timeframe} dal 2/1/2020"
+                      + (" (con lo spot della stessa coppia e il funding)" if "_PERP_" in symbol else "")
+                      + f": {_TEMPI_PRIMO.get(timeframe, 'qualche minuto')}. Puoi fermare la cella e rilanciarla: "
+                      "riparte dall'ultima barra salvata.")
+            d.aggiornamento = aggiorna_per_lab(symbol, timeframe, cartella, verbose=verbose)
+    df = carica_storico(symbol, cartella, timeframe)
+    d.grezzo = df                       # le barre del CSV, per l'impronta dell'in-sample
+    taglio = None                       # il confine che il taglio al funding deve rispettare
+    if modo == "studio":
+        aperto = _st.leggi_confine(cartella)
+        taglio = None if aperto is None else _st._utc(aperto["confine"])
+    elif modo == "data":
+        c = pd.Timestamp(confine)
+        d.confine = taglio = c.tz_localize("UTC") if c.tzinfo is None else c.tz_convert("UTC")
+    if funding:
+        from .exchange import file_funding, ha_funding, leggi_funding
+        if taglio is not None and ha_funding(symbol) and os.path.exists(file_funding(symbol, cartella)):
+            df, d.tagliate, d.fino = _st.taglia_al_funding(df, leggi_funding(file_funding(symbol, cartella)),
+                                                         taglio, timeframe)
+        d.funding = carica_funding(symbol, df, cartella)
+    d.df = df
+    return d
+
+
+def dividi_dati(d: SimpleNamespace, df: pd.DataFrame,
+                ricalcola_confine: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    In-sample e out-of-sample di `df` (lo storico di `d` dopo gli indicatori, come
+    lo dividevano prima il Lab e il notebook di ricerca). Con il confine dello
+    studio: prima il reset, se chiesto, poi l'ingresso nello studio (lo apre se
+    non c'e', all'80% di `df`: lo stesso confine di prima). Senza studio: all'80%
+    o alla data di collaudo. ricalcola_confine: il campo del reset, se lo si scrive
+    qui (notebook di ricerca) invece che in apri_dati.
+    """
+    if ricalcola_confine is not None:
+        d.ricalcola_confine = ricalcola_confine
+    if d.modo == "studio":
+        if d.ricalcola_confine:
+            d.reset = _st.reset(d.cartella, d.ricalcola_confine, d.symbol, d.timeframe, df, d.macchina,
+                                quota=d.quota)
+        d.ingresso = _st.entra(d.cartella, d.symbol, d.timeframe, df, d.macchina, quota=d.quota,
+                               df_impronta=getattr(d, "grezzo", None))
+        d.confine = d.ingresso.confine
+        return d.ingresso.df_is, d.ingresso.df_oos
+    if d.confine is None:
+        return split_is_oos(df, is_ratio=d.quota)
+    return split_al_confine(df, d.confine, _st.passo(d.timeframe))
+
+
+def _giorno_ora(t) -> str:
+    return pd.Timestamp(t).strftime("%d/%m/%Y %H:%M") + " UTC"
+
+
+def mostra_dati(d: SimpleNamespace) -> None:
+    """I riquadri dell'aggiornamento, del reset e dello studio (docs/70 §1.2, §2, §5.3, §6.2)."""
+    a = d.aggiornamento
+    if a == "non qui":
+        _nota("Aggiorna i dati: ignorato qui (su Colab i dati non si scaricano: Binance e Bybit bloccano Colab).")
+    elif a:
+        righe, fermi = [], []
+        for parte in a.values():
+            if parte["esito"] == "aggiornato":
+                c = parte.get("controlli") or {}
+                extra = ("" if "doppie" not in c else
+                         f" (controlli sulle barre nuove: {c['doppie']} doppie, {c['buchi']} buchi, "
+                         f"{c['ohlc_incoerenti']} OHLC incoerenti, {c['dopo_interruzione']} in quarantena)")
+                righe.append(f"{parte['nome']}: +{_fmt(parte['nuove'])}"
+                             + (f", fino al {_giorno_ora(parte['al'])}" if parte.get("al") is not None else "") + extra)
+            else:
+                fermi.append(f"{parte['nome']}: aggiornamento non riuscito ({parte['errore'][:160]}); lavori sui dati "
+                             + (f"fino al {_giorno_ora(parte['al'])}." if parte.get("al") is not None
+                                else "che ci sono."))
+        if righe:
+            _nota("Dati aggiornati. " + " — ".join(righe) + "."
+                  + (" Tutte le barre nuove sono nell'out-of-sample: il confine non si è mosso."
+                     if d.modo == "studio" else ""))
+        for f in fermi:
+            _avviso(f)
+    r = d.reset
+    if r:
+        e = r["esito"]
+        if e == "fatto":
+            _nota(f"Confine ricalcolato: dal {_giorno_ora(r['vecchio'])} al {_giorno_ora(r['nuovo'])}. Lo studio di "
+                  f"prima è in archivio ({r['archivio']}); il conto delle prove riparte da zero.")
+        elif e == "rifiutato_indietro":
+            _avviso(r["messaggio"])
+        elif e == "data_non_di_oggi":
+            _avviso(f"Nel campo ricalcola_confine c'è «{r['campo']}», non la data di oggi: nessun ricalcolo. Svuotalo.")
+        elif e == "data_non_valida":
+            _avviso(f"Nel campo ricalcola_confine c'è «{r['campo']}»: per ricalcolare scrivi la data di oggi "
+                    "(gg/mm/aaaa). Nessun ricalcolo.")
+        elif e == "gia_fatto_oggi":
+            _nota("Il confine è già stato ricalcolato oggi: nessun ricalcolo nuovo. Svuota il campo ricalcola_confine.")
+        elif e == "nessuna_barra_nuova":
+            _nota("Il confine ricalcolato sarebbe uguale a quello di adesso: nessun ricalcolo.")
+        elif e == "ignorato_colab":
+            _nota("Il confine si ricalcola solo sul PC: su Colab il campo ricalcola_confine è ignorato.")
+        elif e == "nessuno_studio":
+            _nota("Non c'era ancora uno studio: lo apro adesso, niente da ricalcolare.")
+    if d.modo in ("collaudo80", "data"):
+        _avviso("Confine di collaudo (" + ("regola vecchia, 80% di questo dataset" if d.modo == "collaudo80"
+                                          else f"il {_giorno_ora(d.confine)}")
+                + "): non è il confine dello studio. Niente di quello che fai qui entra nel diario o nel conto dello "
+                "studio.")
+    i = d.ingresso
+    if i is not None:
+        st = i.studio
+        if i.aperto_ora:
+            _nota(f"Hai aperto lo studio: il confine è il {_giorno_ora(i.confine)} ({st['regola']}). Vale da ora per "
+                  "ogni exchange, moneta e timeframe.")
+        elif i.esito_impronta == "nuova":
+            _nota(f"{i.dataset} entra adesso nello studio, con il confine dello studio ({_giorno_ora(i.confine)}).")
+        if st.get("contaminato"):
+            _avviso(_frase_contaminato(st["contaminato"]))
+        if i.is_corto:
+            _avviso(f"L'in-sample di questo dataset è corto ({_fmt(i.quota_is * 100, 1)}% delle barre): i risultati "
+                    "hanno poche barre dietro.")
+        if i.suggerisci_reset:
+            _nota(f"L'out-of-sample è ora il {_fmt((1 - i.quota_is) * 100, 0)}% dei dati di questo dataset: se vuoi "
+                  "ricalcolare il confine, vedi il campo ricalcola_confine. Non è obbligatorio.")
+    if d.tagliate:
+        _nota(f"Il funding arriva fino a dove copre le barre: lavori sulle barre fino al {_giorno_ora(d.fino)}; le altre "
+              f"{_fmt(d.tagliate)} restano nel file e si usano quando arriva il funding (sono out-of-sample).")
+
+
+def _frase_contaminato(c: dict, corta: bool = False) -> str:
+    dove = ", ".join(f"{n} {'volta' if n == 1 else 'volte'} su {ds}" for ds, n in c["guardato"].items())
+    if corta:
+        return (f"In-sample con out-of-sample già guardato: il periodo dal {_giorno_ora(c['dal'])} al "
+                f"{_giorno_ora(c['al'])} ({dove}, nello studio precedente).")
+    return (f"Il nuovo in-sample contiene il periodo dal {_giorno_ora(c['dal'])} al {_giorno_ora(c['al'])}, che avevi "
+            f"già guardato come out-of-sample: {dove}. Le crypto si muovono insieme: su quel periodo i risultati li "
+            "conosci già, su ogni dataset. Costruire sopra di esso non è più una prova pulita. Questo avviso resta "
+            "su questo studio.")
+
+
+def _stato_scritto(storia) -> dict:
+    import copy
+    return {"prove": copy.deepcopy(storia.prove or {}), "diario": len(storia.diario),
+            "risalite": len(storia.risalite)}
+
+
+def _storia_dello_studio(d: SimpleNamespace, H: int, nuove_prove):
+    """
+    Il registro del dataset dallo studio: ricostruito da tutti i giornali, poi
+    aperto con H come sempre (registro_dataset.apri). Un H nuovo (o un ritorno)
+    si aggiunge al giornale. Ritorna (storia, esito, info dei giornali).
+    """
+    i = d.ingresso
+    storia, info = _st.ricostruisci(d.cartella, i.dataset, i.studio, nuove_prove=nuove_prove)
+    _CONTESTO_STUDIO[storia.chiave] = {"cartella": d.cartella, "dataset": i.dataset, "macchina": d.macchina,
+                                       "studio": i.studio}
+    storia, esito = _rd.apri(d.symbol, d.timeframe, i.confine, H, nuove_prove=nuove_prove)
+    if esito != "stesso_h":
+        _st.aggiungi_voce(d.cartella, i.dataset, d.macchina, i.studio["id"], {"voce": "orizzonte", "H": int(H)})
+    _SCRITTO[storia.chiave] = _stato_scritto(storia)
+    return storia, esito, info
+
+
+def _salva_studio(storia) -> None:
+    """Aggiunge al giornale di questa macchina quello che e' cambiato nel registro (prove, diario, risalite)."""
+    if not _nel_studio(storia):
+        return
+    ctx, fatto = _CONTESTO_STUDIO[storia.chiave], _SCRITTO[storia.chiave]
+    voci = _st.voci_prove(fatto["prove"], storia.prove or {})
+    voci += [{"voce": "oos", "voce_diario": e} for e in storia.diario[fatto["diario"]:]]
+    voci += [{"voce": "risalita", "risalita": r} for r in storia.risalite[fatto["risalite"]:] if r.get("cosa") != "H"]
+    for v in voci:
+        _st.aggiungi_voce(ctx["cartella"], ctx["dataset"], ctx["macchina"], ctx["studio"]["id"], v)
+    _SCRITTO[storia.chiave] = _stato_scritto(storia)
+
+
+def _nel_studio(storia) -> bool:
+    return storia is not None and getattr(storia, "chiave", None) in _CONTESTO_STUDIO
+
+
+def _note_studio(storia, info: dict | None = None) -> None:
+    """Sotto la schermata 1 e sopra la scheda: le aperture su altri dataset e la contaminazione."""
+    if not _nel_studio(storia):
+        return
+    ctx = _CONTESTO_STUDIO[storia.chiave]
+    altrove = _st.diario_altrove(ctx["cartella"], ctx["dataset"], ctx["studio"])
+    if altrove:
+        _nota("Out-of-sample di questo studio già guardato su altri dataset: "
+              + ", ".join(f"{n} {'volta' if n == 1 else 'volte'} su {ds}" for ds, n in altrove.items())
+              + ". È lo stesso periodo: non è più nuovo nemmeno qui.")
+    if info:
+        if info.get("altre_id"):
+            _nota(f"{info['altre_id']} voci del giornale sono dello studio precedente (scritte dopo il reset da una "
+                  "sessione rimasta aperta): non entrano in questo studio.")
+        if info.get("copie"):
+            _avviso("Nella cartella dello studio ci sono copie di conflitto di Drive (" + ", ".join(info["copie"])
+                    + "): le ho lette lo stesso, nessuna voce persa. Non lavorare sullo stesso dataset su PC e Colab "
+                    "nello stesso momento.")
+
+
 def _minuti_barra(timeframe: str) -> int:
     return int(timeframe[1:]) * (1 if timeframe.startswith("M") else 60)
 
 
 def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
             cartella: str = "dati", timeframe: str = "M15", funding: bool = True,
-            motore: str | None = None) -> Sessione:
+            motore: str | None = None, confine=None, aggiorna: bool = False,
+            ricalcola_confine: str = "", macchina: str | None = None) -> Sessione:
     """
     Schermata 1. Carica lo storico dal CSV, calcola costi e indicatori,
     divide in-sample / out-of-sample e carica le condizioni dal registro.
@@ -745,6 +1079,16 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     motore            21/10/2026 (docs/65): "bt" (backtesting.py) o "veloce"
                       (engine/motore_veloce.py, stessi trade). None (default) =
                       il predefinito del tool (motore_veloce.MOTORE_PREDEFINITO).
+    confine           26/10/2026 (docs/70 §2): None (default) = come prima, 80% delle
+                      barre a ogni giro, niente studio; "studio" = il confine unico
+                      dello studio, salvato su file (il Lab); "80%" = la regola di
+                      prima dichiarata come collaudo; una data = quel confine, di collaudo
+    aggiorna          26/10/2026 (docs/70 §1): True = in locale scarica prima le barre
+                      nuove (e spot e funding del perpetual); su Colab ignorato
+    ricalcola_confine 26/10/2026 (docs/70 §5): la data di oggi (gg/mm/aaaa) = ricalcola
+                      il confine dello studio (solo sul PC); "" = niente
+    macchina          26/10/2026 (docs/70 §4.3): il nome del giornale ("pc", "colab");
+                      None = "colab" su Colab, "pc" altrove
 
     11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
     symbol solo dalla tabella di engine/simboli.py; spread dal solo listino
@@ -763,11 +1107,17 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     H = int(H)
     if H < 1:
         raise ValueError("H deve essere almeno 1 barra.")
-    df = carica_storico(symbol, cartella, timeframe)
-    storico_funding = carica_funding(symbol, df, cartella) if funding else None   # 21/10/2026
+    # 26/10/2026 (docs/70): aggiornamento, studio, reset e taglio al funding; con confine=None
+    # apri_dati fa solo quello che facevano prima carica_storico e carica_funding
+    dati = apri_dati(symbol, timeframe, cartella, confine=confine, aggiorna=aggiorna,
+                     ricalcola_confine=ricalcola_confine, macchina=macchina, quota_in_sample=quota_in_sample,
+                     funding=funding)
+    df = dati.df
+    storico_funding = dati.funding                       # 21/10/2026
     costi, sp = costi_storico(symbol, df, funding=storico_funding)
 
     s = Sessione()
+    s.dati = dati
     s.funding = storico_funding
     s.motore = scegli_motore(motore)     # 21/10/2026 (docs/65)
     s.symbol, s.H, s.cartella, s.timeframe = symbol, H, cartella, timeframe
@@ -778,7 +1128,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     with _zitto():
         df = aggiungi_indicatori(df)
         df, s.spot_nota = aggancia_spot(symbol, df, cartella, timeframe)   # 22/10/2026 (docs/66)
-        s.df_is, s.df_oos = split_is_oos(df, is_ratio=quota_in_sample)
+        s.df_is, s.df_oos = dividi_dati(dati, df)    # 26/10/2026: al confine dello studio, o all'80%
     s.df, s.costi = df, costi
     s.atr = atr_giornaliero_chiuso(df)   # 20/10/2026: sullo storico intero, noto prima di ogni ingresso
     # 20/10/2026 (docs/63 §4.2, U2): sui symbol da exchange decide il bp in ogni passo; il broker,
@@ -794,7 +1144,12 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     # confine dell'in-sample). Con lo stesso dataset la sessione nuova riprende il conto delle prove e
     # il diario dell'out-of-sample; un H diverso e' una risalita, e la scelta fra gli H provati si conta
     precedente = _ULTIMO_DATASET.get("chiave")
-    s.storia, esito = _rd.apri(symbol, timeframe, s.df_is.index[-1], H, nuove_prove=lambda: s.prove)
+    info_giornali = None
+    if dati.ingresso is not None:
+        # 26/10/2026 (docs/70 §3-§4): il registro dai giornali dello studio, e ogni cambio nel giornale
+        s.storia, esito, info_giornali = _storia_dello_studio(dati, H, lambda: s.prove)
+    else:
+        s.storia, esito = _rd.apri(symbol, timeframe, s.df_is.index[-1], H, nuove_prove=lambda: s.prove)
     s.prove = s.storia.prove
     _ULTIMO_DATASET["chiave"] = s.storia.chiave
 
@@ -826,6 +1181,23 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     if s.spot_nota is not None:
         voci.append("Spot (perpetual)")
         valori.append(s.spot_nota)            # 22/10/2026
+    if dati.ingresso is not None:             # 26/10/2026 (docs/70 §1.2): da dove viene il confine
+        ing = dati.ingresso
+        nuove = 0
+        if isinstance(dati.aggiornamento, dict) and dati.aggiornamento["candele"]["esito"] == "aggiornato":
+            nuove = max(0, int(dati.aggiornamento["candele"]["nuove"]) - int(dati.tagliate))
+        valori[voci.index("In-sample (per costruire)")] = (
+            f"{_fmt(len(s.df_is))} barre ({_fmt(len(s.df_is) / len(df) * 100, 1)}%), fino al "
+            f"{_giorno_ora(ing.confine)} · confine dello studio")
+        valori[voci.index("Out-of-sample (mai visto)")] = (
+            f"{_fmt(len(s.df_oos))} barre, dal {_giorno_ora(ing.confine)}"
+            + (f" (di cui {_fmt(nuove)} arrivate oggi)" if nuove else ""))
+        n_qui = len(s.storia.diario)
+        altrove = sum(_st.diario_altrove(cartella, ing.dataset, ing.studio).values())
+        voci.append("Studio")
+        valori.append(f"aperto il {pd.Timestamp(ing.studio['aperto_il']):%d/%m/%Y} su {ing.studio['aperto_su']} · "
+                      f"vale per tutti i dataset · out-of-sample guardato: {n_qui} "
+                      f"{'volta' if n_qui == 1 else 'volte'} su questo dataset, {altrove} su altri dataset")
     # 20/10/2026 (docs/63 §4): lo stesso costo in punti base del prezzo (1 bp = 0,01%)
     mediana = float(s.df_is["Close"].median())
     spread_bp = sp["normale"] * s.pip / mediana * 10_000
@@ -839,6 +1211,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     valori.insert(voci.index("Costo per trade in bp"), costo_bp)
     riepilogo = pd.DataFrame({"": voci, " ": valori})
     s.tabelle["riepilogo"] = riepilogo
+    mostra_dati(dati)                         # 26/10/2026 (docs/70): aggiornamento, reset, studio
     _mostra(("Il tuo laboratorio", riepilogo))
     _riquadro(
         "Lo storico su cui lavori, diviso in due: l'in-sample serve a costruire la strategia, "
@@ -851,7 +1224,14 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
         "L'orizzonte è la scelta che pesa di più: è il tempo che dai al movimento e, dalla schermata 4, la "
         "durata consigliata del trade. Sceglilo prima di guardare i risultati.",
         "Vai alla schermata 2 per vedere come si muove il mercato ora per ora e cosa fanno i trigger.")
+    if dati.ingresso is not None:
+        _nota("Il confine è la data che divide le barre su cui costruisci (prima) da quelle che restano chiuse fino "
+              "alla scheda (dopo). È uno solo per tutto lo studio: ogni exchange, moneta e timeframe usa la stessa "
+              "data, perché le crypto si muovono insieme e un periodo guardato su BTC non è più nuovo per ETH. L'ha "
+              "fissato il primo dataset aperto (80% delle sue barre) e non si muove più: le barre che arrivano dopo "
+              "vanno tutte nell'out-of-sample.")
     _nota_dataset(s, esito, precedente)
+    _note_studio(s.storia, info_giornali)
     return s
 
 
@@ -861,6 +1241,15 @@ _ULTIMO_DATASET: dict = {}      # 25/10/2026: la chiave dell'ultimo dataset aper
 def _nota_dataset(s: Sessione, esito: str, precedente) -> None:
     """Cosa e' successo al conto delle prove aprendo questo dataset (docs/68 §9.1)."""
     storia = s.storia
+    if esito == "nuovo" and _nel_studio(storia):
+        # 26/10/2026 (docs/70): il registro e' nello studio, su file
+        if precedente is not None and precedente != storia.chiave:
+            _nota("Dataset diverso da quello di prima (strumento o timeframe): il conto delle prove e il diario "
+                  "dell'out-of-sample sono quelli di questo dataset.")
+        _nota("Il conto delle prove e il diario dell'out-of-sample di questo dataset sono salvati nello studio "
+              "(nel giornale di questa macchina): restano anche se chiudi il notebook. Cambiare orizzonte su questo "
+              "dataset si conta.")
+        return
     if esito == "nuovo":
         if precedente is not None and precedente != storia.chiave:
             _nota("Dataset diverso da quello di prima (strumento, timeframe o confine dell'in-sample): il conto "
@@ -1390,6 +1779,7 @@ def _imposta_casistiche(s: Sessione, tl: tuple, ts: tuple, origini: dict) -> pd.
     if getattr(s, "storia", None) is not None and s.storia.oos_visto and prima != (tl, ts):
         _avviso_risalita(s, "cambiare le casistiche")
         _rd.annota_risalita(s.storia, "casistiche", da=prima, a=(tl, ts))
+        _salva_studio(s.storia)       # 26/10/2026 (docs/70): nel giornale dello studio
     with _zitto():
         s.entry_long = risolvi_scelta(list(tl), lato="long") if tl else None
         s.entry_short = risolvi_scelta(list(ts), lato="short") if ts else None
@@ -1621,6 +2011,7 @@ def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None)
     if getattr(s, "storia", None) is not None and s.storia.oos_visto and prima != (cl, cs):
         _avviso_risalita(s, "cambiare la cella")
         _rd.annota_risalita(s.storia, "cella", da=prima, a=(cl, cs))
+        _salva_studio(s.storia)       # 26/10/2026 (docs/70)
     s.fs = s.dm = s.oos = None
     s.sopravvissuti, s.filtro, s.filtri_scelti = [], None, []
     s.trades_is = s.trades_oos = s.mm = None
@@ -1870,6 +2261,7 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     if storia is not None and storia.oos_visto and storia.diario[-1].get("uscite") != chiave:
         _avviso_risalita(s, "cambiare le uscite")
         _rd.annota_risalita(storia, "uscite", a=chiave)
+        _salva_studio(storia)         # 26/10/2026 (docs/70)
     _mostra_consigliate(s, bl, bs, sl, tp, regola_uscita)
 
     el, es_ = _entry_lato(s, 1), _entry_lato(s, -1)      # con la cella dentro, se c'e' (docs/68 §3.3)
@@ -2050,18 +2442,27 @@ def entry_del_sistema(sistema, entry_long, entry_short) -> tuple:
     return el, es_
 
 
-def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int):
+def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int, dati=None):
     """
     Il registro del dataset per il notebook di ricerca (25/10/2026, docs/68
     §9.1): la stessa cosa che fa prepara nel Lab. Da chiamare nella cella
     dove si sceglie H; dice se H e' cambiato sullo stesso dataset (una
     risalita: si conta). Ritorna la storia (h_provati, diario, risalite).
+
+    dati   26/10/2026 (docs/70 §12.4): quello che ritorna apri_dati. Con il
+           confine dello studio il registro e' lo stesso del Lab, nei giornali
+           dello studio; None = in memoria, come prima.
     """
     precedente = _ULTIMO_DATASET.get("chiave")
-    storia, esito = _rd.apri(symbol, timeframe, df_is.index[-1], H,
-                             nuove_prove=lambda: {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}})
+    vuote = lambda: {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}  # noqa: E731
+    info = None
+    if dati is not None and getattr(dati, "ingresso", None) is not None:
+        storia, esito, info = _storia_dello_studio(dati, H, vuote)
+    else:
+        storia, esito = _rd.apri(symbol, timeframe, df_is.index[-1], H, nuove_prove=vuote)
     _ULTIMO_DATASET["chiave"] = storia.chiave
     _nota_dataset(SimpleNamespace(storia=storia), esito, precedente)
+    _note_studio(storia, info)
     return storia
 
 
@@ -2071,10 +2472,17 @@ def segna_oos(storia, **scelte) -> int:
     §9): scrive un'apertura con le scelte di quel momento e, dalla seconda,
     lo dice. Ritorna quante aperture ci sono.
     """
-    n = _rd.annota_oos(storia, scelte)
+    fino = scelte.pop("oos_fino_al", None)       # 26/10/2026 (docs/70 §3.2): per il reset dello studio
+    n = _rd.annota_oos(storia, scelte, oos_fino_al=fino if _nel_studio(storia) else None)
+    _salva_studio(storia)
+    if _nel_studio(storia):
+        c = _CONTESTO_STUDIO[storia.chiave]["studio"].get("contaminato")
+        if c:
+            _avviso(_frase_contaminato(c, corta=True))
+        _note_studio(storia)
     if n > 1:
         prima = storia.diario[0]
-        cambiate = [k for k in scelte if prima.get(k) != scelte[k]]
+        cambiate = [k for k in scelte if _rd.normale(prima.get(k)) != _rd.normale(scelte[k])]
         _avviso(f"Out-of-sample già guardato {n} volte. "
                 + (f"Scelte cambiate dopo la prima volta: {', '.join(cambiate)}." if cambiate
                    else "Stesse scelte della prima volta.")
@@ -2167,6 +2575,7 @@ def rosa_dei_sistemi(s: Sessione, sistema: str | None = None) -> pd.DataFrame:
             and s.storia.diario[-1].get("sistema") not in (None, sistema)):
         _avviso_risalita(s, "cambiare il sistema")
         _rd.annota_risalita(s.storia, "sistema", a=sistema)
+        _salva_studio(s.storia)       # 26/10/2026 (docs/70)
     if sistema != getattr(s, "sistema", None):
         s.fs = s.dm = s.oos = None
         s.sopravvissuti, s.filtro = [], None
@@ -2753,6 +3162,7 @@ def _riga_prove(s: Sessione, qui: str) -> dict:
     quante in tutto fin qui, con la soglia del caso. Gli stessi conti della
     scheda (_soglia_cumulata_lab). Solo informativa.
     """
+    _salva_studio(getattr(s, "storia", None))   # 26/10/2026 (docs/70): il conto nel giornale dello studio
     conti = _soglia_cumulata_lab(s, np.nan)
     k = conti["k"]
     k_testo = _fmt(k, 1) if isinstance(k, float) else _fmt(k)
@@ -2811,10 +3221,18 @@ def _diario_oos(s: Sessione, scelti: list) -> None:
               "cella": (getattr(s, "cella_long", None), getattr(s, "cella_short", None)),
               "uscite": _chiave_uscite(s), "sistema": getattr(s, "sistema", None) or "Long + Short",
               "filtri": tuple(scelti)}
-    n = _rd.annota_oos(storia, scelte)
+    # 26/10/2026 (docs/70 §3.2): nello studio anche l'ultima barra out-of-sample di adesso, per il reset
+    n = _rd.annota_oos(storia, scelte, oos_fino_al=s.df_oos.index[-1] if _nel_studio(storia) else None)
+    _salva_studio(storia)
+    if _nel_studio(storia):
+        c = _CONTESTO_STUDIO[storia.chiave]["studio"].get("contaminato")
+        if c:
+            _avviso(_frase_contaminato(c, corta=True))
+        _note_studio(storia)
     if n > 1:
         prima = storia.diario[0]
-        cambiate = [_NOMI_SCELTE[k] for k in scelte if prima.get(k) != scelte[k]]
+        # 26/10/2026: confronto nella forma del JSON (un diario riletto dal giornale ha liste, non tuple)
+        cambiate = [_NOMI_SCELTE[k] for k in scelte if _rd.normale(prima.get(k)) != _rd.normale(scelte[k])]
         _avviso(f"Out-of-sample già guardato {n} volte. "
                 + (f"Scelte cambiate dopo la prima volta: {', '.join(cambiate)}." if cambiate
                    else "Stesse scelte della prima volta.")
@@ -2867,6 +3285,7 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         combinazioni = math.comb(n_prove, len(scelti))
         # 22/10/2026: soglia cumulata, la famiglia «m filtri fra n» conta una volta
         s.prove["combinazioni"][(_chiave_filtri(s), len(scelti))] = combinazioni
+        _salva_studio(s.storia)       # 26/10/2026 (docs/70)
         _spiegazione(
             "Combinazione scelta a mano: non è passata dall'imbuto.",
             f"Ogni riga aggiunge un filtro a quella sopra: si entra solo quando sono veri tutti. Guarda quanti trade "

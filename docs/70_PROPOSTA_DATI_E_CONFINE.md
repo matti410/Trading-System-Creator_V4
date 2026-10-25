@@ -1,7 +1,8 @@
 # 70 · Proposta: dati in locale, timeframe a scelta, confine dell'in-sample salvato
 
 **Data:** 25 ottobre 2026
-**Stato:** PROPOSTA. **Nessun codice** prima dell'OK di Mattia.
+**Stato:** PROPOSTA APPROVATA da Mattia il 25/10/2026, con le decisioni del §14.
+Il codice va in due Pull request: A (engine e test) e B (`prepara`, Lab, notebook di ricerca).
 **Risponde a:** `docs/69_DATI_E_CONFINE.md` (l'incarico), con le indicazioni di
 Mattia del 25/10 sulla bozza: Drive per desktop raccomandato, ma senza
 conflitti fra PC e Colab; reset con la data nel campo; **un confine unico per
@@ -16,7 +17,8 @@ ricerca.
 **Indice:** §0 In breve · §1 Il flusso nuovo · §2 Il confine unico · §3 I file
 dello studio · §4 PC e Colab senza conflitti · §5 Il reset · §6 Funding e spot
 · §7 Cosa cambia nel codice e cosa resta · §8 Collaudo · §9 Identità · §10 Tempi
-· §11 Rischi · §12 Le domande del `69` §5 · §13 Fuori incarico
+· §11 Rischi · §12 Le domande del `69` §5 · §13 Fuori incarico · §14 Decisioni
+di Mattia · §15 Resoconto
 
 ---
 
@@ -77,6 +79,10 @@ Il testo del riquadro sopra la cella diventa:
 > **Dove stanno i dati.** Sul PC nella cartella di Drive, se c'è Google Drive per
 > desktop (§4), altrimenti in `dati/`; su Colab in
 > `Il mio Drive/Trading-System-Creator_V4/dati/`.
+>
+> **Drive per desktop:** usalo in modalità **streaming** e rendi disponibile
+> offline solo la cartella `Trading-System-Creator_V4`. Mai il mirroring di
+> tutto il Drive: copierebbe sul PC ogni file che hai su Drive.
 
 Cosa fa la cella:
 - in locale scrive `AGGIORNA_DATI = aggiorna_dati`;
@@ -781,3 +787,154 @@ stessa data, e il primo download completo lo fa il Lab.
   contiene un tratto già guardato e uno mai visto (le barre arrivate dopo
   l'ultima apertura del diario, su qualunque dataset). La scheda potrebbe
   mostrare anche i numeri del solo tratto mai visto, con quante barre ci sono.
+
+---
+
+## 14 · Decisioni di Mattia (25/10/2026)
+
+La proposta è approvata, con le indicazioni sulla bozza riportate in testa:
+- Drive per desktop raccomandato, con un giornale per macchina, solo in aggiunta;
+- reset con la data nel campo;
+- confine unico per tutto lo studio, con `confine="80%"` per le prove d'identità.
+
+**Domande del §12**
+
+| | decisione |
+|---|---|
+| 12.1 · Colab senza lo studio | **si ferma**, con il messaggio del §12.1 |
+| 12.2 · Più studi | **uno studio attivo alla volta** |
+| 12.3 · Soglia per suggerire il reset | **avviso al 30%** di out-of-sample, mai automatico |
+| 12.4 · Notebook di ricerca | **Lab e ricerca nello stesso studio**, con gli stessi giornali |
+| 12.5 · Symbol in elenco | **le monete attuali**; le altre in un ramo a parte |
+
+**Fuori incarico (§13)**
+
+| proposta | decisione |
+|---|---|
+| L'out-of-sample «fresco» | **lavoro piccolo dopo questo** |
+| Il conto delle prove fra dataset | **si decide nel lavoro dei testimoni**, più avanti |
+
+**Riquadro dell'Avvio (§1.1)**
+
+Una riga in più: con Drive per desktop si usa la modalità streaming e si rende
+disponibile offline solo la cartella `Trading-System-Creator_V4`, mai il
+mirroring di tutto il Drive.
+
+**Consegna del codice**
+
+Due Pull request, come per il riordino (`68`).
+
+| PR | contenuto | prove |
+|---|---|---|
+| **A · Engine e test** | `engine/aggiorna_dati.py`; `engine/studio.py`; `split_al_confine` in `engine/splitting.py`; `da_voci` e `oos_fino_al` in `engine/registro_dataset.py`; `test_dati_confine.py` con la sua riga in `suite_rapida.py`; `scarica_dati_crypto.py` che importa le funzioni spostate | `test_dati_confine.py` (§8) |
+| **B · Il resto** (dopo il merge di A) | `vetrina.prepara` e le funzioni del registro; l'Avvio e la schermata 1 del Lab crypto; le celle 4, 11, 20 e 24 del notebook di ricerca | le prove d'identità del §9 |
+
+Prima di ognuna, la suite completa.
+
+
+---
+
+## 15 · Resoconto (*resoconto*, 26/10/2026)
+
+**Consegna.**
+- **PR #69 (A):** `engine/aggiorna_dati.py`, `engine/studio.py`, `split_al_confine`,
+  `da_voci`, `test_dati_confine.py`; `scarica_dati_crypto.py` usa le funzioni spostate.
+- **PR successiva (B):** `prepara` con lo studio, Lab crypto, notebook di ricerca,
+  `docs/00`. In apertura c'è la correzione di Mattia sul reset all'indietro.
+
+### 15.1 · Scelte fatte nel codice, da sapere
+
+1. **Il reset all'indietro** (correzione di Mattia del 26/10). Un confine nuovo più
+   indietro del vecchio è ammesso solo se lo studio vecchio non ha voci «prova»,
+   «oos» o «risalita». La voce «orizzonte» non conta: la schermata 1 la scrive
+   appena si apre lo studio, prima di qualunque misura, e con lei il rimedio del
+   §11 sarebbe sempre bloccato. Altrimenti il reset si rifiuta, con un messaggio
+   che spiega perché. Test D22, D22b, D22c.
+2. **L'80% all'apertura si calcola sulle barre che si dividono davvero**, cioè dopo
+   gli indicatori, che scartano le prime barre di riscaldamento: sono le stesse
+   che dividevano prima il Lab e la ricerca. Così il confine è esattamente quello
+   di prima.
+   - Su BINANCE_PERP_BTCUSDT M15 è il **10/06/2025 alle 16:00 UTC**, non alle 01:00
+     come nel §2. Il §2 lo aveva calcolato sulle barre grezze del CSV.
+   - L'impronta invece resta calcolata sulle barre del CSV (`entra(...,
+     df_impronta=)`).
+3. **`prepara` senza `confine` fa come prima** (80% a ogni giro, niente studio). Il
+   Lab e la ricerca passano `confine="studio"` in modo esplicito. Col predefinito
+   «studio», i test e gli script che chiamano `prepara` su `dati/` avrebbero
+   aperto lo studio vero.
+4. **La ricerca usa lo studio solo sui symbol da exchange.** Sul broker (sospeso)
+   resta l'80%: il notebook parte con `symbol = "EURUSD"`, e lo studio si sarebbe
+   aperto su un symbol del broker.
+5. **Il taglio al funding** (§6.2) si fa al confine dello studio già aperto. Al
+   primo avvio, quando il confine non c'è ancora, un funding meno avanti delle
+   candele ferma la schermata come prima (test E9a).
+6. **I CSV veri si rileggono identici al bit.** `read_csv` non rilegge al bit i
+   numeri con molti decimali; i prezzi dei CSV veri hanno pochi decimali e si
+   rileggono identici (test B6c). Su questo poggia l'impronta.
+
+### 15.2 · Identità (§9)
+
+Main contro ramo, CSV del 19/10 in cartelle temporanee, interruttore spento.
+
+| giro | risultato |
+|---|---|
+| Lab, BTC perp, confine dello studio (si apre) | oggetti 10/10 identici, conto delle prove identico |
+| Lab, BTC perp, secondo giro (studio riletto dal file) | oggetti 10/10 identici; il diario ha 2 aperture (la prima letta dal giornale) |
+| Lab, ETH spot Bybit, `confine="80%"` | oggetti 10/10 identici, conto identico |
+| Ricerca, BTC perp, confine dello studio | variabili 93/93 identiche |
+| Ricerca, ETH spot, `confine="80%"` | variabili 85/85 identiche |
+
+Le tabelle del Lab che cambiano sono quelle attese:
+- `riepilogo`: la riga «Studio» e il testo dell'in-sample e dell'out-of-sample;
+  le barre sono le stesse, 190.420 e 47.606;
+- `diario_oos`: l'ora e il campo nuovo `oos_fino_al`, scelte identiche;
+- `lente`: apre un trade a caso, come nel `68`.
+
+**ETH spot con il confine dello studio** (aperto su BTC perp), collaudo e non verdetto:
+- in-sample da 147.823 a 137.172 barre (74,2%) e out-of-sample da 36.956 a 47.607;
+- trigger misurati da 33 a 32 e celle da 186 a 182;
+- la rosa resta E21_BELT_HOLD;
+- trade da 2.100 a 1.942 nell'in-sample e da 548 a 706 nell'out-of-sample.
+
+**Barre nuove, scaricate davvero** (sola lettura) sul BTC del giro 1, il 25/10:
+- candele +593, spot +594, funding +14, controlli puliti;
+- il confine non si è mosso e l'out-of-sample è passato da 708 a 717 trade;
+- l'in-sample però **non è identico al bit** (§15.3).
+
+### 15.3 · Un punto aperto: lo spread si converte con la mediana di tutto lo storico
+
+Sui symbol da exchange lo spread di un passo diventa una frazione del prezzo con
+il **prezzo mediano di tutto lo storico** (`exchange.costi_exchange`, chiamata da
+`prepara` sul `df` intero, out-of-sample compreso). Era così anche prima di questo
+lavoro.
+
+Con il confine fisso lo si vede: quando arrivano barre nuove, la mediana cambia di
+un soffio e con lei il costo di ogni trade in-sample. Sul BTC del 25/10:
+- lo spread passa da 0,0226 a 0,0225 bp per trade;
+- il totale in-sample passa da −78.508 a −78.507 pips;
+- il funding in-sample resta identico.
+
+Sono numeri che non spostano niente, ma un dato dell'out-of-sample entra nel costo
+dei trade in-sample. Tre strade, decide Mattia:
+- **A · mediana dell'in-sample** (fino al confine). Nessun dato dell'out-of-sample
+  nei costi, e l'in-sample resta identico con le barre nuove. Rispetto a main
+  cambia lo spread di tutti i trade, di qualche millesimo di bp: è una modifica di
+  calcolo dichiarata.
+- **B · mediana congelata nello studio** al primo ingresso del dataset. Identità con
+  main e in-sample fermo, ma è un valore legato al giorno di apertura.
+- **C · lasciare com'è.**
+
+Raccomandazione: A.
+
+### 15.4 · Tempi misurati
+
+Con la rete vera, il 25/10 (parte A), su BINANCE_PERP_BTCUSDT:
+- H4 completo: 10 secondi;
+- M15 completo: 83 secondi;
+- incrementale di 6 giorni (candele, spot e funding): 10 secondi.
+
+Il Lab completo con l'aggiornamento acceso ha girato in 118 secondi, contro i
+128–142 dei giri senza aggiornamento: la differenza sta nella variabilità fra un
+giro e l'altro.
+
+`test_dati_confine.py`: 77 test.

@@ -1,7 +1,7 @@
 # 00 · Scopo del progetto e stato attuale
 
-**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 25 ottobre 2026 (dopo il riordino
-della pipeline del Lab, PR #63 e la successiva).
+**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 26 ottobre 2026 (dopo i dati in
+locale e il confine dello studio, `70`, PR #69 e la successiva).
 Questo file è solo lo **stato attuale**, in 1–2 pagine. Riferimenti completi e
 storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
 manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10)
@@ -22,7 +22,9 @@ stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede.
   guidato, nove schermate, chiama `engine/vetrina.py`) e
   `Trading_Grid_Search_v4_backtesting.ipynb` (ricerca). Il collaudo del
   catalogo è in `Collaudo_Catalogo.ipynb`. `Trading_System_Lab.ipynb` (broker)
-  è sospeso. Girano in locale (`dati/`) e su Colab (Drive).
+  è sospeso. Girano in locale e su Colab (Drive); in locale i dati stanno nella cartella
+  di Google Drive per desktop se c'è (streaming, offline solo la cartella del progetto),
+  altrimenti in `dati/`.
 - **Repo (pubblico):** `github.com/matti410/Trading-System-Creator_V4`.
 
 ## LA REGOLA CHE VIENE PRIMA DI TUTTE
@@ -81,14 +83,27 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   trigger dello stesso lato; un long e uno short legati in negativo non sono doppioni
   e la loro convivenza si misura alla 4b, sui trade veri. Notebook di ricerca:
   `X_INVERSIONE_TREND` con il profilo nell'unità che decide (bp sulle crypto), come il Lab.
+- **Dati in locale** (`70`, 26/10): l'interruttore «aggiorna i dati» dell'Avvio
+  scarica, solo sul PC, le barre nuove del symbol e del timeframe scelti alla
+  schermata 1 (con spot e funding del perpetual); su Colab si leggono i file di Drive.
+  Stesso codice di `scarica_dati_crypto.py` (`engine/aggiorna_dati.py`).
+- **Il confine dell'in-sample è dello studio** (`70` §2): una data sola per tutti gli
+  exchange, le monete e i timeframe, fissata dal primo dataset aperto all'80% delle sue
+  barre e salvata in `studio/confine.json` accanto ai dati. Non si muove più: le barre
+  nuove vanno tutte nell'out-of-sample. Si ricalcola solo scrivendo la data di oggi in
+  `ricalcola_confine` (solo sul PC; lo studio va in archivio; indietro solo su uno
+  studio dove non si è ancora misurato né guardato niente). Un'impronta controlla che
+  le barre dell'in-sample non cambino. Il notebook di ricerca usa lo stesso studio sui
+  symbol da exchange; `confine="80%"` è la regola di prima, solo per le prove d'identità.
 - **Registro per dataset** (`68` §9.1): symbol, timeframe e confine dell'in-sample.
   Cambiare H sullo stesso dataset non azzera conto e diario dell'out-of-sample, si
-  segnala e si conta (`soglia_rumore_orizzonte` sugli H provati). Vive finché il
-  kernel è aperto.
+  segnala e si conta (`soglia_rumore_orizzonte` sugli H provati). Dal 26/10 (`70` §3-§4)
+  si salva nei giornali dello studio, uno per macchina e solo in aggiunta (PC e Colab
+  non scrivono mai lo stesso file): resta anche dopo il riavvio.
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 42 suite, 3 alla volta, circa 12 minuti; alla fine deve stampare
+  --tutte`, 43 suite, 3 alla volta, circa 13 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
@@ -133,10 +148,14 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    test; PR successiva, Lab e notebook di ricerca). Incarico `67`, proposta e
    resoconto in `68`.
 
-Prossimi lavori, ordine deciso da Mattia il 24/10: dati in locale con download a
-ogni run, timeframe scelto ogni volta, volume aggressivo; poi la mappa delle
-anomalie (il posto libero 2b del Lab). Orizzonti multipli in un lavoro a parte
-(`68` §13).
+9. **Dati in locale e confine dello studio** — fatto (PR #69, engine e test; PR
+   successiva, `prepara`, Lab e notebook di ricerca). Incarico `69`, proposta,
+   decisioni e resoconto in `70`.
+
+Prossimi lavori, in ordine (Mattia, 24 e 25/10): l'out-of-sample «fresco» (lavoro
+piccolo, `70` §13), il volume aggressivo; poi la mappa delle anomalie (il posto
+libero 2b del Lab). Orizzonti multipli in un lavoro a parte (`68` §13). Il conto
+delle prove fra dataset si decide nel lavoro dei testimoni.
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.
