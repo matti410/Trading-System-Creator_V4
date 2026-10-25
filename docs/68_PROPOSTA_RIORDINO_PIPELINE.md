@@ -2,17 +2,16 @@
 
 **Data:** 25 ottobre 2026
 **Stato:** PROPOSTA, **senza codice**. Risponde all'incarico `docs/67`.
-Niente si scrive prima delle decisioni di Mattia sul §12.
-**Già deciso da Mattia il 25/10 (ex domanda 4):** le barre consigliate sono
-l'H della schermata 1; il picco della curva si mostra solo come informazione
-(§5).
+**Decisioni di Mattia del 25/10/2026 al §12**, con le sue due correzioni
+(cambiare H, §9.1; nota sul picco, §5.1). Il codice si scrive su un ramo a
+parte, dopo il merge di questa proposta.
 **Perimetro:** crypto da exchange; il Lab broker resta sospeso e non si tocca.
 
 **Indice:** §0 In breve · §1 Il flusso nuovo · §2 Il metro unico · §3 La
 casistica · §4 La scelta delle casistiche (3b) · §5 Le uscite consigliate ·
 §6 Il profilo orario · §7 Dalla 4b al passo 5 · §8 Le prove su ogni schermata
 · §9 Risalire l'imbuto · §10 Il notebook di ricerca · §11 Collaudo, identità,
-tempi · §12 Domande per Mattia · §13 Orizzonti multipli (domanda 6 di `67`).
+tempi · §12 Decisioni di Mattia · §13 Orizzonti multipli (domanda 6 di `67`).
 
 ---
 
@@ -34,11 +33,14 @@ tempi · §12 Domande per Mattia · §13 Orizzonti multipli (domanda 6 di `67`).
   l'ora d'uscita è la stessa scadenza scritta come orario.
 - **La riga delle prove** compare su ogni schermata; dopo la scheda (6) ogni
   scelta rifatta a monte è segnalata, anche nella scheda successiva.
+- **Cambiare H non azzera niente** sullo stesso dataset: si segnala come
+  risalita e la scelta fra gli H provati si conta (§9.1).
 - **La 4b sceglie il sistema** (Long + Short, solo long, solo short) e il
   passo 5 usa quello.
 - **Engine:** solo aggiunte (una funzione per la curva dello scarto per barra,
-  una per il picco da mostrare accanto alle uscite, un parametro facoltativo a due funzioni
-  esistenti). L'unico numero che cambia per decisione è quello delle uscite
+  una per il picco da mostrare accanto alle uscite, un parametro facoltativo
+  a tre funzioni esistenti: `registra_inversione_trend`, `rosa_dei_sistemi`,
+  `soglia_rumore_orizzonte`). L'unico numero che cambia per decisione è quello delle uscite
   costruite con la cella (§3.3).
 - **Orizzonti multipli:** consiglio di farli in un lavoro dopo questo; qui si
   lascia il posto (§13).
@@ -53,7 +55,7 @@ leggibili.
 
 | schermata | riceve | calcola | decide l'utente | passa avanti | prove (riga su ogni schermata, §8) |
 |---|---|---|---|---|---|
-| 1 · Configura | — | come oggi | symbol, timeframe, **H = orizzonte atteso, dichiarato prima di vedere i dati** | sessione | 0 |
+| 1 · Configura | — | come oggi | symbol, timeframe, **H = orizzonte atteso, dichiarato prima di vedere i dati** | sessione; il registro del dataset (§9.1) | 0 al primo H; la scelta fra gli H provati se H cambia sullo stesso dataset |
 | 2a · Il mercato, ora per ora (oggi 2b) | in-sample, H | profilo orario, in bp | — | `s.profilo`, **riusato** da `X_INVERSIONE_TREND` (§6) | 0 (le fasce si contano solo se si sceglie un trigger a orario) |
 | *2b · posto libero* | | *la mappa delle anomalie (lavoro 3), prima della rosa* | | | *le fasce provate* |
 | 2c · I trigger contro il mercato della stessa ora (oggi 2) | in-sample, H | event study di tutto il catalogo (per il conto) + **curve dello scarto per barra** dei migliori per lato, in bp | — | `s.ev`, `s.curve_scarto` | i trigger misurati |
@@ -194,8 +196,11 @@ conta come una prova». Due casi con una nota in più:
 - picco nell'ultimo quarto di H (la stessa regola di `picco_in_coda`
   dell'event study): «il movimento continua fino all'orizzonte che hai
   dichiarato»;
-- picco nelle prime barre: «il movimento è corto rispetto all'orizzonte; il
-  costo pesa per intero anche su un trade che resta aperto H barre».
+- picco nelle prime barre: «il movimento finisce presto: dopo il picco il
+  trade resta aperto fino a H barre, esposto al rumore del prezzo e, sui
+  perpetual, al funding, che cresce con la durata». (La commissione si paga
+  una volta sola, all'ingresso e all'uscita, qualunque sia la durata: non è
+  lei che pesa di più su un trade lungo.)
 
 **Engine, aggiunta:** `picco_curva(curva, H)` → barra, valore e nota (una
 funzione pura, facile da collaudare su curve costruite apposta). Non decide
@@ -285,9 +290,9 @@ oggi.
 
 - La scheda (6) scrive nella sessione un **diario dell'out-of-sample**: ogni
   volta che si apre, con trigger, cella, uscite, sistema e filtri di quel
-  momento. Il diario non si azzera mai; si azzera solo con `prepara`.
-  Oggi le scelte nuove azzerano `s.oos` e l'informazione si perde: è il
-  motivo per cui serve un attributo a parte.
+  momento. Il diario non si azzera con le scelte; riparte da zero solo
+  quando cambia il dataset (§9.1). Oggi le scelte nuove azzerano `s.oos` e
+  l'informazione si perde: è il motivo per cui serve un registro a parte.
 - Da quel momento, ogni schermata 2→5 rieseguita mostra in testa un
   **riquadro arancione**: «Hai già guardato l'out-of-sample il …. Le scelte che
   fai adesso le fai sapendo come è andata: la prossima scheda non è più una
@@ -296,6 +301,53 @@ oggi.
   N volte. Scelte cambiate dopo la prima volta: trigger, uscite …».
 - Notebook di ricerca: le stesse due funzioni, chiamate dalla Sessione 4 e
   dalle celle di scelta.
+
+### 9.1 · Cambiare H (correzione di Mattia del 25/10)
+
+Con barre consigliate = H (§5.1), l'H è la scelta che pesa di più su tutta la
+catena. Oggi rieseguire la schermata 1 con un altro H crea una sessione nuova:
+conto delle prove e diario dell'out-of-sample ripartono da zero. È una
+risalita silenziosa: si prova un H, si guarda, se ne prova un altro, e il
+conto non lo sa.
+
+**Cosa cambia.**
+- **Il dataset** è: symbol, timeframe e confine dell'in-sample (la data
+  dell'ultima barra in-sample, che oggi viene dall'80% delle barre del CSV).
+  `prepara` tiene un registro, per dataset, fuori dalla sessione: H provati,
+  conto delle prove, diario dell'out-of-sample.
+- **Stesso dataset, H diverso:** `prepara` crea la sessione nuova ma **riprende
+  dal registro** conto e diario; aggiunge l'H alla lista degli H provati;
+  mostra la segnalazione di risalita: «Hai già lavorato su questo dataset con
+  H = 41. Cambiare orizzonte dopo aver visto i risultati è una scelta fra
+  orizzonti: si conta». Se l'out-of-sample è già stato guardato, il riquadro è
+  quello arancione del §9.
+- **Stesso dataset, stesso H:** nessuna prova in più, nessuna segnalazione
+  (si è solo rieseguita la cella).
+- **Dataset diverso** (altro symbol, timeframe o confine, per esempio un CSV
+  aggiornato con barre nuove): `prepara` riparte da zero, come oggi, e lo
+  scrive.
+
+**Il conto.** La scelta fra gli H provati si conta con la logica del §13:
+`soglia_rumore_orizzonte` ristretta ai **punti provati** (parametro
+facoltativo nuovo `punti=`, additivo). Per k trigger misurati con gli H
+provati h₁…hₘ, la soglia è quella di k entry, ciascuna con il massimo preso
+sui soli punti h₁…hₘ. Nella soglia cumulata la voce dei trigger diventa il
+**numero di prove equivalente** a quella soglia (quante prove indipendenti
+danno la stessa soglia con Šidák), al posto dei soli k: non si sommano i
+trigger una volta per H, perché orizzonti vicini si sovrappongono. Le altre
+voci (celle, uscite, filtri) fatte con gli H di prima restano nel conto: sono
+prove fatte. Con un H solo, la soglia è esattamente `soglia_rumore(k)` (come
+oggi `soglia_rumore_orizzonte` con un orizzonte di una barra), quindi il conto
+di chi non cambia H resta identico.
+
+**Un limite da sapere.** Il registro vive finché resta aperto il notebook:
+riavviare il kernel (o Colab che si disconnette) lo azzera. Salvarlo in un
+file accanto ai dati è il passo naturale del lavoro 2, quando il confine
+dell'in-sample diventerà una data salvata con lo studio. Qui lo si scrive
+nel riquadro della schermata 1.
+
+**Notebook di ricerca:** la cella dove si scrive `H = …` chiama la stessa
+funzione del registro, con symbol, timeframe e confine dell'in-sample.
 
 ---
 
@@ -339,6 +391,18 @@ oggi.
    risalita segnalata.
 9. La riga delle prove della schermata 4 e quella della scheda danno lo
    stesso numero.
+10. Cambiare H (§9.1), su dati costruiti apposta:
+    - `prepara` con H = 41 e poi H = 25 sullo stesso CSV: H provati = [41,
+      25], conto e diario ripresi, risalita segnalata;
+    - di nuovo H = 25: nessuna prova in più, nessuna segnalazione;
+    - stesso CSV con un altro timeframe, o con il confine spostato (barre in
+      più): registro da zero;
+    - `soglia_rumore_orizzonte(k, punti=[H])` è uguale a `soglia_rumore(k)`;
+      `soglia_rumore_orizzonte(1, punti=[4, 16, 32, 96])` è 2,44 (±0,01, seme
+      fisso), il valore della simulazione del §13; con due punti la soglia
+      sta fra quella di un punto e quella di due prove indipendenti;
+    - la voce dei trigger nella soglia cumulata, con due H, è il numero
+      equivalente atteso, e la soglia della scheda torna con la formula.
 
 I test esistenti non cambiano: quelli che chiamano `scegli_trigger`
 (`test_vetrina.py`, `test_exchange.py`) continuano a farlo, perché la
@@ -370,28 +434,36 @@ Le curve dello scarto costano H passate sulle barre per i trigger mostrati
 
 ---
 
-## 12 · Domande per Mattia
+## 12 · Decisioni di Mattia (25/10/2026)
 
-1. **3b:** due campi per lato, «togli» e «aggiungi» (strada B, consigliata)?
-2. **Più casistiche sullo stesso lato:** consiglio di tenerle **in OR, come
-   oggi**, in questo lavoro: un sistema per lato, l'imbuto resta corto e
-   l'identità si prova. *Criterio di `67`:* i sistemi separati per casistica
-   sono la strada verso il portafoglio. La struttura della casistica (§3.1) è
-   già pronta a diventare «un sistema per casistica» in un lavoro dopo: lì
-   ogni casistica avrà le sue uscite e la rosa dei sistemi diventerà la scelta
-   del portafoglio. Farlo adesso vorrebbe dire moltiplicare uscite, filtri e
-   schede per casistica prima di aver collaudato il flusso nuovo.
-3. **Il picco mostrato accanto:** dalla curva dello scarto dalla stessa ora,
-   con le due note (picco in coda, picco nelle prime barre) del §5.1?
-4. *Decisa il 25/10:* barre consigliate = H, picco solo da leggere (§5.1,
-   §5.4).
-5. **Classifica:** sparisce dal Lab la colonna «supera il rumore» del picco
-   lordo (§2.2)?
-6. **4b:** predefinito «Long + Short», come oggi?
-7. **Trigger a orario:** uscita consigliata scritta come orario `X_ORA_@`
-   (stessi trade della scadenza in barre)?
-8. **Orizzonti multipli:** in un lavoro dopo questo, con il posto lasciato
-   alla schermata 1 (consigliato, §13)?
+1. **3b:** sì, due campi per lato, «togli» e «aggiungi» (strada B, §4).
+2. **Più casistiche sullo stesso lato:** sì, **in OR come oggi**, per ora.
+   *Criterio di `67`, per dopo:* i sistemi separati per casistica sono la
+   strada verso il portafoglio; la struttura della casistica (§3.1) è pronta
+   a diventare «un sistema per casistica» in un lavoro successivo, con le sue
+   uscite, e la rosa dei sistemi diventerà la scelta del portafoglio.
+3. **Il picco mostrato accanto:** sì, dalla curva dello scarto dalla stessa
+   ora, con le due note del §5.1 (la seconda riscritta: correzione B qui
+   sotto).
+4. **Barre consigliate = H**, picco solo da leggere; se si cambia il campo,
+   la modifica si conta come le altre (§5.1, §5.4).
+5. **Classifica:** sì, sparisce dal Lab la colonna «supera il rumore» del
+   picco lordo (§2.2); resta nel notebook di ricerca.
+6. **4b:** sì, predefinito «Long + Short», come oggi (§7).
+7. **Trigger a orario:** sì, uscita consigliata scritta come orario `X_ORA_@`,
+   stessi trade della scadenza in barre (§5.2).
+8. **Orizzonti multipli:** sì, in un lavoro dopo questo, con il posto
+   lasciato alla schermata 1 (§13).
+
+**Correzioni di Mattia, entrate nella proposta:**
+- **A · Cambiare H** non è più una risalita silenziosa: sullo stesso dataset
+  (symbol, timeframe, confine dell'in-sample) diario e conto non si azzerano,
+  il cambio si segnala e la scelta fra gli H provati si conta con
+  `soglia_rumore_orizzonte` sui punti provati; `prepara` riparte da zero solo
+  se cambia il dataset (§9.1, test 10 del §11.1).
+- **B · Nota «picco nelle prime barre»:** la commissione si paga una volta
+  sola; la nota parla del rumore e, sui perpetual, del funding, che crescono
+  con la durata (§5.1).
 
 ---
 
