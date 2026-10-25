@@ -308,8 +308,8 @@ def soglia_rumore(k: int, alpha: float = 0.05) -> float:
 _CACHE_ORIZZONTE: dict[tuple, np.ndarray] = {}
 
 
-def soglia_rumore_orizzonte(k: int, horizon: int, alpha: float = 0.05,
-                            n_sim: int = 1_000_000, seme: int = 0) -> float:
+def soglia_rumore_orizzonte(k: int, horizon: int | None = None, alpha: float = 0.05,
+                            n_sim: int = 1_000_000, seme: int = 0, punti=None) -> float:
     """
     Come `soglia_rumore`, ma per l'EVENT STUDY, dove si sceglie DUE volte
     il migliore:
@@ -343,27 +343,85 @@ def soglia_rumore_orizzonte(k: int, horizon: int, alpha: float = 0.05,
     Vale se i trigger non si sovrappongono. Con trigger vicini (grappoli)
     l'incertezza dell'event study e' sottostimata e la soglia e' un
     PAVIMENTO. Come `soglia_rumore`, conta solo le prove di quella chiamata.
+
+    punti (25/10/2026, docs/68 §9.1 e §13): il massimo si prende solo sulle
+    barre indicate (per esempio gli orizzonti H provati sullo stesso dataset,
+    [41, 25]) invece che su 1..horizon: e' il costo di scegliere fra quegli
+    orizzonti. Con un punto solo non si sceglie niente e la funzione
+    restituisce esattamente `soglia_rumore(k, alpha)`. None (default) = come
+    prima, tutte le barre 1..horizon.
     """
     k = max(1, int(k))
-    horizon = max(1, int(horizon))
-    if horizon == 1:
-        return soglia_rumore(k, alpha)
+    if punti is not None:
+        punti = sorted({int(p) for p in punti})
+        if not punti or punti[0] < 1:
+            raise ValueError("punti: servono barre intere da 1 in su, es. [25, 41].")
+        if len(punti) == 1:
+            return soglia_rumore(k, alpha)
+        lunghezza, colonne = punti[-1], np.asarray(punti) - 1
+        chiave = (tuple(punti), int(n_sim), int(seme))
+    else:
+        if horizon is None:
+            raise ValueError("Serve horizon (o punti).")
+        horizon = max(1, int(horizon))
+        if horizon == 1:
+            return soglia_rumore(k, alpha)
+        lunghezza, colonne = horizon, None
+        chiave = (horizon, int(n_sim), int(seme))   # la chiave di prima: stessa cache, stessi numeri
 
-    chiave = (horizon, int(n_sim), int(seme))
     if chiave not in _CACHE_ORIZZONTE:
         rng = np.random.default_rng(seme)
-        radici = np.sqrt(np.arange(1, horizon + 1))
-        blocco = max(1, 2_000_000 // horizon)       # memoria contenuta
+        radici = np.sqrt(np.arange(1, lunghezza + 1))
+        blocco = max(1, 2_000_000 // lunghezza)     # memoria contenuta
         massimi, rimasti = [], int(n_sim)
         while rimasti > 0:
             m = min(blocco, rimasti)
-            z = np.cumsum(rng.standard_normal((m, horizon)), axis=1) / radici
+            z = np.cumsum(rng.standard_normal((m, lunghezza)), axis=1) / radici
+            if colonne is not None:
+                z = z[:, colonne]
             massimi.append(np.abs(z).max(axis=1))
             rimasti -= m
         _CACHE_ORIZZONTE[chiave] = np.sort(np.concatenate(massimi))
 
     livello = (1.0 - alpha) ** (1.0 / k)
     return float(np.quantile(_CACHE_ORIZZONTE[chiave], livello))
+
+
+def prove_equivalenti(soglia: float, alpha: float = 0.05) -> float:
+    """
+    Quante prove indipendenti danno la stessa `soglia` con Sidak (25/10/2026,
+    docs/68 §9.1): l'inversa di `soglia_rumore`, senza arrotondare.
+
+        per prova = 2 * (1 - Phi(soglia))
+        k         = ln(1 - alpha) / ln(1 - per prova)
+
+    prove_equivalenti(soglia_rumore(k)) = k. Serve a mettere nella soglia
+    cumulata, che somma prove, una scelta che non vale un numero intero di
+    prove (per esempio quella fra orizzonti che si sovrappongono).
+    """
+    s = float(soglia)
+    if not np.isfinite(s) or s <= 0:
+        raise ValueError("soglia: serve un numero positivo.")
+    per_prova = 2.0 * (1.0 - NormalDist().cdf(s))
+    if per_prova <= 0:
+        return float("inf")
+    return float(np.log(1.0 - alpha) / np.log1p(-per_prova))
+
+
+def prove_trigger_orizzonti(k: int, h_provati, alpha: float = 0.05) -> float:
+    """
+    La voce dei trigger nella soglia cumulata quando sullo stesso dataset si
+    sono provati piu' orizzonti H (25/10/2026, docs/68 §9.1): k trigger,
+    ciascuno con il migliore fra gli H provati, come numero di prove
+    equivalente. Con un H solo e' esattamente k (il conto di prima).
+    """
+    k = max(0, int(k))
+    h = sorted({int(x) for x in (h_provati or [])})
+    if k == 0:
+        return 0.0
+    if len(h) <= 1:
+        return float(k)
+    return prove_equivalenti(soglia_rumore_orizzonte(k, punti=h, alpha=alpha), alpha)
 
 
 # ========================================================================
