@@ -124,7 +124,7 @@ def _gruppo(tabella: pd.DataFrame, serie: dict, rho_max: float, per_lato: bool =
     Aggiunge le colonne nella_rosa, rho_max (il |rho| piu' alto con gli altri
     membri della rosa) e perche (il motivo, per chi resta fuori).
 
-    per_lato (26/10/2026, decisione di Mattia): la correlazione si controlla, e
+    per_lato (25/10/2026, decisione di Mattia): la correlazione si controlla, e
     rho_max si misura, solo con i membri dello STESSO lato (colonna
     `direction`). Un long e uno short legati in negativo non sono doppioni: il
     mercato li muove in versi opposti, e la loro convivenza si misura alla
@@ -254,7 +254,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         candidata      t > 0, bh e due_meta
         famiglia       numero della famiglia (engine/famiglie.py)
         nella_rosa     nel gruppo suggerito
-        rho_max        |rho| piu' alto con gli altri membri della rosa dello stesso lato (26/10/2026)
+        rho_max        |rho| piu' alto con gli altri membri della rosa dello stesso lato (25/10/2026)
         perche         perche' e' fuori dalla rosa: il primo controllo non superato,
                        oppure la famiglia o la correlazione con un membro
         scarto_globale_<unita>, t_globale
@@ -366,7 +366,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     t["candidata"] = (t["t_netto"] > 0) & t["bh"] & t["due_meta"]
     fam = famiglie(df_is, "entry", nomi=list(t["candidato"]), soglia=soglia_famiglia)
     t["famiglia"] = t["candidato"].map(fam.set_index("nome")["famiglia"]).astype(int)
-    t = _ordina(_gruppo(t, serie, rho_max, per_lato=True))[colonne]      # 26/10/2026: rho solo sullo stesso lato
+    t = _ordina(_gruppo(t, serie, rho_max, per_lato=True))[colonne]      # 25/10/2026: rho solo sullo stesso lato
     t.attrs.update(k=len(t), **info)
     return t
 

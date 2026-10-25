@@ -1,5 +1,5 @@
 """
-Aggiornamento dei dati da exchange (26/10/2026, docs/70 §1, §6, §7.1).
+Aggiornamento dei dati da exchange (25/10/2026, docs/70 §1, §6, §7.1).
 
 A COSA SERVE
 ------------

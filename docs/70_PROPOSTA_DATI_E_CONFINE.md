@@ -834,7 +834,7 @@ Prima di ognuna, la suite completa.
 
 ---
 
-## 15 · Resoconto (*resoconto*, 26/10/2026)
+## 15 · Resoconto (*resoconto*, 25/10/2026)
 
 **Consegna.**
 - **PR #69 (A):** `engine/aggiorna_dati.py`, `engine/studio.py`, `split_al_confine`,
@@ -844,7 +844,7 @@ Prima di ognuna, la suite completa.
 
 ### 15.1 · Scelte fatte nel codice, da sapere
 
-1. **Il reset all'indietro** (correzione di Mattia del 26/10). Un confine nuovo più
+1. **Il reset all'indietro** (correzione di Mattia del 25/10). Un confine nuovo più
    indietro del vecchio è ammesso solo se lo studio vecchio non ha voci «prova»,
    «oos» o «risalita». La voce «orizzonte» non conta: la schermata 1 la scrive
    appena si apre lo studio, prima di qualunque misura, e con lei il rimedio del
@@ -926,7 +926,7 @@ dei trade in-sample. Tre strade, decide Mattia:
 
 Raccomandazione: A.
 
-**Decisione di Mattia (26/10): A**, come lavoro piccolo subito dopo la PR #70.
+**Decisione di Mattia (25/10): A**, come lavoro piccolo subito dopo la PR #70.
 `costi_storico(..., df_prezzo=)`: il Lab e il notebook di ricerca passano
 l'in-sample. Con le barre nuove del 25/10 l'in-sample di BTC ora è identico al bit:
 uscite, filtri, trade, rosa e atlante. Rispetto a prima, sui CSV del 19/10, lo

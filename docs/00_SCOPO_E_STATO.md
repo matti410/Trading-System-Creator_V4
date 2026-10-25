@@ -1,6 +1,6 @@
 # 00 · Scopo del progetto e stato attuale
 
-**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 26 ottobre 2026 (dopo i dati in
+**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 25 ottobre 2026 (dopo i dati in
 locale e il confine dello studio, `70`, PR #69 e la successiva).
 Questo file è solo lo **stato attuale**, in 1–2 pagine. Riferimenti completi e
 storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
@@ -61,8 +61,9 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   ATR accanto; totale, drawdown e money management in pips, stress test in bp
   sulle crypto, in pips sul broker (PR #55) (`02`, «Unità»; `63` §4).
 - **Costi:** commissione taker di listino, livello base, più uno spread di un
-  passo, convertito in frazione con il prezzo mediano dell'**in-sample** (`70` §15.3,
-  26/10: nessun dato dell'out-of-sample nei costi); sui perpetual il **funding** trade per trade, acceso di default (`63`
+  passo **per trade** (`71`, 25/10): fuori dal prezzo di fill, un passo in
+  `CostoExtraPips` nei due motori, fisso in pips, passo / prezzo d'ingresso in bp; la
+  confidenza usa il costo della barra del segnale (Close); sui perpetual il **funding** trade per trade, acceso di default (`63`
   §5). Leva mai oltre il tetto italiano (perpetual 2, spot 1).
 - **Motore di backtest:** «veloce» (`engine/motore_veloce.py`, numba) è il
   predefinito; «bt» (`backtesting.py`) resta e fa da oracolo dei test. Due
@@ -80,11 +81,11 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **L'orizzonte H lo dichiara l'utente prima di guardare i dati.** Il 41 che il Lab
   propone (e il 25 del notebook di ricerca) è un valore di collaudo messo da Mattia
   senza motivazione: serve solo alle prove d'identità, non è una scelta di ricerca.
-- **Rosa dei trigger** (26/10): la correlazione (|rho| ≤ 0,3) si controlla solo fra
+- **Rosa dei trigger** (25/10): la correlazione (|rho| ≤ 0,3) si controlla solo fra
   trigger dello stesso lato; un long e uno short legati in negativo non sono doppioni
   e la loro convivenza si misura alla 4b, sui trade veri. Notebook di ricerca:
   `X_INVERSIONE_TREND` con il profilo nell'unità che decide (bp sulle crypto), come il Lab.
-- **Dati in locale** (`70`, 26/10): l'interruttore «aggiorna i dati» dell'Avvio
+- **Dati in locale** (`70`, 25/10): l'interruttore «aggiorna i dati» dell'Avvio
   scarica, solo sul PC, le barre nuove del symbol e del timeframe scelti alla
   schermata 1 (con spot e funding del perpetual); su Colab si leggono i file di Drive.
   Stesso codice di `scarica_dati_crypto.py` (`engine/aggiorna_dati.py`).
@@ -98,7 +99,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   symbol da exchange; `confine="80%"` è la regola di prima, solo per le prove d'identità.
 - **Registro per dataset** (`68` §9.1): symbol, timeframe e confine dell'in-sample.
   Cambiare H sullo stesso dataset non azzera conto e diario dell'out-of-sample, si
-  segnala e si conta (`soglia_rumore_orizzonte` sugli H provati). Dal 26/10 (`70` §3-§4)
+  segnala e si conta (`soglia_rumore_orizzonte` sugli H provati). Dal 25/10 (`70` §3-§4)
   si salva nei giornali dello studio, uno per macchina e solo in aggiunta (PC e Colab
   non scrivono mai lo stesso file): resta anche dopo il riavvio.
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.

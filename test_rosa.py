@@ -188,7 +188,7 @@ def main() -> int:
           bool((r["candidata"] == ((r["t_netto"] > 0) & r["bh"] & r["due_meta"])).all())
           and bool((r.loc[~r["nella_rosa"], "perche"].str.len() > 0).all())
           and bool((r.loc[r["nella_rosa"], "perche"] == "").all()))
-    # 26/10/2026 (decisione di Mattia): la correlazione si controlla solo fra trigger dello stesso lato.
+    # 25/10/2026 (decisione di Mattia): la correlazione si controlla solo fra trigger dello stesso lato.
     # Un long e uno short con la finestra sfasata di 4 barre hanno guadagni giornalieri legati in negativo
     # (il mercato li muove in versi opposti): prima lo short restava fuori «correlato», ora entrano tutti e due
     rng8, passi8 = _mercato(21)

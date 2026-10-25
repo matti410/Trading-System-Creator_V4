@@ -1,9 +1,9 @@
 # 71 · Proposta: lo spread di un passo al prezzo d'ingresso di ogni trade
 
-**Data:** 26 ottobre 2026
-**Stato:** PROPOSTA BREVE. **Nessun codice** prima dell'OK di Mattia.
-**Nasce da:** `docs/70` §15.3 (la strada D, valutata in chat il 26/10).
-**Decisioni già prese da Mattia (26/10):**
+**Data:** 25 ottobre 2026
+**Stato:** PROPOSTA BREVE, approvata; codice fatto (resoconto al §8).
+**Nasce da:** `docs/70` §15.3 (la strada D, valutata in chat il 25/10).
+**Decisioni già prese da Mattia (25/10):**
 1. lo spread esce dal prezzo di fill;
 2. un passo per trade nella colonna `CostoExtraPips`, nei due motori;
 3. la confidenza usa il costo del singolo trade;
@@ -12,7 +12,7 @@
 
 **Indice:** §0 Perché · §1 Come funziona · §2 I consumatori da adattare · §3 Una
 domanda: il prezzo della confidenza · §4 Collaudo · §5 Il confronto dichiarato · §6
-Tempi · §7 Cosa resta com'è
+Tempi · §7 Cosa resta com'è · §8 Resoconto
 
 ---
 
@@ -183,3 +183,107 @@ Prima della PR resta la suite completa.
 - Il confine dello studio e la mediana dell'in-sample per tutto ciò che non è
   spread.
 - Il broker.
+
+
+---
+
+## 8 · Resoconto (*resoconto*, 25/10/2026)
+
+**Decisione di Mattia sul §3:** la soglia della confidenza usa il **Close della barra
+del segnale**.
+
+### 8.1 · Cosa è stato fatto
+- **`engine/exchange.py`:** `aggiungi_spread_passo` mette un passo in `CostoExtraPips`;
+  `spread_bp` lo converte in bp.
+- **`costi_storico` (exchange):** `spread = 0` e `spread_passo_pips` = un passo.
+- **`run_exit_search_bt`, `run_filter_search_bt`:** il parametro `spread_passo_pips`,
+  additivo, aggiunto ai trade nei due motori. `due_meta` lo riprende da `fs`.
+- **Atlante:** un passo per evento nel netto.
+- **Confidenza:**
+  - `costo_andata_ritorno_bp(costi, prezzi)` dà una Series, barra per barra, al
+    Close della barra del segnale;
+  - soglie per barra nei filtri;
+  - `soglie_confidenza` con mediana, minimo e massimo.
+- **Money management:** sui symbol da exchange lo spread non si aggiunge al rischio,
+  perché è già nei netti.
+- **Riepilogo della schermata 1:** «spread di un passo al prezzo d'ingresso, da x a
+  y bp nell'in-sample».
+- **Notebook di ricerca:** la cella della confidenza.
+- **Test:**
+  - `test_spread_per_trade.py`, 27 test a risultato noto (§4);
+  - `test_confidenza` 39–41 e `test_exchange` F2 portati alla regola nuova
+    (dichiarato).
+- **Il broker non cambia.**
+
+### 8.2 · Il confronto dichiarato (§5)
+
+Main contro ramo, CSV del 19/10, `confine="80%"` per tutti e due: stessa divisione,
+cambia solo lo spread. Su XRP la rosa dei trigger è vuota e il Lab si ferma alla 3b,
+su main come sul ramo. Per collaudare il resto della catena si è aggiunto a mano
+E21_BELT_HOLD, lo stesso trigger di BTC: è una scelta di collaudo, non di ricerca.
+
+**Identici, come atteso, sui tre symbol:** event study, profilo orario, curve dello
+scarto, rosa dei trigger, conto delle prove.
+
+**Spread medio per trade, in bp** (dalla tabella dei costi del Lab):
+
+| | main, in-sample | ramo, in-sample | main, out-of-sample | ramo, out-of-sample |
+|---|---|---|---|---|
+| BTC perp | 0,0275 | 0,0404 (da 0,009 a 0,192) | 0,0275 | 0,0120 |
+| XRP perp | 1,904 | 2,124 (da 0,31 a 7,29) | 1,904 | 0,604 |
+| ETH spot Bybit | 0,0408 | 0,0448 | 0,0408 | 0,0424 |
+
+In pips lo spread ora è un passo fisso. Prima su XRP valeva 1,43 pips nell'in-sample
+e 3,58 nell'out-of-sample, invece di 1.
+
+**Trade che cambiano uscita** (stessi trade abbinati per barra d'ingresso e lato):
+
+| | trade | stessa uscita | stessa barra, prezzo dello stop spostato di un soffio | barra d'uscita diversa | trade solo da una parte |
+|---|---|---|---|---|---|
+| BTC in-sample | 2.756 | 2.396 | 359 | **1** (0,04%): da uscita a H barre a stop | 0 |
+| BTC out-of-sample | 708 | 617 | 91 | **0** | 0 |
+| XRP in-sample | 2.607 | 2.254 | 342 | **10** (0,38%): 5 da uscita a H a stop, 5 da stop a stop in un'altra barra | 1 e 1 |
+| XRP out-of-sample | 688 → 687 | 584 | 96 | **7** (1,02%): 1 da uscita a H a stop, 6 da stop a stop | 1 |
+| ETH spot in-sample | 2.100 | 1.814 | 286 | **0** | 0 |
+| ETH spot out-of-sample | 548 | 475 | 73 | **0** | 0 |
+
+- **«Stessa barra, prezzo spostato»:** sono i trade chiusi dallo stop. Lo stop si
+  misura dal prezzo d'ingresso, che ora è l'Open senza spread, quindi il livello si
+  sposta di circa un passo.
+- **«Barra diversa»:** sono i trade in cui lo stop, spostato, viene toccato o non
+  toccato in un'altra barra.
+- **«Trade solo da una parte»:** un'uscita diversa libera la posizione in un altro
+  momento, e il trade dopo cambia.
+
+**La scheda (Lab), prima → dopo:**
+
+| | guadagno medio netto (bp), in-sample | out-of-sample | totale pips netti, in-sample | out-of-sample | solidità, in-sample | out-of-sample |
+|---|---|---|---|---|---|---|
+| BTC perp | −3,15 → −3,14 | −11,55 → −11,54 | −78.798 → −78.561 | −75.329 → −75.250 | −0,80 → −0,80 | −2,15 → −2,15 |
+| XRP perp (E21, collaudo) | −1,66 → −1,93 | −23,52 → −22,35 | −17.677 → −16.522 | −34.111 → −32.595 | −0,23 → −0,26 | −2,78 → −2,63 |
+| ETH spot Bybit | −13,38 → −13,39 | −23,59 → −23,60 | −99.644 → −99.665 | −37.532 → −37.539 | −2,51 → −2,52 | −2,68 → −2,69 |
+
+**Il resto, prima → dopo:**
+- **Rosa dei sistemi:** stesso esito su tutti e tre i symbol. Lo scarto cambia di
+  qualche centesimo di bp su BTC e di 0,15 bp su XRP.
+- **Atlante:** netto medio delle celle da −7,416 a −7,404 pips (BTC), da −4,636 a
+  −4,221 (XRP), da −32,097 a −32,093 (ETH). Celle che passano: 0 prima e dopo.
+- **Confidenza (ricerca):** segnali dei trade che cambiano lato della soglia.
+  - BTC: 3, 1 e 8 su 7.817 (soglie 0C, 0,5C, 0,8C);
+  - **XRP: 170, 111 e 90 su 6.731**;
+  - ETH: 2, 0 e 0 su 5.104.
+
+  A 0C cambia anche la media della confidenza stessa, perché i bp netti dei trade
+  passati cambiano.
+- **Money management e stress test:** cambiano di poco su BTC ed ETH. Su XRP il
+  drawdown realmente visto passa da 25.640 a 24.309 bp.
+- **Notebook di ricerca:** girano senza errori su tutti e tre i symbol. Cambiano 16–17
+  variabili su 91–99, tutte a valle dei costi (costo per barra, atlante, confidenza,
+  Monte Carlo, money management, trade finali).
+
+I numeri sono un collaudo del tool, non un verdetto.
+
+### 8.3 · Tempi
+- Codice e test: una PR.
+- Confronto: 12 giri di notebook più 2 di nuovo su XRP, circa 40 minuti di macchina.
+- Suite completa: circa 13 minuti.

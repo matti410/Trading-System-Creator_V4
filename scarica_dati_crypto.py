@@ -48,7 +48,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# 26/10/2026 (docs/70 §7.1): aggiorna e aggiorna_funding stanno in engine/aggiorna_dati.py,
+# 25/10/2026 (docs/70 §7.1): aggiorna e aggiorna_funding stanno in engine/aggiorna_dati.py,
 # lo stesso codice che usa il Lab con l'interruttore «aggiorna i dati». Stessi file, stesse stampe
 from engine import aggiorna_dati as _ad
 from engine.aggiorna_dati import INIZIO, INIZIO_FUNDING  # noqa: F401  (le date di partenza, come prima)

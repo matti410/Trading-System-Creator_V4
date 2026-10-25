@@ -238,6 +238,7 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
     costi = costi or {}
     commissione = float(costi.get("commission") or 0.0)
     spread = float(costi.get("spread") or 0.0)
+    passo_pips = float(costi.get("spread_passo_pips") or 0.0)   # 25/10/2026 (docs/71): un passo per evento
 
     n = len(df_is)
     close = df_is["Close"].to_numpy(dtype=float)
@@ -255,7 +256,7 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
     n_fasce = int(fascia.max()) + 1 if n else 1
     # i costi in pips di un evento: commissione sui due lati, spread all'ingresso (come i trade)
     with np.errstate(invalid="ignore"):
-        costo_pips = (commissione * (ingresso + uscita) + spread * ingresso) / pip
+        costo_pips = (commissione * (ingresso + uscita) + spread * ingresso) / pip + passo_pips
     if funding is not None:
         from .exchange import funding_avanti
         fondo = np.nan_to_num(funding_avanti(df_is, H, funding, pip))     # + = un long paga

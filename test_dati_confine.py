@@ -1,5 +1,5 @@
 """
-Suite di validazione dei DATI IN LOCALE e del CONFINE DELLO STUDIO (26/10/2026,
+Suite di validazione dei DATI IN LOCALE e del CONFINE DELLO STUDIO (25/10/2026,
 docs/70, parte A: engine e test). Moduli: engine/aggiorna_dati.py,
 engine/studio.py, le aggiunte di engine/splitting.py (confine_da_quota,
 split_al_confine) e di engine/registro_dataset.py (da_voci, metti, normale,
@@ -18,7 +18,7 @@ C  i giornali: il riavvio simulato (11), due macchine (12), le copie di
    conflitto di Drive (13), l'id dello studio (14), il diario fra dataset (15);
 D  il reset (16), la contaminazione su tutto lo studio (17), la scrittura
    sicura (21), il confine riportato indietro solo su uno studio intatto (22,
-   correzione del 26/10);
+   correzione del 25/10);
 E  prepara con lo studio (parte B): apertura, tabella, giornale, riavvio, H
    diverso, diario, aggiornamento con exchange finto, Colab, confine di
    collaudo (19), funding meno avanti, l'Avvio.
@@ -216,9 +216,10 @@ def sezione_e(check, errore, cartella) -> None:
           and "Dati aggiornati" in testo5 and "il confine non si è mosso" in testo5
           and "(di cui 30 arrivate oggi)" in oos5 and (c / f"{SPOT}_M15.csv").exists(),
           f"out-of-sample {len(s4.df_oos)} -> {len(s5.df_oos)}")
-    check("E6c. lo spread (mediana dell'in-sample, docs/70 §15.3) non cambia con le barre nuove",
-          s5.costi["spread"] == s4.costi["spread"]
-          and s5.costi["spread"] == 0.1 / float(s4.df_is["Close"].median()))
+    # 25/10/2026 (docs/71, strada D): lo spread e' un passo per trade, fuori dal prezzo e fuori da ogni mediana
+    check("E6c. lo spread (un passo per trade, docs/71) non cambia con le barre nuove",
+          s5.costi["spread"] == s4.costi["spread"] == 0.0
+          and s5.costi["spread_passo_pips"] == s4.costi["spread_passo_pips"] == 0.1)
     check("E6b. verso l'exchange solo funzioni di lettura",
           set(finto_perp.funzioni) | set(finto_spot.funzioni)
           <= {"load_markets", "fetch_ohlcv", "fetch_funding_rate_history"})
@@ -418,7 +419,7 @@ def esegui() -> int:
         print("\nB · Il confine dello studio")
         h1 = storico("2024-01-01", periodi=1000, passo="1h")
         cb = cartella("b5")
-        ing = ST.entra(cb, "BINANCE_PERP_BTCUSDT", "H1", h1, "pc", adesso="2026-10-26 10:00")
+        ing = ST.entra(cb, "BINANCE_PERP_BTCUSDT", "H1", h1, "pc", adesso="2026-10-25 10:00")
         check("B5. lo studio si apre al primo dataset: confine = fine della barra 800 (80%)",
               ing.aperto_ora and ing.confine == h1.index[799] + pd.Timedelta(hours=1)
               and len(ing.df_is) == 800 and ing.esito_impronta == "nuova", f"{ing.confine}")
@@ -494,10 +495,10 @@ def esegui() -> int:
         # ----------------------------------------------------------- giornali --
         print("\nC · I giornali: solo in aggiunta, un file per macchina")
         cg = cartella("c11")
-        st = ST.entra(cg, "BINANCE_PERP_BTCUSDT", "H1", piu, "pc", adesso="2026-10-26 09:00").studio
+        st = ST.entra(cg, "BINANCE_PERP_BTCUSDT", "H1", piu, "pc", adesso="2026-10-25 09:00").studio
         ds = "BINANCE_PERP_BTCUSDT_H1"
         RD.azzera()
-        t0 = pd.Timestamp("2026-10-26 10:00", tz="UTC")
+        t0 = pd.Timestamp("2026-10-25 10:00", tz="UTC")
         n = [0]
 
         def scrivi(voce, macchina="pc"):
@@ -579,12 +580,12 @@ def esegui() -> int:
 
         # -------------------------------------------------------------- reset --
         print("\nD · Il reset")
-        oggi, campo = "2026-10-26", "26/10/2026"
+        oggi, campo = "2026-10-25", "25/10/2026"
         check("D16. campo vuoto, Colab, data non valida, data non di oggi: nessun reset",
               ST.reset(cg, "", "BINANCE_PERP_BTCUSDT", "H1", piu, "pc", oggi=oggi)["esito"] == "vuoto"
               and ST.reset(cg, campo, "BINANCE_PERP_BTCUSDT", "H1", piu, "colab", oggi=oggi)["esito"] == "ignorato_colab"
               and ST.reset(cg, "26-10", "BINANCE_PERP_BTCUSDT", "H1", piu, "pc", oggi=oggi)["esito"] == "data_non_valida"
-              and ST.reset(cg, "25/10/2026", "BINANCE_PERP_BTCUSDT", "H1", piu, "pc", oggi=oggi)["esito"]
+              and ST.reset(cg, "24/10/2026", "BINANCE_PERP_BTCUSDT", "H1", piu, "pc", oggi=oggi)["esito"]
               == "data_non_di_oggi" and ST.leggi_confine(cg)["id"] == st["id"])
         check("D16b. senza studio: niente da ricalcolare (lo apre entra)",
               ST.reset(cartella("d16"), campo, "BINANCE_PERP_BTCUSDT", "H1", piu, "pc", oggi=oggi)["esito"]
@@ -596,7 +597,7 @@ def esegui() -> int:
         # Con 1.600 barre il confine nuovo e' alla fine della barra 1.280
         ancora = storico("2024-01-01", periodi=1600, passo="1h")
         vecchio_c = ST.leggi_confine(cg)
-        rr = ST.reset(cg, campo, "BINANCE_PERP_BTCUSDT", "H1", ancora, "pc", oggi=oggi, adesso="2026-10-26 11:00")
+        rr = ST.reset(cg, campo, "BINANCE_PERP_BTCUSDT", "H1", ancora, "pc", oggi=oggi, adesso="2026-10-25 11:00")
         nuovo_c = ST.leggi_confine(cg)
         arch = rr["archivio"]
         check("D16d. reset: confine nuovo = 80% delle barre di adesso, id nuovo, data del reset scritta",
@@ -645,7 +646,7 @@ def esegui() -> int:
         check("D17b. senza aperture dell'out-of-sample: nessuna contaminazione",
               ST.reset(ce, campo, "BINANCE_PERP_BTCUSDT", "H1", tredici, "pc", oggi=oggi)["contaminato"] is None)
 
-        # studio aperto sul dataset sbagliato (docs/70 §11, correzione del 26/10): SOL parte il 20/1 e il suo
+        # studio aperto sul dataset sbagliato (docs/70 §11, correzione del 25/10): SOL parte il 20/1 e il suo
         # 80% cade alla fine della barra 675 (17/02 03:00); BTC dal 1/1, 1.300 barre: 80% alla fine della barra 1.040
         # (13/02 08:00), piu' indietro. Le due storie finiscono alla stessa ora
         sol = storico("2024-01-20", periodi=1300 - 19 * 24, passo="1h", seme=5)

@@ -30,7 +30,7 @@ sessione del notebook ritrova la sua storia.
 LIMITE: il registro vive finche' resta aperto il notebook (il kernel di
 Python). Riavviarlo lo azzera; salvarlo in un file e' il passo del lavoro 2,
 quando il confine dell'in-sample diventera' una data salvata con lo studio.
-26/10/2026 (docs/70 §3-§4): il salvataggio e' in engine/studio.py, in giornali
+25/10/2026 (docs/70 §3-§4): il salvataggio e' in engine/studio.py, in giornali
 solo in aggiunta; qui `da_voci` ricostruisce la storia da quelle voci e
 `metti` la rimette nel registro. `normale` e `a_tupla` portano le chiavi
 composte (tuple) dentro e fuori dal JSON.
@@ -99,7 +99,7 @@ def apri(symbol: str, timeframe: str, confine, H: int, nuove_prove=None) -> tupl
         _REGISTRO[chiave] = s
         return s, "nuovo"
     if s.h_corrente is None:
-        # 26/10/2026 (docs/70): una storia ricostruita da giornali senza nessun H (studio appena aperto,
+        # 25/10/2026 (docs/70): una storia ricostruita da giornali senza nessun H (studio appena aperto,
         # o solo voci d'altro tipo): il primo H e' «nuovo», come sopra; il conto ricostruito resta
         s.h_provati, s.h_corrente = [H], H
         if s.prove is None and nuove_prove is not None:
@@ -118,7 +118,7 @@ def apri(symbol: str, timeframe: str, confine, H: int, nuove_prove=None) -> tupl
 def annota_oos(s: StoriaDataset, scelte: dict, oos_fino_al=None) -> int:
     """
     Scrive nel diario un'apertura dell'out-of-sample con le scelte di quel momento; ritorna quante sono.
-    oos_fino_al (26/10/2026, docs/70 §3.2): l'ultima barra out-of-sample di quel momento, per il reset;
+    oos_fino_al (25/10/2026, docs/70 §3.2): l'ultima barra out-of-sample di quel momento, per il reset;
     None = non scritto (come prima).
     """
     voce = {"quando": pd.Timestamp.now(tz="UTC").isoformat(), **dict(scelte)}
@@ -139,7 +139,7 @@ def azzera() -> None:
 
 
 # ========================================================================
-# 26/10/2026 (docs/70 §3.2): la storia ricostruita dalle voci dei giornali
+# 25/10/2026 (docs/70 §3.2): la storia ricostruita dalle voci dei giornali
 # ========================================================================
 
 def normale(x):

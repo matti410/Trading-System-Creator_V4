@@ -586,6 +586,33 @@ def funding_per_trade(trades: pd.DataFrame, df: pd.DataFrame, funding: pd.DataFr
     return pd.Series(lato * (cumulata[hi] - cumulata[lo]) / float(pip_size), index=trades.index)
 
 
+def aggiungi_spread_passo(trades: pd.DataFrame, spread_passo_pips: float | None) -> pd.DataFrame:
+    """
+    Lo spread di un passo come costo di ogni trade (25/10/2026, docs/71, strada D):
+    una COPIA dei trade con `spread_passo_pips` aggiunto alla colonna
+    CostoExtraPips, che metriche.pips_per_trade sottrae. In pips e' fisso (un
+    passo / pip); in bp metriche.bp_per_trade lo converte con il prezzo
+    d'ingresso di ogni trade: passo / EntryPrice x 10.000. I motori girano con
+    spread = 0: il prezzo di fill e' l'Open, nel motore veloce come in «bt».
+    None = niente (i trade tornano come sono): tutto identico a prima.
+    """
+    if spread_passo_pips is None:
+        return trades
+    out = trades.copy()
+    if len(out) == 0:
+        if "CostoExtraPips" not in out.columns:
+            out["CostoExtraPips"] = pd.Series(dtype=float)
+        return out
+    prima = out["CostoExtraPips"].fillna(0.0) if "CostoExtraPips" in out.columns else 0.0
+    out["CostoExtraPips"] = prima + float(spread_passo_pips)
+    return out
+
+
+def spread_bp(spread_passo_pips: float, pip_size: float, prezzi) -> np.ndarray:
+    """Lo spread di un passo in bp ai `prezzi` dati (25/10/2026, docs/71): passo / prezzo x 10.000."""
+    return float(spread_passo_pips) * float(pip_size) / np.asarray(prezzi, dtype=float) * 10_000.0
+
+
 def aggiungi_funding(trades: pd.DataFrame, df: pd.DataFrame, funding: pd.DataFrame | None,
                      pip_size: float) -> pd.DataFrame:
     """

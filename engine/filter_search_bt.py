@@ -92,7 +92,7 @@ from .exit_search_bt import (acceso, per_lato, soglie_adattive, _StrategiaGeneri
 from .metriche import UNITA_CHE_DECIDONO, metriche_per_trade, netti_in_unita
 from .controlli import avviso_capitale
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
-from .exchange import aggiungi_funding
+from .exchange import aggiungi_funding, aggiungi_spread_passo
 from .motore_veloce import MotoreVeloce, controlla_lag, scegli_motore
 from .giudizio import (RIFERIMENTO, p_ev_negativo, soglia_rumore, t_stat,
                        tenuti_scartati, verdetto)
@@ -257,6 +257,7 @@ def run_filter_search_bt(
     motore=None,
     cache_maschere=None,
     k_prove=None,
+    spread_passo_pips=None,
 ):
     """
     Testa una lista di filtri, un'idea alla volta, in AND sull'entry (o
@@ -341,6 +342,11 @@ def run_filter_search_bt(
         ingresso < S <= uscita, al prezzo Open della barra che inizia in S.
         Entra nei netti (avg_trade_netto, t, P(EV<0), guadagno), NON in pnl_pct, sharpe e
         max_dd_pct, che vengono dalla libreria.
+
+    spread_passo_pips (25/10/2026, docs/71, strada D)
+        Lo spread di un passo in pips, come costo di ogni trade nella colonna
+        CostoExtraPips (vedi run_exit_search_bt). None (default) = niente,
+        tutto identico a prima.
 
     motore (21/10/2026, docs/65)
         "bt" = backtesting.py, "veloce" = engine/motore_veloce.py (stessi
@@ -558,6 +564,7 @@ def run_filter_search_bt(
         trades = costo_extra_pips(stats["_trades"], df, quarantena, spread,
                                   spread_rollover_pips, pip_size)
         trades = aggiungi_funding(trades, df, funding, pip_size)    # 21/10/2026: None = come prima
+        trades = aggiungi_spread_passo(trades, spread_passo_pips)    # 25/10/2026 (docs/71): None = come prima
 
         # stesso calcolo di exit_search_bt: engine/metriche.py, un posto solo.
         m = metriche_per_trade(trades, pip_size, commission, unita)
@@ -681,7 +688,8 @@ def run_filter_search_bt(
                           min_trades=min_trades, soglia_rumore=soglia,
                           pip_size=pip_size, commission=commission,
                           n_barre_long=n_long, n_barre_short=n_short, unita=unita,
-                          funding=funding, motore=motore, rimisura=k_prove is not None)
+                          funding=funding, motore=motore, rimisura=k_prove is not None,
+                          spread_passo_pips=spread_passo_pips)
 
 
 class FilterSearchBT:
@@ -691,8 +699,9 @@ class FilterSearchBT:
                  exit_rule_pair, n_barre, min_trades, soglia_rumore=None,
                  pip_size=None, commission=None,
                  n_barre_long=None, n_barre_short=None, unita="pips", funding=None,
-                 motore=None, rimisura=False):
+                 motore=None, rimisura=False, spread_passo_pips=None):
         self.risultati = risultati
+        self.spread_passo_pips = spread_passo_pips   # 25/10/2026 (docs/71): due_meta lo rilegge
         self.rimisura = rimisura      # 22/10/2026: True = seconda misura delle celle dell'atlante (k_prove)
         self.motore = motore          # 21/10/2026 (docs/65): "bt" o "veloce" (due_meta lo rilegge)
         self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono

@@ -101,7 +101,7 @@ def _controlla_unita(unita: str) -> None:
         raise ValueError(f"unita' che decide {unita!r} non prevista: usa una di {UNITA_CHE_DECIDONO}.")
 
 
-def costo_andata_ritorno_bp(costi: dict) -> float:
+def costo_andata_ritorno_bp(costi: dict, prezzi=None):
     """
     Il costo di un trade andata e ritorno in bp del prezzo (22/10/2026), dai
     costi di vetrina.costi_storico: due commissioni (una per lato) piu' lo
@@ -112,8 +112,24 @@ def costo_andata_ritorno_bp(costi: dict) -> float:
     E' lo stesso «Costo per trade» in bp della schermata 1 del Lab. Sul
     perpetual Binance BTC: 2 x 0,05% = 10 bp di commissione, piu' lo spread
     di un passo sul prezzo mediano.
+
+    25/10/2026 (docs/71, strada D): con lo spread per trade
+    (costi["spread_passo_pips"], symbol da exchange) il costo cambia con il
+    prezzo, e `prezzi` e' obbligatorio: di norma df["Close"], il prezzo della
+    barra del segnale (decisione di Mattia: nessun lookahead). Ritorna allora
+    una Series, barra per barra: 2 x commission x 10.000 + passo / prezzo x
+    10.000. Senza spread per trade: il numero solo, come prima.
     """
-    return (2.0 * float(costi["commission"]) + float(costi["spread"])) * 10_000.0
+    passo = costi.get("spread_passo_pips")
+    if passo is None:
+        return (2.0 * float(costi["commission"]) + float(costi["spread"])) * 10_000.0
+    if prezzi is None:
+        raise ValueError("Con lo spread per trade (docs/71) il costo dipende dal prezzo: "
+                         "costo_andata_ritorno_bp(costi, df['Close']).")
+    from .exchange import spread_bp
+    p = pd.Series(prezzi, dtype=float)
+    return pd.Series(2.0 * float(costi["commission"]) * 10_000.0
+                     + spread_bp(passo, costi["pip_size"], p.to_numpy()), index=p.index)
 
 
 # ========================================================================
@@ -447,6 +463,11 @@ def _funzione_filtro(nome: str):
                 f"{nome}: il df passato contiene barre per cui la confidenza non "
                 "e' stata calcolata. Calcola la confidenza sulla serie completa."
             )
+        if isinstance(soglia, pd.Series):     # 25/10/2026 (docs/71): la soglia della barra del segnale
+            if not d.index.isin(soglia.index).all():
+                raise ValueError(f"{nome}: la soglia (costo per barra) non copre il df passato: calcolala "
+                                 "sulla serie completa (costo_andata_ritorno_bp(costi, df['Close'])).")
+            soglia = soglia.reindex(d.index)
         return (valori.reindex(d.index) > soglia).fillna(False).astype(bool)
     return filtro
 
@@ -483,7 +504,8 @@ def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
         raise ValueError("Serve almeno conf_long o conf_short.")
     in_costi = metrica == "bp_medi"
     if in_costi:
-        if costo_bp is None or not np.isfinite(costo_bp) or costo_bp <= 0:
+        valori_costo = np.asarray(costo_bp if costo_bp is not None else np.nan, dtype=float)
+        if costo_bp is None or not np.isfinite(valori_costo).all() or (valori_costo <= 0).any():
             raise ValueError("Con metrica='bp_medi' le soglie sono multipli del costo: serve "
                              "costo_bp > 0 (costo_andata_ritorno_bp(costi)).")
         for conf in (conf_long, conf_short):
@@ -500,7 +522,7 @@ def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
     for s in soglie:
         s = float(s)
         if in_costi:
-            multiplo, s = s, s * float(costo_bp)
+            multiplo, s = s, (s * costo_bp if isinstance(costo_bp, pd.Series) else s * float(costo_bp))
             base = f"{prefisso}_{metrica.upper()}_{_fmt(multiplo)}C"
         else:
             multiplo = None
@@ -513,7 +535,7 @@ def registra_filtro_confidenza(soglie, conf_long: pd.DataFrame | None = None,
             if nome in gia and nome not in _DATI_FILTRI:
                 raise ValueError(f"'{nome}' e' gia' registrato e non e' un filtro di confidenza.")
             _DATI_FILTRI[nome] = (conf[metrica], s)
-            _SOGLIE[nome] = (metrica, multiplo, s)
+            _SOGLIE[nome] = (metrica, multiplo, s)   # s: un numero, o una Series barra per barra (docs/71)
             if nome not in gia:
                 register_filter(nome, direction=direzione, pair=coppia)(_funzione_filtro(nome))
             nomi.append(nome)
@@ -539,9 +561,12 @@ def soglie_confidenza(nomi) -> pd.DataFrame:
             continue
         viste.add(etichetta)
         metrica, multiplo, soglia = _SOGLIE[chiave]
-        righe.append({"filtro": etichetta, "metrica": metrica,
-                      "multiplo_del_costo": np.nan if multiplo is None else multiplo,
-                      "soglia": soglia})
+        riga = {"filtro": etichetta, "metrica": metrica,
+                "multiplo_del_costo": np.nan if multiplo is None else multiplo, "soglia": soglia}
+        if isinstance(soglia, pd.Series):     # 25/10/2026 (docs/71): una soglia per barra
+            riga.update(soglia=float(soglia.median()), soglia_da=float(soglia.min()),
+                        soglia_a=float(soglia.max()))
+        righe.append(riga)
     return pd.DataFrame(righe)
 
 

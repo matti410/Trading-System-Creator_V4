@@ -319,11 +319,11 @@ def esegui() -> int:
         check("F1. perpetual: dati da exchange, long e short, profilo e orari in UTC",
               s.da_exchange and not s.solo_long and s.lati() == (1, -1) and s.fuso == "UTC"
               and s.timeframe == "M15")
-        # 26/10/2026 (docs/70 §15.3, strada A): il passo si converte con il prezzo mediano dell'IN-SAMPLE
-        check("F2. costi: commissione taker 0,05% per lato, spread un passo (al prezzo mediano dell'in-sample), "
+        # 25/10/2026 (docs/71, strada D): lo spread esce dal prezzo di fill, un passo per trade (0,1 pips)
+        check("F2. costi: commissione taker 0,05% per lato, spread di un passo per trade (fuori dal prezzo), "
               "nessun rollover",
-              s.costi["commission"] == 0.0005 and np.isclose(s.costi["spread"] * float(s.df_is["Close"].median()), 0.1)
-              and not np.isclose(s.costi["spread"] * float(dati["Close"].median()), 0.1)
+              s.costi["commission"] == 0.0005 and s.costi["spread"] == 0.0
+              and np.isclose(s.costi["spread_passo_pips"], 0.1)
               and s.costi["spread_rollover_pips"] is None and s.spread_rollover_pips is None)
         check("F3. nessuna barra di rollover in quarantena (rollover spento)",
               Q.rollover_attivo() is None and int(quarantena_cached(s.df)["rollover"].sum()) == 0)

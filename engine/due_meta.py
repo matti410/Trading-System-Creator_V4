@@ -193,7 +193,8 @@ def due_meta(df_is, fs, etichette,
              spread=0.0, commission=0.00007, cash=10_000.0, margin=1.0,
              close_col="Close", open_col="Open", high_col="High", low_col="Low",
              verbose=True, quarantena=True, spread_rollover_pips=None,
-             pip_size=None, funding=None, motore=None, cache_maschere=None):
+             pip_size=None, funding=None, motore=None, cache_maschere=None,
+             spread_passo_pips=None):
     """
     Verifica sulle due meta' (Difesa C, Passo 5) per le `etichette`
     indicate.
@@ -260,6 +261,9 @@ def due_meta(df_is, fs, etichette,
                   unita=getattr(fs, "unita", "pips"),
                   # 21/10/2026: lo stesso funding di fs (None = non contato)
                   funding=funding if funding is not None else getattr(fs, "funding", None),
+                  # 25/10/2026 (docs/71): lo stesso spread per trade di fs (None = nel prezzo)
+                  spread_passo_pips=(spread_passo_pips if spread_passo_pips is not None
+                                     else getattr(fs, "spread_passo_pips", None)),
                   # 21/10/2026 (docs/65): lo stesso motore di fs
                   motore=motore if motore is not None else getattr(fs, "motore", None))
 
