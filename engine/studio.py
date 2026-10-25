@@ -391,12 +391,22 @@ def reset(cartella_dati, campo: str, symbol: str, timeframe: str, df: pd.DataFra
         "data_non_di_oggi"     una data diversa da oggi (campo dimenticato pieno)
         "nessuno_studio"       non c'e' uno studio da ricalcolare (lo apre entra)
         "gia_fatto_oggi"       il reset con questa data e' gia' stato fatto
-        "nessuna_barra_nuova"  il confine nuovo non va oltre il vecchio
+        "nessuna_barra_nuova"  il confine nuovo coincide con il vecchio
+        "rifiutato_indietro"   il confine nuovo e' piu' indietro del vecchio e nello studio
+                               vecchio c'e' gia' qualcosa di misurato o guardato (messaggio)
         "fatto"                studio archiviato, confine nuovo; piu' vecchio, nuovo,
                                archivio, contaminato
     Il confine nuovo e' all'80% (quota) delle barre di adesso di `df`, il
     dataset su cui lo si chiede. Lo studio intero (confine, impronte, giornali di
     tutti i dataset) va in studio/archivio/; non si cancella niente.
+
+    Confine piu' INDIETRO del vecchio (26/10/2026, correzione di Mattia; docs/70
+    §11, «studio aperto sul dataset sbagliato»): ammesso solo se lo studio
+    vecchio non ha ancora niente di misurato ne' guardato, cioe' nessuna voce
+    «prova», «oos» o «risalita» nei giornali di nessun dataset. Le voci
+    «orizzonte» non contano: la schermata 1 scrive H appena si apre lo studio,
+    prima di qualunque misura. Altrimenti si rifiuta: barre su cui si e' gia'
+    costruito diventerebbero out-of-sample.
     """
     campo = "" if campo is None else str(campo).strip()
     if not campo:
@@ -416,9 +426,25 @@ def reset(cartella_dati, campo: str, symbol: str, timeframe: str, df: pd.DataFra
         return {"esito": "gia_fatto_oggi", "alle": vecchio.get("aperto_il")}
     c_vecchio = _utc(vecchio["confine"])
     c_nuovo = confine_da_quota(df, passo(timeframe), quota)
-    if c_nuovo <= c_vecchio:
+    if c_nuovo == c_vecchio:
         return {"esito": "nessuna_barra_nuova", "confine": c_vecchio}
     radice = cartella_studio(cartella_dati)
+    if c_nuovo < c_vecchio:
+        fatte = {"prova": 0, "oos": 0, "risalita": 0}
+        for d in (p for p in radice.iterdir() if p.is_dir() and p.name != ARCHIVIO):
+            for v in leggi_voci(cartella_dati, d.name, vecchio["id"])[0]:
+                if v.get("voce") in fatte:
+                    fatte[v["voce"]] += 1
+        if any(fatte.values()):
+            return {"esito": "rifiutato_indietro", "vecchio": c_vecchio, "nuovo": c_nuovo, "voci": fatte,
+                    "messaggio": (
+                        f"Il confine nuovo ({c_nuovo:%d/%m/%Y %H:%M} UTC) è più indietro di quello dello studio "
+                        f"({c_vecchio:%d/%m/%Y %H:%M} UTC), e in questo studio hai già lavorato: "
+                        f"{fatte['prova']} voci del conto delle prove, {fatte['oos']} aperture dell'out-of-sample, "
+                        f"{fatte['risalita']} scelte rifatte. Le barre fra i due confini, su cui hai già costruito, "
+                        "diventerebbero out-of-sample: un out-of-sample che conosci già non è più una prova pulita. "
+                        "Il confine si può riportare indietro solo su uno studio in cui non hai ancora misurato né "
+                        "guardato niente. Nessun reset fatto.")}
     # cosa c'era nello studio vecchio, dataset per dataset
     precedenti, visti = {}, []
     for d in sorted(p for p in radice.iterdir() if p.is_dir() and p.name != ARCHIVIO):

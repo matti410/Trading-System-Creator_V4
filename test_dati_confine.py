@@ -17,7 +17,8 @@ B  il confine: fisso con barre nuove (5), uguale alla regola dell'80% sui CSV
 C  i giornali: il riavvio simulato (11), due macchine (12), le copie di
    conflitto di Drive (13), l'id dello studio (14), il diario fra dataset (15);
 D  il reset (16), la contaminazione su tutto lo studio (17), la scrittura
-   sicura (21).
+   sicura (21), il confine riportato indietro solo su uno studio intatto (22,
+   correzione del 26/10).
 Il punto 19 (prepara con confine="80%") e' della parte B.
 
 Come si lancia (da terminale, dalla cartella del progetto):
@@ -466,6 +467,35 @@ def esegui() -> int:
         ST.entra(ce, "BINANCE_PERP_BTCUSDT", "H1", mille, "pc")
         check("D17b. senza aperture dell'out-of-sample: nessuna contaminazione",
               ST.reset(ce, campo, "BINANCE_PERP_BTCUSDT", "H1", tredici, "pc", oggi=oggi)["contaminato"] is None)
+
+        # studio aperto sul dataset sbagliato (docs/70 §11, correzione del 26/10): SOL parte il 20/1 e il suo
+        # 80% cade alla fine della barra 675 (17/02 03:00); BTC dal 1/1, 1.300 barre: 80% alla fine della barra 1.040
+        # (13/02 08:00), piu' indietro. Le due storie finiscono alla stessa ora
+        sol = storico("2024-01-20", periodi=1300 - 19 * 24, passo="1h", seme=5)
+        for nome, voce in (("d22a", None), ("d22b", {"voce": "prova", "dove": "trigger", "chiave": None, "n": 12}),
+                           ("d22c", {"voce": "oos", "voce_diario": {"H": 41}})):
+            cz = cartella(nome)
+            sz = ST.entra(cz, "BYBIT_SPOT_SOLUSDT", "H1", sol, "pc").studio
+            ST.aggiungi_voce(cz, "BYBIT_SPOT_SOLUSDT_H1", "pc", sz["id"], {"voce": "orizzonte", "H": 41})
+            if voce is not None:
+                ST.aggiungi_voce(cz, "BYBIT_SPOT_SOLUSDT_H1", "pc", sz["id"], voce)
+            esiti_z = ST.reset(cz, campo, "BINANCE_PERP_BTCUSDT", "H1", tredici, "pc", oggi=oggi)
+            if voce is None:
+                check("D22. confine piu' indietro su uno studio senza niente di misurato (solo H dichiarato): "
+                      "reset fatto, confine = 80% di BTC",
+                      esiti_z["esito"] == "fatto" and esiti_z["nuovo"] < esiti_z["vecchio"]
+                      and esiti_z["vecchio"] == sol.index[674] + ora
+                      and esiti_z["nuovo"] == tredici.index[1039] + ora
+                      and ST.leggi_confine(cz)["aperto_su"] == "BINANCE_PERP_BTCUSDT H1"
+                      and esiti_z["contaminato"] is None,
+                      f"{esiti_z['vecchio']:%d/%m %H:%M} -> {esiti_z['nuovo']:%d/%m %H:%M}")
+            else:
+                check(f"D22{'b' if voce['voce'] == 'prova' else 'c'}. confine piu' indietro con una voce "
+                      f"«{voce['voce']}» nello studio: rifiutato, con il perche'; studio intatto, niente archivio",
+                      esiti_z["esito"] == "rifiutato_indietro"
+                      and "diventerebbero out-of-sample" in esiti_z["messaggio"]
+                      and esiti_z["voci"][voce["voce"]] == 1 and ST.leggi_confine(cz)["id"] == sz["id"]
+                      and not (ST.cartella_studio(cz) / "archivio").exists())
 
         f = ST.cartella_studio(cd) / "confine.json"
         prima_t = f.read_bytes()
