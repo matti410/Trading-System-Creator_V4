@@ -100,7 +100,7 @@ from .metriche import UNITA_CHE_DECIDONO, metriche_per_trade, netti_in_unita
 from .controlli import avviso_capitale
 from .giudizio import soglia_rumore, t_stat
 from .quarantena_trade import maschera_segnali_puliti, costo_extra_pips
-from .exchange import aggiungi_funding
+from .exchange import aggiungi_funding, aggiungi_spread_passo
 from .motore_veloce import MotoreVeloce, controlla_lag, scegli_motore
 
 
@@ -376,6 +376,7 @@ def run_exit_search_bt(
     unita="pips",
     funding=None,
     motore=None,
+    spread_passo_pips=None,
 ):
     """
     Cerca, per una griglia di trigger long/short (entry FISSE, gia' scelte
@@ -486,6 +487,13 @@ def run_exit_search_bt(
         ingresso < S <= uscita, al prezzo Open della barra che inizia in S.
         Entra nei netti (avg_trade_netto, t, P(EV<0)), NON in pnl_pct, sharpe e
         max_dd_pct, che vengono dalla libreria.
+
+    spread_passo_pips (25/10/2026, docs/71, strada D)
+        Lo spread di un passo in pips, come costo di ogni trade nella colonna
+        CostoExtraPips (exchange.aggiungi_spread_passo): con spread = 0 il
+        prezzo di fill e' l'Open, e in bp il passo vale passo / prezzo
+        d'ingresso. Arriva con **costi sui symbol da exchange. None (default) =
+        niente, tutto identico a prima.
 
     motore (21/10/2026, docs/65)
         "bt" = backtesting.py con _StrategiaGenerica, "veloce" = il ciclo
@@ -652,6 +660,7 @@ def run_exit_search_bt(
         trades = costo_extra_pips(stats["_trades"], df, quarantena, spread,
                                   spread_rollover_pips, pip_size)
         trades = aggiungi_funding(trades, df, funding, pip_size)    # 21/10/2026: None = come prima
+        trades = aggiungi_spread_passo(trades, spread_passo_pips)    # 25/10/2026 (docs/71): None = come prima
         etichetta = f"L={l or '—'} · S={s or '—'} | X={pair or '—'}"
 
         # avg_trade (lordo, invariato), avg_trade_netto e costo_pips: il
@@ -716,7 +725,7 @@ def run_exit_search_bt(
                         margin=margin, min_trades=min_trades,
                         soglia_rumore=soglia, k=k, alpha=alpha,
                         n_barre_long=n_long, n_barre_short=n_short, unita=unita,
-                        funding=funding, motore=motore)
+                        funding=funding, motore=motore, spread_passo_pips=spread_passo_pips)
 
 
 # ========================================================================
@@ -738,9 +747,10 @@ class ExitSearchBT:
                  perc_tp, finestra, spread, commission, margin, min_trades,
                  soglia_rumore=np.nan, k=0, alpha=0.05,
                  n_barre_long=None, n_barre_short=None, unita="pips", funding=None,
-                 motore=None):
+                 motore=None, spread_passo_pips=None):
         self.risultati = risultati
         self._trades_per_combo = trades_per_combo
+        self.spread_passo_pips = spread_passo_pips   # 25/10/2026 (docs/71): None = spread nel prezzo
         self.motore = motore          # 21/10/2026 (docs/65): "bt" o "veloce"
         self.unita = unita            # 20/10/2026: l'unita' delle colonne che decidono
         self.funding = funding        # 21/10/2026: None = funding non contato

@@ -483,12 +483,15 @@ def esegui() -> int:
                                                                      Low=50_000.0, Close=50_000.0))
     c_spot, _ = costi_storico("BYBIT_SPOT_ETHUSDT", piatto.assign(Open=2_000.0, High=2_000.0,
                                                                   Low=2_000.0, Close=2_000.0))
-    k_perp, k_spot = costo_andata_ritorno_bp(c_perp), costo_andata_ritorno_bp(c_spot)
+    # 25/10/2026 (docs/71, strada D): lo spread e' un passo al prezzo del trade, il costo si chiede barra
+    # per barra con il Close; a prezzo fisso e' lo stesso numero di prima su ogni barra
+    k_perp = costo_andata_ritorno_bp(c_perp, pd.Series(50_000.0, index=piatto.index))
+    k_spot = costo_andata_ritorno_bp(c_spot, pd.Series(2_000.0, index=piatto.index))
     # perpetual Binance: 2 x 0,05% = 10 bp + un passo di 0,1 su 50.000 = 0,02 bp
     # spot Bybit:        2 x 0,10% = 20 bp + un passo di 0,01 su 2.000 = 0,05 bp
     check("39. costo andata e ritorno in bp, a mano: perpetual 10,02 bp, spot 20,05 bp",
-          np.isclose(k_perp, 10.02, atol=1e-9) and np.isclose(k_spot, 20.05, atol=1e-9),
-          f"perpetual {k_perp:.4f} bp · spot {k_spot:.4f} bp")
+          np.allclose(k_perp, 10.02, atol=1e-9) and np.allclose(k_spot, 20.05, atol=1e-9),
+          f"perpetual {k_perp.iloc[0]:.4f} bp · spot {k_spot.iloc[0]:.4f} bp")
 
     nomi_bp = registra_filtro_confidenza([0.0, 0.5, 0.8], conf_long=conf_lb, conf_short=conf_sb,
                                          metrica="bp_medi", costo_bp=k_perp)
@@ -525,7 +528,7 @@ def esegui() -> int:
     for etichetta, mult in (("CONF_BP_MEDI_0C", 0.0), ("CONF_BP_MEDI_0.5C", 0.5)):
         attesi = sum(
             int((c["bp_medi"].to_numpy()[e_b.loc[e_b["lato"] == lato, "barra_segnale"]]
-                 > mult * k_perp).sum())
+                 > mult * float(k_perp.iloc[0])).sum())   # prezzo fisso: lo stesso costo su ogni barra
             for c, lato in ((conf_lb, 1), (conf_sb, -1)))
         ok &= mb.loc[etichetta, "n_tenuti"] == attesi
     check("42. nella ricerca dei filtri: tenuti = trade con bp_medi > multiplo x costo al segnale",

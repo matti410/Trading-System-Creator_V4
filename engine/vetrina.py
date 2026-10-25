@@ -628,6 +628,12 @@ def costi_storico(symbol: str, df: pd.DataFrame, funding: pd.DataFrame | None = 
     l'IN-SAMPLE: nessun dato dell'out-of-sample nei costi, e l'in-sample resta
     identico quando arrivano barre nuove. None = la mediana di `df`, come prima.
     Il broker (sospeso) non cambia.
+
+    25/10/2026 (docs/71, strada D): sui symbol da exchange lo spread esce dal
+    prezzo di fill. costi["spread"] = 0 e costi["spread_passo_pips"] = un
+    passo in pips: con **costi arriva ai motori, che lo aggiungono a
+    CostoExtraPips di ogni trade; in bp vale passo / prezzo d'ingresso. La
+    mediana (df_prezzo) non serve piu' per lo spread: il parametro resta.
     """
     prezzo_max = float(df["High"].max())
     if CASH < 10 * prezzo_max:
@@ -637,8 +643,9 @@ def costi_storico(symbol: str, df: pd.DataFrame, funding: pd.DataFrame | None = 
         from .exchange import costi_exchange, parti_symbol
         c = costi_exchange(symbol, df if df_prezzo is None else df_prezzo)
         p = parti_symbol(symbol)
-        costi = {"spread": c["spread"], "commission": c["commission"], "pip_size": c["pip_size"],
-                 "cash": CASH, "spread_rollover_pips": None}
+        # 25/10/2026 (docs/71): spread fuori dal prezzo di fill, un passo per trade in CostoExtraPips
+        costi = {"spread": 0.0, "spread_passo_pips": c["spread_pips"], "commission": c["commission"],
+                 "pip_size": c["pip_size"], "cash": CASH, "spread_rollover_pips": None}
         if funding is not None and p["mercato"] == "PERP":
             costi["funding"] = funding
         sp = {"normale": c["spread_pips"], "rollover": None, "taker": c["taker"], "maker": c["maker"],
@@ -1213,8 +1220,13 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     spread_bp = sp["normale"] * s.pip / mediana * 10_000
     if s.da_exchange:
         comm_bp = 2 * sp["taker"] * 10_000
-        costo_bp = (f"{_fmt(comm_bp + spread_bp, 1)} bp andata e ritorno: commissione {_fmt(comm_bp, 1)} bp "
-                    f"a qualunque prezzo + spread {_fmt(spread_bp, 2)} bp al prezzo mediano dell'in-sample")
+        # 25/10/2026 (docs/71, strada D): un passo al prezzo d'ingresso di ogni trade
+        from .exchange import spread_bp as _spread_bp
+        per_barra = _spread_bp(sp["normale"], s.pip, s.df_is["Close"].to_numpy())
+        costo_bp = (f"{_fmt(comm_bp + spread_bp, 1)} bp andata e ritorno al prezzo mediano dell'in-sample: "
+                    f"commissione {_fmt(comm_bp, 1)} bp a qualunque prezzo + spread di un passo al prezzo "
+                    f"d'ingresso di ogni trade, da {_fmt(float(np.nanmin(per_barra)), 2)} a "
+                    f"{_fmt(float(np.nanmax(per_barra)), 2)} bp nell'in-sample (mediana {_fmt(spread_bp, 2)})")
     else:
         costo_bp = f"{_fmt(spread_bp, 2)} bp al prezzo mediano dell'in-sample (lo spread fisso pesa di più a prezzi bassi)"
     voci.insert(voci.index("Costo per trade") + 1, "Costo per trade in bp")
@@ -2752,7 +2764,8 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     s.dm = None
     if promossi:
         solo_costi = {k: kw[k] for k in ("perc_sl", "perc_tp", "finestra", "lag", "spread",
-                                         "commission", "cash", "spread_rollover_pips", "funding")
+                                         "commission", "cash", "spread_rollover_pips", "funding",
+                                         "spread_passo_pips")     # 25/10/2026 (docs/71)
                       if k in kw}
         with _zitto():
             s.dm = due_meta(s.df_is, s.fs, [None, *promossi], verbose=False,
@@ -3506,6 +3519,11 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     from .indicatori import atr_giornaliero_chiuso
     from .mm_adattatore import limiti_symbol, tabella_trade, trade_per_anno
 
+    if da_exchange(symbol):
+        # 25/10/2026 (docs/71, strada D): sui symbol da exchange lo spread e' gia' nei pips netti dei
+        # trade (CostoExtraPips), quindi gia' in «lordi - netti» del costo del rischio: aggiungerlo
+        # qui lo conterebbe due volte
+        spread_pips = 0.0
     scelto = _modello(modello)
     limiti = limiti_symbol(symbol, valore_leva=leva)       # si ferma subito se la leva non e' ammessa
     kw = dict(symbol=symbol, pip=pip, commission=commission, spread_pips=spread_pips,
