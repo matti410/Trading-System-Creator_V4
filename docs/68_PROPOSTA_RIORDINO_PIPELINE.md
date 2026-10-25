@@ -574,3 +574,8 @@ di `main` aggiunti, barre 40/25, regola «nessuna», sistema predefinito):
   verso opposto (il mercato li muove al contrario), e la rosa ne tiene uno solo.
   È il comportamento scritto in `engine/rosa.py`; lo si nota ora perché la 3b
   parte dalla rosa.
+
+*26/10/2026, decisioni di Mattia sui due punti qui sopra:* il notebook di ricerca usa
+il profilo nell'unità che decide anche per `X_INVERSIONE_TREND`; nella rosa dei
+trigger la correlazione si controlla solo fra trigger dello stesso lato (la rosa
+dei sistemi resta com'è).

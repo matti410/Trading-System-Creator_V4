@@ -188,6 +188,39 @@ def main() -> int:
           bool((r["candidata"] == ((r["t_netto"] > 0) & r["bh"] & r["due_meta"])).all())
           and bool((r.loc[~r["nella_rosa"], "perche"].str.len() > 0).all())
           and bool((r.loc[r["nella_rosa"], "perche"] == "").all()))
+    # 26/10/2026 (decisione di Mattia): la correlazione si controlla solo fra trigger dello stesso lato.
+    # Un long e uno short con la finestra sfasata di 4 barre hanno guadagni giornalieri legati in negativo
+    # (il mercato li muove in versi opposti): prima lo short restava fuori «correlato», ora entrano tutti e due
+    rng8, passi8 = _mercato(21)
+    # tanti segnali (quasi ogni giorno ne ha qualcuno): i giorni vuoti, a zero per tutti e due, non annacquano il legame
+    ev8 = np.sort(rng8.permutation(np.arange(50, len(passi8) - 50)[:: 2 * H])[:2500])
+    # ogni trigger ha il suo vantaggio solo nella parte della finestra che non divide con l'altro (long: prime
+    # 4 barre; short: ultime 4); le 6 barre in comune sono solo rumore, che li lega in negativo
+    passi8 = passi8.copy()
+    for i in ev8:
+        passi8[i + 1: i + 5] += 3.0 / 4
+        passi8[i + 11: i + 15] -= 3.0 / 4
+    df8 = _df(passi8, {"OPP_L": ev8, "OPP_S": ev8 + 4})
+    _registra({"OPP_L": 1, "OPP_S": -1})
+    r8 = rosa_entry(df8, H, PIP, quarantena=False).set_index("candidato")
+    from engine.livelli import giorno_fx
+    c8, o8 = df8["Close"].to_numpy(), df8["Open"].to_numpy()
+    f8 = np.full(len(df8), np.nan)
+    f8[: len(df8) - H] = (c8[H:] - o8[1: len(df8) - H + 1]) / PIP
+    g8 = np.asarray(giorno_fx(df8))
+
+    def giornalieri(pos, d):
+        pos = pos[np.isfinite(f8[pos])]
+        return pd.Series(d * f8[pos], index=g8[np.minimum(pos + H, len(df8) - 1)]).groupby(level=0).sum()
+    sl, ss = giornalieri(ev8, 1), giornalieri(ev8 + 4, -1)
+    giorni8 = sl.index.union(ss.index)
+    rho8 = float(np.corrcoef(sl.reindex(giorni8, fill_value=0.0), ss.reindex(giorni8, fill_value=0.0))[0, 1])
+    check("B7b. un long e uno short legati in negativo (rho dei guadagni giornalieri < -0,3) entrano tutti e due "
+          "nella rosa; rho_max si misura solo sullo stesso lato (qui nessun altro membro: vuoto)",
+          rho8 < -0.30 and bool(r8.loc[["OPP_L", "OPP_S"], "nella_rosa"].all())
+          and (r8.loc[["OPP_L", "OPP_S"], "perche"] == "").all()
+          and r8.loc[["OPP_L", "OPP_S"], "rho_max"].isna().all(), f"rho a mano {rho8:+.2f}")
+    _registra(direzioni)
     # t netto di VERA_L1 rifatto a mano, senza passare da rosa_entry
     close, open_ = df["Close"].to_numpy(), df["Open"].to_numpy()
     fwd = np.full(len(df), np.nan)

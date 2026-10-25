@@ -117,12 +117,19 @@ def _motivo(r) -> str:
     return "non positiva in una delle due metà"
 
 
-def _gruppo(tabella: pd.DataFrame, serie: dict, rho_max: float) -> pd.DataFrame:
+def _gruppo(tabella: pd.DataFrame, serie: dict, rho_max: float, per_lato: bool = False) -> pd.DataFrame:
     """
     Il gruppo suggerito, dal t piu' alto in giu' fra i `candidata`: entra chi
     e' di una famiglia nuova e ha |rho| <= rho_max con tutti i gia' presi.
     Aggiunge le colonne nella_rosa, rho_max (il |rho| piu' alto con gli altri
     membri della rosa) e perche (il motivo, per chi resta fuori).
+
+    per_lato (26/10/2026, decisione di Mattia): la correlazione si controlla, e
+    rho_max si misura, solo con i membri dello STESSO lato (colonna
+    `direction`). Un long e uno short legati in negativo non sono doppioni: il
+    mercato li muove in versi opposti, e la loro convivenza si misura alla
+    rosa dei sistemi, sui trade veri. Il controllo della famiglia non cambia.
+    False (default, la rosa dei sistemi) = tutti i membri, come prima.
     """
     t = tabella.copy()
     t["nella_rosa"] = False
@@ -138,6 +145,12 @@ def _gruppo(tabella: pd.DataFrame, serie: dict, rho_max: float) -> pd.DataFrame:
             return 0.0
         return float(np.corrcoef(x, y)[0, 1])
 
+    lato = (dict(zip(t["candidato"], t["direction"])) if per_lato and "direction" in t.columns else {})
+
+    def confrontabili(nome, presi):
+        # per_lato: solo i membri dello stesso lato; altrimenti tutti (come prima)
+        return [p for p in presi if p != nome and (not lato or lato.get(p) == lato.get(nome))]
+
     presi, famiglie_prese = [], {}
     for i in t.sort_values("t_netto", ascending=False).index:
         r = t.loc[i]
@@ -148,7 +161,7 @@ def _gruppo(tabella: pd.DataFrame, serie: dict, rho_max: float) -> pd.DataFrame:
         if r["famiglia"] in famiglie_prese:
             t.loc[i, "perche"] = f"famiglia già nella rosa ({famiglie_prese[r['famiglia']]})"
             continue
-        rhos = {p: rho(nome, p) for p in presi}
+        rhos = {p: rho(nome, p) for p in confrontabili(nome, presi)}
         troppo = {p: v for p, v in rhos.items() if abs(v) > rho_max}
         if troppo:
             p, v = max(troppo.items(), key=lambda kv: abs(kv[1]))
@@ -159,7 +172,7 @@ def _gruppo(tabella: pd.DataFrame, serie: dict, rho_max: float) -> pd.DataFrame:
         t.loc[i, "nella_rosa"] = True
     for i in t.index:
         nome = t.loc[i, "candidato"]
-        altri = [p for p in presi if p != nome]
+        altri = confrontabili(nome, presi)
         if altri and nome in allineate:
             t.loc[i, "rho_max"] = max(abs(rho(nome, p)) for p in altri)
     return t
@@ -241,7 +254,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         candidata      t > 0, bh e due_meta
         famiglia       numero della famiglia (engine/famiglie.py)
         nella_rosa     nel gruppo suggerito
-        rho_max        |rho| piu' alto con gli altri membri della rosa
+        rho_max        |rho| piu' alto con gli altri membri della rosa dello stesso lato (26/10/2026)
         perche         perche' e' fuori dalla rosa: il primo controllo non superato,
                        oppure la famiglia o la correlazione con un membro
         scarto_globale_<unita>, t_globale
@@ -353,7 +366,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     t["candidata"] = (t["t_netto"] > 0) & t["bh"] & t["due_meta"]
     fam = famiglie(df_is, "entry", nomi=list(t["candidato"]), soglia=soglia_famiglia)
     t["famiglia"] = t["candidato"].map(fam.set_index("nome")["famiglia"]).astype(int)
-    t = _ordina(_gruppo(t, serie, rho_max))[colonne]
+    t = _ordina(_gruppo(t, serie, rho_max, per_lato=True))[colonne]      # 26/10/2026: rho solo sullo stesso lato
     t.attrs.update(k=len(t), **info)
     return t
 

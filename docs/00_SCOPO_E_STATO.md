@@ -74,6 +74,13 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   «aggiungi»), la cella dentro la casistica, 4 uscite consigliate (barre = H, stop 90,
   target spento, picco solo da leggere), 4b il sistema che va al passo 5. Riga delle
   prove su ogni schermata; dopo la scheda le scelte rifatte si segnalano.
+- **L'orizzonte H lo dichiara l'utente prima di guardare i dati.** Il 41 che il Lab
+  propone (e il 25 del notebook di ricerca) è un valore di collaudo messo da Mattia
+  senza motivazione: serve solo alle prove d'identità, non è una scelta di ricerca.
+- **Rosa dei trigger** (26/10): la correlazione (|rho| ≤ 0,3) si controlla solo fra
+  trigger dello stesso lato; un long e uno short legati in negativo non sono doppioni
+  e la loro convivenza si misura alla 4b, sui trade veri. Notebook di ricerca:
+  `X_INVERSIONE_TREND` con il profilo nell'unità che decide (bp sulle crypto), come il Lab.
 - **Registro per dataset** (`68` §9.1): symbol, timeframe e confine dell'in-sample.
   Cambiare H sullo stesso dataset non azzera conto e diario dell'out-of-sample, si
   segnala e si conta (`soglia_rumore_orizzonte` sugli H provati). Vive finché il
@@ -143,7 +150,6 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 | `vwap_ops.py` taglia la giornata a mezzanotte UTC: sulle crypto coincide con la giornata, sul broker (sospeso) no | da decidere se si riapre il broker |
 | il notebook di ricerca su Colab chiede il secret `GITHUB_TOKEN` | non bloccante |
 | interruttore sulla curva dei profitti | rimandato da Mattia |
-| notebook di ricerca: `X_INVERSIONE_TREND` (1.4) usa il profilo in pips, il Lab in bp (dal 23/10) | da decidere: allinearlo cambia i numeri della ricerca (`68` §14) |
 
 ## Convenzioni di lavoro
 
