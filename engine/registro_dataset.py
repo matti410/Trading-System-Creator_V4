@@ -30,6 +30,10 @@ sessione del notebook ritrova la sua storia.
 LIMITE: il registro vive finche' resta aperto il notebook (il kernel di
 Python). Riavviarlo lo azzera; salvarlo in un file e' il passo del lavoro 2,
 quando il confine dell'in-sample diventera' una data salvata con lo studio.
+26/10/2026 (docs/70 §3-§4): il salvataggio e' in engine/studio.py, in giornali
+solo in aggiunta; qui `da_voci` ricostruisce la storia da quelle voci e
+`metti` la rimette nel registro. `normale` e `a_tupla` portano le chiavi
+composte (tuple) dentro e fuori dal JSON.
 
 Modulo ADDITIVO: non modifica nessun file esistente dell'engine.
 """
@@ -104,9 +108,16 @@ def apri(symbol: str, timeframe: str, confine, H: int, nuove_prove=None) -> tupl
     return s, esito
 
 
-def annota_oos(s: StoriaDataset, scelte: dict) -> int:
-    """Scrive nel diario un'apertura dell'out-of-sample con le scelte di quel momento; ritorna quante sono."""
-    s.diario.append({"quando": pd.Timestamp.now(tz="UTC").isoformat(), **dict(scelte)})
+def annota_oos(s: StoriaDataset, scelte: dict, oos_fino_al=None) -> int:
+    """
+    Scrive nel diario un'apertura dell'out-of-sample con le scelte di quel momento; ritorna quante sono.
+    oos_fino_al (26/10/2026, docs/70 §3.2): l'ultima barra out-of-sample di quel momento, per il reset;
+    None = non scritto (come prima).
+    """
+    voce = {"quando": pd.Timestamp.now(tz="UTC").isoformat(), **dict(scelte)}
+    if oos_fino_al is not None:
+        voce["oos_fino_al"] = pd.Timestamp(oos_fino_al).isoformat()
+    s.diario.append(voce)
     return len(s.diario)
 
 
@@ -118,3 +129,80 @@ def annota_risalita(s: StoriaDataset, cosa: str, **dettagli) -> None:
 def azzera() -> None:
     """Svuota il registro (per i test; nel notebook equivale a riavviare il kernel)."""
     _REGISTRO.clear()
+
+
+# ========================================================================
+# 26/10/2026 (docs/70 §3.2): la storia ricostruita dalle voci dei giornali
+# ========================================================================
+
+def normale(x):
+    """Un valore come esce da JSON: tuple -> liste, numeri e date numpy/pandas -> Python/testo."""
+    import numpy as np
+    if isinstance(x, dict):
+        return {str(k): normale(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [normale(v) for v in x]
+    if isinstance(x, (np.integer,)):
+        return int(x)
+    if isinstance(x, (np.floating,)):
+        return float(x)
+    if isinstance(x, (np.bool_,)):
+        return bool(x)
+    if isinstance(x, pd.Timestamp):
+        return x.isoformat()
+    return x
+
+
+def a_tupla(x):
+    """L'inverso di `normale` per le chiavi del conto: liste -> tuple, a ogni livello."""
+    if isinstance(x, list):
+        return tuple(a_tupla(v) for v in x)
+    return x
+
+
+def _prove_vuote() -> dict:
+    return {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
+
+
+def da_voci(chiave: tuple, voci: list, nuove_prove=None) -> StoriaDataset:
+    """
+    Ricostruisce la storia di un dataset dalle voci dei giornali, gia' in
+    ordine di tempo (docs/70 §3.2, §4.3). Le voci:
+      {"voce": "orizzonte", "H": 41}                    un H usato: come `apri`
+      {"voce": "prova", "dove": "uscite", "chiave": [...] | None, "n": 87}
+                                                        una voce del conto; None = voce
+                                                        semplice (trigger, fasce)
+      {"voce": "oos", "voce_diario": {...}}             un'apertura dell'out-of-sample
+      {"voce": "risalita", "risalita": {...}}           una scelta rifatta (non di H)
+    Per ogni chiave del conto vale la voce piu' recente. Le risalite di H nascono
+    dalle voci «orizzonte», come in `apri`.
+    """
+    s = StoriaDataset(chiave=chiave, prove=nuove_prove() if nuove_prove is not None else _prove_vuote())
+    for v in voci:
+        tipo = v.get("voce")
+        if tipo == "orizzonte":
+            H = int(v["H"])
+            if s.h_corrente is None:
+                s.h_provati, s.h_corrente = [H], H
+            elif H != s.h_corrente:
+                if H not in s.h_provati:
+                    s.h_provati.append(H)
+                s.risalite.append({"cosa": "H", "da": s.h_corrente, "a": H, "oos_visto": s.oos_visto})
+                s.h_corrente = H
+        elif tipo == "prova":
+            if v.get("chiave") is None:
+                s.prove[v["dove"]] = v["n"]
+            else:
+                s.prove.setdefault(v["dove"], {})[a_tupla(v["chiave"])] = v["n"]
+        elif tipo == "oos":
+            s.diario.append(dict(v["voce_diario"]))
+        elif tipo == "risalita":
+            s.risalite.append(dict(v["risalita"]))
+        else:
+            raise ValueError(f"Voce del giornale sconosciuta: {tipo!r}")
+    return s
+
+
+def metti(s: StoriaDataset) -> None:
+    """Rimette nel registro una storia ricostruita (sostituisce quella che c'era con la stessa chiave)."""
+    _REGISTRO[s.chiave] = s

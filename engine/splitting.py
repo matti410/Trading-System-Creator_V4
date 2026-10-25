@@ -45,6 +45,43 @@ def split_is_oos(df: pd.DataFrame, is_ratio: float = 0.8) -> tuple[pd.DataFrame,
     return df_is, df_oos
 
 
+def confine_da_quota(df: pd.DataFrame, passo, is_ratio: float = 0.8) -> pd.Timestamp:
+    """
+    Il confine (26/10/2026, docs/70 §2.1) che corrisponde a `split_is_oos(df,
+    is_ratio)`: la FINE dell'ultima barra in-sample (inizio + `passo`, la durata
+    di una barra). Con split_al_confine da' gli stessi due pezzi.
+    """
+    df_is, _ = split_is_oos(df, is_ratio=is_ratio)
+    return pd.Timestamp(df_is.index[-1]) + pd.Timedelta(passo)
+
+
+def split_al_confine(df: pd.DataFrame, confine, passo) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Divide `df` in (df_is, df_oos) a un CONFINE fisso (26/10/2026, docs/70 §2):
+    in-sample = le barre che si CHIUDONO entro il confine (inizio + `passo` <=
+    confine), out-of-sample = le altre. Con «si chiudono» la regola vale uguale
+    su ogni timeframe: nessuna barra in-sample contiene un minuto oltre il
+    confine. Le barre nuove di un CSV aggiornato finiscono tutte nell'out-of-sample.
+
+    confine   istante (testo o Timestamp; senza fuso vale come UTC)
+    passo     la durata di una barra (Timedelta o testo, es. "15min")
+    """
+    if not df.index.is_monotonic_increasing:
+        raise ValueError("Il DataFrame non è ordinato cronologicamente: ordina l'indice "
+                         "prima di chiamare split_al_confine().")
+    c = pd.Timestamp(confine)
+    idx = pd.DatetimeIndex(df.index)
+    if idx.tz is not None:
+        c = c.tz_localize("UTC") if c.tzinfo is None else c.tz_convert(idx.tz)
+    elif c.tzinfo is not None:
+        c = c.tz_convert("UTC").tz_localize(None)
+    dentro = (idx + pd.Timedelta(passo)) <= c
+    n = int(dentro.sum())
+    if not dentro[:n].all():
+        raise ValueError("split_al_confine: indice con barre fuori ordine.")
+    return df.iloc[:n].copy(), df.iloc[n:].copy()
+
+
 def describe_split(df_is: pd.DataFrame, df_oos: pd.DataFrame) -> pd.DataFrame:
     """Piccolo riepilogo utile da stampare nel notebook dopo lo split."""
     total = len(df_is) + len(df_oos)
