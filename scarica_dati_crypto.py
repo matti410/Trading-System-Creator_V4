@@ -43,19 +43,17 @@ A fine corsa stampa una tabella riassuntiva.
 Richiede ccxt (pip install ccxt==4.5.78) e, sul PC di Mattia, truststore
 (pip install truststore==0.10.1) per i certificati HTTPS di Windows.
 """
-import os
 import sys
 from pathlib import Path
 
 import pandas as pd
 
-from engine.exchange import (SOGLIA_TASSO_ANOMALO, TIMEFRAME_CCXT, apri_exchange, controlla_funding,
-                             controlla_storico, file_funding, ha_funding, leggi_csv, leggi_funding,
-                             parti_symbol, salva_csv, salva_funding, scarica_funding, scarica_storico,
-                             simboli_exchange)
+# 26/10/2026 (docs/70 §7.1): aggiorna e aggiorna_funding stanno in engine/aggiorna_dati.py,
+# lo stesso codice che usa il Lab con l'interruttore «aggiorna i dati». Stessi file, stesse stampe
+from engine import aggiorna_dati as _ad
+from engine.aggiorna_dati import INIZIO, INIZIO_FUNDING  # noqa: F401  (le date di partenza, come prima)
+from engine.exchange import SOGLIA_TASSO_ANOMALO, TIMEFRAME_CCXT, ha_funding, simboli_exchange
 
-INIZIO = "2020-01-02"       # come i dati del broker (decisione di Mattia del 19/10/2026)
-INIZIO_FUNDING = "2019-12-25"   # una settimana prima delle barre: i primi tassi coprono le prime barre
 CARTELLA = Path(__file__).resolve().parent / "dati"
 
 
@@ -70,23 +68,8 @@ def _argomenti(argv):
 
 
 def aggiorna(symbol: str, timeframe: str, aperti: dict) -> dict:
-    """Scarica (o completa) un CSV e ne restituisce i controlli."""
-    p = parti_symbol(symbol)
-    if p["ccxt_id"] not in aperti:
-        aperti[p["ccxt_id"]] = apri_exchange(symbol)
-    ex = aperti[p["ccxt_id"]]
-    f = CARTELLA / f"{symbol}_{timeframe}.csv"
-    vecchio = leggi_csv(f) if f.exists() else None
-    da = INIZIO if vecchio is None or vecchio.empty else vecchio.index[-1]
-    nuovo = scarica_storico(symbol, timeframe, da=da, ex=ex)
-    df = nuovo if vecchio is None else pd.concat([vecchio, nuovo])
-    df = df[~df.index.duplicated(keep="last")].sort_index()
-    if df.empty:
-        raise RuntimeError(f"{symbol} {timeframe}: l'exchange non ha restituito barre.")
-    salva_csv(df, f)
-    c = controlla_storico(df, timeframe)
-    c["nuove"] = len(df) - (0 if vecchio is None else len(vecchio))
-    return c
+    """Scarica (o completa) un CSV e ne restituisce i controlli (engine/aggiorna_dati.py)."""
+    return _ad.aggiorna_storico(symbol, timeframe, CARTELLA, aperti=aperti)
 
 
 def aggiorna_funding(symbol: str, aperti: dict) -> dict:
@@ -94,24 +77,7 @@ def aggiorna_funding(symbol: str, aperti: dict) -> dict:
     Scarica (o completa) dati/<SYMBOL>_FUNDING.csv di un perpetual e ne
     restituisce i controlli, confrontati con le barre M15 se ci sono.
     """
-    p = parti_symbol(symbol)
-    if p["ccxt_id"] not in aperti:
-        aperti[p["ccxt_id"]] = apri_exchange(symbol)
-    ex = aperti[p["ccxt_id"]]
-    f = file_funding(symbol, CARTELLA)
-    vecchio = leggi_funding(f) if os.path.exists(f) else None
-    da = (INIZIO_FUNDING if vecchio is None or vecchio.empty
-          else vecchio.index[-1] + pd.Timedelta(minutes=1))
-    nuovo = scarica_funding(symbol, da=da, ex=ex)
-    tutto = nuovo if vecchio is None else pd.concat([vecchio, nuovo])
-    if tutto.empty:
-        raise RuntimeError(f"{symbol}: l'exchange non ha restituito tassi del funding.")
-    salva_funding(tutto, f)
-    funding = leggi_funding(f)
-    barre = CARTELLA / f"{symbol}_M15.csv"
-    c = controlla_funding(funding, leggi_csv(barre) if barre.exists() else None)
-    c["nuovi"] = len(funding) - (0 if vecchio is None else len(vecchio))
-    return c
+    return _ad.aggiorna_funding(symbol, CARTELLA, "M15", aperti=aperti)
 
 
 def stampa_funding(symbol: str, c: dict) -> dict:

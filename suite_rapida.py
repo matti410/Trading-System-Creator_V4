@@ -62,7 +62,7 @@ DURATE = {
     "test_filtri_tempo": 2, "test_inversione": 2, "test_montecarlo": 2, "test_portabilita": 2,
     "test_tempo_prezzo": 2, "test_entry_metro": 1, "test_sessioni": 1,
     "test_atlante": 25, "test_mm_stress_bp": 55, "test_orari_uscite": 12,
-    "test_riordino_motore": 44, "test_riordino_lab": 60
+    "test_riordino_motore": 44, "test_riordino_lab": 60, "test_dati_confine": 70
 }
 INSIEME = 3          # suite che girano insieme, nella rapida e nella completa
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")
