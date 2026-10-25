@@ -1,9 +1,9 @@
 # 71 · Proposta: lo spread di un passo al prezzo d'ingresso di ogni trade
 
-**Data:** 26 ottobre 2026
+**Data:** 25 ottobre 2026
 **Stato:** PROPOSTA BREVE. **Nessun codice** prima dell'OK di Mattia.
-**Nasce da:** `docs/70` §15.3 (la strada D, valutata in chat il 26/10).
-**Decisioni già prese da Mattia (26/10):**
+**Nasce da:** `docs/70` §15.3 (la strada D, valutata in chat il 25/10).
+**Decisioni già prese da Mattia (25/10):**
 1. lo spread esce dal prezzo di fill;
 2. un passo per trade nella colonna `CostoExtraPips`, nei due motori;
 3. la confidenza usa il costo del singolo trade;

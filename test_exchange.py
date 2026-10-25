@@ -319,7 +319,7 @@ def esegui() -> int:
         check("F1. perpetual: dati da exchange, long e short, profilo e orari in UTC",
               s.da_exchange and not s.solo_long and s.lati() == (1, -1) and s.fuso == "UTC"
               and s.timeframe == "M15")
-        # 26/10/2026 (docs/70 §15.3, strada A): il passo si converte con il prezzo mediano dell'IN-SAMPLE
+        # 25/10/2026 (docs/70 §15.3, strada A): il passo si converte con il prezzo mediano dell'IN-SAMPLE
         check("F2. costi: commissione taker 0,05% per lato, spread un passo (al prezzo mediano dell'in-sample), "
               "nessun rollover",
               s.costi["commission"] == 0.0005 and np.isclose(s.costi["spread"] * float(s.df_is["Close"].median()), 0.1)

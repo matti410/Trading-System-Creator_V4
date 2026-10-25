@@ -1,5 +1,5 @@
 """
-Lo studio: il confine unico dell'in-sample, l'impronta e i giornali (26/10/2026, docs/70).
+Lo studio: il confine unico dell'in-sample, l'impronta e i giornali (25/10/2026, docs/70).
 
 A COSA SERVE
 ------------
@@ -245,7 +245,7 @@ def entra(cartella_dati, symbol: str, timeframe: str, df: pd.DataFrame, macchina
     dell'in-sample. Si ferma se il CSV finisce prima del confine (copia vecchia)
     o comincia dopo (nessuna barra in-sample).
 
-    df_impronta  (26/10/2026) lo storico del CSV su cui calcolare l'impronta
+    df_impronta  (25/10/2026) lo storico del CSV su cui calcolare l'impronta
                  dell'in-sample, quando `df` e' gia' passato dagli indicatori
                  (che scartano le prime barre di riscaldamento): l'impronta
                  resta quella delle barre del CSV. None = `df`.
@@ -406,7 +406,7 @@ def reset(cartella_dati, campo: str, symbol: str, timeframe: str, df: pd.DataFra
     dataset su cui lo si chiede. Lo studio intero (confine, impronte, giornali di
     tutti i dataset) va in studio/archivio/; non si cancella niente.
 
-    Confine piu' INDIETRO del vecchio (26/10/2026, correzione di Mattia; docs/70
+    Confine piu' INDIETRO del vecchio (25/10/2026, correzione di Mattia; docs/70
     §11, «studio aperto sul dataset sbagliato»): ammesso solo se lo studio
     vecchio non ha ancora niente di misurato ne' guardato, cioe' nessuna voce
     «prova», «oos» o «risalita» nei giornali di nessun dataset. Le voci

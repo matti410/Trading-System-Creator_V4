@@ -622,7 +622,7 @@ def costi_storico(symbol: str, df: pd.DataFrame, funding: pd.DataFrame | None = 
     perpetual finisce in costi["funding"] e con **costi arriva ai motori, che
     lo contano trade per trade (FundingPips). None = non contato, come prima.
 
-    df_prezzo (26/10/2026, docs/70 §15.3, strada A di Mattia): sui symbol da
+    df_prezzo (25/10/2026, docs/70 §15.3, strada A di Mattia): sui symbol da
     exchange lo spread di un passo diventa una frazione del prezzo con il
     prezzo mediano di `df_prezzo`. Il Lab e il notebook di ricerca passano
     l'IN-SAMPLE: nessun dato dell'out-of-sample nei costi, e l'in-sample resta
@@ -730,7 +730,7 @@ def _frase_funding(s) -> str:
 
 
 # ========================================================================
-# 26/10/2026 (docs/70): i dati in locale e lo studio
+# 25/10/2026 (docs/70): i dati in locale e lo studio
 # ========================================================================
 #
 # apri_dati    aggiorna i dati (in locale, se richiesto), carica lo storico, fa il reset
@@ -1087,15 +1087,15 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     motore            21/10/2026 (docs/65): "bt" (backtesting.py) o "veloce"
                       (engine/motore_veloce.py, stessi trade). None (default) =
                       il predefinito del tool (motore_veloce.MOTORE_PREDEFINITO).
-    confine           26/10/2026 (docs/70 §2): None (default) = come prima, 80% delle
+    confine           25/10/2026 (docs/70 §2): None (default) = come prima, 80% delle
                       barre a ogni giro, niente studio; "studio" = il confine unico
                       dello studio, salvato su file (il Lab); "80%" = la regola di
                       prima dichiarata come collaudo; una data = quel confine, di collaudo
-    aggiorna          26/10/2026 (docs/70 §1): True = in locale scarica prima le barre
+    aggiorna          25/10/2026 (docs/70 §1): True = in locale scarica prima le barre
                       nuove (e spot e funding del perpetual); su Colab ignorato
-    ricalcola_confine 26/10/2026 (docs/70 §5): la data di oggi (gg/mm/aaaa) = ricalcola
+    ricalcola_confine 25/10/2026 (docs/70 §5): la data di oggi (gg/mm/aaaa) = ricalcola
                       il confine dello studio (solo sul PC); "" = niente
-    macchina          26/10/2026 (docs/70 §4.3): il nome del giornale ("pc", "colab");
+    macchina          25/10/2026 (docs/70 §4.3): il nome del giornale ("pc", "colab");
                       None = "colab" su Colab, "pc" altrove
 
     11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
@@ -1115,7 +1115,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     H = int(H)
     if H < 1:
         raise ValueError("H deve essere almeno 1 barra.")
-    # 26/10/2026 (docs/70): aggiornamento, studio, reset e taglio al funding; con confine=None
+    # 25/10/2026 (docs/70): aggiornamento, studio, reset e taglio al funding; con confine=None
     # apri_dati fa solo quello che facevano prima carica_storico e carica_funding
     dati = apri_dati(symbol, timeframe, cartella, confine=confine, aggiorna=aggiorna,
                      ricalcola_confine=ricalcola_confine, macchina=macchina, quota_in_sample=quota_in_sample,
@@ -1136,8 +1136,8 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     with _zitto():
         df = aggiungi_indicatori(df)
         df, s.spot_nota = aggancia_spot(symbol, df, cartella, timeframe)   # 22/10/2026 (docs/66)
-        s.df_is, s.df_oos = dividi_dati(dati, df)    # 26/10/2026: al confine dello studio, o all'80%
-    # 26/10/2026 (docs/70 §15.3, strada A): lo spread si converte con il prezzo mediano dell'in-sample
+        s.df_is, s.df_oos = dividi_dati(dati, df)    # 25/10/2026: al confine dello studio, o all'80%
+    # 25/10/2026 (docs/70 §15.3, strada A): lo spread si converte con il prezzo mediano dell'in-sample
     costi, sp = costi_storico(symbol, grezzo, funding=storico_funding, df_prezzo=s.df_is)
     s.df, s.costi = df, costi
     s.atr = atr_giornaliero_chiuso(df)   # 20/10/2026: sullo storico intero, noto prima di ogni ingresso
@@ -1156,7 +1156,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     precedente = _ULTIMO_DATASET.get("chiave")
     info_giornali = None
     if dati.ingresso is not None:
-        # 26/10/2026 (docs/70 §3-§4): il registro dai giornali dello studio, e ogni cambio nel giornale
+        # 25/10/2026 (docs/70 §3-§4): il registro dai giornali dello studio, e ogni cambio nel giornale
         s.storia, esito, info_giornali = _storia_dello_studio(dati, H, lambda: s.prove)
     else:
         s.storia, esito = _rd.apri(symbol, timeframe, s.df_is.index[-1], H, nuove_prove=lambda: s.prove)
@@ -1191,7 +1191,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     if s.spot_nota is not None:
         voci.append("Spot (perpetual)")
         valori.append(s.spot_nota)            # 22/10/2026
-    if dati.ingresso is not None:             # 26/10/2026 (docs/70 §1.2): da dove viene il confine
+    if dati.ingresso is not None:             # 25/10/2026 (docs/70 §1.2): da dove viene il confine
         ing = dati.ingresso
         nuove = 0
         if isinstance(dati.aggiornamento, dict) and dati.aggiornamento["candele"]["esito"] == "aggiornato":
@@ -1221,7 +1221,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     valori.insert(voci.index("Costo per trade in bp"), costo_bp)
     riepilogo = pd.DataFrame({"": voci, " ": valori})
     s.tabelle["riepilogo"] = riepilogo
-    mostra_dati(dati)                         # 26/10/2026 (docs/70): aggiornamento, reset, studio
+    mostra_dati(dati)                         # 25/10/2026 (docs/70): aggiornamento, reset, studio
     _mostra(("Il tuo laboratorio", riepilogo))
     _riquadro(
         "Lo storico su cui lavori, diviso in due: l'in-sample serve a costruire la strategia, "
@@ -1252,7 +1252,7 @@ def _nota_dataset(s: Sessione, esito: str, precedente) -> None:
     """Cosa e' successo al conto delle prove aprendo questo dataset (docs/68 §9.1)."""
     storia = s.storia
     if esito == "nuovo" and _nel_studio(storia):
-        # 26/10/2026 (docs/70): il registro e' nello studio, su file
+        # 25/10/2026 (docs/70): il registro e' nello studio, su file
         if precedente is not None and precedente != storia.chiave:
             _nota("Dataset diverso da quello di prima (strumento o timeframe): il conto delle prove e il diario "
                   "dell'out-of-sample sono quelli di questo dataset.")
@@ -1789,7 +1789,7 @@ def _imposta_casistiche(s: Sessione, tl: tuple, ts: tuple, origini: dict) -> pd.
     if getattr(s, "storia", None) is not None and s.storia.oos_visto and prima != (tl, ts):
         _avviso_risalita(s, "cambiare le casistiche")
         _rd.annota_risalita(s.storia, "casistiche", da=prima, a=(tl, ts))
-        _salva_studio(s.storia)       # 26/10/2026 (docs/70): nel giornale dello studio
+        _salva_studio(s.storia)       # 25/10/2026 (docs/70): nel giornale dello studio
     with _zitto():
         s.entry_long = risolvi_scelta(list(tl), lato="long") if tl else None
         s.entry_short = risolvi_scelta(list(ts), lato="short") if ts else None
@@ -2021,7 +2021,7 @@ def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None)
     if getattr(s, "storia", None) is not None and s.storia.oos_visto and prima != (cl, cs):
         _avviso_risalita(s, "cambiare la cella")
         _rd.annota_risalita(s.storia, "cella", da=prima, a=(cl, cs))
-        _salva_studio(s.storia)       # 26/10/2026 (docs/70)
+        _salva_studio(s.storia)       # 25/10/2026 (docs/70)
     s.fs = s.dm = s.oos = None
     s.sopravvissuti, s.filtro, s.filtri_scelti = [], None, []
     s.trades_is = s.trades_oos = s.mm = None
@@ -2271,7 +2271,7 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     if storia is not None and storia.oos_visto and storia.diario[-1].get("uscite") != chiave:
         _avviso_risalita(s, "cambiare le uscite")
         _rd.annota_risalita(storia, "uscite", a=chiave)
-        _salva_studio(storia)         # 26/10/2026 (docs/70)
+        _salva_studio(storia)         # 25/10/2026 (docs/70)
     _mostra_consigliate(s, bl, bs, sl, tp, regola_uscita)
 
     el, es_ = _entry_lato(s, 1), _entry_lato(s, -1)      # con la cella dentro, se c'e' (docs/68 §3.3)
@@ -2459,7 +2459,7 @@ def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int,
     dove si sceglie H; dice se H e' cambiato sullo stesso dataset (una
     risalita: si conta). Ritorna la storia (h_provati, diario, risalite).
 
-    dati   26/10/2026 (docs/70 §12.4): quello che ritorna apri_dati. Con il
+    dati   25/10/2026 (docs/70 §12.4): quello che ritorna apri_dati. Con il
            confine dello studio il registro e' lo stesso del Lab, nei giornali
            dello studio; None = in memoria, come prima.
     """
@@ -2482,7 +2482,7 @@ def segna_oos(storia, **scelte) -> int:
     §9): scrive un'apertura con le scelte di quel momento e, dalla seconda,
     lo dice. Ritorna quante aperture ci sono.
     """
-    fino = scelte.pop("oos_fino_al", None)       # 26/10/2026 (docs/70 §3.2): per il reset dello studio
+    fino = scelte.pop("oos_fino_al", None)       # 25/10/2026 (docs/70 §3.2): per il reset dello studio
     n = _rd.annota_oos(storia, scelte, oos_fino_al=fino if _nel_studio(storia) else None)
     _salva_studio(storia)
     if _nel_studio(storia):
@@ -2585,7 +2585,7 @@ def rosa_dei_sistemi(s: Sessione, sistema: str | None = None) -> pd.DataFrame:
             and s.storia.diario[-1].get("sistema") not in (None, sistema)):
         _avviso_risalita(s, "cambiare il sistema")
         _rd.annota_risalita(s.storia, "sistema", a=sistema)
-        _salva_studio(s.storia)       # 26/10/2026 (docs/70)
+        _salva_studio(s.storia)       # 25/10/2026 (docs/70)
     if sistema != getattr(s, "sistema", None):
         s.fs = s.dm = s.oos = None
         s.sopravvissuti, s.filtro = [], None
@@ -3172,7 +3172,7 @@ def _riga_prove(s: Sessione, qui: str) -> dict:
     quante in tutto fin qui, con la soglia del caso. Gli stessi conti della
     scheda (_soglia_cumulata_lab). Solo informativa.
     """
-    _salva_studio(getattr(s, "storia", None))   # 26/10/2026 (docs/70): il conto nel giornale dello studio
+    _salva_studio(getattr(s, "storia", None))   # 25/10/2026 (docs/70): il conto nel giornale dello studio
     conti = _soglia_cumulata_lab(s, np.nan)
     k = conti["k"]
     k_testo = _fmt(k, 1) if isinstance(k, float) else _fmt(k)
@@ -3231,7 +3231,7 @@ def _diario_oos(s: Sessione, scelti: list) -> None:
               "cella": (getattr(s, "cella_long", None), getattr(s, "cella_short", None)),
               "uscite": _chiave_uscite(s), "sistema": getattr(s, "sistema", None) or "Long + Short",
               "filtri": tuple(scelti)}
-    # 26/10/2026 (docs/70 §3.2): nello studio anche l'ultima barra out-of-sample di adesso, per il reset
+    # 25/10/2026 (docs/70 §3.2): nello studio anche l'ultima barra out-of-sample di adesso, per il reset
     n = _rd.annota_oos(storia, scelte, oos_fino_al=s.df_oos.index[-1] if _nel_studio(storia) else None)
     _salva_studio(storia)
     if _nel_studio(storia):
@@ -3241,7 +3241,7 @@ def _diario_oos(s: Sessione, scelti: list) -> None:
         _note_studio(storia)
     if n > 1:
         prima = storia.diario[0]
-        # 26/10/2026: confronto nella forma del JSON (un diario riletto dal giornale ha liste, non tuple)
+        # 25/10/2026: confronto nella forma del JSON (un diario riletto dal giornale ha liste, non tuple)
         cambiate = [_NOMI_SCELTE[k] for k in scelte if _rd.normale(prima.get(k)) != _rd.normale(scelte[k])]
         _avviso(f"Out-of-sample già guardato {n} volte. "
                 + (f"Scelte cambiate dopo la prima volta: {', '.join(cambiate)}." if cambiate
@@ -3295,7 +3295,7 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         combinazioni = math.comb(n_prove, len(scelti))
         # 22/10/2026: soglia cumulata, la famiglia «m filtri fra n» conta una volta
         s.prove["combinazioni"][(_chiave_filtri(s), len(scelti))] = combinazioni
-        _salva_studio(s.storia)       # 26/10/2026 (docs/70)
+        _salva_studio(s.storia)       # 25/10/2026 (docs/70)
         _spiegazione(
             "Combinazione scelta a mano: non è passata dall'imbuto.",
             f"Ogni riga aggiunge un filtro a quella sopra: si entra solo quando sono veri tutti. Guarda quanti trade "
