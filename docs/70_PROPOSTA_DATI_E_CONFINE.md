@@ -926,6 +926,14 @@ dei trade in-sample. Tre strade, decide Mattia:
 
 Raccomandazione: A.
 
+**Decisione di Mattia (26/10): A**, come lavoro piccolo subito dopo la PR #70.
+`costi_storico(..., df_prezzo=)`: il Lab e il notebook di ricerca passano
+l'in-sample. Con le barre nuove del 25/10 l'in-sample di BTC ora è identico al bit:
+uscite, filtri, trade, rosa e atlante. Rispetto a prima, sui CSV del 19/10, lo
+spread di BTC passa da 0,0226 a 0,0275 bp per trade e il guadagno medio in-sample
+da −3,11 a −3,15 bp. Da valutare (solo proposta): la strada D, lo spread di un
+passo al prezzo d'ingresso di ogni trade.
+
 ### 15.4 · Tempi misurati
 
 Con la rete vera, il 25/10 (parte A), su BINANCE_PERP_BTCUSDT:
