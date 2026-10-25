@@ -1,7 +1,8 @@
 # 70 · Proposta: dati in locale, timeframe a scelta, confine dell'in-sample salvato
 
 **Data:** 25 ottobre 2026
-**Stato:** PROPOSTA. **Nessun codice** prima dell'OK di Mattia.
+**Stato:** PROPOSTA APPROVATA da Mattia il 25/10/2026, con le decisioni del §14.
+Il codice va in due Pull request: A (engine e test) e B (`prepara`, Lab, notebook di ricerca).
 **Risponde a:** `docs/69_DATI_E_CONFINE.md` (l'incarico), con le indicazioni di
 Mattia del 25/10 sulla bozza: Drive per desktop raccomandato, ma senza
 conflitti fra PC e Colab; reset con la data nel campo; **un confine unico per
@@ -16,7 +17,8 @@ ricerca.
 **Indice:** §0 In breve · §1 Il flusso nuovo · §2 Il confine unico · §3 I file
 dello studio · §4 PC e Colab senza conflitti · §5 Il reset · §6 Funding e spot
 · §7 Cosa cambia nel codice e cosa resta · §8 Collaudo · §9 Identità · §10 Tempi
-· §11 Rischi · §12 Le domande del `69` §5 · §13 Fuori incarico
+· §11 Rischi · §12 Le domande del `69` §5 · §13 Fuori incarico · §14 Decisioni
+di Mattia
 
 ---
 
@@ -77,6 +79,10 @@ Il testo del riquadro sopra la cella diventa:
 > **Dove stanno i dati.** Sul PC nella cartella di Drive, se c'è Google Drive per
 > desktop (§4), altrimenti in `dati/`; su Colab in
 > `Il mio Drive/Trading-System-Creator_V4/dati/`.
+>
+> **Drive per desktop:** usalo in modalità **streaming** e rendi disponibile
+> offline solo la cartella `Trading-System-Creator_V4`. Mai il mirroring di
+> tutto il Drive: copierebbe sul PC ogni file che hai su Drive.
 
 Cosa fa la cella:
 - in locale scrive `AGGIORNA_DATI = aggiorna_dati`;
@@ -781,3 +787,46 @@ stessa data, e il primo download completo lo fa il Lab.
   contiene un tratto già guardato e uno mai visto (le barre arrivate dopo
   l'ultima apertura del diario, su qualunque dataset). La scheda potrebbe
   mostrare anche i numeri del solo tratto mai visto, con quante barre ci sono.
+
+---
+
+## 14 · Decisioni di Mattia (25/10/2026)
+
+La proposta è approvata, con le indicazioni sulla bozza riportate in testa:
+- Drive per desktop raccomandato, con un giornale per macchina, solo in aggiunta;
+- reset con la data nel campo;
+- confine unico per tutto lo studio, con `confine="80%"` per le prove d'identità.
+
+**Domande del §12**
+
+| | decisione |
+|---|---|
+| 12.1 · Colab senza lo studio | **si ferma**, con il messaggio del §12.1 |
+| 12.2 · Più studi | **uno studio attivo alla volta** |
+| 12.3 · Soglia per suggerire il reset | **avviso al 30%** di out-of-sample, mai automatico |
+| 12.4 · Notebook di ricerca | **Lab e ricerca nello stesso studio**, con gli stessi giornali |
+| 12.5 · Symbol in elenco | **le monete attuali**; le altre in un ramo a parte |
+
+**Fuori incarico (§13)**
+
+| proposta | decisione |
+|---|---|
+| L'out-of-sample «fresco» | **lavoro piccolo dopo questo** |
+| Il conto delle prove fra dataset | **si decide nel lavoro dei testimoni**, più avanti |
+
+**Riquadro dell'Avvio (§1.1)**
+
+Una riga in più: con Drive per desktop si usa la modalità streaming e si rende
+disponibile offline solo la cartella `Trading-System-Creator_V4`, mai il
+mirroring di tutto il Drive.
+
+**Consegna del codice**
+
+Due Pull request, come per il riordino (`68`).
+
+| PR | contenuto | prove |
+|---|---|---|
+| **A · Engine e test** | `engine/aggiorna_dati.py`; `engine/studio.py`; `split_al_confine` in `engine/splitting.py`; `da_voci` e `oos_fino_al` in `engine/registro_dataset.py`; `test_dati_confine.py` con la sua riga in `suite_rapida.py`; `scarica_dati_crypto.py` che importa le funzioni spostate | `test_dati_confine.py` (§8) |
+| **B · Il resto** (dopo il merge di A) | `vetrina.prepara` e le funzioni del registro; l'Avvio e la schermata 1 del Lab crypto; le celle 4, 11, 20 e 24 del notebook di ricerca | le prove d'identità del §9 |
+
+Prima di ognuna, la suite completa.
