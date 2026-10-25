@@ -98,6 +98,13 @@ def apri(symbol: str, timeframe: str, confine, H: int, nuove_prove=None) -> tupl
                           prove=nuove_prove() if nuove_prove is not None else None)
         _REGISTRO[chiave] = s
         return s, "nuovo"
+    if s.h_corrente is None:
+        # 26/10/2026 (docs/70): una storia ricostruita da giornali senza nessun H (studio appena aperto,
+        # o solo voci d'altro tipo): il primo H e' «nuovo», come sopra; il conto ricostruito resta
+        s.h_provati, s.h_corrente = [H], H
+        if s.prove is None and nuove_prove is not None:
+            s.prove = nuove_prove()
+        return s, "nuovo"
     if H == s.h_corrente:
         return s, "stesso_h"
     esito = "h_gia_provato" if H in s.h_provati else "h_nuovo"

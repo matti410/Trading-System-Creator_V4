@@ -18,8 +18,10 @@ C  i giornali: il riavvio simulato (11), due macchine (12), le copie di
    conflitto di Drive (13), l'id dello studio (14), il diario fra dataset (15);
 D  il reset (16), la contaminazione su tutto lo studio (17), la scrittura
    sicura (21), il confine riportato indietro solo su uno studio intatto (22,
-   correzione del 26/10).
-Il punto 19 (prepara con confine="80%") e' della parte B.
+   correzione del 26/10);
+E  prepara con lo studio (parte B): apertura, tabella, giornale, riavvio, H
+   diverso, diario, aggiornamento con exchange finto, Colab, confine di
+   collaudo (19), funding meno avanti, l'Avvio.
 
 Come si lancia (da terminale, dalla cartella del progetto):
 
@@ -114,6 +116,178 @@ class Finto:
         ms = (pd.DatetimeIndex(self.funding.index).as_unit("ns").asi8 // 1_000_000).astype(np.int64)
         sel = np.flatnonzero(ms >= since)[: int(limit)]
         return [{"timestamp": int(ms[k]), "fundingRate": float(self.funding["tasso"].iloc[k])} for k in sel]
+
+
+def parlato(f, *a, **k):
+    """Esegue f e ritorna (risultato, testo stampato)."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        r = f(*a, **k)
+    return r, buf.getvalue()
+
+
+def sezione_e(check, errore, cartella) -> None:
+    """
+    E · prepara con lo studio (parte B, docs/70 §7.2), su uno storico sintetico
+    24/7 che arriva fino a adesso, in una cartella temporanea. L'aggiornamento
+    usa un exchange finto al posto di quello vero (nessuna rete).
+    """
+    import engine.vetrina as V
+    import engine.aggiorna_dati as AD_
+    print("\nE · prepara con lo studio (Lab e notebook di ricerca)")
+    SYM, SPOT = "BINANCE_PERP_BTCUSDT", "BINANCE_SPOT_BTCUSDT"
+
+    def riavvio():
+        """Come riavviare il notebook: il registro in memoria si svuota, lo studio su file resta."""
+        RD.azzera()
+        V._CONTESTO_STUDIO.clear()
+        V._SCRITTO.clear()
+        V._ULTIMO_DATASET.clear()
+
+    adesso = pd.Timestamp.now(tz="UTC").floor("15min")
+    tutto = storico((adesso - pd.Timedelta(days=150)).tz_convert(None),
+                    (adesso - pd.Timedelta("15min")).tz_convert(None), passo="15min", seme=21)
+    orari = pd.date_range(tutto.index[0].floor("8h"), tutto.index[-1].ceil("8h"), freq="8h")
+    fund = X.con_intervalli(pd.DataFrame({"tasso": 0.0001}, index=orari.rename("Date")))
+    c = cartella("e")
+    X.salva_csv(tutto.iloc[:-30], c / f"{SYM}_M15.csv")
+    X.salva_funding(fund, X.file_funding(SYM, c))
+    riavvio()
+    s0 = muto(V.prepara, SYM, H=8, cartella=str(c))                     # come prima: nessuno studio
+    nessuno = not (c / "studio").exists()
+    s1, testo1 = parlato(V.prepara, SYM, H=8, cartella=str(c), confine="studio")
+    check("E1. confine=«studio» al primo avvio: lo studio si apre, stessi pezzi e stessi costi di prima",
+          nessuno and (c / "studio" / "confine.json").exists() and s1.df_is.equals(s0.df_is)
+          and s1.df_oos.equals(s0.df_oos) and s1.costi["commission"] == s0.costi["commission"]
+          and "Hai aperto lo studio" in testo1)
+    rie = s1.tabelle["riepilogo"].set_index("")[" "]
+    check("E1b. la tabella dice da dove viene il confine: in-sample «confine dello studio», riga «Studio»",
+          "confine dello studio" in rie["In-sample (per costruire)"] and "vale per tutti i dataset" in rie["Studio"]
+          and "Studio" not in list(s0.tabelle["riepilogo"][""]))
+    giornale = c / "studio" / f"{SYM}_M15" / "giornale_pc.jsonl"
+
+    def righe():
+        return [json.loads(x) for x in giornale.read_text(encoding="utf-8").splitlines()]
+
+    s1.prove["trigger"] = 50
+    s1.prove["uscite"][(("T",), (), 8, 8, 90, None, "barre", None, None)] = 87
+    muto(V._riga_prove, s1, "prova")
+    check("E2. H e conto delle prove nel giornale della macchina (solo le voci cambiate)",
+          [r["voce"] for r in righe()] == ["orizzonte", "prova", "prova"])
+    riavvio()
+    s2, testo2 = parlato(V.prepara, SYM, H=8, cartella=str(c), confine="studio")
+    check("E3. dopo il riavvio: conto ritrovato (chiavi composte comprese), stesso H, nessuna voce in piu'",
+          s2.prove["trigger"] == 50 and s2.prove["uscite"] == s1.prove["uscite"] and len(righe()) == 3
+          and s2.df_is.equals(s1.df_is))
+    riavvio()
+    s3, testo3 = parlato(V.prepara, SYM, H=6, cartella=str(c), confine="studio")
+    check("E4. dopo il riavvio, H = 6: H provati [8, 6], risalita segnalata, una voce «orizzonte» in piu'",
+          s3.storia.h_provati == [8, 6] and "si conta" in testo3 and s3.prove["trigger"] == 50
+          and [r["voce"] for r in righe()].count("orizzonte") == 2
+          and all(r["voce"] != "risalita" for r in righe()))
+    scelte = dict(H=6, long=("T",), short=(), uscite=(90, None, "barre"))
+    muto(V.segna_oos, s3.storia, oos_fino_al=s3.df_oos.index[-1], **scelte)
+    riavvio()
+    s4 = muto(V.prepara, SYM, H=6, cartella=str(c), confine="studio")
+    _, testo4 = parlato(V.segna_oos, s4.storia, oos_fino_al=s4.df_oos.index[-1], **scelte)
+    oos = [r for r in righe() if r["voce"] == "oos"]
+    check("E5. diario dopo il riavvio: «già guardato 2 volte», «stesse scelte» (liste e tuple), oos_fino_al scritto",
+          "2 volte" in testo4 and "Stesse scelte" in testo4 and len(oos) == 2
+          and all(r["voce_diario"]["oos_fino_al"] == s4.df_oos.index[-1].isoformat() for r in oos))
+    rie4 = s4.tabelle["riepilogo"].set_index("")[" "]
+    check("E5b. la riga «Studio» conta le aperture su questo dataset",
+          "guardato: 1 volta su questo dataset" in rie4["Studio"], rie4["Studio"])
+
+    # l'aggiornamento: exchange finto al posto di quello vero (nessuna rete)
+    originale = AD_.apri_exchange
+    finto_perp, finto_spot = Finto(tutto, funding=fund), Finto(tutto, ident="binance")
+    try:
+        AD_.apri_exchange = lambda symbol: finto_perp if "_PERP_" in symbol else finto_spot
+        riavvio()
+        s5, testo5 = parlato(V.prepara, SYM, H=6, cartella=str(c), confine="studio", aggiorna=True)
+    finally:
+        AD_.apri_exchange = originale
+    oos5 = s5.tabelle["riepilogo"].set_index("")[" "]["Out-of-sample (mai visto)"]
+    # lo spot mancava e l'aggiornamento l'ha scaricato: il df ha in piu' la colonna spot_close (la basis
+    # dell'atlante); barre, prezzi e indicatori dell'in-sample sono quelli di prima
+    check("E6. aggiorna=True: +30 barre, in-sample identico al bit, out-of-sample +30, confine fermo",
+          s5.df_is[s4.df_is.columns].equals(s4.df_is) and "spot_close" in s5.df_is.columns
+          and len(s5.df_oos) == len(s4.df_oos) + 30
+          and "Dati aggiornati" in testo5 and "il confine non si è mosso" in testo5
+          and "(di cui 30 arrivate oggi)" in oos5 and (c / f"{SPOT}_M15.csv").exists(),
+          f"out-of-sample {len(s4.df_oos)} -> {len(s5.df_oos)}")
+    check("E6b. verso l'exchange solo funzioni di lettura",
+          set(finto_perp.funzioni) | set(finto_spot.funzioni)
+          <= {"load_markets", "fetch_ohlcv", "fetch_funding_rate_history"})
+
+    # Colab
+    vuota = cartella("e_colab")
+    X.salva_csv(tutto, vuota / f"{SYM}_M15.csv")
+    X.salva_funding(fund, X.file_funding(SYM, vuota))
+    riavvio()
+    check("E7. Colab senza studio: si ferma con il messaggio (docs/70 §12.1), niente studio creato",
+          errore(lambda: V.prepara(SYM, H=6, cartella=str(vuota), confine="studio", macchina="colab",
+                                   aggiorna=True), FileNotFoundError, "Su Drive non c'è lo studio")
+          and not (vuota / "studio").exists())
+    s7, testo7 = parlato(V.prepara, SYM, H=7, cartella=str(c), confine="studio", macchina="colab", aggiorna=True,
+                         ricalcola_confine=pd.Timestamp.now().strftime("%d/%m/%Y"))
+    check("E7b. Colab con lo studio: aggiornamento e reset ignorati e detti, H nuovo nel giornale di Colab",
+          "ignorato qui" in testo7 and "solo sul PC" in testo7 and s7.df_is[s4.df_is.columns].equals(s4.df_is)
+          and (c / "studio" / f"{SYM}_M15" / "giornale_colab.jsonl").exists())
+
+    # confine di collaudo (punto 19 del docs/70 §8)
+    riavvio()
+    s8, testo8 = parlato(V.prepara, SYM, H=6, cartella=str(vuota), confine="80%")
+    s8b = muto(V.prepara, SYM, H=6, cartella=str(vuota))
+    check("E8. confine=«80%»: stessi pezzi della regola di prima, avviso di collaudo, nessuno studio",
+          s8.df_is.equals(s8b.df_is) and s8.df_oos.equals(s8b.df_oos) and "Confine di collaudo" in testo8
+          and not (vuota / "studio").exists())
+    data_c = s8.df_is.index[-1] + pd.Timedelta("15min")
+    s8c = muto(V.prepara, SYM, H=6, cartella=str(vuota), confine=str(data_c))
+    check("E8b. confine = una data (la fine dell'80%): stessi pezzi, nessuno studio",
+          s8c.df_is.equals(s8.df_is) and s8c.df_oos.equals(s8.df_oos) and not (vuota / "studio").exists())
+
+    # il funding meno avanti delle candele
+    cf = cartella("e_funding")
+    X.salva_csv(tutto, cf / f"{SYM}_M15.csv")
+    corto = fund[fund.index <= tutto.index[-1] - pd.Timedelta(days=1)]
+    X.salva_funding(corto, X.file_funding(SYM, cf))
+    riavvio()
+    check("E9a. studio da aprire e funding un giorno indietro: si ferma come prima (il confine non c'e' ancora)",
+          errore(lambda: V.prepara(SYM, H=6, cartella=str(cf), confine="studio"), ValueError, "non copre")
+          and not (cf / "studio").exists())
+    X.salva_funding(fund, X.file_funding(SYM, cf))
+    riavvio()
+    s9a = muto(V.prepara, SYM, H=6, cartella=str(cf), confine="studio")      # lo studio si apre
+    X.salva_funding(corto, X.file_funding(SYM, cf))
+    riavvio()
+    s9, testo9 = parlato(V.prepara, SYM, H=6, cartella=str(cf), confine="studio")
+    attese = int((tutto.index >= corto.index[-1] + pd.Timedelta(hours=8)).sum())
+    check("E9. funding un giorno indietro: nello studio si tagliano le ultime barre (out-of-sample) e si dice",
+          len(s9.df) == len(s9a.df) - attese and attese > 0 and "restano nel file" in testo9
+          and s9.df_is.equals(s9a.df_is),
+          f"{attese} barre fuori")
+    riavvio()
+    check("E9b. senza studio (confine=None) tutto come prima: si ferma",
+          errore(lambda: V.prepara(SYM, H=6, cartella=str(cf)), ValueError, "non copre"))
+
+    # l'Avvio: la cartella dei dati
+    progetto = cartella("e_progetto")
+    (progetto / "dati").mkdir(exist_ok=True)
+    check("E10. Avvio su Colab: Drive; in locale senza Drive per desktop: dati/ del progetto",
+          muto(V.cartella_dati_avvio, progetto, True, "/content/drive/x") == "/content/drive/x"
+          and (V.cartella_drive_locale() is not None
+               or muto(V.cartella_dati_avvio, progetto, False, "x") == os.path.join(str(progetto), "dati")))
+    da_, a_ = cartella("e_da"), cartella("e_a")
+    for nome in ("A.csv", "B.csv", "C.csv"):
+        (da_ / nome).write_text("x")
+    (a_ / "A.csv").write_text("x")
+    os.utime(a_ / "A.csv", (2_000_000_000, 2_000_000_000))      # su Drive piu' recente
+    (a_ / "B.csv").write_text("x")
+    os.utime(a_ / "B.csv", (1_000_000_000, 1_000_000_000))      # su Drive piu' vecchio
+    check("E10b. al primo avvio con Drive: da copiare i CSV che su Drive mancano o sono piu' vecchi",
+          V.file_da_copiare(da_, a_) == ["B.csv", "C.csv"])
+    riavvio()
 
 
 def esegui() -> int:
@@ -517,6 +691,8 @@ def esegui() -> int:
         RD.annota_oos(st_, {"H": 1})
         check("D21c. annota_oos senza oos_fino_al resta come prima (nessuna chiave in piu')",
               sorted(st_.diario[-1]) == ["H", "quando"])
+
+        sezione_e(check, errore, cartella)
     finally:
         RD.azzera()
         shutil.rmtree(radice, ignore_errors=True)

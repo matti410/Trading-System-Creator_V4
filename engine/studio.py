@@ -237,13 +237,18 @@ class Ingresso:
 
 
 def entra(cartella_dati, symbol: str, timeframe: str, df: pd.DataFrame, macchina: str,
-          quota: float = 0.8, adesso=None) -> Ingresso:
+          quota: float = 0.8, adesso=None, df_impronta: pd.DataFrame | None = None) -> Ingresso:
     """
     Il dataset (symbol, timeframe) entra nello studio. Se lo studio non c'e',
     lo apre su questo dataset (solo sul PC; su Colab si ferma con il messaggio
     del docs/70 §12.1). Divide `df` al confine unico e controlla l'impronta
     dell'in-sample. Si ferma se il CSV finisce prima del confine (copia vecchia)
     o comincia dopo (nessuna barra in-sample).
+
+    df_impronta  (26/10/2026) lo storico del CSV su cui calcolare l'impronta
+                 dell'in-sample, quando `df` e' gia' passato dagli indicatori
+                 (che scartano le prime barre di riscaldamento): l'impronta
+                 resta quella delle barre del CSV. None = `df`.
     """
     _controlla_macchina(macchina)
     studio = leggi_confine(cartella_dati)
@@ -260,7 +265,8 @@ def entra(cartella_dati, symbol: str, timeframe: str, df: pd.DataFrame, macchina
     if len(df_is) == 0:
         raise ValueError(f"{ds} comincia dopo il confine dello studio ({confine:%d/%m/%Y %H:%M} UTC): "
                          "nessuna barra per costruire.")
-    esito = controlla_impronta(cartella_dati, ds, df_is, studio["id"])
+    base = df_is if df_impronta is None else split_al_confine(df_impronta, confine, p)[0]
+    esito = controlla_impronta(cartella_dati, ds, base, studio["id"])
     quota_is = len(df_is) / len(df)
     return Ingresso(studio=studio, confine=confine, df_is=df_is, df_oos=df_oos, dataset=ds,
                     aperto_ora=aperto_ora, esito_impronta=esito, quota_is=quota_is,
