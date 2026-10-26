@@ -19,6 +19,9 @@ T_FORTE_S short: dopo ogni segnale il prezzo va nel verso del trade).
     F · 4b -> passo 5 (§7): «Solo long» spegne lo short al passo 5
     G · il diario dell'out-of-sample e le risalite (§9); la riga delle prove
         della schermata 4 e la scheda dicono lo stesso numero
+    H · il Lab piu' chiaro (26/10/2026, docs/73 §A.5): il campo «parti da»
+        della 3b, la regola della 3d (qualunque situazione misurata, anche in
+        OR, sotto le 200 occasioni no), i nomi in chiaro delle situazioni
 
 Si lancia da terminale, dalla cartella del progetto:
 
@@ -289,6 +292,70 @@ def esegui() -> int:
         check("G4. cambiare H dopo l'out-of-sample: lo dice, e il diario resta",
               "Hai anche già guardato l'out-of-sample (2 volte)" in t_h
               and len(rd.storia(SYMBOL, "M15", s.df_is.index[-1]).diario) == 2)
+
+        # =============================================================== H ==
+        print("\nH · LAB PIU' CHIARO (docs/73 §A.5): 3b «PARTI DA», 3d QUALUNQUE SITUAZIONE MISURATA\n" + "-" * 70)
+        from engine.atlante import CELLE, NOMI_IN_CHIARO, nome_in_chiaro
+        r = s.rosa_trigger
+        prove_h = {k_: (dict(v) if isinstance(v, dict) else v) for k_, v in s.prove.items()}
+        _muto(vt.scegli_casistiche, s)
+        da_rosa = (s.trigger_long, s.trigger_short)
+        tab_r = _muto(vt.scegli_casistiche, s, parti_da="la rosa")
+        uguale_rosa = (s.trigger_long, s.trigger_short) == da_rosa
+        tab_c = _muto(vt.scegli_casistiche, s, parti_da="tutte le candidate")
+        cand = {d: list(r.loc[r["candidata"].astype(bool) & (r["direction"] == d), "candidato"]) for d in (1, -1)}
+        _muto(vt.scegli_casistiche, s, parti_da="niente", aggiungi_long="T_FORTE")
+        niente = (s.trigger_long, s.trigger_short, s.casistiche["long"]["origine"]["T_FORTE"])
+        check("H1. «parti da»: la rosa = come prima (predefinito); tutte le candidate = tutte e sole le candidate "
+              "del lato; niente = solo «aggiungi»; la tabella dice da dove si parte; nessuna prova in piu'",
+              uguale_rosa and list(s.tabelle["casistiche"]["Parti da"]) == ["niente", "niente"]
+              and list(tab_r["Parti da"]) == ["la rosa", "la rosa"]
+              and list(tab_c["Parti da"]) == ["tutte le candidate", "tutte le candidate"]
+              and niente == (("T_FORTE",), (), "aggiunta")
+              and {k_: (dict(v) if isinstance(v, dict) else v) for k_, v in s.prove.items()} == prove_h,
+              f"candidate long {cand[1]} · short {cand[-1]}")
+        check("H2. «niente» con «togli» pieno si ferma; un punto di partenza sconosciuto si ferma; partendo da "
+              "niente senza aggiungere si ferma",
+              errore(lambda: vt.scegli_casistiche(s, parti_da="niente", togli_long="T_FORTE"), "non c'è niente da togliere")
+              and errore(lambda: vt.scegli_casistiche(s, parti_da="tutto"), "«parti da» non valido")
+              and errore(lambda: vt.scegli_casistiche(s, parti_da="niente"), "Nessuna casistica"))
+        rosa_mano = pd.DataFrame({
+            "candidato": ["A", "B", "C", "D"], "direction": [1, 1, 1, -1],
+            "candidata": [True, True, False, True], "nella_rosa": [True, False, False, True],
+            "perche": ["", "famiglia già nella rosa (A)", "non fa meglio del mercato", ""]})
+        nomi_c, orig_c = vt.casistiche_dalla_rosa(rosa_mano, 1, parti_da="candidate")
+        nomi_r, _ = vt.casistiche_dalla_rosa(rosa_mano, 1)
+        nomi_n, _ = vt.casistiche_dalla_rosa(rosa_mano, 1, parti_da="niente")
+        check("H3. casistiche_dalla_rosa (anche per il notebook di ricerca): candidate = A e B, con il motivo della "
+              "rosa in «da dove»; rosa = A; niente = nessuna; «togli» controllato sul punto di partenza",
+              nomi_c == ["A", "B"] and orig_c == {"A": "rosa", "B": "candidata, fuori dalla rosa: famiglia già nella "
+                                                                       "rosa (A)"}
+              and nomi_r == ["A"] and nomi_n == []
+              and errore(lambda: vt.casistiche_dalla_rosa(rosa_mano, 1, togli="C", parti_da="candidate"),
+                         "non è fra le candidate della rosa")
+              and vt.casistiche_dalla_rosa(rosa_mano, 1, togli="B", parti_da="candidate")[0] == ["A"])
+        atl = pd.DataFrame({"candidato": ["T1", "T2", "T1"], "cella": ["EUROPA", "EUROPA", "AMERICA"],
+                            "eventi": [199, 200, 500], "misurata": [False, True, True],
+                            "passa": [False, False, True], "motivo": ["troppo pochi casi", "non paga i costi", ""]})
+        atl.attrs["min_eventi"] = 200
+        due = vt.controlla_cella(atl, ["T1", "T2"], "EUROPA", "long")
+        passa = vt.controlla_cella(atl, "T1", "AMERICA", "long")
+        check("H4. regola della 3d: 199 occasioni si ferma (con le occasioni e l'elenco delle misurate); con due "
+              "trigger in OR basta che uno la misuri (200 occasioni) e, se non passa, c'e' l'avviso con il motivo; "
+              "una situazione che passa non ha avviso",
+              errore(lambda: vt.controlla_cella(atl, "T1", "EUROPA", "long"), "199 per T1")
+              and errore(lambda: vt.controlla_cella(atl, "T1", "EUROPA", "long"), "non si può scegliere")
+              and errore(lambda: vt.controlla_cella(atl, "T1", "EUROPA", "long"), "AMERICA")
+              and not due["passa"] and due["avviso"].startswith(vt.AVVISO_CELLA_NON_PASSA)
+              and "T2: non paga i costi" in due["avviso"]
+              and passa["passa"] and passa["avviso"] is None
+              and errore(lambda: vt.controlla_cella(atl, "T1", "VOL_ALTA", "long"), "sconosciuta"))
+        check("H5. l'atlante misura una situazione se e solo se ha almeno 200 occasioni (la regola che la 3d usa)",
+              bool(((s.atlante["eventi"] >= vt.MIN_TRIGGER) == s.atlante["misurata"].astype(bool)).all()))
+        tutte = [c for nomi in CELLE.values() for c in nomi]
+        check("H6. i nomi in chiaro coprono tutte le situazioni dell'atlante, tutti diversi",
+              set(NOMI_IN_CHIARO) == set(tutte) and len(set(map(nome_in_chiaro, tutte))) == len(tutte)
+              and nome_in_chiaro("NON_ESISTE") == "NON_ESISTE")
     reg.clear_registry()
     rd.azzera()
 
