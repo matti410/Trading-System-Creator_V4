@@ -195,8 +195,9 @@ def esegui() -> int:
               and np.allclose(np.sort(p["scarto_bp"].to_numpy()), np.sort(a_mano))
               and np.allclose(p.set_index("fascia")["scarto_pips"].sort_index().to_numpy(),
                               p_pips.set_index("fascia")["scarto_pips"].sort_index().to_numpy())
-              and "Long: rispetto a un'ora qualsiasi (pips)" in (s.tabelle.get("profilo", pd.DataFrame(
-                  columns=["Long: rispetto a un'ora qualsiasi (pips)"])).columns),
+              # 26/10/2026 (docs/73 §A.1.2): la colonna si chiama come nel testo nuovo della 2a
+              and "In più o in meno della media di tutte le ore (pips)" in (s.tabelle.get("profilo", pd.DataFrame(
+                  columns=["In più o in meno della media di tutte le ore (pips)"])).columns),
               f"{int(p['bh'].sum())} fasce colorate in bp, {int(p_pips['bh'].sum())} in pips")
         _muto(vt.imposta_uscite, s, regola_uscita="X_INVERSIONE_TREND")
         contro = co.fasce_contro()

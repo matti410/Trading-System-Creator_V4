@@ -105,7 +105,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 43 suite, 3 alla volta, circa 13 minuti; alla fine deve stampare
+  --tutte`, 44 suite, 3 alla volta, circa 13 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
@@ -158,8 +158,9 @@ L'out-of-sample «fresco» (`70` §13) è fatto (25/10): la scheda e la Sessione
 mostrano anche i numeri del solo tratto mai guardato (dopo l'ultima apertura del diario, su
 qualunque dataset dello studio; i trade a cavallo della data restano fuori).
 
-Prossimi lavori, in ordine (Mattia, 24 e 25/10): il volume aggressivo; poi la mappa delle anomalie (il posto
-libero 2b del Lab). Orizzonti multipli in un lavoro a parte (`68` §13). Il conto
+Prossimi lavori, in ordine (Mattia, 26/10, `72` §B.2): il Lab più chiaro (parte A di `73`); poi la mappa
+delle anomalie (parte B di `73`: un notebook a parte, il posto 2b del Lab in sola lettura); il volume
+aggressivo dopo la mappa, come variabile in più. Orizzonti multipli in un lavoro a parte (`68` §13). Il conto
 delle prove fra dataset si decide nel lavoro dei testimoni.
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in

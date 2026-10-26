@@ -9,12 +9,12 @@ ricerca dei filtri, due meta', Out-of-Sample, Monte Carlo) e ne mostra il
 risultato con un riquadro «Come leggerlo» scritto per un trader.
 
     s = prepara("EURUSD", H=25)                              1 · Configura
-    profilo_delle_ore(s)                                     2a · il mercato, ora per ora
-    esplora(s)                                               2c · i trigger contro il mercato della stessa ora
+    profilo_delle_ore(s)                                     2a · il mercato ora per ora
+    esplora(s)                                               2c · i segnali contro il mercato
     rosa_dei_trigger(s)                                      3a · le casistiche suggerite (+ classifica)
-    scegli_casistiche(s, togli_long="", aggiungi_long="")    3b · le tue casistiche (25/10, docs/68)
-    atlante_dei_trigger(s)                                     3c · dove funziona il trigger (22/10, docs/66)
-    scegli_cella(s, long="EUROPA")                             3d · una cella per lato (facoltativa)
+    scegli_casistiche(s, parti_da="la rosa", togli_long="")  3b · le tue casistiche (25/10, docs/68; parti da: docs/73)
+    atlante_dei_trigger(s)                                     3c · dove funziona il segnale (22/10, docs/66)
+    scegli_cella(s, long="EUROPA")                             3d · scegli una situazione (facoltativa; docs/73 §A.3)
     imposta_uscite(s, regola_uscita="consigliata")           4 · Le uscite (consigliate: H, stop 90, target spento)
     rosa_dei_sistemi(s, sistema="Long + Short")              4b · il sistema da portare al passo 5
 
@@ -1422,10 +1422,11 @@ def grafico_scarto(curve: pd.DataFrame, H: int, unita: str, lato: str) -> None:
     for c in curve.columns:
         ax.plot(curve.index, curve[c], lw=1.7, label=c)
     ax.axhline(0, color="black", lw=0.8)
-    ax.set_xlabel("barre dal segnale")
-    ax.set_ylabel(f"trade {lato}: in più del mercato della stessa ora\n({unita}, prima dei costi)")
-    ax.set_title(f"Trigger {lato.upper()}: quanto fa meglio del mercato alla stessa ora, nelle {H} barre "
-                 "dopo il segnale   (sopra lo zero = meglio)")
+    # 26/10/2026 (docs/73 §A.1.3): titoli allineati al testo deciso da Mattia
+    ax.set_xlabel("barre dall'ingresso")
+    ax.set_ylabel(f"in più o in meno del mercato a quell'ora\n({unita}, prima dei costi)")
+    ax.set_title(f"Segnali {lato.upper()}: quanti {unita} guadagnano in più (sopra lo zero) o in meno (sotto lo "
+                 "zero) del mercato, barra dopo barra dall'ingresso")
     ax.grid(alpha=.3)
     ax.legend(fontsize=8, loc="best")
     plt.tight_layout()
@@ -1453,9 +1454,9 @@ def esplora(s: Sessione, quanti: int = 5):
                                min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
     misurati = len(s.ev.sintesi)
     s.prove["trigger"] = misurati              # 22/10/2026: soglia cumulata (H e' fisso nella sessione)
-    _nota(f"{misurati} trigger misurati su {len(candidati)} "
+    _nota(f"{misurati} segnali misurati su {len(candidati)} "
           f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media)."
-          + (" Spot: solo i trigger long, lo short non esiste." if s.solo_long else ""))
+          + (" Spot: solo i segnali long, lo short non esiste." if s.solo_long else ""))
     rosa = _rosa_sessione(s)
     mostrati = []
     for direzione in (1, -1):
@@ -1470,21 +1471,21 @@ def esplora(s: Sessione, quanti: int = 5):
             _grafico_scarto(s, s.curve_scarto[nomi], nome)
     if mostrati:
         punti = sorted({max(1, s.H // 4), max(1, s.H // 2), max(1, (3 * s.H) // 4), s.H})
-        tab_g = pd.DataFrame({"Trigger": mostrati,
+        tab_g = pd.DataFrame({"Segnale": mostrati,
                               **{f"barra {k} ({s.unita})": [globali.loc[k, m] for m in mostrati] for k in punti}})
         s.tabelle["curve_qualunque_ora"] = tab_g
-        _dettaglio("Lo stesso confronto con il mercato a qualunque ora (quanto pesa l'ora del segnale)",
-                   ("In più del mercato a qualunque ora, prima dei costi", tab_g))
+        _dettaglio("Gli stessi segnali contro il mercato di tutte le ore (per vedere quanto pesa l'ora)",
+                   ("In più del mercato di tutte le ore, prima dei costi", tab_g))
     _riquadro(
-        "Ogni linea è un trigger: barra dopo barra, quanto un trade aperto su quel segnale fa meglio del mercato "
-        f"alla stessa ora del giorno, in {s.unita} e prima dei costi. È il confronto giusto: un trigger che scatta "
-        "sempre in un'ora in cui il prezzo sale da solo non sembra bravo solo per l'ora. Per long e short vale la "
-        "stessa regola: sopra lo zero = il trade fa meglio del mercato. Sono i trigger con la solidità netta più "
-        "alta della rosa (schermata 3a), al massimo " + str(quanti) + " per lato.",
-        "Un trigger interessante sta sopra lo zero e ci resta. La curva si legge, non si sceglie: dove smette di "
-        "salire è la durata naturale del movimento, ma la durata del trade resta l'orizzonte che hai dichiarato "
-        "alla schermata 1. Nel dettaglio sotto il grafico, lo stesso confronto con il mercato a qualunque ora.",
-        "Vai alla schermata 3a: le casistiche suggerite, con i numeri.")
+        f"Ogni linea è un segnale (trigger). Barra dopo barra dall'ingresso, quanti {s.unita} guadagna in più "
+        "(sopra lo zero) o in meno (sotto lo zero) di quello che il mercato fa da solo a quell'ora (il profilo "
+        "della 2a), prima dei costi. Per long e short vale la stessa regola: sopra lo zero il segnale fa meglio "
+        f"del mercato. Sono i segnali più solidi della rosa (3a), al massimo {quanti} per lato.",
+        "Una linea che sale e resta sopra lo zero indica un segnale che aggiunge qualcosa al mercato. La curva si "
+        "legge, non si sceglie: la durata del trade resta l'orizzonte H che hai dichiarato alla schermata 1. Nel "
+        "dettaglio sotto il grafico, gli stessi segnali contro il mercato di tutte le ore: serve a vedere quanto "
+        "pesa l'ora.",
+        "Vai alla 3a: i segnali che la rosa suggerisce, con i numeri.")
     _riga_prove(s, f"{misurati} trigger misurati")
     return s.ev
 
@@ -1523,10 +1524,11 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     passo = max(1, len(p) // 24)
     ax.set_xticks(x[::passo])
     ax.set_xticklabels(p["fascia"].iloc[::passo], rotation=90, fontsize=8)
-    ax.set_xlabel(f"ora in cui apri il trade (ora di {luogo})")
-    ax.set_ylabel(f"guadagno di un LONG tenuto {s.H} barre,\nrispetto a un'ora qualsiasi ({u})")
-    ax.set_title("Se apro un long a quest'ora, guadagno più o meno del solito?   "
-                 "(verde = di più, rosso = di meno, grigio = può essere caso)")
+    # 26/10/2026 (docs/73 §A.1.2): titoli allineati al testo deciso da Mattia
+    ax.set_xlabel(f"ora d'ingresso ({luogo})")
+    ax.set_ylabel(f"variazione del prezzo nelle {s.H} barre dopo,\nin più o in meno della media di tutte le ore ({u})")
+    ax.set_title("Il mercato ora per ora: dopo quest'ora il prezzo sale (verde) o scende (rosso) più del solito?   "
+                 "(grigio = può essere caso)")
     ax.grid(alpha=.3, axis="y")
     plt.tight_layout()
     plt.show()
@@ -1534,34 +1536,31 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
         _nota(frase)
     oltre = p[p["bh"]]
     if oltre.empty:
-        _nota(f"Nessuna fascia oraria supera il controllo della quota di fortuna ({len(p)} fasce).")
+        _nota(f"Nessuna ora resta fuori da quello che il caso da solo spiega ({len(p)} fasce orarie).")
     else:
         tabella = pd.DataFrame({
-            "Ora in cui apri il trade": oltre["fascia"],
-            f"Long: rispetto a un'ora qualsiasi ({u})": oltre[f"scarto_{u}"],
+            "Ora d'ingresso": oltre["fascia"],
+            f"In più o in meno della media di tutte le ore ({u})": oltre[f"scarto_{u}"],
             f"Oscillazione casuale ({u})": oltre["incertezza"],
             "Solidità": oltre["t"],
             "Regge sulle due metà": [_si_no(v) for v in oltre["due_meta"]],
         })
         if u != "pips":                             # i pips accanto, solo da leggere
-            tabella.insert(3, "Long: rispetto a un'ora qualsiasi (pips)", oltre["scarto_pips"].to_numpy())
+            tabella.insert(3, "In più o in meno della media di tutte le ore (pips)", oltre["scarto_pips"].to_numpy())
         s.tabelle["profilo"] = tabella
-        _mostra((f"Le fasce orarie oltre la quota di fortuna (in-sample, {s.H} barre, prima dei costi)", tabella),
+        _mostra((f"Le ore che il caso da solo non spiega (in-sample, {s.H} barre, prima dei costi)", tabella),
                 decimali={"Solidità": 2})
     _riquadro(
-        f"Ogni barra risponde a una domanda: «se apro un LONG a quest'ora (ora di {luogo}) e lo chiudo dopo "
-        f"{s.H} barre, guadagno più o meno che aprendolo a un'ora qualsiasi?». Sopra lo zero = di più, sotto = "
-        "di meno; per uno SHORT vale al contrario. Le stanghette nere sono l'oscillazione dovuta al caso. "
-        "Verdi e rosse le ore che restano fuori anche contando che le ore provate sono tante; grigie le altre.",
-        "Barre vicine raccontano lo stesso fatto (condividono quasi tutte le stesse candele dopo): un gruppo di "
-        "barre colorate è UN'idea, non tante. È una media su tutti i giorni: non dice niente del singolo giorno. "
-        "Questo profilo serve tre volte: è il metro delle schermate 2c, 3 e 4 (ogni trigger si confronta con "
-        "il mercato della sua stessa ora, così non sembra bravo solo perché scatta quando il prezzo sale da "
-        "solo); è la fonte dei trigger a orario; è la fonte dell'uscita X_INVERSIONE_TREND.",
-        "Per usarlo: alla schermata 3b puoi aggiungere un trigger a orario, es. ORA_LONG_@12:30 (si entra ogni "
-        "giorno alle 12:30) o ORA_SHORT_@12:30, prendendo l'ora da un paper o da un gruppo colorato; alla "
-        "schermata 4 puoi chiudere a un orario (X_ORA_@16:00) o quando arriva un'ora rossa per il long / "
-        "verde per lo short (X_INVERSIONE_TREND). Adesso vai alla 2c: i trigger contro questo metro.")
+        f"Per ogni ora del giorno ({luogo}): di quanto sale o scende in media il prezzo nelle {s.H} barre dopo, "
+        f"in più o in meno della media di tutte le ore, in {u}. Sopra lo zero il prezzo tende a salire più del "
+        "solito, sotto lo zero a scendere più del solito. Le stanghette nere sono l'oscillazione dovuta al caso.",
+        "Verdi e rosse sono le ore che il caso da solo non spiega, anche contando che le ore guardate sono tante; "
+        "grigie le altre. Ore vicine raccontano lo stesso fatto: un gruppo colorato è un'idea sola. È una media "
+        "su tutti i giorni dell'in-sample e non dice niente del singolo giorno. È il termine di paragone dei "
+        "segnali: dalla 2c alla 4 ogni segnale si confronta con quello che il mercato fa da solo a quell'ora.",
+        f"Vai alla 2c. Se vuoi un segnale a orario (es. ORA_LONG_@12:30: si entra ogni giorno alle 12:30, ora "
+        f"{luogo}), lo aggiungi alla 3b. Alla 4 puoi chiudere a un orario (X_ORA_@16:00), oppure quando arriva "
+        "un'ora rossa per il long o verde per lo short (X_INVERSIONE_TREND).")
     _riga_prove(s, "nessuna (le fasce si contano solo se scegli un trigger a orario)")
     return p
 
@@ -1766,22 +1765,29 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
 
 
 def scegli_casistiche(s: Sessione, togli_long="", aggiungi_long="", togli_short="",
-                      aggiungi_short="") -> pd.DataFrame:
+                      aggiungi_short="", parti_da: str = "la rosa") -> pd.DataFrame:
     """
     Schermata 3b, le tue casistiche (25/10/2026, docs/68 §4, decisione 1 di
     Mattia). Si parte dalle casistiche suggerite dalla rosa (i trigger «nella
     rosa» di ogni lato, schermata 3a) e si toglie o si aggiunge: due campi per
-    lato, vuoti = la rosa cosi' com'e'. Ogni nome tolto deve essere nella rosa
-    di quel lato; ogni nome aggiunto un trigger del catalogo di quel lato, o
-    un trigger a orario (ORA_LONG_@HH:MM / ORA_SHORT_@HH:MM). Piu' trigger
-    sullo stesso lato lavorano in OR, come prima (decisione 2).
+    lato, vuoti = la rosa cosi' com'e'. Ogni nome tolto deve essere nel punto
+    di partenza di quel lato; ogni nome aggiunto un trigger del catalogo di
+    quel lato, o un trigger a orario (ORA_LONG_@HH:MM / ORA_SHORT_@HH:MM). Piu'
+    trigger sullo stesso lato lavorano in OR, come prima (decisione 2).
 
-    Togliere o aggiungere non aggiunge prove: i trigger sono gia' tutti
-    contati alla schermata 2c. Un trigger a orario porta le fasce del profilo.
+    parti_da   26/10/2026 (docs/73 §A.2): "la rosa" (predefinito, come prima),
+               "tutte le candidate" (tutti i trigger che passano i controlli
+               della rosa, anche quelli fuori per famiglia o correlazione) o
+               "niente" (solo i nomi in «aggiungi»)
+
+    Togliere o aggiungere, e il punto di partenza, non aggiungono prove: i
+    trigger sono gia' tutti contati alla schermata 2c. Un trigger a orario
+    porta le fasce del profilo.
 
     Ritorna la tabella delle casistiche.
     """
     s._serve("ev", "2 · Esplora")
+    partenza = _partenza(parti_da)
     r = _rosa_sessione(s)
     tl, ts = [], []
     origini = {}
@@ -1790,32 +1796,70 @@ def scegli_casistiche(s: Sessione, togli_long="", aggiungi_long="", togli_short=
             if _lista_nomi(togli) or _lista_nomi(aggiungi):
                 raise ValueError(f"{s.symbol} e' spot: lo short non esiste. Lascia vuoti i campi dello short.")
             continue
-        nomi, da_dove = casistiche_dalla_rosa(r, d, togli, aggiungi)
+        nomi, da_dove = casistiche_dalla_rosa(r, d, togli, aggiungi, parti_da=partenza)
         out.extend(nomi)
         origini.update(da_dove)
     if not tl and not ts:
-        raise ValueError("Nessuna casistica: la rosa è vuota (o l'hai svuotata). Aggiungi almeno un trigger, "
-                         "long o short, nei campi «aggiungi».")
-    return _imposta_casistiche(s, tuple(tl), tuple(ts), origini)
+        vuoto = {"rosa": "la rosa è vuota (o l'hai svuotata)",
+                 "candidate": "nessun trigger passa i controlli della rosa (o li hai tolti tutti)",
+                 "niente": "parti da niente e non hai aggiunto nessun trigger"}[partenza]
+        raise ValueError(f"Nessuna casistica: {vuoto}. Aggiungi almeno un trigger, long o short, nei campi "
+                         "«aggiungi».")
+    return _imposta_casistiche(s, tuple(tl), tuple(ts), origini, parti_da=_PARTI_DA_TESTO[partenza])
 
 
-def casistiche_dalla_rosa(rosa: pd.DataFrame, direzione: int, togli=(), aggiungi=()) -> tuple[list, dict]:
+# 26/10/2026 (docs/73 §A.2.1): i punti di partenza della 3b, con i nomi del Lab e quelli del notebook di ricerca
+_PARTI_DA = {"la rosa": "rosa", "rosa": "rosa", "tutte le candidate": "candidate", "candidate": "candidate",
+             "niente": "niente"}
+_PARTI_DA_TESTO = {"rosa": "la rosa", "candidate": "tutte le candidate", "niente": "niente"}
+
+
+def _partenza(parti_da) -> str:
+    chiave = _PARTI_DA.get(str(parti_da).strip().lower())
+    if chiave is None:
+        raise ValueError(f"«parti da» non valido: {parti_da!r}. Scegli fra «la rosa», «tutte le candidate», "
+                         "«niente».")
+    return chiave
+
+
+def casistiche_dalla_rosa(rosa: pd.DataFrame, direzione: int, togli=(), aggiungi=(),
+                          parti_da: str = "rosa") -> tuple[list, dict]:
     """
     Le casistiche di un lato (25/10/2026, docs/68 §4; anche nel notebook di
     ricerca): i trigger «nella rosa» di quel lato (rosa_entry), meno quelli in
     `togli`, piu' quelli in `aggiungi` (un nome, piu' nomi separati da
-    virgola o una lista). Ogni nome tolto deve essere nella rosa del lato;
-    ogni nome aggiunto un trigger del catalogo di quel lato o un trigger a
-    orario dello stesso lato. Ritorna (nomi, da dove viene ognuno).
+    virgola o una lista). Ogni nome tolto deve essere nel punto di partenza
+    del lato; ogni nome aggiunto un trigger del catalogo di quel lato o un
+    trigger a orario dello stesso lato. Ritorna (nomi, da dove viene ognuno).
+
+    parti_da   26/10/2026 (docs/73 §A.2.1): "rosa" (predefinito, come prima);
+               "candidate" = tutti i trigger del lato con `candidata` (t > 0,
+               quota di falsi positivi, due meta'), anche quelli fuori dalla
+               rosa per famiglia o correlazione, con il motivo in «da dove»;
+               "niente" = nessuno, solo i nomi in `aggiungi` (e `togli` vuoto).
+               Accetta anche i nomi del Lab («la rosa», «tutte le candidate»).
     """
     import condizioni_orarie
     nome = "long" if direzione == 1 else "short"
+    partenza = _partenza(parti_da)
     togli, aggiungi = _lista_nomi(togli), _lista_nomi(aggiungi)
-    rosa_lato = list(rosa.loc[rosa["nella_rosa"] & (rosa["direction"] == direzione), "candidato"])
+    lato = rosa["direction"] == direzione
+    if partenza == "rosa":
+        rosa_lato = list(rosa.loc[rosa["nella_rosa"] & lato, "candidato"])
+    elif partenza == "candidate":
+        rosa_lato = list(rosa.loc[rosa["candidata"].astype(bool) & lato, "candidato"])
+    else:
+        rosa_lato = []
+    if partenza == "niente" and togli:
+        raise ValueError(f"Da togliere ({nome}): con «parti da: niente» non c'è niente da togliere. "
+                         "Lascia vuoto il campo «togli».")
     fuori = [x for x in togli if x not in rosa_lato]
     if fuori:
-        raise ValueError(f"Da togliere ({nome}): {', '.join(fuori)} non è fra le casistiche suggerite. "
-                         f"Casistiche suggerite {nome}: {', '.join(rosa_lato) or 'nessuna'}.")
+        if partenza == "rosa":
+            raise ValueError(f"Da togliere ({nome}): {', '.join(fuori)} non è fra le casistiche suggerite. "
+                             f"Casistiche suggerite {nome}: {', '.join(rosa_lato) or 'nessuna'}.")
+        raise ValueError(f"Da togliere ({nome}): {', '.join(fuori)} non è fra le candidate della rosa. "
+                         f"Candidate {nome}: {', '.join(rosa_lato) or 'nessuna'}.")
     catalogo = set(_trigger_candidati(direzione))
     sbagliati = [x for x in aggiungi
                  if not (x in catalogo or (condizioni_orarie.e_oraria(x)
@@ -1825,10 +1869,13 @@ def casistiche_dalla_rosa(rosa: pd.DataFrame, direzione: int, togli=(), aggiungi
                          f"né un trigger a orario {'ORA_LONG_@HH:MM' if direzione == 1 else 'ORA_SHORT_@HH:MM'}. "
                          "Copia il nome dalla rosa o dalla classifica della 3a.")
     nomi, origini = [], {}
+    perche = dict(zip(rosa["candidato"], rosa["perche"])) if "perche" in rosa.columns else {}
+    nella = set(rosa.loc[rosa["nella_rosa"] & lato, "candidato"])
     for x in rosa_lato:
         if x not in togli:
             nomi.append(x)
-            origini[x] = "rosa"
+            origini[x] = ("rosa" if x in nella
+                          else f"candidata, fuori dalla rosa: {perche.get(x) or 'motivo non scritto'}")
     for x in aggiungi:
         if x not in nomi:
             nomi.append(x)
@@ -1836,8 +1883,12 @@ def casistiche_dalla_rosa(rosa: pd.DataFrame, direzione: int, togli=(), aggiungi
     return nomi, origini
 
 
-def _imposta_casistiche(s: Sessione, tl: tuple, ts: tuple, origini: dict) -> pd.DataFrame:
-    """Registra le casistiche (trigger in OR per lato) e azzera tutto quello che viene dopo."""
+def _imposta_casistiche(s: Sessione, tl: tuple, ts: tuple, origini: dict, parti_da: str | None = None) -> pd.DataFrame:
+    """
+    Registra le casistiche (trigger in OR per lato) e azzera tutto quello che viene dopo.
+    parti_da (26/10/2026, docs/73 §A.2.3): il punto di partenza della 3b, da mostrare nella
+    tabella con il riquadro della 3b; None = scelta a mano (scegli_trigger), come prima.
+    """
     from entry_composita import risolvi_scelta
     if s.solo_long and ts:
         raise ValueError(f"{s.symbol} e' spot: lo short non esiste. Lascia vuoto il lato short, "
@@ -1868,6 +1919,8 @@ def _imposta_casistiche(s: Sessione, tl: tuple, ts: tuple, origini: dict) -> pd.
         "Da dove": [", ".join(f"{n}: {origini.get(n, 'a mano')}" for n in tl) or "—",
                     ", ".join(f"{n}: {origini.get(n, 'a mano')}" for n in ts) or "—"],
     })
+    if parti_da is not None:
+        scelta.insert(1, "Parti da", parti_da)
     s.tabelle["casistiche"] = scelta
     _mostra(("Le tue casistiche", scelta))
     _nota("Si tiene una posizione alla volta. Se a posizione aperta scatta un trigger del lato opposto, "
@@ -1880,6 +1933,16 @@ def _imposta_casistiche(s: Sessione, tl: tuple, ts: tuple, origini: dict) -> pd.
     riga = _durate_orarie(s, s.H, s.H, "l'orizzonte H")
     if riga:
         _nota(riga)
+    if parti_da is not None:
+        _riquadro(
+            "Le tue casistiche, lato per lato: da dove sei partito, cosa hai tolto, cosa hai aggiunto. Più trigger "
+            "sullo stesso lato lavorano insieme: si entra quando ne scatta uno qualsiasi.",
+            "Scegliere, togliere o aggiungere non aggiunge prove: tutti i trigger del catalogo sono già contati "
+            "alla 2c. Con «tutte le candidate» entrano anche trigger della stessa famiglia o molto correlati: "
+            "scattano spesso sulle stesse candele, quindi aggiungono trade simili più che idee nuove.",
+            "Vuoi provare un trigger alla volta, ciascuno con le sue uscite? È il lavoro del portafoglio di "
+            "sistemi, rimandato. Oggi si fa rieseguendo la 3b con un trigger solo, poi con un altro: ogni giro "
+            "conta le sue prove alla 4 e alla 5, come sempre. Poi vai alla 3c (facoltativa) o alla 4.")
     orari = any(condizioni_orarie.e_oraria(n) for n in (*tl, *ts))
     _riga_prove(s, "le fasce del profilo orario (trigger a orario)" if orari
                 else "nessuna (togliere o aggiungere casistiche non aggiunge prove)")
@@ -1912,13 +1975,40 @@ def _strada_b(s: Sessione) -> bool:
     return bool(getattr(s, "cella_long", None) or getattr(s, "cella_short", None))
 
 
+# 26/10/2026 (docs/73 §A.3.3): i motivi di atlante._motivo in parole del Lab (la colonna dell'engine non cambia)
+_MOTIVI_IN_CHIARO = {
+    "troppo pochi casi": f"meno di {MIN_TRIGGER} occasioni",
+    "non fa meglio del mercato della cella": "non batte il mercato",
+    "non supera la quota di falsi positivi": "può essere fortuna (quota di falsi positivi)",
+    "non positiva in una metà": "non batte il mercato in una delle due metà",
+    "non paga i costi": "non paga i costi",
+}
+
+
+def motivo_in_chiaro(motivo: str) -> str:
+    """Il motivo per cui una cella dell'atlante non passa, in parole del Lab."""
+    return _MOTIVI_IN_CHIARO.get(motivo, motivo)
+
+
+def _batte_il_mercato(r: pd.DataFrame) -> np.ndarray:
+    """Le celle che battono il mercato: misurate, t > 0, quota di falsi positivi e due meta' (senza i costi)."""
+    t = pd.to_numeric(r["t"], errors="coerce").to_numpy(dtype=float)
+    return (r["misurata"].astype(bool).to_numpy() & (np.nan_to_num(t, nan=-1.0) > 0)
+            & r["bh"].astype(bool).to_numpy() & r["due_meta"].astype(bool).to_numpy())
+
+
+def _si_puo_scegliere(r: pd.DataFrame) -> list[str]:
+    return ["sì" if p else ("sì, ma non passa" if m else f"no: meno di {MIN_TRIGGER} occasioni")
+            for p, m in zip(r["passa"].astype(bool), r["misurata"].astype(bool))]
+
+
 def grafico_atlante(tab: pd.DataFrame, trigger: list[str]) -> None:
     """
     La mappa dell'atlante (schermata 3c; anche nel notebook di ricerca): per ogni
     trigger, la solidita' dello scarto di ogni cella, colorata se la cella passa,
     grigia con il motivo se no.
     """
-    from .atlante import etichetta_cella
+    from .atlante import nome_in_chiaro
     import matplotlib.pyplot as plt
     if not trigger:
         return
@@ -1930,12 +2020,14 @@ def grafico_atlante(tab: pd.DataFrame, trigger: list[str]) -> None:
         y = np.arange(len(r))
         ax.barh(y, t, color=colori, height=0.7)
         ax.axvline(0, color="#555555", lw=0.8)
-        ax.set_yticks(y, [etichetta_cella(c) for c in r["cella"]], fontsize=9)
+        # 26/10/2026 (docs/73 §A.3.3): situazioni e motivi in chiaro
+        ax.set_yticks(y, [nome_in_chiaro(c) for c in r["cella"]], fontsize=9)
         for yi, mot in enumerate(r["motivo"]):
             if mot:
-                ax.text(0.01, yi, mot, transform=ax.get_yaxis_transform(), va="center", fontsize=7.5,
-                        color="#666666")
-        ax.set_title(f"{nome} · solidità dello scarto dal mercato della cella", loc="left", fontsize=10)
+                ax.text(0.01, yi, motivo_in_chiaro(mot), transform=ax.get_yaxis_transform(), va="center",
+                        fontsize=7.5, color="#666666")
+        ax.set_title(f"{nome} · quanto batte il mercato, situazione per situazione (solidità)", loc="left",
+                     fontsize=10)
         ax.set_xlabel("solidità (t)")
     plt.tight_layout()
     plt.show()
@@ -1961,7 +2053,7 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     if not (s.trigger_long or s.trigger_short):
         raise RuntimeError("Manca un passaggio: esegui prima la schermata «3b · Le tue casistiche».")
     _avviso_risalita(s, "rifare l'atlante")
-    from .atlante import atlante, etichetta_cella
+    from .atlante import atlante, nome_in_chiaro
     import condizioni_orarie
     mostra = [*s.trigger_long, *s.trigger_short]
     # 23/10/2026: anche i trigger scelti fuori catalogo (es. ORA_LONG_@05:45), che entrano nel conto k;
@@ -1992,58 +2084,101 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
             else:
                 _nota(f"{nome}: l'atlante non l'ha misurato.")
             continue
-        confronto = "Più del mercato della cella, a qualunque ora" if nome in orari else "Più del mercato della cella"
+        # 26/10/2026 (docs/73 §A.3.3): situazioni in chiaro; «passa» diviso in «batte il mercato» e «paga i costi»
+        confronto = ("In più del mercato della situazione, a qualunque ora" if nome in orari
+                     else "In più del mercato della situazione")
+        misurata = r["misurata"].astype(bool)
         vista = pd.DataFrame({
-            "Cella": [etichetta_cella(c) for c in r["cella"]],
+            "Situazione": [nome_in_chiaro(c) for c in r["cella"]],
+            "Nome da scrivere alla 3d": r["cella"],
             "Occasioni": r["eventi"].astype(int),
-            f"{confronto} ({u})": r[f"scarto_{u}"],
+            f"{confronto} ({u}), prima dei costi": r[f"scarto_{u}"],
             "Solidità": r["t"],
-            f"Netto per occasione ({u})": r[f"netto_{u}"],
-            f"{confronto} ({a})": r[f"scarto_{a}"] if f"scarto_{a}" in r else np.nan,
-            f"Netto per occasione ({a})": r[f"netto_{a}"] if f"netto_{a}" in r else np.nan,
-            "Passa": [_si_no(v) for v in r["passa"]],
-            "Perché no": r["motivo"],
+            f"Netto dei costi per occasione ({u})": r[f"netto_{u}"],
+            f"{confronto} ({a}), prima dei costi": r[f"scarto_{a}"] if f"scarto_{a}" in r else np.nan,
+            f"Netto dei costi per occasione ({a})": r[f"netto_{a}"] if f"netto_{a}" in r else np.nan,
+            "Batte il mercato": [_si_no(v) for v in _batte_il_mercato(r)],
+            "Paga i costi": [(_si_no(n > 0) if m else "—") for n, m in zip(r[f"netto_{u}"], misurata)],
+            "Si può scegliere alla 3d": _si_puo_scegliere(r),
+            "Perché non passa": [motivo_in_chiaro(m) for m in r["motivo"]],
         })
         s.tabelle[f"atlante_{nome}"] = vista
-        _mostra((f"L'atlante di {nome} (in-sample, {s.H} barre)", vista), decimali={"Solidità": 2})
+        _mostra((f"Dove funziona {nome} (in-sample, {s.H} barre)", vista), decimali={"Solidità": 2})
         if nome in orari:
-            _nota(f"{nome} è un trigger a orario: scatta tutti i giorni alla stessa ora, quindi coincide con "
-                  "il mercato della sua fascia e lo si confronta con il mercato della cella a qualunque ora. "
-                  "Nell'asse delle sessioni ha occasioni in una cella sola; le altre restano grigie.")
+            _nota(f"{nome} è un segnale a orario: scatta tutti i giorni alla stessa ora, quindi coincide con "
+                  "il mercato della sua fascia e lo si confronta con il mercato della situazione a qualunque ora. "
+                  "Fra le sessioni ha occasioni in una situazione sola; le altre restano grigie e non si possono "
+                  "scegliere.")
     grafico_atlante(tab, [m for m in mostra if (tab["candidato"] == m).any()])
 
     passano = tab[tab["passa"]]
     if passano.empty:
-        _nota(f"Nessuna cella passa tutti i controlli, per nessuno dei {tab['candidato'].nunique()} trigger "
-              f"misurati ({k} celle misurate).")
-        riassunto = pd.DataFrame(columns=["Trigger", "Lato", "Celle che passano", "Solidità più alta"])
+        _nota(f"Nessuna situazione passa tutti i controlli, per nessuno dei {tab['candidato'].nunique()} segnali "
+              f"misurati ({k} situazioni misurate).")
+        riassunto = pd.DataFrame(columns=["Segnale", "Lato", "Situazioni che passano", "Solidità più alta"])
     else:
         g = passano.groupby("candidato", sort=False)
         riassunto = pd.DataFrame({
-            "Trigger": list(g.groups),
+            "Segnale": list(g.groups),
             "Lato": ["long" if g.get_group(n)["direction"].iat[0] == 1 else "short" for n in g.groups],
-            "Celle che passano": [", ".join(etichetta_cella(c) for c in g.get_group(n)["cella"]) for n in g.groups],
+            "Situazioni che passano": [", ".join(nome_in_chiaro(c) for c in g.get_group(n)["cella"])
+                                       for n in g.groups],
             "Solidità più alta": [float(g.get_group(n)["t"].max()) for n in g.groups],
         }).sort_values("Solidità più alta", ascending=False).reset_index(drop=True)
-        _mostra(("I trigger con almeno una cella che passa", riassunto), decimali={"Solidità più alta": 2})
+        _mostra(("I segnali con almeno una situazione che passa", riassunto), decimali={"Solidità più alta": 2})
     s.tabelle["atlante"] = riassunto
     _riquadro(
-        "Per ogni trigger, dove sembra funzionare. Il mercato è diviso in celle: volatilità alta o bassa per trend a "
-        "favore o contro (4), la sessione in cui si apre il trade (4: ASIA_NOTTE comprende il fine settimana)"
-        + (", la basis del perpetual sullo spot alta o bassa (2)" if "basis" in tab.attrs["assi"] else "")
-        + f". In ogni cella il trigger è confrontato con il mercato della stessa cella e della stessa ora ({u}, "
-        "prima dei costi); accanto, quanto resta dopo commissione, spread"
-        + (" e funding" if s.funding is not None else "") + ".",
-        f"Questa è una mappa: ti dice dove il trigger sembra funzionare, non che funziona. Una cella passa con almeno "
-        f"{MIN_TRIGGER} occasioni, oltre la quota di colpi di fortuna su tutte le {k} celle misurate, positiva nelle "
-        "due metà dell'in-sample e con il netto sopra zero. Se scegli una cella, diventa parte della casistica: "
-        "le uscite (schermata 4) si costruiscono già sul trigger dentro la cella, e al passo 5 la cella si misura "
-        f"contro il trigger senza cella, con un'asticella alta (solidità {_fmt(soglia_rumore(max(k, 1), ALPHA))}) "
-        f"perché tiene conto di tutte le {k} celle che l'atlante ha guardato.",
-        "Se una cella del tuo trigger passa e ti convince, sceglila nella cella sotto con scegli_cella (al massimo una "
-        "per lato). Altrimenti vai alla schermata 4: la strada di sempre, con tutti i filtri al passo 5.")
-    _riga_prove(s, f"{k} celle misurate")
+        "Per ogni segnale, una situazione alla volta: volatilità alta o bassa con trend a favore o contro (4), la "
+        "sessione in cui si apre il trade (4: Asia, che comprende il fine settimana, Europa, Londra + New York, "
+        "America)" + (", sui perpetual la basis alta o bassa (2)" if "basis" in tab.attrs["assi"] else "")
+        + f". In ogni situazione: quanto il segnale batte il mercato della stessa situazione e della stessa ora "
+        f"({u}, prima dei costi) e quanto resta dopo commissione, spread" + (" e funding" if s.funding is not None
+                                                                            else "") + ".",
+        f"«Batte il mercato» vuol dire che fa meglio del mercato della situazione anche contando tutte le {k} "
+        "situazioni misurate, in tutte e due le metà dell'in-sample. «Paga i costi» vuol dire che resta positivo "
+        f"dopo i costi. Una situazione passa con tutte e due e almeno {MIN_TRIGGER} occasioni. È una mappa: dice "
+        "dove il segnale sembra funzionare, non che funziona.",
+        f"Se vuoi, scegli una situazione alla 3d: va bene qualunque situazione con almeno {MIN_TRIGGER} occasioni, "
+        "anche una che non passa. Il segnale scatterà solo lì, e al passo 5 l'asticella terrà conto di tutte le "
+        f"{k} situazioni guardate (solidità {_fmt(soglia_rumore(max(k, 1), ALPHA))}). Altrimenti vai alla 4: la "
+        "strada di sempre, con tutti i filtri al passo 5.")
+    _riga_prove(s, f"{k} situazioni misurate")
     return tab
+
+
+AVVISO_CELLA_NON_PASSA = ("Nell'in-sample questa situazione non batte il mercato, o non paga i costi: "
+                          "la scegli sapendolo.")
+
+
+def controlla_cella(tab: pd.DataFrame, trigger, cella: str, lato: str) -> dict:
+    """
+    La regola della 3d (26/10/2026, docs/73 §A.3.5, decisione 3 di docs/72 §A.3), comune al Lab e al
+    notebook di ricerca: su un lato si puo' scegliere una cella che l'atlante ha MISURATO (almeno
+    min_eventi occasioni) per almeno uno dei trigger del lato, anche se non passa. Sotto le occasioni
+    minime per tutti i trigger si ferma e dice perche'. Nessuna prova in piu': l'atlante conta gia'
+    tutte le celle che misura.
+
+    Ritorna {"passa": True se passa per almeno un trigger del lato, "avviso": il testo da mostrare se
+    non passa (None se passa), "motivi": {trigger: motivo in chiaro}}.
+    """
+    from .atlante import asse_di, celle_misurate, nome_in_chiaro
+    asse_di(cella)                                    # nome sconosciuto: si ferma con l'elenco
+    trigger = [trigger] if isinstance(trigger, str) else list(trigger)
+    righe = tab[tab["candidato"].isin(trigger) & (tab["cella"] == cella)]
+    if cella not in celle_misurate(tab, trigger):
+        minimo = int(tab.attrs.get("min_eventi", MIN_TRIGGER))
+        occasioni = ", ".join(f"{n} per {c}" for c, n in zip(righe["candidato"], righe["eventi"].astype(int))) \
+            or "nessuna"
+        misurate = ", ".join(f"{c} ({nome_in_chiaro(c)})" for c in celle_misurate(tab, trigger)) or "nessuna"
+        raise ValueError(f"La situazione {cella} ({lato}) ha queste occasioni nell'in-sample: {occasioni}. Sotto "
+                         f"le {minimo} l'atlante non la misura, quindi non si può scegliere. Situazioni misurate "
+                         f"su questo lato: {misurate}.")
+    misurate = righe[righe["misurata"].astype(bool)]
+    passa = bool(misurate["passa"].astype(bool).any())
+    motivi = {c: motivo_in_chiaro(m) for c, m in zip(misurate["candidato"], misurate["motivo"])}
+    avviso = None if passa else (AVVISO_CELLA_NON_PASSA + " ("
+                                 + "; ".join(f"{c}: {m}" for c, m in motivi.items()) + ")")
+    return {"passa": passa, "avviso": avviso, "motivi": motivi}
 
 
 def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None) -> None:
@@ -2062,11 +2197,15 @@ def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None)
     resta la strada B: trigger senza cella contro trigger con la cella, con le
     uscite della casistica.
 
+    26/10/2026 (docs/73 §A.3.5): si puo' scegliere qualunque cella MISURATA
+    dall'atlante (almeno 200 occasioni per un trigger del lato), anche se non
+    passa: in quel caso compare l'avviso arancione. Nessuna prova in piu'.
+
     Senza celle (scegli_cella(s)) si torna alla strada di sempre.
     """
-    s._serve("atlante", "3c · Atlante del trigger")
+    s._serve("atlante", "3c · Dove funziona il segnale")
     prima = (getattr(s, "cella_long", None), getattr(s, "cella_short", None))
-    from .atlante import asse_di, celle_che_passano, etichetta_cella, nome_filtro_cella, registra_filtri_cella
+    from .atlante import asse_di, nome_filtro_cella, nome_in_chiaro, registra_filtri_cella
 
     def pulisci(x):
         if x is None:
@@ -2086,29 +2225,30 @@ def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None)
     s.trades_is = s.trades_oos = s.mm = None
     if not cl and not cs:
         _azzera_cella(s)
-        _nota("Nessuna cella scelta: al passo 5 si provano tutti i filtri, come sempre.")
+        _nota("Nessuna situazione scelta: al passo 5 si provano tutti i filtri, come sempre.")
         _riga_prove(s, "nessuna")
         return
-    righe = []
+    righe, avvisi = [], []
     for lato, cella, trigger in (("long", cl, s.trigger_long), ("short", cs, s.trigger_short)):
         if not cella:
             continue
         asse_di(cella)
         if lato == "short" and s.solo_long:
-            raise ValueError(f"{s.symbol} è spot: lo short non esiste, la cella short non serve.")
+            raise ValueError(f"{s.symbol} è spot: lo short non esiste, la situazione short non serve.")
         if not trigger:
-            raise ValueError(f"Il lato {lato} non ha trigger (schermata 3): la cella {cella} non ha a cosa "
+            raise ValueError(f"Il lato {lato} non ha trigger (schermata 3): la situazione {cella} non ha a cosa "
                              "applicarsi.")
-        ok = celle_che_passano(s.atlante, trigger)
-        if cella not in ok:
-            elenco = ", ".join(etichetta_cella(c) for c in ok) if ok else "nessuna"
-            raise ValueError(f"La cella {cella} non passa i controlli dell'atlante per {' / '.join(trigger)}. "
-                             f"Celle che passano su questo lato: {elenco}.")
-        r = s.atlante[s.atlante["candidato"].isin(list(trigger)) & (s.atlante["cella"] == cella)]
+        esito = controlla_cella(s.atlante, trigger, cella, lato)
+        if esito["avviso"]:
+            avvisi.append(f"{lato.upper()}, {nome_in_chiaro(cella)}: {esito['avviso']}")
+        r = s.atlante[s.atlante["candidato"].isin(list(trigger)) & (s.atlante["cella"] == cella)
+                      & s.atlante["misurata"].astype(bool)]
         migliore = r.sort_values("t", ascending=False).iloc[0]
-        righe.append({"Lato": lato.upper(), "Trigger": " oppure ".join(trigger), "Cella": etichetta_cella(cella),
+        righe.append({"Lato": lato.upper(), "Segnale": " oppure ".join(trigger), "Situazione": nome_in_chiaro(cella),
                       "Occasioni": int(migliore["eventi"]), "Solidità": float(migliore["t"]),
-                      f"Netto per occasione ({s.unita})": float(migliore[f"netto_{s.unita}"])})
+                      f"Netto dei costi per occasione ({s.unita})": float(migliore[f"netto_{s.unita}"]),
+                      "Batte il mercato": _si_no(_batte_il_mercato(r).any()),
+                      "Paga i costi": _si_no((r[f"netto_{s.unita}"] > 0).any())})
     _azzera_cella(s)                       # le uscite di prima erano costruite senza questa cella
     s.uscite = s.es = s.rosa_sistemi = None
     s.consigliate = s.sistema = None
@@ -2123,12 +2263,15 @@ def scegli_cella(s: Sessione, long: str | None = None, short: str | None = None)
             s.casistiche[lato]["cella"] = cella
     tabella = pd.DataFrame(righe)
     s.tabelle["cella"] = tabella
-    _mostra(("La cella scelta", tabella), decimali={"Solidità": 2})
-    _nota(f"La cella entra nella casistica: le uscite (schermata 4) si costruiscono sul trigger dentro la cella "
-          f"({', '.join(e for e in (s.entry_casistica_long, s.entry_casistica_short) if e and '+' in e)}). Al passo 5 "
-          f"si prova solo la cella: la riga si chiamerà {nome_filtro_cella(cl, cs)}, ed è il nome da scrivere nella "
-          "scheda (schermata 6).")
-    _riga_prove(s, "nessuna (le celle sono già contate alla 3c)")
+    for testo in avvisi:
+        _avviso(testo)
+    _mostra(("La situazione scelta", tabella), decimali={"Solidità": 2})
+    _nota(f"La situazione entra nella casistica: le uscite (schermata 4) si costruiscono sul segnale dentro la "
+          f"situazione ({', '.join(e for e in (s.entry_casistica_long, s.entry_casistica_short) if e and '+' in e)}). "
+          f"Al passo 5 si prova solo la situazione: la riga si chiamerà {nome_filtro_cella(cl, cs)}, ed è il nome "
+          "da scrivere nella scheda (schermata 6). Nessuna prova in più: l'atlante ha già contato tutte le "
+          "situazioni che ha misurato.")
+    _riga_prove(s, "nessuna (le situazioni sono già contate alla 3c)")
 
 
 def entry_con_cella(entry: str | None, cella: str | None, suffisso: str) -> str | None:
@@ -2854,9 +2997,13 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     s.filtri_scelti = []
 
     # --- imbuto ---------------------------------------------------------
-    tappe = [("Filtri provati (una coppia long/short conta per uno)", len(prove)),
-             ("Migliorano davvero il sistema base", len(promossi)),
-             ("Reggono su entrambe le metà dello storico", len(s.sopravvissuti))]
+    # 26/10/2026 (docs/73 §A.4): nella strada B l'imbuto dice che si misura solo la situazione scelta
+    tappe = ([("Righe provate: la situazione scelta", len(prove)),
+              ("Migliora davvero il segnale da solo", len(promossi)),
+              ("Regge su entrambe le metà dello storico", len(s.sopravvissuti))] if strada_b else
+             [("Filtri provati (una coppia long/short conta per uno)", len(prove)),
+              ("Migliorano davvero il sistema base", len(promossi)),
+              ("Reggono su entrambe le metà dello storico", len(s.sopravvissuti))])
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(9, 2.9))
     massimo = max(tappe[0][1], 1)
@@ -2877,7 +3024,18 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
 
     # --- classifica -----------------------------------------------------
     base = r[r["filtro"] == BASELINE].iloc[0]
-    righe = [{"Filtro": "Sistema base (nessun filtro)", "Trade": int(base["trades"]),
+    if strada_b:
+        from .atlante import PREFISSO_FILTRI, nome_in_chiaro
+        situazioni = " · ".join(nome_in_chiaro(c) for c in (s.cella_long, s.cella_short) if c)
+
+        def _etichetta(filtro):
+            return (f"Il segnale dentro la situazione: {situazioni} ({filtro})"
+                    if str(filtro).startswith(PREFISSO_FILTRI) else filtro)
+    else:
+        def _etichetta(filtro):
+            return filtro
+    righe = [{"Filtro": "Il segnale da solo (senza la situazione)" if strada_b else "Sistema base (nessun filtro)",
+              "Trade": int(base["trades"]),
               **_in_unita(s, "Guadagno medio netto per trade", base["avg_trade_netto"],
                           base.get("avg_trade_netto_pips")),
               f"Miglioramento sul sistema base ({s.unita})": np.nan,
@@ -2889,7 +3047,7 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
                                           ascending=[False, False, False], na_position="last")
     for _, x in ordinati.head(quanti).iterrows():
         righe.append({
-            "Filtro": x["filtro"], "Trade": int(x["trades"]),
+            "Filtro": _etichetta(x["filtro"]), "Trade": int(x["trades"]),
             **_in_unita(s, "Guadagno medio netto per trade", x["avg_trade_netto"],
                         x.get("avg_trade_netto_pips")),
             f"Miglioramento sul sistema base ({s.unita})": x["guadagno_pips"],
@@ -2899,7 +3057,8 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
         })
     tabella = pd.DataFrame(righe)
     s.tabelle["filtri"] = tabella
-    _mostra(("I filtri migliori (in-sample, al netto dei costi)", tabella))
+    _mostra(("Il segnale con e senza la situazione (in-sample, al netto dei costi)" if strada_b
+             else "I filtri migliori (in-sample, al netto dei costi)", tabella))
     _grafico_filtri(s, list(ordinati.head(quanti)["filtro"]), promossi)
 
     asticella = float(s.fs.soglia_rumore)
@@ -2908,7 +3067,7 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     if strada_b:
         _spiegazione(
             f"Dove sta l'asticella della prima prova: solidità del miglioramento di almeno {_fmt(asticella)}.",
-            f"Qui provi una riga sola, la cella scelta nell'atlante. Ma l'hai scelta guardando {k_atlante} celle "
+            f"Qui provi una riga sola, la situazione scelta alla 3d. Ma l'hai scelta guardando {k_atlante} situazioni "
             f"sugli stessi dati dell'in-sample: questa è una seconda misura dello stesso effetto, non una prova nuova. "
             f"Per questo l'asticella è quella di {k_atlante} prove ({_fmt(asticella)}), non quella di una prova sola "
             f"({_fmt(una_prova, 0)}). Se la supera, passa alla seconda prova, sulle due metà dello storico.")
@@ -2930,18 +3089,29 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
         adesso = ("Nessun filtro ha superato entrambe le prove: lo strumento non te ne consiglia nessuno. "
                   "Puoi andare alla schermata 6 con il sistema base (lasciando vuoto il filtro), oppure tornare indietro "
                   "e cambiare trigger o uscite.")
-    _riquadro(
-        ("Hai scelto una cella nell'atlante: qui si prova solo quella, come un filtro (si entra solo quando il "
-         "segnale cade nella cella), e si misura di quanto migliora il guadagno per trade del sistema base scartando "
-         f"i trade fuori dalla cella (in {s.unita})." if strada_b else
-         "Ogni filtro è una condizione in più per entrare (trend, volatilità, orario…). Lo strumento li prova "
-         "tutti, uno alla volta, e misura di quanto migliorano il guadagno per trade del sistema base scartando i "
-         f"trade peggiori (in {s.unita})."),
-        "Un filtro vale solo se supera due prove. Prima: il miglioramento deve essere più grande di quello che "
-        "troveresti per caso provando così tanti filtri. Seconda: deve esserci in entrambe le metà dello storico, "
-        "non in una sola. Più cose provi, più è facile trovarne una bella per caso: l'imbuto serve a questo.",
-        adesso)
-    _riga_prove(s, "nessuna (la cella è già contata alla 3c)" if strada_b else f"{len(prove)} filtri")
+    if strada_b:
+        # 26/10/2026 (docs/73 §A.4): si misura solo la situazione, e il testo dice perche'
+        _riquadro(
+            f"Hai scelto una situazione alla 3d ({situazioni}). Qui si misura solo lei: lo stesso sistema, con le "
+            "stesse uscite (quelle della schermata 4), una volta con il segnale da solo e una volta con il segnale "
+            f"dentro la situazione. Di quanto migliora il guadagno per trade scartando i trade fuori dalla "
+            f"situazione, in {s.unita}.",
+            "Gli altri filtri non si provano. La situazione è già un filtro, e l'hai scelta guardando i dati "
+            "dell'atlante: provarne altri sopra vorrebbe dire scegliere due volte sugli stessi dati. Per lo stesso "
+            f"motivo l'asticella è quella di tutte le {k_atlante} situazioni che l'atlante ha guardato, non quella "
+            "di una prova sola. Se la situazione la supera, passa alla seconda prova, sulle due metà.",
+            adesso + " Per provare i filtri del catalogo, torna alla 3d e lascia vuota la situazione.")
+    else:
+        _riquadro(
+            "Ogni filtro è una condizione in più per entrare (trend, volatilità, orario…). Lo strumento li prova "
+            "tutti, uno alla volta, e misura di quanto migliorano il guadagno per trade del sistema base scartando i "
+            f"trade peggiori (in {s.unita}).",
+            "Un filtro vale solo se supera due prove. Prima: il miglioramento deve essere più grande di quello che "
+            "troveresti per caso provando così tanti filtri. Seconda: deve esserci in entrambe le metà dello "
+            "storico, non in una sola. Più cose provi, più è facile trovarne una bella per caso: l'imbuto serve a "
+            "questo.",
+            adesso)
+    _riga_prove(s, "nessuna (la situazione è già contata alla 3c)" if strada_b else f"{len(prove)} filtri")
     return tabella
 
 

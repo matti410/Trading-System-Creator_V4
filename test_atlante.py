@@ -492,12 +492,38 @@ def esegui() -> int:
               and passano and set(passano) <= {"VOL_ALTA_TREND_CONTRO", "VOL_ALTA_TREND_FAVORE"},
               f"k = {k}, passano {passano}")
         cella_no = next(c for c in tab.loc[tab["candidato"] == "T_LAB_VOL_ALTA", "cella"] if c not in passano)
-        check("32. scegli_cella si ferma: cella sconosciuta, cella che non passa (con l'elenco di quelle che "
-              "passano), lato senza trigger, due celle sullo stesso lato",
+        # 26/10/2026 (docs/73 §A.3.5, regola nuova): una cella misurata che non passa si puo' scegliere,
+        # con l'avviso (test 32b); prima qui si fermava
+        check("32. scegli_cella si ferma: cella sconosciuta, lato senza trigger, due celle sullo stesso lato",
               errore(lambda: vt.scegli_cella(s, long="VOL_ALTA"), "sconosciuta")
-              and errore(lambda: vt.scegli_cella(s, long=cella_no), "VOL_ALTA_TREND_FAVORE")
               and errore(lambda: vt.scegli_cella(s, short="EUROPA"), "non ha trigger")
               and errore(lambda: vt.scegli_cella(s, long="EUROPA, AMERICA"), "Una cella sola"))
+        riga_no = tab[(tab["candidato"] == "T_LAB_VOL_ALTA") & (tab["cella"] == cella_no)].iloc[0]
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            vt.scegli_cella(s, long=cella_no)
+        nome_no = f"T_LAB_VOL_ALTA+CELLA_{cella_no}_L"
+        m_no = reg.get_entry(nome_no)(s.df_is).to_numpy(dtype=bool)
+        m_and = (reg.get_entry("T_LAB_VOL_ALTA")(s.df_is).to_numpy(dtype=bool)
+                 & reg.get_filter(f"CELLA_{cella_no}_L")(s.df_is).to_numpy(dtype=bool))
+        check("32b. (docs/73 §A.3.5) una cella misurata che non passa si sceglie: avviso arancione con il motivo, "
+              "l'entry della casistica e' l'AND di trigger e cella come per una cella che passa, nessuna prova in "
+              "piu'",
+              bool(riga_no["misurata"]) and not bool(riga_no["passa"])
+              and "[ATTENZIONE]" in buf.getvalue() and vt.AVVISO_CELLA_NON_PASSA in buf.getvalue()
+              and s.cella_long == cella_no and s.entry_casistica_long == nome_no and np.array_equal(m_no, m_and)
+              and s.tabelle["cella"]["Batte il mercato"].iat[0] in ("sì", "no")
+              and list(s.prove["celle"].values()) == [k] and s.prove["filtri"] == {},
+              f"{cella_no}: {riga_no['motivo']}")
+        muto(vt.imposta_uscite, s, barre_long=H, sl=90)
+        muto(vt.trova_strategia, s)
+        r_no = s.fs.risultati
+        check("32c. strada B con una cella che non passa: al passo 5 si misura solo lei, asticella a k celle, "
+              "nessun filtro contato; la tabella dice «il segnale da solo» e «dentro la situazione»",
+              list(r_no["filtro"]).count(f"CELLA_{cella_no}_L") == 1 and len(r_no) == 2
+              and np.isclose(s.fs.soglia_rumore, soglia_rumore(k)) and s.fs.rimisura and s.prove["filtri"] == {}
+              and s.tabelle["filtri"]["Filtro"].iat[0] == "Il segnale da solo (senza la situazione)"
+              and s.tabelle["filtri"]["Filtro"].iat[1].startswith("Il segnale dentro la situazione: "))
         muto(vt.scegli_cella, s, long="VOL_ALTA_TREND_FAVORE")
         muto(vt.imposta_uscite, s, barre_long=H, sl=90)
         muto(vt.trova_strategia, s)

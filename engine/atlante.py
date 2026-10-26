@@ -418,6 +418,38 @@ def celle_che_passano(tab: pd.DataFrame, trigger) -> list[str]:
     return list(dict.fromkeys(r["cella"]))
 
 
+def celle_misurate(tab: pd.DataFrame, trigger) -> list[str]:
+    """
+    Le celle misurate (almeno min_eventi occasioni) per almeno uno dei trigger
+    indicati, che passino o no (26/10/2026, docs/73 §A.3.5: alla 3d si puo'
+    scegliere qualunque cella misurata).
+    """
+    if isinstance(trigger, str):
+        trigger = [trigger]
+    r = tab[tab["candidato"].isin(list(trigger)) & tab["misurata"].astype(bool)]
+    return list(dict.fromkeys(r["cella"]))
+
+
+# 26/10/2026 (docs/73 §A.3.2, decisione D3 di Mattia): i nomi delle celle in chiaro, per i testi del Lab
+NOMI_IN_CHIARO = {
+    "VOL_BASSA_TREND_CONTRO": "volatilità bassa, trend contro",
+    "VOL_BASSA_TREND_FAVORE": "volatilità bassa, trend a favore",
+    "VOL_ALTA_TREND_CONTRO": "volatilità alta, trend contro",
+    "VOL_ALTA_TREND_FAVORE": "volatilità alta, trend a favore",
+    "ASIA_NOTTE": "Asia (e fine settimana)",
+    "EUROPA": "Europa (Londra aperta, New York chiusa)",
+    "LONDRA_NY": "Londra + New York",
+    "AMERICA": "America (New York aperta, Londra chiusa)",
+    "BASIS_ALTA": "basis alta (perpetual caro sullo spot)",
+    "BASIS_BASSA": "basis bassa (perpetual a buon mercato sullo spot)",
+}
+
+
+def nome_in_chiaro(cella: str) -> str:
+    """Il nome di una cella in parole (docs/73 §A.3.2); una cella fuori elenco resta com'e'."""
+    return NOMI_IN_CHIARO.get(cella, cella)
+
+
 # ========================================================================
 # Le celle scelte come filtri del passo 5 (strada B, docs/66 §5)
 # ========================================================================

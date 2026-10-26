@@ -580,7 +580,7 @@ collaudare, abbastanza casi nell'in-sample, un segno atteso dal meccanismo.
 
 | meccanismo | variabile | prima versione? | perché |
 |---|---|---|---|
-| calendario | **ore del funding** (00/08/16 UTC), insieme al segno del funding in corso | **sì** | tre volte al giorno, migliaia di casi; il meccanismo dà un segno (chi deve pagare chiude prima del pagamento), quindi la variabile è l'ora **e** il segno del funding |
+| calendario | **ore del funding** (00/08/16 UTC), insieme al segno del funding in corso | **sì** | tre volte al giorno, migliaia di casi; il meccanismo dà un segno (chi deve pagare chiude prima del pagamento), quindi la variabile è l'ora **e** il segno del funding. Si misura contro il mercato della **stessa ora** (D6): così si isola il segno, senza riscoprire l'effetto dell'ora del profilo 2a |
 | calendario | **giorno della settimana, fine settimana** | **sì**, se la scheda trova un segno | circa 280 fine settimana nell'in-sample di BTC. Il fine settimana sta già, mescolato con l'Asia, in ASIA_NOTTE dell'atlante; la mappa lo guarda da solo |
 | calendario | **apertura USA** (09:30 di New York) | **sì** | in UTC si sposta di un'ora con l'ora legale, quindi il profilo 2a (in UTC) la vede sfocata per metà anno; la mappa la guarda all'ora di New York |
 | calendario | venerdì delle opzioni (scadenza mensile, ultimo venerdì 08:00 UTC) | **dopo** | circa 65 scadenze nell'in-sample: sotto le 100 giornate. Si riapre con più storia |
@@ -666,9 +666,13 @@ nella scheda e non scelta dopo:
   della stessa ora**, come la rosa. Così la mappa non riscopre il profilo orario
   sotto un altro nome: una fascia che cade spesso in ore «buone» non sembra brava
   per l'ora;
-- **variabili di calendario** (ore, giorni, aperture): **il mercato a qualunque
-  ora**, come l'atlante per i trigger a orario dal 23/10. Contro la stessa ora
-  darebbero zero per costruzione (test 3 del §B.7).
+- **variabili solo di calendario** (giorno della settimana, apertura USA): **il
+  mercato a qualunque ora**, come l'atlante per i trigger a orario dal 23/10.
+  Contro la stessa ora darebbero zero per costruzione (test 3 del §B.7);
+- **ore del funding con il segno del funding** (correzione di Mattia, D6): **il
+  mercato della stessa ora**. L'ipotesi è il segno del funding: contro la stessa
+  ora si isola il segno, senza riscoprire l'effetto dell'ora che il profilo 2a
+  mostra già.
 
 **2 · La misura di una fascia.** Scarto in bp (pips accanto), solidità con i
 rendimenti sovrapposti, due metà, quota di falsi positivi a q = 20% sulle fasce
@@ -750,6 +754,19 @@ dataset richiede meno di un minuto; su M5 circa il triplo.
 | D6 | le sette domande del §6 | come scritto |
 | D7 | la prima versione del §B.6 (7 schede) | come in tabella |
 | D8 | il registro delle ipotesi in un file nuovo `docs/74` | sì |
+
+**Decisioni di Mattia (26/10/2026)**
+
+| | decisione |
+|---|---|
+| D1 | sì: «segnale» nei testi, «trigger» per i nomi del catalogo e i campi |
+| D2 | sì: «situazione» nei testi, «cella» nel codice |
+| D3 | sì: i nomi in chiaro del §A.3.2 |
+| D4 | sì: `engine/vetrina_mappa.py` a parte |
+| D5 | 365 giorni |
+| D6 | sì, con una correzione: la scheda «ore del funding con il segno del funding» si misura contro il mercato della **stessa ora**, non a qualunque ora. L'ipotesi è il segno del funding, e contro la stessa ora si isola il segno, senza riscoprire l'effetto dell'ora che il profilo 2a mostra già. Le variabili solo di calendario (giorno della settimana, apertura USA) restano contro il mercato a qualunque ora (§6 domanda 1 e §B.6 corretti) |
+| D7 | sì: le 7 schede della prima versione |
+| D8 | sì: il registro delle ipotesi in `docs/74` |
 
 ## 9 · Rischi
 
