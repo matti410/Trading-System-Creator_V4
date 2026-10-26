@@ -1490,6 +1490,38 @@ def esplora(s: Sessione, quanti: int = 5):
     return s.ev
 
 
+def _frasi_profilo(p: pd.DataFrame, u: str, luogo: str) -> list[str]:
+    """
+    Le frasi sotto il grafico della 2a (26/10/2026, docs/73 §A.1.2, revisione di Mattia): stesse
+    informazioni di stagionalita.descrivi_profilo (che resta per il notebook di ricerca), con il
+    linguaggio nuovo, i numeri con la virgola e una riga sola sul controllo dei colpi di fortuna.
+    """
+    if p is None or len(p) == 0:
+        return ["Nessuna ora misurabile."]
+    ora = "ora UTC" if luogo == "UTC" else f"ora di {luogo}"
+    col = f"scarto_{u}"
+    alta, bassa = p.loc[p[col].idxmax()], p.loc[p[col].idxmin()]
+
+    def caso(r):
+        return " Il caso da solo non lo spiega." if r["bh"] else " Può essere solo caso."
+
+    def quanto(r):
+        v = float(r[col])
+        return f"{_fmt(abs(v), 1)} {u} {'in più' if v >= 0 else 'in meno'} della media di tutte le ore"
+
+    n_oltre = int(p["bh"].sum())
+    return [
+        f"Se apri un LONG alle {alta['fascia']} ({ora}) e lo tieni {p.attrs.get('H')} barre, in media il prezzo fa "
+        f"{quanto(alta)}: è l'ora migliore per un long." + caso(alta),
+        f"Se apri un LONG alle {bassa['fascia']} il prezzo fa {quanto(bassa)}: è l'ora peggiore per un long, e per "
+        "uno SHORT aperto a quell'ora vale al contrario." + caso(bassa),
+        (f"Ore che il caso da solo non spiega: {n_oltre} su {len(p)}."
+         + (" Ore vicine raccontano lo stesso fatto: contale come un'idea sola." if n_oltre > 1 else ""))
+        if n_oltre else
+        f"Nessuna ora resta fuori da quello che il caso da solo spiega ({len(p)} fasce orarie).",
+    ]
+
+
 def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     """
     Schermata 2a (dal 25/10/2026, docs/68 §6: prima delle curve; prima era la
@@ -1532,12 +1564,10 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     ax.grid(alpha=.3, axis="y")
     plt.tight_layout()
     plt.show()
-    for frase in descrivi_profilo(p):
+    for frase in _frasi_profilo(p, u, luogo):
         _nota(frase)
     oltre = p[p["bh"]]
-    if oltre.empty:
-        _nota(f"Nessuna ora resta fuori da quello che il caso da solo spiega ({len(p)} fasce orarie).")
-    else:
+    if not oltre.empty:
         tabella = pd.DataFrame({
             "Ora d'ingresso": oltre["fascia"],
             f"In più o in meno della media di tutte le ore ({u})": oltre[f"scarto_{u}"],
@@ -1703,7 +1733,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
         "È un suggerimento, non una promozione: la verifica vera arriva dopo, con i filtri, le due metà e i dati "
         "mai visti. Un trigger fuori dalla rosa per «famiglia» o «correlata» è buono come quello che lo esclude, "
         "ma ripete la stessa idea. Rosa vuota = nessun trigger si distingue abbastanza dal caso a questo orizzonte.",
-        "Vai alla 3b: parte dalle casistiche suggerite («Nella rosa: sì»); puoi toglierne o aggiungerne. "
+        "Vai alla 3b: scegli da dove partire (la rosa, tutte le candidate, niente) e poi togli o aggiungi trigger. "
         "La scelta resta tua.")
     _riga_prove(s, "nessuna (i trigger sono già contati alla 2c)")
     return r
@@ -2136,7 +2166,9 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
                                                                             else "") + ".",
         f"«Batte il mercato» vuol dire che fa meglio del mercato della situazione anche contando tutte le {k} "
         "situazioni misurate, in tutte e due le metà dell'in-sample. «Paga i costi» vuol dire che resta positivo "
-        f"dopo i costi. Una situazione passa con tutte e due e almeno {MIN_TRIGGER} occasioni. È una mappa: dice "
+        f"dopo i costi" + (" e si giudica in bp, il metro unico: in pips il segno può essere diverso, perché i pips "
+                           "pesano di più i trade fatti a prezzi alti" if u == "bp" else "")
+        + f". Una situazione passa con tutte e due e almeno {MIN_TRIGGER} occasioni. È una mappa: dice "
         "dove il segnale sembra funzionare, non che funziona.",
         f"Se vuoi, scegli una situazione alla 3d: va bene qualunque situazione con almeno {MIN_TRIGGER} occasioni, "
         "anche una che non passa. Il segnale scatterà solo lì, e al passo 5 l'asticella terrà conto di tutte le "
@@ -2945,6 +2977,24 @@ def _grafico_filtri(s: Sessione, filtri: list, promossi: list) -> None:
           "della tabella.")
 
 
+def _adesso_strada_b(s: Sessione, righe_cella: list) -> str:
+    """
+    «Cosa fare adesso» della schermata 5 con una situazione scelta (26/10/2026, revisione di Mattia).
+    Quello che succede davvero alla 6: con il filtro vuoto la scheda usa le entry del passo 5
+    (s.fs.entry_long / entry_short, il segnale SENZA la situazione) con le uscite della 4, costruite
+    sul segnale dentro la situazione; con il nome CELLA_… nel filtro, il segnale dentro la situazione.
+    """
+    nome = righe_cella[0] if righe_cella else "il nome CELLA_… della tabella"
+    regge = bool(righe_cella) and righe_cella[0] in s.sopravvissuti
+    return (("La situazione regge le due prove. " if regge else
+             "La situazione non ha superato le due prove: lo strumento non te la consiglia, ma puoi portarla lo "
+             "stesso alla scheda. ")
+            + f"Per provare alla schermata 6 il segnale dentro la situazione scrivi {nome} nel campo del filtro. Se "
+            "lasci vuoto il filtro, la schermata 6 prova il segnale da solo, senza la situazione, con le uscite che "
+            "la schermata 4 ha costruito sul segnale dentro la situazione. Per provare i filtri del catalogo, torna "
+            "alla 3d e lascia vuota la situazione.")
+
+
 def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     """
     Schermata 5. Prova tutti i filtri del registro sul sistema base
@@ -3059,6 +3109,12 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     s.tabelle["filtri"] = tabella
     _mostra(("Il segnale con e senza la situazione (in-sample, al netto dei costi)" if strada_b
              else "I filtri migliori (in-sample, al netto dei costi)", tabella))
+    if strada_b:
+        # 26/10/2026 (revisione di Mattia): il miglioramento non e' la differenza fra le due righe
+        _nota(f"«Miglioramento sul sistema base» confronta, fra i trade del segnale da solo (prima riga), quelli "
+              "dentro la situazione con quelli fuori. Per questo non è la differenza fra le due righe: la riga con la "
+              "situazione è un backtest a sé, con trade diversi (scartare un trade libera il posto ad altri, che "
+              "prima erano bloccati da una posizione aperta).")
     _grafico_filtri(s, list(ordinati.head(quanti)["filtro"]), promossi)
 
     asticella = float(s.fs.soglia_rumore)
@@ -3100,7 +3156,7 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
             "dell'atlante: provarne altri sopra vorrebbe dire scegliere due volte sugli stessi dati. Per lo stesso "
             f"motivo l'asticella è quella di tutte le {k_atlante} situazioni che l'atlante ha guardato, non quella "
             "di una prova sola. Se la situazione la supera, passa alla seconda prova, sulle due metà.",
-            adesso + " Per provare i filtri del catalogo, torna alla 3d e lascia vuota la situazione.")
+            _adesso_strada_b(s, [f for f in prove["filtro"] if str(f).startswith("CELLA_")]))
     else:
         _riquadro(
             "Ogni filtro è una condizione in più per entrare (trend, volatilità, orario…). Lo strumento li prova "
@@ -3320,9 +3376,11 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
     if fasce:
         parti.append(f"{int(fasce)} fasce del profilo orario (trigger a orario){dove('2a')}")
     if celle:
-        parti.append(f"{ce} celle dell'atlante" + (f" in {len(celle)} atlanti" if len(celle) > 1 else "")
+        # 26/10/2026 (docs/73, D2): «situazioni» nei testi, «celle» nel codice
+        parti.append(f"{ce} situazioni dell'atlante" + (f" in {len(celle)} atlanti" if len(celle) > 1 else "")
                      + dove("3c")
-                     + (" (la cella riprovata al passo 5 è una di queste: non conta due volte)" if rimisura else ""))
+                     + (" (la situazione riprovata al passo 5 è una di queste: non conta due volte)" if rimisura
+                        else ""))
     if uscite:
         parti.append(f"{u} sistemi provati in {len(uscite)} "
                      f"{'impostazione' if len(uscite) == 1 else 'impostazioni'} delle uscite{dove(4)}")
@@ -3438,7 +3496,7 @@ def _riga_prove(s: Sessione, qui: str) -> dict:
     k = conti["k"]
     k_testo = _fmt(k, 1) if isinstance(k, float) else _fmt(k)
     voci = [(("trigger", "trigger"), conti["voce_trigger"]), (("fascia oraria", "fasce orarie"), conti["fasce"]),
-            (("cella", "celle"), conti["celle"]), (("sistema", "sistemi"), conti["uscite"]),
+            (("situazione", "situazioni"), conti["celle"]), (("sistema", "sistemi"), conti["uscite"]),
             (("filtro", "filtri"), conti["filtri"]), (("combinazione", "combinazioni"), conti["combinazioni"])]
     dettaglio = ", ".join(f"{_fmt(v, 1) if isinstance(v, float) and not float(v).is_integer() else _fmt(int(v))} "
                           f"{nome[0] if v == 1 else nome[1]}" for nome, v in voci if v)
