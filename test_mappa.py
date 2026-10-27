@@ -158,6 +158,22 @@ def esegui() -> int:
           "dà il profilo orario (media dell'ora meno media di tutte le barre)",
           np.allclose(tab_s["scarto_bp"].to_numpy(dtype=float), 0.0, atol=1e-9)
           and np.allclose(tab_q["scarto_bp"].to_numpy(dtype=float), profilo, atol=1e-9))
+    # 27/10/2026 (correzione di Mattia, PR #82): fasce degeneri, come il funding fermo al livello di base
+    piatto = var.copy()
+    piatto.iloc[rng.choice(n, size=n // 2, replace=False)] = 0.0001
+    c_piatto = mp.fasce_quintili(piatto, 365)
+    motivo = mp.controlla_fasce(sch, c_piatto)
+    try:
+        mp.misura(sch, d_giu, PIP, valori=piatto)
+        fermata = ""
+    except mp.FasceDegeneri as e:
+        fermata = str(e)
+    check("B7. fasce degeneri: una variabile con metà dei valori uguali (le soglie coincidono) non si misura, e il "
+          "messaggio dà la quota di ogni fascia; una variabile continua passa il controllo; le categorie non si "
+          "controllano",
+          motivo is not None and fermata == motivo and "Q1" in fermata and "%" in fermata
+          and mp.controlla_fasce(sch, cod) is None and mp.controlla_fasce(sc_c, mp.codici_fasce(sc_c, rare)) is None,
+          fermata[:110])
     # senza effetto: 1.000 mercati a seme fisso, le stesse fasce gia' calcolate (categorie 0..4)
     nulla = _a_categorie()
     valori0 = pd.Series(cod, index=idx_h)
@@ -273,6 +289,14 @@ def esegui() -> int:
           and mp.escluse_per_doppione({"M04": c_altro, "M05": c_base}) == {}
           and mp.escluse_per_doppione({"M04": c_quasi}) == {}
           and SCHEDE["M04"].doppione_di == "M05" and SCHEDE["M05"].doppione_di is None)
+    piatto_d = base.copy()
+    piatto_d.iloc[rng.choice(n, size=n // 2, replace=False)] = 0.0001
+    fuori_p = mp.escluse_per_doppione({"M04": mp.fasce_quintili(piatto_d, 365), "M05": c_base})
+    fuori_p5 = mp.escluse_per_doppione({"M04": c_quasi, "M05": mp.fasce_quintili(piatto_d, 365)})
+    check("D2b. il controllo delle fasce viene prima dei doppioni: M04 con le fasce degeneri esce con il suo motivo "
+          "(non come doppione); se le fasce degeneri sono di M05, M04 non si confronta con lei",
+          set(fuori_p) == {"M04"} and "non sono quintili veri" in fuori_p["M04"]
+          and set(fuori_p5) == {"M05"} and "non sono quintili veri" in fuori_p5["M05"])
     sch1 = dataclasses.replace(SCHEDE["M07"], orizzonte_ore=4)
     v1 = mp.voci_da_scrivere([], sch1, 10)
     v_rif = mp.voci_da_scrivere(v1, sch1, 10)
@@ -298,6 +322,15 @@ def esegui() -> int:
               and len(esiti) == 2 and esiti[0]["scheda"] == "M07" and esiti[0]["conto"] == 10
               and len(esiti[0]["fasce"]) == 5 and esiti[0]["verdetto"] == tab7.attrs["verdetto"]
               and altro_studio == [])
+        tab_meno = tab7.copy()
+        tab_meno.attrs.update(tab7.attrs, misurate=4, conto=8)     # rimisura con una fascia sotto i minimi
+        meno = mp.registra(tmp, ds, "pc", studio, sch1, tab_meno, "M15")
+        storia2, _ = st.ricostruisci(tmp, ds, studio)
+        check("D5. il conto non scende mai: una rimisura con una fascia in meno (8 invece di 10) non scrive niente "
+              "nel giornale e il conto resta 10; l'esito nuovo resta nel file degli esiti",
+              meno == [] and mp.voci_da_scrivere(v1, sch1, 8) == []
+              and storia2.prove.get("mappa") == {("M07", 1, 4.0): 10}
+              and len(st.leggi_esiti_mappa(tmp, ds, studio["id"])) == 3)
     rd.azzera()
 
     # =================================================================== E ==

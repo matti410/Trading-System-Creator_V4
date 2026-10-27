@@ -160,6 +160,37 @@ def fasce_quintili(serie: pd.Series, giorni: int = 365) -> np.ndarray:
     return np.where(ok, codice, np.nan)
 
 
+QUOTA_FASCIA_MIN, QUOTA_FASCIA_MAX = 0.10, 0.30     # quintili: ogni fascia fra il 10% e il 30% (Mattia, 27/10)
+
+
+class FasceDegeneri(ValueError):
+    """Le fasce a quintili di una scheda non sono quintili veri: la scheda non si misura."""
+
+
+def controlla_fasce(scheda: Scheda, codici: np.ndarray) -> str | None:
+    """
+    Il controllo delle fasce (correzione di Mattia del 27/10/2026, PR #82): per
+    le schede a quintili ogni fascia deve avere fra il 10% e il 30% delle barre
+    che hanno una fascia. Con tanti valori uguali (il funding di Binance fermo al
+    livello di base) le soglie coincidono, e le fasce non sono piu' quelle
+    dell'ipotesi approvata. None se va bene, altrimenti il motivo con la quota di
+    ogni fascia. Usa solo la variabile, non i rendimenti: non e' una prova e non
+    entra nel conto. Le schede a categorie non si controllano.
+    """
+    if scheda.tipo != "quintili":
+        return None
+    c = codici[np.isfinite(codici)].astype(int)
+    if c.size == 0:
+        return f"{scheda.id}: nessuna barra ha una fascia (variabile mancante o finestra mai piena)."
+    quote = np.bincount(c, minlength=len(scheda.fasce)) / c.size
+    if ((quote < QUOTA_FASCIA_MIN) | (quote > QUOTA_FASCIA_MAX)).any():
+        dettaglio = ", ".join(f"{f} {q:.1%}" for f, q in zip(scheda.fasce, quote))
+        return (f"{scheda.id}: le fasce non sono quintili veri ({dettaglio}; ognuna dovrebbe stare fra il "
+                f"{QUOTA_FASCIA_MIN:.0%} e il {QUOTA_FASCIA_MAX:.0%}). Succede con tanti valori uguali: le soglie "
+                "coincidono. La scheda non si misura così com'è.")
+    return None
+
+
 def codici_fasce(scheda: Scheda, valori: pd.Series) -> np.ndarray:
     """Il codice della fascia della scheda (indice in scheda.fasce) di ogni barra, NaN se in nessuna."""
     if scheda.tipo == "quintili":
@@ -209,6 +240,9 @@ def misura(scheda: Scheda, df: pd.DataFrame, pip: float, valori: pd.Series | Non
         valori = variabile(scheda, df, df_btc)
     H = barre_orizzonte(scheda.orizzonte_ore, df.index)
     codici = codici_fasce(scheda, valori)
+    motivo = controlla_fasce(scheda, codici)
+    if motivo:
+        raise FasceDegeneri(motivo)
     n = len(df)
     idx = pd.DatetimeIndex(df.index)
     ingresso = np.full(n, np.nan)
@@ -366,11 +400,14 @@ def escluse_per_doppione(codici: dict) -> dict:
     Le schede da NON misurare per la regola dei doppioni (`doppione_di` della
     scheda, decisa prima di misurare): {id: frase}. `codici` = {id: codici_fasce}
     delle schede che si stanno per misurare sullo stesso dataset.
+
+    Prima del confronto, il controllo delle fasce (controlla_fasce): una scheda
+    con le fasce degeneri esce con il suo motivo, e non si confronta con nessuna.
     """
-    fuori = {}
+    fuori = {sid: m for sid, cod in codici.items() if (m := controlla_fasce(SCHEDE[sid], cod))}
     for sid, cod in codici.items():
         altra = SCHEDE[sid].doppione_di
-        if altra and altra in codici:
+        if sid not in fuori and altra and altra in codici and altra not in fuori:
             esito = doppione(SCHEDE[sid], cod, SCHEDE[altra], codici[altra])
             if esito["doppione"]:
                 dett = ", ".join(f"{f} {q:.0%} ({lift:.1f} volte il caso)" for f, (q, lift) in esito["fasce"].items())
@@ -391,14 +428,19 @@ def voci_da_scrivere(voci: list, scheda: Scheda, n: int, oos_visto: bool = False
     """
     Le voci del giornale per una scheda misurata (docs/73 §B.4): la «prova» con
     dove = "mappa" se la chiave (id, versione, orizzonte) e' nuova o il numero
-    e' cambiato; una «risalita» se la stessa scheda era gia' stata misurata con
+    e' PIU' ALTO di quello gia' scritto (il conto non scende mai: una rimisura con
+    meno fasce misurate lascia il numero di prima, correzione di Mattia del
+    27/10/2026); una «risalita» se la stessa scheda era gia' stata misurata con
     un'altra versione o un altro orizzonte (cambiata dopo la misura).
     """
     chiave = chiave_conto(scheda)
-    scritte = {tuple(v["chiave"]): v["n"] for v in voci
-               if v.get("voce") == "prova" and v.get("dove") == "mappa" and v.get("chiave")}
+    scritte = {}
+    for v in voci:
+        if v.get("voce") == "prova" and v.get("dove") == "mappa" and v.get("chiave"):
+            k = tuple(v["chiave"])
+            scritte[k] = max(int(v["n"]), scritte.get(k, 0))
     out = []
-    if scritte.get(tuple(chiave)) != int(n):
+    if tuple(chiave) not in scritte or int(n) > scritte[tuple(chiave)]:
         out.append({"voce": "prova", "dove": "mappa", "chiave": chiave, "n": int(n)})
     altre = [list(k) for k in scritte if k[0] == scheda.id and list(k) != chiave]
     if altre and tuple(chiave) not in scritte:
