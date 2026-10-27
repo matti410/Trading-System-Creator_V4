@@ -2,8 +2,7 @@
 
 **Data:** 27 ottobre 2026 (aggiornato lo stesso giorno con le decisioni di Mattia, §5)
 **Stato:**
-- **approvate da Mattia il 27/10/2026:** M01, M04, M05, M07;
-- **in bozza:** M06, in attesa della scelta su finestra e orizzonte (§5, punto 5);
+- **approvate da Mattia il 27/10/2026:** M01, M04, M05, M06 (versione A), M07;
 - **fuori dalla prima versione:** M02, M03.
 
 Nessuna è stata misurata. Nessun codice: solo le schede approvate entrano in
@@ -144,20 +143,20 @@ dice nel suo campo «da dove viene l'idea», insieme a cosa va contato.
 
 | campo | contenuto |
 |---|---|
-| stato | **in bozza**: Mattia decide finestra e orizzonte dopo aver letto la riga «perché 1 ora» (§5, punto 5) |
+| stato | **approvata da Mattia il 27/10/2026**, **versione A** (finestra 1 ora, orizzonte 1 ora). A misura la versione lenta del meccanismo (un'altcoin che in un'ora non ha seguito BTC), non il ritardo di minuti: il risultato lo dirà |
 | meccanismo | Il prezzo si forma prima su BTC, il mercato più liquido; le altcoin lo seguono con un ritardo, perché i market maker e gli arbitraggisti aggiornano prima BTC. Chi perde è chi scambia l'altcoin al prezzo vecchio |
 | da dove viene l'idea | Dal meccanismo della formazione del prezzo (`73` §B.6, «chi arriva prima»). Niente di visto sui dati: nessun giro ha mai messo BTC accanto a un'altcoin. Nessun paper letto nel registro di `50` |
-| variabile | `scarto_btc` (nuova): il rendimento di BTC nella finestra **meno** il rendimento dell'altcoin nella stessa finestra, stesso exchange e stesso mercato (perpetual con perpetual, spot con spot), barre allineate per data. Si usa lo scarto e non il solo rendimento di BTC: quello di BTC si muove quasi insieme a quello dell'altcoin, e la scheda finirebbe per misurare il rendimento recente dell'altcoin (M07) |
+| variabile | `scarto_btc_1h` (nuova): il rendimento di BTC nell'ultima ora **meno** il rendimento dell'altcoin nella stessa ora, stesso exchange e stesso mercato (perpetual con perpetual, spot con spot), barre allineate per data. Si usa lo scarto e non il solo rendimento di BTC: quello di BTC si muove quasi insieme a quello dell'altcoin, e la scheda finirebbe per misurare il rendimento recente dell'altcoin (M07) |
 | tipo di fasce | quintili, finestra 365 giorni di barre passate |
 | fascia attesa e segno | **Q5 (BTC è salita più dell'altcoin) → sopra il mercato (long)**; **Q1 → sotto il mercato (short)** |
-| finestra e orizzonte | **da decidere** fra le due versioni qui sotto |
-| perché 1 ora (versione A: finestra 1 ora, orizzonte 1 ora) | Il meccanismo parla di un ritardo di minuti, ma un ritardo di minuti finisce dentro una barra M15: al Close della barra lo scarto è già in parte chiuso, e l'ingresso è all'Open della barra dopo. Con le candele M15 quel ritardo **non si vede**: servirebbero barre da un minuto o i singoli scambi. Quello che le M15 possono vedere è una versione **più lenta** dello stesso meccanismo: un'altcoin che in un'ora intera non ha seguito BTC (le meno liquide, o lo spot Bybit) e recupera nell'ora dopo. La versione A misura questa, ed è un'ipotesi diversa da quella dei minuti: va detto nel risultato |
-| alternativa (versione B: finestra 1 barra M15, orizzonte 15 minuti) | Lo scarto nell'ultima barra da 15 minuti e la misura nei 15 minuti dopo: è la cosa più vicina ai minuti che i nostri dati vedono. Anche B non vede un ritardo più corto di una barra, per lo stesso motivo. Da sapere: un orizzonte di 15 minuti paga la stessa commissione di un trade di un'ora, quindi un trigger nato da B dovrà pagare i costi con un movimento più breve. Sui timeframe più lunghi di M15 (M30, H1, H4) B non si misura; su M5 sono 3 barre |
+| finestra e orizzonte | **versione A, scelta da Mattia il 27/10/2026:** finestra 1 ora, orizzonte **1 ora**. Su H4 la scheda non si misura (1 ora non è un numero intero di barre) |
+| perché 1 ora (versione A, scelta) | Il meccanismo parla di un ritardo di minuti, ma un ritardo di minuti finisce dentro una barra M15: al Close della barra lo scarto è già in parte chiuso, e l'ingresso è all'Open della barra dopo. Con le candele M15 quel ritardo **non si vede**: servirebbero barre da un minuto o i singoli scambi. Quello che le M15 possono vedere è una versione **più lenta** dello stesso meccanismo: un'altcoin che in un'ora intera non ha seguito BTC (le meno liquide, o lo spot Bybit) e recupera nell'ora dopo. La versione A misura questa, ed è un'ipotesi diversa da quella dei minuti: va detto nel risultato |
+| alternativa non scelta (versione B: finestra 1 barra M15, orizzonte 15 minuti) | Lo scarto nell'ultima barra da 15 minuti e la misura nei 15 minuti dopo: è la cosa più vicina ai minuti che i nostri dati vedono. Anche B non vede un ritardo più corto di una barra, per lo stesso motivo. Da sapere: un orizzonte di 15 minuti paga la stessa commissione di un trade di un'ora, quindi un trigger nato da B dovrà pagare i costi con un movimento più breve. Sui timeframe più lunghi di M15 (M30, H1, H4) B non si misura; su M5 sono 3 barre |
 | mercato di riferimento | **stessa ora** (il mercato dell'altcoin) |
 | cosa serve | il CSV di BTC dello stesso exchange e mercato; alla schermata 1 della mappa, entrambi nello studio (impronta), lo stesso confine |
 | portabilità su TradingView | **sì** (un altro symbol) |
 | dataset | ETH, SOL, XRP, perpetual e spot, Binance e Bybit. Non BTC |
-| prove | 5 fasce per dataset (una versione sola: misurarle tutte e due vale 10) |
+| prove | **5** fasce per dataset (solo la versione A; la B non si misura) |
 
 ### M07 · Rendimento recente estremo
 
@@ -191,13 +190,20 @@ PR B; i risultati collaudano il tool, non sono verdetti sul mercato.
 | M03 apertura USA | fuori dalla prima versione | **no** | sì, profilo 2a (12:45 UTC) | — | — | — | — |
 | M04 funding estremo | approvata 27/10 | sì (Q5 → short, Q1 → long) | no | 5 (0 se doppione di M05) | — | — | — |
 | M05 basis estrema | approvata 27/10 | sì (Q5 → short, Q1 → long) | no (righe basis di E21 viste, non usate) | 5 | — | — | — |
-| M06 BTC che anticipa le altcoin | bozza (finestra e orizzonte) | sì (Q5 → long, Q1 → short) | no | 5 | — | — | — |
+| M06 BTC che anticipa le altcoin | approvata 27/10, versione A (1 ora) | sì (Q5 → long, Q1 → short) | no | 5 (solo altcoin) | — | — | — |
 | M07 rendimento recente estremo | approvata 27/10 | sì, inversione (Q5 → short, Q1 → long) | sì, rosa (E39): + 5 della versione opposta | 5 + 5 = 10 | — | — | — |
 
 **Conto della prima versione, per dataset**, se si misura tutto quello che è
-approvato: un perpetual BTC 98 + 5 + 5 + 10 = **118** fasce (113 se M04 è doppione);
-un perpetual altcoin lo stesso più le 5 di M06; uno spot 10, più le 5 di M06 sulle
-altcoin.
+approvato (M01, M04, M05, M06, M07):
+
+| dataset | schede | fasce |
+|---|---|---|
+| perpetual BTC | M01 98 + M04 5 + M05 5 + M07 10 | **118** (113 se M04 è doppione) |
+| perpetual ETH, SOL, XRP | M01 98 + M04 5 + M05 5 + M06 5 + M07 10 | **123** (118 se M04 è doppione) |
+| spot BTC | M07 10 | **10** |
+| spot ETH, SOL, XRP | M06 5 + M07 10 | **15** |
+
+M05 si misura solo dove c'è lo spot della stessa coppia; dove manca, 5 fasce in meno.
 
 ## 5 · Decisioni di Mattia (27/10/2026)
 
@@ -213,9 +219,11 @@ altcoin.
    - **M01:** una sola barra per pagamento, quella che chiude un'ora prima di 00:00,
      08:00 e 16:00 UTC, con orizzonte 1 ora, così la misura finisce al pagamento.
      Variabile, fasce e prove aggiornate (§3, M01).
-   - **M06:** resta in bozza. La scheda spiega perché finestra e orizzonte di 1 ora
-     (versione A) e propone l'alternativa di una barra M15 (versione B). **Decide
-     Mattia.**
+   - **M06:** **versione A** (finestra 1 ora, orizzonte 1 ora), decisa da Mattia il
+     27/10/2026 dopo aver letto la riga «perché 1 ora». La scheda dice che A misura la
+     versione lenta del meccanismo (un'altcoin che in un'ora non ha seguito BTC), non
+     il ritardo di minuti. La versione B (una barra M15) resta descritta come
+     alternativa non scelta. Variabile `scarto_btc_1h`, prove 5 per dataset.
 6. **M01:** scritto nella scheda che su BTC il funding è quasi sempre positivo: la
    fascia «funding positivo» è quasi il riferimento e il suo scarto sarà vicino a
    zero per costruzione; l'informazione sta nella fascia «funding negativo», con
