@@ -170,6 +170,7 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 
 | cosa | stato |
 |---|---|
+| strada B: con il filtro vuoto la schermata 6 prova il segnale da solo con le uscite costruite sul segnale dentro la situazione; proposta da decidere: con una situazione scelta il predefinito della 6 diventa il segnale dentro la situazione | prossimo lavoro (Mattia, 26/10) |
 | stop e target non attivi sulla barra d'ingresso | risolto (PR #49) |
 | `ExitSearchBT.top()` ordina per `sharpe`: va ordinato per il t nell'unità che decide | risolto (PR #51) |
 | `vwap_ops.py` taglia la giornata a mezzanotte UTC: sulle crypto coincide con la giornata, sul broker (sospeso) no | da decidere se si riapre il broker |
