@@ -175,6 +175,8 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 | `vwap_ops.py` taglia la giornata a mezzanotte UTC: sulle crypto coincide con la giornata, sul broker (sospeso) no | da decidere se si riapre il broker |
 | il notebook di ricerca su Colab chiede il secret `GITHUB_TOKEN` | non bloccante |
 | interruttore sulla curva dei profitti | rimandato da Mattia |
+| schermata 4: la tabella dice «short dopo 41 barre» anche con lo short spento | prossimo lavoro (Mattia, 26/10) |
+| schermata 4: «confronta le tre righe» anche quando la tabella ne ha una sola | prossimo lavoro (Mattia, 26/10) |
 
 ## Convenzioni di lavoro
 

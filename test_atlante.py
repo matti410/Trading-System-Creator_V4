@@ -539,7 +539,7 @@ def esegui() -> int:
         check("34. soglia cumulata sotto la scheda: trigger + celle dell'atlante + uscite; la cella "
               "riprovata al passo 5 non conta due volte",
               sc["celle"] == k and sc["filtri"] == 0 and sc["k"] == sc["trigger"] + k + sc["uscite"]
-              and np.isclose(sc["soglia"], soglia_rumore(sc["k"])) and "celle dell'atlante (schermata 3c" in sc["frase"]
+              and np.isclose(sc["soglia"], soglia_rumore(sc["k"])) and "situazioni dell'atlante (schermata 3c" in sc["frase"]
               and "non conta due volte" in sc["frase"], sc["frase"][:150])
         muto(vt.atlante_dei_trigger, s)
         check("35. atlante rifatto uguale: le celle non contano due volte; la cella scelta si azzera e "
