@@ -1,7 +1,7 @@
 # 00 · Scopo del progetto e stato attuale
 
-**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 25 ottobre 2026 (dopo i dati in
-locale e il confine dello studio, `70`, PR #69 e la successiva).
+**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 28 ottobre 2026 (dopo il Lab più
+chiaro e la mappa delle anomalie, `73`, PR #77–#78, #82 e la successiva).
 Questo file è solo lo **stato attuale**, in 1–2 pagine. Riferimenti completi e
 storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
 manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10)
@@ -21,8 +21,9 @@ stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede.
 - **Notebook vivi, sempre allineati:** `Trading_System_Lab_Crypto.ipynb` (Lab
   guidato, nove schermate, chiama `engine/vetrina.py`) e
   `Trading_Grid_Search_v4_backtesting.ipynb` (ricerca). Il collaudo del
-  catalogo è in `Collaudo_Catalogo.ipynb`. `Trading_System_Lab.ipynb` (broker)
-  è sospeso. Girano in locale e su Colab (Drive); in locale i dati stanno nella cartella
+  catalogo è in `Collaudo_Catalogo.ipynb`. La mappa delle anomalie ha il suo notebook,
+  `Mappa_Anomalie_Crypto.ipynb` (chiama `engine/vetrina_mappa.py`; il Lab ne mostra gli
+  esiti alla 2b). `Trading_System_Lab.ipynb` (broker) è sospeso. Girano in locale e su Colab (Drive); in locale i dati stanno nella cartella
   di Google Drive per desktop se c'è (streaming, offline solo la cartella del progetto),
   altrimenti in `dati/`.
 - **Repo (pubblico):** `github.com/matti410/Trading-System-Creator_V4`.
@@ -102,10 +103,20 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   segnala e si conta (`soglia_rumore_orizzonte` sugli H provati). Dal 25/10 (`70` §3-§4)
   si salva nei giornali dello studio, uno per macchina e solo in aggiunta (PC e Colab
   non scrivono mai lo stesso file): resta anche dopo il riavvio.
+- **Mappa delle anomalie** (`73` parte B, schede in `74`; PR #82 engine, PR successiva
+  notebook): una scheda dice prima di guardare i dati in quale fascia di una variabile il
+  prezzo dovrebbe fare meglio o peggio del mercato della stessa ora, e in che verso. Si
+  misura sull'in-sample dello studio nel notebook della mappa, con lo stesso cancello
+  della rosa (falsi positivi q = 20%, due metà, 200 barre in 100 giornate). Prima della
+  misura il controllo delle fasce (quintili fra il 10% e il 30%); M04, fermata da quel
+  controllo, è stata riscritta a categorie del funding il 28/10 prima di misurarla. Ogni fascia misurata è una prova nel conto del dataset (voce «prova» con
+  dove = "mappa" nel giornale): il Lab la conta nella soglia cumulata e nella riga delle
+  prove, e la mostra alla 2b in sola lettura. Il notebook della mappa non scrive H e non
+  apre lo studio.
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 44 suite, 3 alla volta, circa 13 minuti; alla fine deve stampare
+  --tutte`, 45 suite, 3 alla volta, circa 13 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
@@ -158,9 +169,10 @@ L'out-of-sample «fresco» (`70` §13) è fatto (25/10): la scheda e la Sessione
 mostrano anche i numeri del solo tratto mai guardato (dopo l'ultima apertura del diario, su
 qualunque dataset dello studio; i trade a cavallo della data restano fuori).
 
-Prossimi lavori, in ordine (Mattia, 26/10, `72` §B.2): il Lab più chiaro (parte A di `73`); poi la mappa
-delle anomalie (parte B di `73`: un notebook a parte, il posto 2b del Lab in sola lettura); il volume
-aggressivo dopo la mappa, come variabile in più. Orizzonti multipli in un lavoro a parte (`68` §13). Il conto
+Prossimi lavori, in ordine (Mattia, 26/10, `72` §B.2): il Lab più chiaro (parte A di `73`) — fatto
+(PR #77, #78); poi la mappa delle anomalie (parte B di `73`: un notebook a parte, il posto 2b del Lab in
+sola lettura) — fatta (PR #82 e la successiva, primo giro sullo studio il 28/10); il volume aggressivo
+dopo la mappa, come variabile in più. Orizzonti multipli in un lavoro a parte (`68` §13). Il conto
 delle prove fra dataset si decide nel lavoro dei testimoni.
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in

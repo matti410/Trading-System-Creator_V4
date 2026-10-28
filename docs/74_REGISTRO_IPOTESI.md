@@ -1,17 +1,21 @@
 # 74 · Registro delle ipotesi della mappa delle anomalie
 
-**Data:** 27 ottobre 2026 (aggiornato lo stesso giorno con le decisioni di Mattia, §5)
+**Data:** 27 ottobre 2026 (aggiornato lo stesso giorno con le decisioni di Mattia, §5, e il 28/10 con
+M04 riscritta, §5 punti 7–8)
 **Stato:**
-- **approvate da Mattia il 27/10/2026:** M01, M04, M05, M06 (versione A), M07;
+- **approvate da Mattia il 27/10/2026:** M01, M05, M06 (versione A), M07; **M04 riscritta e
+  approvata il 28/10/2026**, prima di qualunque misura;
 - **fuori dalla prima versione:** M02, M03.
 
-Nessuna è stata misurata. Nessun codice: solo le schede approvate entrano in
-`engine/ipotesi.py` con la PR B.
+Le schede approvate sono in `engine/ipotesi.py` (PR #82 e la successiva). **Primo giro di collaudo il
+28/10/2026, nello studio vero:** M01, M04, M05, M07 su BINANCE_PERP_BTCUSDT M15 (117 fasce nel conto),
+M06 su BINANCE_PERP_ETHUSDT M15 (5 fasce). Esiti nel registro, §4: collaudano il tool, non sono verdetti
+sul mercato.
 **Riferimenti:** `73` §B.2 (i campi), §B.3 (la misura), §B.4 (il conto), §B.6 (la
 prima versione), §8 (decisioni di Mattia del 26/10/2026, con la correzione D6).
 
 **Indice:** §1 Come si legge · §2 Quello che abbiamo già visto sui dati · §3 Le
-sette schede (M01–M07) · §4 Il registro · §5 Decisioni di Mattia (27/10/2026).
+sette schede (M01–M07) · §4 Il registro · §5 Decisioni di Mattia (27 e 28/10/2026).
 
 ---
 
@@ -29,8 +33,13 @@ sette schede (M01–M07) · §4 Il registro · §5 Decisioni di Mattia (27/10/20
 - **Una scheda senza un segno atteso dal meccanismo non si può approvare così com'è**
   (`73` §B.2.1). Erano in questo caso M02 e M03: sono fuori dalla prima versione
   (§5, punto 1).
-- I nomi delle variabili sono proposte: oggi esiste solo `basis_bp` in
-  `engine/indicatori.py`; le altre si scrivono con la PR B.
+- Le variabili sono in `engine/indicatori.py` dalla PR #82 (27/10/2026):
+  `funding_segno_prima_pagamento` (M01), `funding_liquidato` (M04, c'era già),
+  `basis_bp` (M05, c'era già), `scarto_btc_1h` (M06), `rendimento_4h` (M07).
+- **Il controllo delle fasce** (correzione di Mattia, PR #82): per le schede a
+  quintili ogni fascia deve avere fra il 10% e il 30% delle barre che hanno una
+  fascia; se no la scheda non si misura e lo strumento mostra le quote. Guarda solo
+  la variabile: non è una prova. Si fa anche prima del confronto dei doppioni.
 
 ## 2 · Quello che abbiamo già visto sui dati
 
@@ -107,19 +116,20 @@ dice nel suo campo «da dove viene l'idea», insieme a cosa va contato.
 
 | campo | contenuto |
 |---|---|
-| stato | **approvata da Mattia il 27/10/2026**, con la regola sui doppioni qui sotto |
-| meccanismo | Con il funding molto positivo chi è long a leva paga ogni 8 ore e le posizioni lunghe sono affollate: alla prima discesa scattano le liquidazioni a catena, e chi è costretto a perdere sono i long a leva. Con il funding molto negativo, lo stesso sugli short |
-| da dove viene l'idea | Dal meccanismo del funding (`73` §B.2.2, l'esempio). Niente di visto sui dati sul funding come variabile: l'atlante e le schede hanno usato il funding solo come costo dei trade |
-| variabile | `funding_ultimo` (nuova): l'ultimo tasso liquidato, noto dall'istante del pagamento (non prima) |
-| tipo di fasce | quintili, finestra 365 giorni di barre passate |
-| fascia attesa e segno | **Q5 → sotto il mercato (short)**; **Q1 → sopra il mercato (long)** |
+| stato | **riscritta e approvata da Mattia il 28/10/2026, prima di qualunque misura** (versione 1). Nota: «riscritta il 28/10 prima della misura: con i quintili le fasce erano degeneri (Q1 31,1%) per il funding fermo al livello di base». La prima stesura (27/10, quintili di `funding_liquidato` e regola dei doppioni con M05) non è mai stata misurata |
+| meccanismo | Con il funding sopra il livello di base chi è long a leva paga ogni 8 ore più del normale e le posizioni lunghe sono affollate: alla prima discesa scattano le liquidazioni a catena, e chi è costretto a perdere sono i long a leva. Con il funding sotto zero, lo stesso sugli short |
+| da dove viene l'idea | Dal meccanismo del funding (`73` §B.2.2, l'esempio). Niente di visto sui dati sul funding come variabile: l'atlante e le schede hanno usato il funding solo come costo dei trade. Prima della riscrittura si sono viste solo le quote delle fasce a quintili (la variabile, non i prezzi) |
+| variabile | `funding_rispetto_al_base` (nuova, in `engine/indicatori.py`): l'ultimo tasso liquidato (`funding_liquidato`, noto dall'istante del pagamento, non prima) confrontato con il livello di base dell'exchange, **0,01% ogni 8 ore** (`FUNDING_BASE`), con la tolleranza `np.isclose(atol = 1e-7)` (`FUNDING_TOLLERANZA`) |
+| tipo di fasce | **categorie**, con soglie fisse dalla regola dell'exchange: «funding sotto zero», «funding fra zero e il livello di base» (lo zero esatto compreso), «funding al livello di base», «funding sopra il livello di base» |
+| fascia attesa e segno | **sopra il livello di base → sotto il mercato (short)**; **sotto zero → sopra il mercato (long)**. Al livello di base e fra zero e il livello di base: nessuna attesa (fuori ipotesi) |
 | orizzonte | 24 ore (tre pagamenti) |
 | mercato di riferimento | **stessa ora** |
-| regola sui doppioni (decisa prima di misurare) | Se il controllo DOPPIONI della PR B trova M04 e M05 troppo simili, **si misura solo M05**, perché si porta su TradingView (decisione di Mattia, §5 punto 4). In quel caso M04 non si misura e non entra nel conto |
+| doppioni | **la regola con M05 cade** (decisione di Mattia del 28/10, §5 punto 7): M04 e M05 si misurano e si contano tutte e due |
+| intervalli del funding | Il livello di base è lo stesso su Binance e Bybit (controllato il 28/10 sui file del funding: il valore più frequente è 0,01% su tutte e otto le coppie perpetual). Dove l'ultimo intervallo del funding non è di 8 ore (SOL a 2 e 4 ore) le barre restano fuori, come per M01; restano fuori anche le barre del primo pagamento, il cui intervallo non è noto |
 | cosa serve | `dati/<SYMBOL>_FUNDING.csv` |
 | portabilità su TradingView | **approssimata**: il funding no; la basis, la sua parente più vicina, sì |
 | dataset | solo perpetual |
-| prove | 5 fasce (0 se la regola sui doppioni la esclude) |
+| prove | le fasce misurate, **al massimo 4** |
 
 ### M05 · Basis estrema
 
@@ -180,32 +190,34 @@ dice nel suo campo «da dove viene l'idea», insieme a cosa va contato.
 
 ## 4 · Il registro
 
-Una riga per scheda. Le colonne degli esiti si riempiono solo dopo la misura, con la
-PR B; i risultati collaudano il tool, non sono verdetti sul mercato.
+Una riga per scheda. Le colonne degli esiti si riempiono dopo la misura (giro di collaudo del
+28/10/2026, `studio/<dataset>/mappa_pc.jsonl`); i risultati collaudano il tool, non sono verdetti sul
+mercato.
 
-| scheda | stato | segno | idea già vista sui dati | prove previste per dataset | misurata su | esito | trigger nato |
+| scheda | stato | segno | idea già vista sui dati | prove previste per dataset | misurata su (fasce contate) | esito | trigger nato |
 |---|---|---|---|---|---|---|---|
-| M01 ore del funding con il segno | approvata 27/10 | sì (positivo → short, negativo → long) | sì, profilo 2a (23:15 UTC): + 96 fasce | 2 + 96 = 98 | — | — | — |
+| M01 ore del funding con il segno | approvata 27/10 | sì (positivo → short, negativo → long) | sì, profilo 2a (23:15 UTC): + 96 fasce | 2 + 96 = 98 | BINANCE_PERP_BTCUSDT M15, 28/10 (98) | risponde nel verso atteso | — |
 | M02 giorno della settimana | fuori dalla prima versione | **no** | no | — | — | — | — |
 | M03 apertura USA | fuori dalla prima versione | **no** | sì, profilo 2a (12:45 UTC) | — | — | — | — |
-| M04 funding estremo | approvata 27/10 | sì (Q5 → short, Q1 → long) | no | 5 (0 se doppione di M05) | — | — | — |
-| M05 basis estrema | approvata 27/10 | sì (Q5 → short, Q1 → long) | no (righe basis di E21 viste, non usate) | 5 | — | — | — |
-| M06 BTC che anticipa le altcoin | approvata 27/10, versione A (1 ora) | sì (Q5 → long, Q1 → short) | no | 5 (solo altcoin) | — | — | — |
-| M07 rendimento recente estremo | approvata 27/10 | sì, inversione (Q5 → short, Q1 → long) | sì, rosa (E39): + 5 della versione opposta | 5 + 5 = 10 | — | — | — |
+| M04 funding estremo | riscritta e approvata 28/10, prima della misura | sì (sopra il livello di base → short, sotto zero → long) | no | 4 | BINANCE_PERP_BTCUSDT M15, 28/10 (4) | risponde nel verso atteso | — |
+| M05 basis estrema | approvata 27/10 | sì (Q5 → short, Q1 → long) | no (righe basis di E21 viste, non usate) | 5 | BINANCE_PERP_BTCUSDT M15, 28/10 (5) | risponde nel verso atteso | — |
+| M06 BTC che anticipa le altcoin | approvata 27/10, versione A (1 ora) | sì (Q5 → long, Q1 → short) | no | 5 (solo altcoin) | BINANCE_PERP_ETHUSDT M15, 28/10 (5) | segno opposto: non conta come scoperta | — |
+| M07 rendimento recente estremo | approvata 27/10 | sì, inversione (Q5 → short, Q1 → long) | sì, rosa (E39): + 5 della versione opposta | 5 + 5 = 10 | BINANCE_PERP_BTCUSDT M15, 28/10 (10) | risponde nel verso atteso | — |
 
 **Conto della prima versione, per dataset**, se si misura tutto quello che è
 approvato (M01, M04, M05, M06, M07):
 
 | dataset | schede | fasce |
 |---|---|---|
-| perpetual BTC | M01 98 + M04 5 + M05 5 + M07 10 | **118** (113 se M04 è doppione) |
-| perpetual ETH, SOL, XRP | M01 98 + M04 5 + M05 5 + M06 5 + M07 10 | **123** (118 se M04 è doppione) |
+| perpetual BTC | M01 98 + M04 4 + M05 5 + M07 10 | **117** |
+| perpetual ETH, SOL, XRP | M01 98 + M04 4 + M05 5 + M06 5 + M07 10 | **122** |
 | spot BTC | M07 10 | **10** |
 | spot ETH, SOL, XRP | M06 5 + M07 10 | **15** |
 
-M05 si misura solo dove c'è lo spot della stessa coppia; dove manca, 5 fasce in meno.
+M05 si misura solo dove c'è lo spot della stessa coppia; dove manca, 5 fasce in meno. Una fascia sotto i
+minimi (200 barre in 100 giornate) non si misura e non si conta: il conto vero può essere più basso.
 
-## 5 · Decisioni di Mattia (27/10/2026)
+## 5 · Decisioni di Mattia (27/10/2026, poi 28/10)
 
 1. **M02 e M03:** fuori dalla prima versione, perché il meccanismo non dà un segno.
    Si riaprono con una fonte che dia il segno.
@@ -214,7 +226,7 @@ M05 si misura solo dove c'è lo spot della stessa coppia; dove manca, 5 fasce in
 3. **M01:** si contano le 96 fasce del profilo.
 4. **M04 e M05:** si tengono tutte e due. Regola decisa prima di misurare: se il
    controllo DOPPIONI le trova troppo simili, si misura solo M05, che si porta su
-   TradingView.
+   TradingView. *Caduta il 28/10 con la riscrittura di M04 (punto 7).*
 5. **Orizzonti:**
    - **M01:** una sola barra per pagamento, quella che chiude un'ora prima di 00:00,
      08:00 e 16:00 UTC, con orizzonte 1 ora, così la misura finisce al pagamento.
@@ -228,3 +240,19 @@ M05 si misura solo dove c'è lo spot della stessa coppia; dove manca, 5 fasce in
    fascia «funding positivo» è quasi il riferimento e il suo scarto sarà vicino a
    zero per costruzione; l'informazione sta nella fascia «funding negativo», con
    pochi casi.
+
+### Decisioni di Mattia del 28/10/2026
+
+7. **M04 riscritta prima della misura.** Il controllo delle fasce (PR #82) l'ha fermata
+   sui dati di BINANCE_PERP_BTCUSDT M15: con i quintili di `funding_liquidato` le fasce
+   erano Q1 31,1%, Q2 28,6%, Q3 14,6%, Q4 15,1%, Q5 10,5% (il funding fermo al livello
+   di base). Il controllo guarda solo la variabile: non è una prova. M04 diventa a
+   categorie con le soglie fisse della regola dell'exchange (livello di base 0,01% ogni
+   8 ore, tolleranza 1e-7): sopra il livello di base → short, sotto zero → long, al
+   livello di base fuori ipotesi. Orizzonte 24 ore, stessa ora, solo perpetual, come
+   prima. La regola dei doppioni M04/M05 cade: si misurano e si contano tutte e due.
+8. **I pagamenti fra zero e il livello di base** (positivi sotto lo 0,01%, o zero
+   esatto: circa il 38% dei pagamenti di BTC su Binance, contati sui file del funding)
+   sono una **quarta categoria, fuori ipotesi**: si misura e si mostra, non dà mai
+   «risponde». Il conto di M04 è quindi al massimo 4 fasce.
+
