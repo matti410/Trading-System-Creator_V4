@@ -19,8 +19,10 @@ LA MISURA, stessa convenzione della rosa (engine/rosa.py)
 ---------------------------------------------------------
 Segnale sulla barra i, ingresso a Open[i+1], misura a Close[i+h], quarantena
 applicata. Per ogni fascia: lo scarto dal mercato di riferimento (della
-stessa ora, o di qualunque ora) con stagionalita.scarto_orario, che tiene
-conto dei rendimenti sovrapposti e del rumore del riferimento; il t; le due
+stessa ora, o di qualunque ora) con lo stesso modello di stagionalita.scarto_orario
+(il rumore del riferimento compreso), ma con l'incertezza dei rendimenti
+sovrapposti SENZA lo sconto dei pesi decrescenti (scarto_mappa, decisione di
+Mattia del 28/10/2026: lo sconto la sottostimava con le variabili persistenti); il t; le due
 meta' dell'in-sample; il netto dei costi, solo da leggere. Minimi: 200 barre
 e 100 giornate diverse; sotto, la fascia non si misura e non si conta.
 
@@ -55,7 +57,7 @@ from .ipotesi import QUALUNQUE_ORA, QUINTILI, SCHEDE, Scheda
 from .quarantena import passo_barre
 from .quarantena_trade import maschera_segnali_puliti
 from .rosa import MIN_EVENTI, Q_ROSA, benjamini_hochberg
-from .stagionalita import fasce_orarie, in_unita, media_per_fascia, rendimenti_avanti, scarto_orario
+from .stagionalita import fasce_orarie, in_unita, media_per_fascia, rendimenti_avanti
 
 MIN_BARRE = MIN_EVENTI          # 200, come la rosa e l'atlante
 MIN_GIORNATE = 100              # docs/50 §8: sotto circa 100 occorrenze
@@ -207,6 +209,57 @@ def codici_fasce(scheda: Scheda, valori: pd.Series) -> np.ndarray:
 # La misura
 # ========================================================================
 
+# ========================================================================
+# L'incertezza della mappa (decisione di Mattia del 28/10/2026)
+# ========================================================================
+
+def errore_sovrapposti(u: np.ndarray, H: int, barre_settimana: int) -> tuple[float, bool]:
+    """
+    L'errore standard di sum_j u_j, con u_j = c_j r_j e r_j rendimenti a H barre:
+    due barre a meno di H barre di distanza condividono delle candele, e la loro
+    covarianza si conta PER INTERO (nessun peso decrescente, a differenza di
+    stagionalita.errore_standard_pesato, che resta com'e' per il Lab). Se la
+    varianza esce zero o negativa (puo' succedere senza i pesi), si usa la stima a
+    blocchi di una settimana: la radice della somma dei quadrati delle somme di u
+    in ogni blocco di `barre_settimana` barre. Ritorna (errore, a_blocchi).
+    """
+    u = np.nan_to_num(np.asarray(u, dtype=float))
+    tot = float((u ** 2).sum())
+    for d in range(1, min(int(H), u.size)):
+        tot += 2.0 * float((u[d:] * u[:-d]).sum())
+    if tot > 0:
+        return float(np.sqrt(tot)), False
+    b = max(1, int(barre_settimana))
+    m = (u.size // b) * b
+    somme = np.r_[u[:m].reshape(-1, b).sum(axis=1), u[m:].sum()]
+    return float(np.sqrt((somme ** 2).sum())), True
+
+
+def scarto_mappa(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray, pos: np.ndarray, H: int,
+                 barre_settimana: int) -> tuple[float, float, bool]:
+    """
+    Lo scarto medio delle barre `pos` dalla media della loro fascia di riferimento
+    (verso long) e la sua incertezza: lo stesso modello di
+    stagionalita.scarto_orario (pesi +1/n sulle barre della fascia, meno la quota
+    della media di riferimento su ogni barra), con errore_sovrapposti al posto di
+    errore_standard_pesato. Ritorna (scarto, errore, a_blocchi).
+    """
+    b = media_per_fascia(fwd, codici, usa)
+    scarto = float(np.mean(fwd[pos] - b[pos]))
+    n_t = pos.size
+    n_cod = int(codici.max()) + 1
+    trig_f = np.bincount(codici[pos], minlength=n_cod).astype(float)
+    barre_f = np.bincount(codici, weights=usa.astype(float), minlength=n_cod)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        quota = np.where(barre_f > 0, trig_f / barre_f, 0.0)
+    c = np.where(usa, -quota[codici] / n_t, 0.0)
+    c[pos] += 1.0 / n_t
+    r = np.where(usa, fwd - b, 0.0)
+    r[pos] -= scarto
+    se, a_blocchi = errore_sovrapposti(c * r, H, barre_settimana)
+    return scarto, se, a_blocchi
+
+
 def _p(t: float) -> float:
     return 1.0 - _NORMALE.cdf(t) if np.isfinite(t) else np.nan
 
@@ -231,7 +284,9 @@ def misura(scheda: Scheda, df: pd.DataFrame, pip: float, valori: pd.Series | Non
     scarto_pips (dal mercato di riferimento, verso long: + = il prezzo fa meglio
     del mercato), t, p (nel verso atteso; per le fasce non attese, il verso piu'
     favorevole), bh, due_meta (scarto nel verso atteso, o long, positivo nelle due
-    meta'), netto_bp, esito. In .attrs: scheda, versione, verdetto, H (barre),
+    meta'), incertezza_blocchi (True se la varianza dei rendimenti sovrapposti e'
+    uscita zero o negativa e si e' usata la stima a blocchi di una settimana),
+    netto_bp, esito. In .attrs: scheda, versione, verdetto, H (barre),
     misurate, conto, riferimento.
     """
     if pip is None or not float(pip) > 0:
@@ -259,6 +314,7 @@ def misura(scheda: Scheda, df: pd.DataFrame, pip: float, valori: pd.Series | Non
            else fasce_orarie(idx, FUSO)[0].astype(np.int64))
     prima = np.arange(n) < n // 2
     giorno = np.asarray(idx.tz_convert(FUSO).floor("D").asi8)
+    settimana = int(round(pd.Timedelta(days=7) / passo_barre(idx)))
 
     costi = costi or {}
     commissione = float(costi.get("commission") or 0.0)
@@ -283,10 +339,11 @@ def misura(scheda: Scheda, df: pd.DataFrame, pip: float, valori: pd.Series | Non
                 "giornate": giornate, "misurata": misurata}
         if misurata:
             for u in ("bp", "pips"):
-                s, se = scarto_orario(fwd[u], rif, valido, pos, 1, H)
+                s, se, a_blocchi = scarto_mappa(fwd[u], rif, valido, pos, H, settimana)
                 riga[f"scarto_{u}"] = s
                 if u == "bp":
                     riga["t"] = s / se if (np.isfinite(se) and se > 0) else np.nan
+                    riga["incertezza_blocchi"] = a_blocchi
             meta = []
             for m in (prima, ~prima):
                 b = media_per_fascia(fwd["bp"], rif, valido & m)
@@ -302,7 +359,7 @@ def misura(scheda: Scheda, df: pd.DataFrame, pip: float, valori: pd.Series | Non
     for c in ("scarto_bp", "scarto_pips", "t", "netto_bp"):
         if c not in tab.columns:
             tab[c] = np.nan
-    for c in ("due_meta", "due_meta_opposto"):
+    for c in ("due_meta", "due_meta_opposto", "incertezza_blocchi"):
         tab[c] = tab[c].fillna(False).astype(bool) if c in tab.columns else False
     segno = np.array([scheda.attese.get(f, 0) for f in tab["fascia"]])
     t_verso = np.where(segno != 0, segno * tab["t"].to_numpy(dtype=float), np.abs(tab["t"].to_numpy(dtype=float)))
@@ -454,7 +511,7 @@ def voci_da_scrivere(voci: list, scheda: Scheda, n: int, oos_visto: bool = False
 def esito_da_salvare(scheda: Scheda, tab: pd.DataFrame, timeframe: str, nota: str | None = None) -> dict:
     """L'esito di una scheda come riga del file della mappa (lo legge la 2b del Lab)."""
     colonne = ["fascia", "attesa", "barre", "giornate", "misurata", "scarto_bp", "scarto_pips", "t", "p", "bh",
-               "due_meta", "netto_bp", "esito"]
+               "due_meta", "incertezza_blocchi", "netto_bp", "esito"]
     righe = [{c: (None if isinstance(v, float) and not np.isfinite(v) else v) for c, v in r.items()}
              for r in tab.reindex(columns=colonne).to_dict("records")] if len(tab) else []
     return {"scheda": scheda.id, "versione": int(scheda.versione), "titolo": scheda.titolo,

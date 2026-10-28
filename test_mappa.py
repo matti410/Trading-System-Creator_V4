@@ -12,6 +12,10 @@ file degli esiti in engine/studio.py, su dati sintetici a risultato noto.
     D · il conto (M01 2 + 96, M07 5 + 5), la regola dei doppioni (su schede di prova:
         dal 28/10 M04 non la usa piu'), lo studio
     E · le schede approvate coincidono con docs/74
+    G · (28/10/2026) l'incertezza della mappa senza sconto e il passaggio ai
+        blocchi settimanali; senza effetto, con variabili persistenti come quelle
+        vere: a blocchi di 8 ore (come M04), lente a quintili (come M05), e con la
+        volatilita' variabile; «risponde» su 1.000 mercati sotto il 15%
     F · (28/10/2026, PR B2) il notebook della mappa (engine/vetrina_mappa.py) su
         file sintetici in una cartella temporanea: non apre lo studio, non scrive
         H, scrive conto ed esito; le fasce degeneri e M06; la 2b del Lab in sola
@@ -219,6 +223,84 @@ def sezione_f(check) -> None:
           and vt.fasce_mappa({"mappa": {("M07", 1, 4.0): 10, ("M01", 1, 1.0): 98}}) == 108
           and vt.fasce_mappa({"trigger": 3}) == 0)
     rd.azzera()
+
+
+def _ar1(rng, m: int, phi: float) -> np.ndarray:
+    """Un AR(1) a varianza 1: x_t = phi x_(t-1) + rumore."""
+    from scipy.signal import lfilter
+    return lfilter([1.0], [1.0, -phi], rng.normal(size=m)) * np.sqrt(1.0 - phi ** 2)
+
+
+def _prezzi(idx, rng, sigma=0.0015, volatilita_variabile=False) -> pd.DataFrame:
+    """Un random walk senza nessun effetto; con volatilita_variabile, periodi agitati e calmi (volatilita' stocastica)."""
+    n = len(idx)
+    r = rng.normal(0.0, sigma, n)
+    if volatilita_variabile:
+        lv = 0.8 * _ar1(rng, n, 0.999)                 # log della volatilita', mezza vita circa 700 barre (7 giorni su M15)
+        r = r * np.exp(lv - 0.32)                      # 0.32 = 0.8^2 / 2: la stessa varianza media
+    close = 100.0 * np.exp(np.cumsum(r))
+    op = np.r_[100.0, close[:-1]]
+    return pd.DataFrame({"Open": op, "High": np.maximum(op, close) * 1.0005, "Low": np.minimum(op, close) * 0.9995,
+                         "Close": close, "Volume": 1.0}, index=idx)
+
+
+def sezione_g(check) -> None:
+    """
+    Senza nessun effetto, con variabili PERSISTENTI come quelle vere (richiesta di
+    Mattia del 28/10/2026, prima di qualunque trigger dalla mappa): 1.000 mercati a
+    seme fisso per variante (10 variabili x 100 mercati), M15 su 800 giorni. Con
+    l'incertezza dei rendimenti sovrapposti senza sconto (mappa.errore_sovrapposti,
+    decisione di Mattia del 28/10) «risponde» deve restare sotto il 15%. Con lo
+    sconto di stagionalita.errore_standard_pesato la variante a dava 187 su 1.000.
+    """
+    u_neg = np.tile([1.0, -1.0], 50)                    # a lag 1 i prodotti sono tutti -1: varianza negativa
+    se_neg, blocchi_neg = mp.errore_sovrapposti(u_neg, 2, 7)
+    somme = np.r_[u_neg[:98].reshape(-1, 7).sum(axis=1), u_neg[98:].sum()]
+    u_pos = np.array([1.0, 2.0, 0.5, -1.0, 3.0])
+    atteso_pos = np.sqrt((u_pos ** 2).sum() + 2 * sum((u_pos[d:] * u_pos[:-d]).sum() for d in (1, 2)))
+    se_pos, blocchi_pos = mp.errore_sovrapposti(u_pos, 3, 7)
+    check("G1. l'incertezza della mappa: le coppie a meno di H barre pesano per intero (nessun peso decrescente); "
+          "con la varianza negativa si passa ai blocchi di una settimana e lo si segna",
+          blocchi_neg and np.isclose(se_neg, np.sqrt((somme ** 2).sum()))
+          and not blocchi_pos and np.isclose(se_pos, atteso_pos),
+          f"varianza a coppie {100 - 2 * 99} -> blocchi {se_neg:.2f}")
+    idx = _indice("2022-01-03", giorni=800, minuti=15)
+    n = len(idx)
+    otto_ore = pd.date_range(idx[0], idx[-1], freq="8h")
+    m04 = SCHEDE["M04"]                                 # categorie, 24 ore, stessa ora
+    m05_cat = dataclasses.replace(SCHEDE["M05"], tipo="categorie",
+                                  categorie={float(j): q for j, q in enumerate(QUINTILI)})   # 8 ore, fasce gia' fatte
+
+    def variabile_a(rng):
+        # costante a blocchi di 8 ore, AR(1) molto persistente sui pagamenti (mezza vita circa 11 giorni),
+        # 4 categorie come M04: 15% sotto zero, 35% fra zero e il base, 35% al base, 15% sopra
+        x8 = _ar1(rng, len(otto_ore), 0.98)
+        soglie = np.quantile(x8, [0.15, 0.50, 0.85])
+        cat8 = np.select([x8 < soglie[0], x8 < soglie[1], x8 < soglie[2]], [-1.0, 0.0, 1.0], 2.0)
+        return pd.Series(cat8, index=otto_ore).reindex(idx, method="ffill")
+
+    def variabile_b(rng):
+        # AR(1) molto persistente sulle barre M15 (mezza vita circa 1.400 barre, 14 giorni), quintili sulle
+        # barre dei 365 giorni prima, come M05
+        cod = mp.fasce_quintili(pd.Series(_ar1(rng, n, 0.9995), index=idx), 365)
+        return pd.Series(cod, index=idx)
+
+    varianti = (("a", "variabile a blocchi di 8 ore, che cambia lentamente; 4 categorie come M04, orizzonte 24 ore",
+                 m04, variabile_a, False),
+                ("b", "variabile lenta sulle barre M15, quintili come M05, orizzonte 8 ore", m05_cat, variabile_b, False),
+                ("c", "come b, con prezzi a volatilità variabile (periodi agitati e calmi)", m05_cat, variabile_b, True))
+    for nome, testo, sch, fai_variabile, vv in varianti:
+        risponde = opposto = 0
+        for v in range(10):
+            valori = fai_variabile(np.random.default_rng(7000 + 100 * ord(nome) + v))
+            for k in range(100):
+                rng = np.random.default_rng(50_000 + 10_000 * ord(nome) + 100 * v + k)
+                verdetto = mp.misura(sch, _prezzi(idx, rng, volatilita_variabile=vv), PIP,
+                                     valori=valori).attrs["verdetto"]
+                risponde += verdetto == mp.RISPONDE
+                opposto += verdetto == mp.OPPOSTO
+        check(f"G{nome}. senza effetto, {testo}: «risponde» su 1.000 mercati sotto il 15%",
+              risponde / 1000 < 0.15, f"«risponde» {risponde} su 1.000, «segno opposto» {opposto}")
 
 
 def esegui() -> int:
@@ -538,6 +620,10 @@ def esegui() -> int:
     # =================================================================== F ==
     print("\nF · IL NOTEBOOK DELLA MAPPA, LA 2b DEL LAB, LA SOGLIA (PR B2)\n" + "-" * 70)
     sezione_f(check)
+
+    # =================================================================== G ==
+    print("\nG · SENZA EFFETTO, CON VARIABILI PERSISTENTI (28/10/2026)\n" + "-" * 70)
+    sezione_g(check)
 
     tot, ok = len(ESITI), sum(ESITI)
     print("\n" + "=" * 70)

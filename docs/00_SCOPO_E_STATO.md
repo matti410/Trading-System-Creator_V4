@@ -112,7 +112,9 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   controllo, è stata riscritta a categorie del funding il 28/10 prima di misurarla. Ogni fascia misurata è una prova nel conto del dataset (voce «prova» con
   dove = "mappa" nel giornale): il Lab la conta nella soglia cumulata e nella riga delle
   prove, e la mostra alla 2b in sola lettura. Il notebook della mappa non scrive H e non
-  apre lo studio.
+  apre lo studio. Dal 28/10 la mappa ha la sua incertezza (`mappa.errore_sovrapposti`): le coppie di
+  barre più vicine dell'orizzonte pesano per intero, senza lo sconto di `scarto_orario`, che il Lab
+  continua a usare (sezione G di `test_mappa.py`).
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
@@ -182,6 +184,7 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 
 | cosa | stato |
 |---|---|
+| rosa, atlante e 2c usano l'incertezza di `scarto_orario` con lo sconto (pesi decrescenti) sui rendimenti sovrapposti: può sottostimarla per i trigger con ingressi vicini e orizzonti lunghi (vedi collaudo della mappa del 28/10). Da collaudare sui mercati inventati e correggere in un lavoro a parte | primo lavoro dopo la mappa (Mattia, 28/10) |
 | strada B: con il filtro vuoto la schermata 6 prova il segnale da solo con le uscite costruite sul segnale dentro la situazione; proposta da decidere: con una situazione scelta il predefinito della 6 diventa il segnale dentro la situazione | prossimo lavoro (Mattia, 26/10) |
 | stop e target non attivi sulla barra d'ingresso | risolto (PR #49) |
 | `ExitSearchBT.top()` ordina per `sharpe`: va ordinato per il t nell'unità che decide | risolto (PR #51) |

@@ -192,7 +192,9 @@ dice nel suo campo «da dove viene l'idea», insieme a cosa va contato.
 
 Una riga per scheda. Le colonne degli esiti si riempiono dopo la misura (giro di collaudo del
 28/10/2026, `studio/<dataset>/mappa_pc.jsonl`); i risultati collaudano il tool, non sono verdetti sul
-mercato.
+mercato. **Esiti rimisurati il 28/10 con l'incertezza corretta (rendimenti sovrapposti senza sconto); il
+primo giro sottostimava l'incertezza.** Stessa scheda, stessa versione: il conto non è cambiato (controllato
+nel giornale). Nessuna fascia ha avuto bisogno della stima a blocchi di una settimana.
 
 | scheda | stato | segno | idea già vista sui dati | prove previste per dataset | misurata su (fasce contate) | esito | trigger nato |
 |---|---|---|---|---|---|---|---|
@@ -201,7 +203,7 @@ mercato.
 | M03 apertura USA | fuori dalla prima versione | **no** | sì, profilo 2a (12:45 UTC) | — | — | — | — |
 | M04 funding estremo | riscritta e approvata 28/10, prima della misura | sì (sopra il livello di base → short, sotto zero → long) | no | 4 | BINANCE_PERP_BTCUSDT M15, 28/10 (4) | risponde nel verso atteso | — |
 | M05 basis estrema | approvata 27/10 | sì (Q5 → short, Q1 → long) | no (righe basis di E21 viste, non usate) | 5 | BINANCE_PERP_BTCUSDT M15, 28/10 (5) | risponde nel verso atteso | — |
-| M06 BTC che anticipa le altcoin | approvata 27/10, versione A (1 ora) | sì (Q5 → long, Q1 → short) | no | 5 (solo altcoin) | BINANCE_PERP_ETHUSDT M15, 28/10 (5) | segno opposto: non conta come scoperta | — |
+| M06 BTC che anticipa le altcoin | approvata 27/10, versione A (1 ora) | sì (Q5 → long, Q1 → short) | no | 5 (solo altcoin) | BINANCE_PERP_ETHUSDT M15, 28/10 (5) | non risponde (primo giro: segno opposto) | — |
 | M07 rendimento recente estremo | approvata 27/10 | sì, inversione (Q5 → short, Q1 → long) | sì, rosa (E39): + 5 della versione opposta | 5 + 5 = 10 | BINANCE_PERP_BTCUSDT M15, 28/10 (10) | risponde nel verso atteso | — |
 
 **Conto della prima versione, per dataset**, se si misura tutto quello che è
@@ -213,6 +215,13 @@ approvato (M01, M04, M05, M06, M07):
 | perpetual ETH, SOL, XRP | M01 98 + M04 4 + M05 5 + M06 5 + M07 10 | **122** |
 | spot BTC | M07 10 | **10** |
 | spot ETH, SOL, XRP | M06 5 + M07 10 | **15** |
+
+**Le 96 fasce del profilo contate due volte su BTC perp** (il trigger a orario scelto nel Lab e le prove
+in più di M01): si lascia così, è più severo (Mattia, 28/10/2026).
+
+**Colonna «Trigger nato»: nessun trigger e nessuna bozza dalla schermata 5 della mappa** finché Mattia non
+decide sull'incertezza dello scarto con le variabili persistenti (collaudo del 28/10/2026, sezione G di
+`test_mappa.py`).
 
 M05 si misura solo dove c'è lo spot della stessa coppia; dove manca, 5 fasce in meno. Una fascia sotto i
 minimi (200 barre in 100 giornate) non si misura e non si conta: il conto vero può essere più basso.
