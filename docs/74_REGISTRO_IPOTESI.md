@@ -220,8 +220,7 @@ approvato (M01, M04, M05, M06, M07):
 in più di M01): si lascia così, è più severo (Mattia, 28/10/2026).
 
 **Colonna «Trigger nato»: nessun trigger e nessuna bozza dalla schermata 5 della mappa** finché Mattia non
-decide sull'incertezza dello scarto con le variabili persistenti (collaudo del 28/10/2026, sezione G di
-`test_mappa.py`).
+rivede gli esiti; prima si corregge l'incertezza del Lab (`75`).
 
 M05 si misura solo dove c'è lo spot della stessa coppia; dove manca, 5 fasce in meno. Una fascia sotto i
 minimi (200 barre in 100 giornate) non si misura e non si conta: il conto vero può essere più basso.
