@@ -2116,3 +2116,32 @@ def funding_segno_prima_pagamento(df: pd.DataFrame) -> pd.Series:
     out = pd.Series(np.where(tiene, segno, np.nan), index=df.index, name="funding_segno_prima_pagamento")
     out.attrs.update(barre=int(prima.sum()), fuori_intervallo=int((prima & np.isfinite(ore) & ~otto).sum()))
     return out
+
+
+FUNDING_BASE = 1e-4          # il livello di base del funding di Binance e Bybit: 0,01% ogni 8 ore (docs/74, M04)
+FUNDING_TOLLERANZA = 1e-7    # il confronto con il livello di base (np.isclose, atol)
+
+
+def funding_rispetto_al_base(df: pd.DataFrame) -> pd.Series:
+    """
+    L'ultimo tasso gia' liquidato (funding_liquidato) confrontato con il livello
+    di base dell'exchange, 0,01% ogni 8 ore (docs/74, M04 riscritta da Mattia il
+    28/10/2026 prima della misura). Le categorie:
+       -1  sotto zero
+        0  fra zero (compreso) e il livello di base
+        1  al livello di base (np.isclose, atol FUNDING_TOLLERANZA)
+        2  sopra il livello di base
+    Restano fuori (NaN) le barre dove l'ultimo intervallo del funding non e' di 8
+    ore, come per M01, e quelle con il tasso non ancora noto. In .attrs:
+    fuori_intervallo (quante barre restano fuori per l'intervallo).
+    """
+    t = funding_liquidato(df).to_numpy(dtype=float)
+    ore = _ultimo_intervallo(df).to_numpy(dtype=float)
+    otto = np.isclose(ore, 8.0)
+    tol = FUNDING_TOLLERANZA
+    al_base = np.isclose(t, FUNDING_BASE, rtol=0.0, atol=tol)
+    cat = np.select([al_base, t < -tol, t > FUNDING_BASE + tol, t >= -tol], [1.0, -1.0, 2.0, 0.0], default=np.nan)
+    tiene = otto & np.isfinite(t)
+    out = pd.Series(np.where(tiene, cat, np.nan), index=df.index, name="funding_rispetto_al_base")
+    out.attrs.update(fuori_intervallo=int((np.isfinite(ore) & ~otto & np.isfinite(t)).sum()))
+    return out

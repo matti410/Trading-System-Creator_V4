@@ -22,7 +22,8 @@ Il conto di ogni scheda va nel giornale come voce «prova» con dove = "mappa"
 (mappa.registra), l'esito nel file della mappa, che la 2b del Lab legge.
 
 Una scheda con le fasce degeneri (mappa.controlla_fasce) o doppione di
-un'altra (la regola di Mattia per M04 e M05) non si misura e non scrive niente.
+un'altra (`doppione_di` della scheda; dal 28/10/2026 nessuna scheda la usa: la
+regola M04/M05 e' caduta con M04 riscritta) non si misura e non scrive niente.
 
 I risultati collaudano il tool: non sono verdetti sul mercato.
 
@@ -317,8 +318,8 @@ def _mostra_misura(m: SessioneMappa, sch, tab: pd.DataFrame, valori: pd.Series, 
              + (" (le prime barre non hanno fascia finché la finestra di 365 giorni non è piena)."
                 if sch.tipo == "quintili" else "."))
     if tab.attrs.get("fuori_intervallo"):
-        _v._nota(f"{_v._fmt(int(tab.attrs['fuori_intervallo']))} pagamenti con un intervallo diverso da 8 ore sono "
-                 "rimasti fuori: la scheda parla dei pagamenti delle 00, 08 e 16 UTC.")
+        _v._nota(f"{_v._fmt(int(tab.attrs['fuori_intervallo']))} barre sono rimaste fuori perché l'ultimo pagamento "
+                 "del funding aveva un intervallo diverso da 8 ore: la scheda parla dei pagamenti ogni 8 ore.")
     _v._riquadro(
         f"Verdetto: {tab.attrs['verdetto']}. " + _frase_conto(sch, tab)
         + " Per ogni fascia, di quanto il prezzo fa meglio (sopra lo zero) o peggio (sotto) del mercato di "

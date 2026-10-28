@@ -74,6 +74,7 @@ _NORMALE = NormalDist()
 VARIABILI = {
     "funding_segno_prima_pagamento": lambda df, btc: ind.funding_segno_prima_pagamento(df),
     "funding_liquidato": lambda df, btc: ind.funding_liquidato(df),
+    "funding_rispetto_al_base": lambda df, btc: ind.funding_rispetto_al_base(df),   # M04 dal 28/10/2026
     "basis_bp": lambda df, btc: ind.basis_bp(df),
     "rendimento_4h": lambda df, btc: ind.rendimento_4h(df),
     "scarto_btc_1h": lambda df, btc: ind.scarto_btc_1h(df, btc),
@@ -357,7 +358,8 @@ def conto(scheda: Scheda, misurate: int) -> int:
 
 
 # ========================================================================
-# I doppioni (regola di Mattia del 27/10/2026, docs/74 §5 punto 4)
+# I doppioni (regola di Mattia del 27/10/2026, docs/74 §5 punto 4; dal 28/10 nessuna scheda la usa: M04
+# riscritta, la regola M04/M05 e' caduta. Il meccanismo resta per le schede future)
 # ========================================================================
 
 def _quota_contenuta(a: np.ndarray, b: np.ndarray) -> tuple[float, float]:
