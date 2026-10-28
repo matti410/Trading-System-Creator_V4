@@ -22,7 +22,8 @@ applicata. Per ogni fascia: lo scarto dal mercato di riferimento (della
 stessa ora, o di qualunque ora) con lo stesso modello di stagionalita.scarto_orario
 (il rumore del riferimento compreso), ma con l'incertezza dei rendimenti
 sovrapposti SENZA lo sconto dei pesi decrescenti (scarto_mappa, decisione di
-Mattia del 28/10/2026: lo sconto la sottostimava con le variabili persistenti); il t; le due
+Mattia del 28/10/2026: lo sconto la sottostimava con le variabili persistenti; dal 28/10
+la stessa funzione del Lab, stagionalita.errore_sovrapposti); il t; le due
 meta' dell'in-sample; il netto dei costi, solo da leggere. Minimi: 200 barre
 e 100 giornate diverse; sotto, la fascia non si misura e non si conta.
 
@@ -57,7 +58,7 @@ from .ipotesi import QUALUNQUE_ORA, QUINTILI, SCHEDE, Scheda
 from .quarantena import passo_barre
 from .quarantena_trade import maschera_segnali_puliti
 from .rosa import MIN_EVENTI, Q_ROSA, benjamini_hochberg
-from .stagionalita import fasce_orarie, in_unita, media_per_fascia, rendimenti_avanti
+from .stagionalita import errore_sovrapposti, fasce_orarie, in_unita, media_per_fascia, rendimenti_avanti
 
 MIN_BARRE = MIN_EVENTI          # 200, come la rosa e l'atlante
 MIN_GIORNATE = 100              # docs/50 §8: sotto circa 100 occorrenze
@@ -213,26 +214,10 @@ def codici_fasce(scheda: Scheda, valori: pd.Series) -> np.ndarray:
 # L'incertezza della mappa (decisione di Mattia del 28/10/2026)
 # ========================================================================
 
-def errore_sovrapposti(u: np.ndarray, H: int, barre_settimana: int) -> tuple[float, bool]:
-    """
-    L'errore standard di sum_j u_j, con u_j = c_j r_j e r_j rendimenti a H barre:
-    due barre a meno di H barre di distanza condividono delle candele, e la loro
-    covarianza si conta PER INTERO (nessun peso decrescente, a differenza di
-    stagionalita.errore_standard_pesato, che resta com'e' per il Lab). Se la
-    varianza esce zero o negativa (puo' succedere senza i pesi), si usa la stima a
-    blocchi di una settimana: la radice della somma dei quadrati delle somme di u
-    in ogni blocco di `barre_settimana` barre. Ritorna (errore, a_blocchi).
-    """
-    u = np.nan_to_num(np.asarray(u, dtype=float))
-    tot = float((u ** 2).sum())
-    for d in range(1, min(int(H), u.size)):
-        tot += 2.0 * float((u[d:] * u[:-d]).sum())
-    if tot > 0:
-        return float(np.sqrt(tot)), False
-    b = max(1, int(barre_settimana))
-    m = (u.size // b) * b
-    somme = np.r_[u[:m].reshape(-1, b).sum(axis=1), u[m:].sum()]
-    return float(np.sqrt((somme ** 2).sum())), True
+# errore_sovrapposti (le coppie di barre a meno di H per intero, i blocchi di una
+# settimana se la varianza esce zero o negativa) dal 28/10/2026 sta in
+# stagionalita.py, una funzione sola per la mappa e per il Lab (docs/75 §7):
+# stesso codice, numeri della mappa identici al bit.
 
 
 def scarto_mappa(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray, pos: np.ndarray, H: int,

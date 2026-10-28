@@ -12,10 +12,13 @@ con H = 41, si conta quante volte i quattro punti del Lab promuovono per caso:
     profilo (2a)       almeno un'ora colorata su 96
 
 con il calcolo di OGGI (lo sconto dei pesi decrescenti) e con quello della MAPPA
-(mappa.errore_sovrapposti: le coppie a meno di H barre per intero, i blocchi di
-una settimana se la varianza esce zero o negativa). Il calcolo della mappa si
-applica solo dentro questo test, sostituendo per il tempo della misura le
-funzioni dell'engine (calcolo_mappa): l'engine non cambia.
+(le coppie a meno di H barre per intero, i blocchi di una settimana se la
+varianza esce zero o negativa). Dal 28/10/2026 (PR 2, docs/75 §7) il calcolo
+della mappa e' quello dell'engine (stagionalita.errore_sovrapposti) e il calcolo
+di oggi si ottiene a richiesta (stagionalita.calcolo_vecchio()). La sezione D
+confronta l'engine con il calcolo collaudato nella PR #86 (le formule di prima
+con le quattro funzioni sostituite dentro il test, calcolo_mappa): al bit, e
+nell'atlante entro 1e-12 (ordine delle somme).
 
 I trigger finti (10 per mercato, meta' long e meta' short):
     F · frequente   circa 15.000 volte, a grappoli (episodi di circa 16 barre)
@@ -128,11 +131,12 @@ def _conta_blocchi(a_blocchi: bool) -> None:
     c[1] += int(a_blocchi)
 
 
-def _es_senza_sconto(v: np.ndarray, pos: np.ndarray, k: int) -> float:
-    """event_study._errore_standard_sovrapposti senza i pesi decrescenti; blocchi di una settimana se <= 0."""
+def _es_senza_sconto(v: np.ndarray, pos: np.ndarray, k: int, settimana=None, con_blocchi: bool = False):
+    """event_study._errore_standard_sovrapposti senza i pesi decrescenti; blocchi di una settimana se <= 0.
+    Il calcolo collaudato nella PR #86 (settimana e con_blocchi: la firma dell'engine dal 28/10/2026)."""
     nv = v.size
     if nv < 2:
-        return np.nan
+        return (np.nan, False) if con_blocchi else np.nan
     res = v - v.mean()
     tot = float((res ** 2).sum()) * nv / (nv - 1)
     d = 1
@@ -143,12 +147,14 @@ def _es_senza_sconto(v: np.ndarray, pos: np.ndarray, k: int) -> float:
             break
         tot += 2.0 * float((res[d:][vicini] * res[:-d][vicini]).sum())
         d += 1
-    _conta_blocchi(tot <= 0)
-    if tot <= 0:
+    blocchi = tot <= 0
+    _conta_blocchi(blocchi)
+    if blocchi:
         b = pos // SETTIMANA
         somme = np.bincount(b - b.min(), weights=res)
         tot = float((somme ** 2).sum()) * nv / (nv - 1)
-    return float(np.sqrt(tot)) / nv
+    se = float(np.sqrt(tot)) / nv
+    return (se, bool(blocchi)) if con_blocchi else se
 
 
 def _somme_senza_sconto(u: np.ndarray, cella: np.ndarray, n_celle: int, H_: int) -> np.ndarray:
@@ -202,7 +208,17 @@ def _misura(df: pd.DataFrame) -> dict:
     PUNTO[0] = "profilo"
     p = stg.profilo_orario(df, H, PIP, fuso="UTC")
     PUNTO[0] = "-"
-    return {"rosa": dict(zip(r["candidato"], r["candidata"].astype(bool))),
+    blk = {}                            # (punto, tipo) -> [righe, con la stima a blocchi]: la colonna dell'engine
+    for punto, tab in (("rosa", r), ("atlante", a[a["misurata"].astype(bool)]), ("es", e)):
+        if "incertezza_blocchi" in tab.columns:
+            for nome, g in tab.groupby("candidato"):
+                c = blk.setdefault((punto, nome[3]), [0, 0])
+                c[0] += len(g)
+                c[1] += int(g["incertezza_blocchi"].astype(bool).sum())
+    if "incertezza_blocchi" in p.columns:
+        blk[("profilo", "-")] = [len(p), int(p["incertezza_blocchi"].astype(bool).sum())]
+    return {"blocchi": blk,
+            "rosa": dict(zip(r["candidato"], r["candidata"].astype(bool))),
             "atlante": {k: (int(g["passa"].sum()), len(g)) for k, g in a.groupby("candidato")},
             "es": dict(zip(e["candidato"], (e["oltre_rumore"].astype(bool) & (e["volte_incertezza"] > 0)))),
             "profilo": int(p["bh"].sum()),
@@ -232,9 +248,13 @@ def giro(mercati: int, volatilita_variabile: bool, variabili: int) -> dict:
         for k in range(per_variabile):
             df = _prezzi(idx, np.random.default_rng(91_000 + 1_000 * v + k + 500_000 * int(volatilita_variabile)),
                          volatilita_variabile=volatilita_variabile)
-            oggi = _misura(df)
-            with calcolo_mappa():
-                nuovo = _misura(df)
+            with stg.calcolo_vecchio():      # il calcolo di prima, a richiesta (D5)
+                oggi = _misura(df)
+            nuovo = _misura(df)                  # l'engine: dal 28/10/2026 il calcolo della mappa
+            for chiave, (nn, bb) in nuovo["blocchi"].items():
+                c_ = BLOCCHI.setdefault(chiave, [0, 0])
+                c_[0] += nn
+                c_[1] += bb
             for nome in NOMI:
                 if nome[3] == "R":      # senza coppie a meno di H barre l'event study deve coincidere al bit
                     raro_uguale &= bool(oggi["t_es"][nome] == nuovo["t_es"][nome])
@@ -317,9 +337,11 @@ def scomponi(df: pd.DataFrame) -> dict:
     presi = []
     pesato, somme = stg.errore_standard_pesato, at._somme_per_cella
 
-    def cattura_rosa(u, H_):            # chiamata da scarto_orario: c, r, pos, n_t sono li'
+    def cattura_rosa(u, H_):            # chiamata (via _errore_lab) da scarto_orario: c, r, pos, n_t sono li'
         f = sys._getframe(1)
-        if f.f_code.co_name == "scarto_orario" and not presi:
+        while f is not None and f.f_code.co_name != "scarto_orario":
+            f = f.f_back
+        if f is not None and not presi:
             L = f.f_locals
             uT = np.zeros(u.size)
             uT[L["pos"]] = L["r"][L["pos"]] / L["n_t"]
@@ -369,6 +391,63 @@ def _riga_parti(nome: str, ps: list) -> dict:
     return riga
 
 
+# ========================================================================
+# Il codice nuovo contro il calcolo collaudato (PR #86)
+# ========================================================================
+
+N_D = 20                                # mercati per variante (i primi di ogni giro della PR #86)
+
+
+def _valori(df: pd.DataFrame) -> dict:
+    """Le incertezze, i t e le promozioni dei quattro punti, in un ordine fisso."""
+    r = ro.rosa_entry(df, H, PIP, nomi=NOMI, fuso="UTC", unita="bp").sort_values("candidato")
+    a = at.atlante(df, H, PIP, nomi=NOMI, fuso="UTC").sort_values(["candidato", "asse", "cella"])
+    ev = es.run_event_study(df, entry_names=NOMI, horizon=H, pip=PIP, verbose=False, fuso="UTC")
+    e = ev.sintesi.sort_values("candidato")
+    p = stg.profilo_orario(df, H, PIP, fuso="UTC")
+    return {"rosa_t": r[["t_netto", "t_globale"]].to_numpy(dtype=float),
+            "es_incertezza": ev.incertezza[sorted(ev.incertezza.columns)].to_numpy(dtype=float),
+            "es_t": e["volte_incertezza"].to_numpy(dtype=float),
+            "profilo_incertezza": p["incertezza"].to_numpy(dtype=float),
+            "atlante_t": a["t"].to_numpy(dtype=float),
+            "scelte": {"rosa": r[["candidata", "nella_rosa"]].to_numpy(dtype=bool),
+                       "atlante": a["passa"].to_numpy(dtype=bool),
+                       "event study": e["oltre_rumore"].to_numpy(dtype=bool),
+                       "profilo": p["bh"].to_numpy(dtype=bool)}}
+
+
+def confronto_collaudo(per_variante: int) -> dict:
+    """Su `per_variante` mercati per variante: il calcolo collaudato (le formule di prima con le quattro
+    funzioni sostituite, come nella PR #86) e il codice nuovo dell'engine."""
+    idx = _indice("2022-01-03", giorni=800, minuti=15)
+    bit = dict.fromkeys(("es_incertezza", "es_t", "rosa_t", "profilo_incertezza"), True)
+    scelte = dict.fromkeys(("rosa", "atlante", "event study", "profilo"), True)
+    diff, nan_uguali, uguali, celle = 0.0, True, 0, 0
+    for vv in (False, True):
+        for v in range(2):
+            _maschere(np.random.default_rng(90_000 + 100 * v + int(vv)), len(idx))
+            for k in range(per_variante // 2):
+                df = _prezzi(idx, np.random.default_rng(91_000 + 1_000 * v + k + 500_000 * int(vv)),
+                             volatilita_variabile=vv)
+                with stg.calcolo_vecchio(), calcolo_mappa():
+                    c = _valori(df)
+                n_ = _valori(df)
+                for chiave in bit:
+                    bit[chiave] &= bool(c[chiave].shape == n_[chiave].shape
+                                        and np.array_equal(c[chiave], n_[chiave], equal_nan=True))
+                for chiave in scelte:
+                    scelte[chiave] &= bool(np.array_equal(c["scelte"][chiave], n_["scelte"][chiave]))
+                a, b = c["atlante_t"], n_["atlante_t"]
+                nan_uguali &= bool(a.shape == b.shape and np.array_equal(np.isnan(a), np.isnan(b)))
+                ok = np.isfinite(a) & np.isfinite(b)
+                if ok.any():
+                    diff = max(diff, float(np.max(np.abs(a[ok] - b[ok]) / np.abs(a[ok]))))
+                    uguali += int((a[ok] == b[ok]).sum())
+                    celle += int(ok.sum())
+    return {"bit": bit, "scelte": scelte, "diff_atlante": diff, "nan_uguali": nan_uguali,
+            "atlante_bit": (uguali, celle)}
+
+
 def _quota(x) -> float:
     return x[0] / x[1] if x[1] else np.nan
 
@@ -404,7 +483,7 @@ def esegui(argv) -> int:
     tot_coppie = 40 * 40 / 39 - 2 * 39                 # i prodotti fra vicini sono tutti -1: varianza negativa
     check("A1. event study senza sconto: con ingressi a più di H barre coincide con il calcolo di oggi; con "
           "ingressi vicini e prodotti negativi la varianza va ai blocchi di una settimana",
-          _es_senza_sconto(res, pos_lontane, H) == es._errore_standard_sovrapposti(res, pos_lontane, H)
+          _es_senza_sconto(res, pos_lontane, H) == es._errore_standard_sovrapposti_vecchio(res, pos_lontane, H)
           and tot_coppie < 0 and np.isfinite(_es_senza_sconto(res, pos_vicine, H))
           and _es_senza_sconto(res, pos_vicine, H) > 0)
     prima = (stg.errore_standard_pesato, es._errore_standard_sovrapposti, ro._errore_standard_sovrapposti,
@@ -417,6 +496,16 @@ def esegui(argv) -> int:
             at._somme_per_cella)
     check("A2. dentro il blocco le quattro funzioni sono sostituite; dopo tornano quelle dell'engine",
           dentro and all(a is b for a, b in zip(prima, dopo)))
+    fuori = not stg.usa_calcolo_vecchio()
+    dentro = errore = False
+    try:
+        with stg.calcolo_vecchio():
+            dentro = stg.usa_calcolo_vecchio()
+            raise RuntimeError("errore di prova dentro il blocco")
+    except RuntimeError:
+        errore = True
+    check("A3. calcolo_vecchio(): dentro il blocco il calcolo di prima; all'uscita, anche con un errore dentro, "
+          "torna sempre il calcolo nuovo", fuori and dentro and errore and not stg.usa_calcolo_vecchio())
 
     print("\nC · LE PARTI DELL'INCERTEZZA: ROSA CON IL RARO, ATLANTE CON IL RARO DENSO, 3 MERCATI\n" + "-" * 70)
     idx = _indice("2022-01-03", giorni=800, minuti=15)
@@ -424,7 +513,8 @@ def esegui(argv) -> int:
     for nome, vv, k in (("costante 1", False, 0), ("variabile 1", True, 0), ("variabile 2", True, 1)):
         _maschere(np.random.default_rng(90_000 + int(vv)), len(idx))
         df = _prezzi(idx, np.random.default_rng(91_000 + k + 500_000 * int(vv)), volatilita_variabile=vv)
-        sc = scomponi(df)
+        with stg.calcolo_vecchio():        # le formule di prima, dove la PR #86 le ha scomposte
+            sc = scomponi(df)
         righe += [_riga_parti(f"{nome} · rosa", [sc["rosa"]]),
                   _riga_parti(f"{nome} · atlante ({len(sc['atlante'])} celle)", sc["atlante"])]
         rose.append(sc["rosa"])
@@ -464,8 +554,8 @@ def esegui(argv) -> int:
                                + ". Il confronto con il riferimento sarebbe vuoto: test fermato.")
         print(f"  profilo: incertezza della mappa / incertezza di oggi, in media sulle ore: "
               f"{conti['rapporto_profilo']:.3f}")
-        print("  riserva dei blocchi di una settimana (varianza zero o negativa), calcolo della mappa: "
-              + ", ".join(f"{p} {_blocchi(conti, p)}" for p in ("rosa", "atlante", "profilo", "es")))
+        print("  righe con la stima a blocchi di una settimana (colonna incertezza_blocchi dell'engine), calcolo "
+              "nuovo: " + ", ".join(f"{p} {_blocchi(conti, p)}" for p in ("rosa", "atlante", "profilo", "es")))
         # solo da scrivere, non sono criteri (Mattia, 28/10/2026)
         print(f"  raro denso: promozioni per caso nella rosa oggi {tab.loc['oggi', 'rosa D']:.1%}, mappa "
               f"{tab.loc['mappa', 'rosa D']:.1%}; nell'event study oggi {tab.loc['oggi', 'es D']:.1%}, mappa "
@@ -488,6 +578,22 @@ def esegui(argv) -> int:
         prof = m["profilo (mercati con un'ora colorata)"]
         check(f"B{lettera}3. calcolo della mappa: il profilo colora almeno un'ora per caso in non più del 20% dei "
               "mercati (q)", prof <= LIMITE, f"{prof:.1%}")
+
+    print(f"\nD · IL CODICE NUOVO CONTRO IL CALCOLO COLLAUDATO NELLA PR #86, {2 * N_D} MERCATI\n" + "-" * 70)
+    t0 = time.time()
+    d = confronto_collaudo(N_D)
+    print(f"  ({time.time() - t0:.0f} s) atlante: differenza relativa massima {d['diff_atlante']:.1e}, "
+          f"t uguali al bit {d['atlante_bit'][0]}/{d['atlante_bit'][1]}")
+    check("D1. event study (incertezza a ogni barra e solidità), rosa (t_netto e t_globale) e profilo "
+          "(incertezza): identici al bit al calcolo collaudato",
+          all(d["bit"].values()), ", ".join(f"{k} {'sì' if v else 'NO'}" for k, v in d["bit"].items()))
+    # l'atlante: il motore numba somma in fila, il collaudo (mappa.errore_sovrapposti) a coppie con numpy
+    check("D2. atlante: t entro 1e-12 in relativo dal calcolo collaudato (la differenza viene dall'ordine "
+          "delle somme: in fila contro a coppie), stesse celle misurate",
+          d["nan_uguali"] and d["diff_atlante"] <= 1e-12, f"differenza massima {d['diff_atlante']:.1e}")
+    check("D3. le stesse promozioni del calcolo collaudato: candidata e nella rosa, celle che passano, «Supera "
+          "il rumore», ore colorate", all(d["scelte"].values()),
+          ", ".join(f"{k} {'sì' if v else 'NO'}" for k, v in d["scelte"].items()))
 
     tot, ok = len(ESITI), sum(ESITI)
     print("\n" + "=" * 70)

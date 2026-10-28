@@ -248,13 +248,121 @@ def errore_standard_pesato(u: np.ndarray, H: int) -> float:
     return float(np.sqrt(max(tot, 0.0)))
 
 
+# ========================================================================
+# L'incertezza dei rendimenti sovrapposti, una funzione sola (28/10/2026,
+# docs/75 §7): mappa, profilo, rosa, atlante ed event study
+# ========================================================================
+# Il calcolo di prima (errore_standard_pesato e i pesi decrescenti 1 - d/H)
+# contava due volte lo sconto delle barre vicine e sottostimava l'incertezza
+# dei trigger frequenti e a grappolo (docs/75 §1, collaudo PR #86). Resta solo
+# dentro calcolo_vecchio(), per le prove d'identita': si toglie nella PR dopo.
+
+_VECCHIO = False
+
+
+class calcolo_vecchio:
+    """
+    Solo per le prove d'identita' e i test: dentro `with calcolo_vecchio():`
+    profilo, rosa, atlante ed event study usano il calcolo di prima (con lo
+    sconto), e devono dare gli stessi numeri di prima al bit. La mappa no.
+    """
+
+    def __enter__(self):
+        global _VECCHIO
+        self._prima = _VECCHIO
+        _VECCHIO = True
+        return self
+
+    def __exit__(self, *exc):
+        global _VECCHIO
+        _VECCHIO = self._prima
+        return False
+
+
+def usa_calcolo_vecchio() -> bool:
+    """True solo dentro `calcolo_vecchio()`."""
+    return _VECCHIO
+
+
+def barre_settimana(index: pd.DatetimeIndex) -> int:
+    """Le barre in una settimana, dal passo delle barre (i blocchi di errore_sovrapposti)."""
+    return int(round(pd.Timedelta(days=7) / passo_barre(index)))
+
+
+def errore_sovrapposti(u: np.ndarray, H: int, barre_settimana: int, pos=None,
+                       correzione_n: bool = False) -> tuple[float, bool]:
+    """
+    L'errore standard di sum_j u_j, con u_j = c_j r_j e r_j rendimenti a H barre:
+    due barre a meno di H barre di distanza condividono delle candele, e la loro
+    covarianza si conta PER INTERO (nessun peso decrescente). Se la varianza esce
+    zero o negativa (puo' succedere senza i pesi), si usa la stima a blocchi di
+    una settimana: la radice della somma dei quadrati delle somme di u in ogni
+    blocco di `barre_settimana` barre. Ritorna (errore, a_blocchi).
+
+    pos=None      u su TUTTE le barre (mappa, profilo, rosa contro la stessa ora,
+                  atlante). E' il calcolo della mappa (PR #84), spostato qui.
+    pos           u sono i valori dei soli ingressi e pos le loro barre, crescenti
+                  (event study, t_globale della rosa): il calcolo collaudato nella
+                  PR #86. Con correzione_n la diagonale e la stima a blocchi si
+                  moltiplicano per n/(n-1) (u sono scarti dalla media degli stessi
+                  ingressi), come faceva l'event study: con ingressi tutti a H
+                  barre o piu' il risultato e' quello di prima, al bit.
+    """
+    u = np.nan_to_num(np.asarray(u, dtype=float))
+    if pos is not None:
+        pos = np.asarray(pos)
+        nv = u.size
+        tot = float((u ** 2).sum())
+        if correzione_n:
+            tot = tot * nv / (nv - 1)
+        d = 1
+        while d < nv:
+            dist = pos[d:] - pos[:-d]
+            vicini = dist < H
+            if not vicini.any():
+                break
+            tot += 2.0 * float((u[d:][vicini] * u[:-d][vicini]).sum())
+            d += 1
+        if not tot <= 0:
+            return float(np.sqrt(tot)), False
+        b = pos // max(1, int(barre_settimana))
+        somme = np.bincount(b - b.min(), weights=u)
+        tot = float((somme ** 2).sum())
+        if correzione_n:
+            tot = tot * nv / (nv - 1)
+        return float(np.sqrt(tot)), True
+    tot = float((u ** 2).sum())
+    for d in range(1, min(int(H), u.size)):
+        tot += 2.0 * float((u[d:] * u[:-d]).sum())
+    if tot > 0:
+        return float(np.sqrt(tot)), False
+    b = max(1, int(barre_settimana))
+    m = (u.size // b) * b
+    somme = np.r_[u[:m].reshape(-1, b).sum(axis=1), u[m:].sum()]
+    return float(np.sqrt((somme ** 2).sum())), True
+
+
+def _errore_lab(u: np.ndarray, H: int, barre_settimana: int | None) -> tuple[float, bool]:
+    """L'incertezza nei punti del Lab: il calcolo nuovo, o quello di prima dentro calcolo_vecchio()."""
+    if _VECCHIO:
+        return errore_standard_pesato(u, H), False
+    se, blocchi = errore_sovrapposti(u, H, barre_settimana or 1)
+    if blocchi and not barre_settimana:
+        raise ValueError("Varianza zero o negativa: per i blocchi di una settimana serve barre_settimana.")
+    return se, blocchi
+
+
 def scarto_orario(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray,
-                  pos: np.ndarray, direzione: int, H: int) -> tuple[float, float]:
+                  pos: np.ndarray, direzione: int, H: int, barre_settimana: int | None = None,
+                  con_blocchi: bool = False):
     """
     Lo scarto medio dei trigger in `pos` dalla media della loro fascia
     oraria, nel verso `direzione`, e la sua incertezza. L'incertezza include
     il rumore della media di fascia (stimata sulle barre `usa`, trigger
-    compresi) e le sovrapposizioni fra barre vicine.
+    compresi) e le sovrapposizioni fra barre vicine (errore_sovrapposti, dal
+    28/10/2026). Ritorna (scarto, incertezza), con con_blocchi anche
+    a_blocchi. barre_settimana: le barre in una settimana (barre_settimana()),
+    per la stima a blocchi se la varianza esce zero o negativa.
     """
     b = media_per_fascia(fwd, codici, usa)
     x = direzione * (fwd[pos] - b[pos])
@@ -270,7 +378,8 @@ def scarto_orario(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray,
     c[pos] += 1.0 / n_t
     r = np.where(usa, fwd - b, 0.0)
     r[pos] -= direzione * scarto       # il modello: fascia + vantaggio del trigger
-    return scarto, errore_standard_pesato(c * r, H)
+    se, blocchi = _errore_lab(c * r, H, barre_settimana)
+    return (scarto, se, blocchi) if con_blocchi else (scarto, se)
 
 
 def deriva_per_barra_oraria(df: pd.DataFrame, pip: float,
@@ -433,6 +542,8 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
                       un'informazione quanto una positiva)
         bh            passa il controllo della quota di falsi positivi a q (sulle fasce)
         due_meta      scarto con lo stesso segno su entrambe le meta' dell'in-sample
+        incertezza_blocchi  28/10/2026: True se la varianza e' uscita zero o negativa e
+                      l'incertezza e' la stima a blocchi di una settimana (errore_sovrapposti)
 
     In .attrs: fuso, larghezza_min, H, k (fasce), q, media_pips (di tutte le barre).
 
@@ -461,6 +572,7 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
     _, _, sfasamento = griglia_oraria(df_is.index, fuso)
     nf = n_fasce(larghezza)
     n = len(df_is)
+    settimana = barre_settimana(df_is.index)
     prima = np.arange(n) < n // 2
     globale = float(fwd[usa].mean())
     glob_meta = (float(fwd[usa & prima].mean()), float(fwd[usa & ~prima].mean()))
@@ -479,7 +591,7 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
         c[pos] += 1.0 / pos.size
         r = np.where(usa, fwd0 - globale, 0.0)
         r[pos] -= scarto
-        se = errore_standard_pesato(c * r, H)
+        se, blocchi = _errore_lab(c * r, H, settimana)
         t = scarto / se if se > 0 else np.nan
         a, b = pos[prima[pos]], pos[~prima[pos]]
         dm = bool(a.size and b.size
@@ -493,11 +605,13 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
         if unita != "pips":
             riga["media_pips"] = float(fwd_pips[pos].mean())
             riga["scarto_pips"] = float(fwd_pips[pos].mean()) - globale_pips
+        riga["incertezza_blocchi"] = blocchi
         righe.append(riga)
     tab = pd.DataFrame(righe)
     colonne = ["fascia", "barre", f"media_{unita}", f"scarto_{unita}", "incertezza", "t", "p", "bh", "due_meta"]
     if unita != "pips":
         colonne += ["media_pips", "scarto_pips"]
+    colonne += ["incertezza_blocchi"]   # 28/10/2026: la stima a blocchi (docs/75 §7); False con calcolo_vecchio()
     if len(tab):
         tab["bh"] = benjamini_hochberg(tab["p"].to_numpy(), q)
         tab = tab[colonne].sort_values("fascia").reset_index(drop=True)

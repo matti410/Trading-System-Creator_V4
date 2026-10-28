@@ -184,7 +184,9 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 
 | cosa | stato |
 |---|---|
-| rosa, atlante e 2c usano l'incertezza di `scarto_orario` con lo sconto (pesi decrescenti) sui rendimenti sovrapposti: può sottostimarla per i trigger con ingressi vicini e orizzonti lunghi (vedi collaudo della mappa del 28/10). Da collaudare sui mercati inventati e correggere in un lavoro a parte | primo lavoro dopo la mappa (Mattia, 28/10) |
+| rosa, atlante e 2c usano l'incertezza di `scarto_orario` con lo sconto (pesi decrescenti) sui rendimenti sovrapposti: può sottostimarla per i trigger con ingressi vicini e orizzonti lunghi (vedi collaudo della mappa del 28/10) | risolto (docs/75, PR della correzione, 28/10): un calcolo solo, quello della mappa |
+| il notebook di ricerca non scrive le sue prove nel giornale dello studio (solo l'ingresso del dataset, l'orizzonte e le aperture dell'out-of-sample): quello che misura non entra nel conto. Esempio: la prova su BYBIT_SPOT_ETHUSDT del 25/10 (66 trigger) non è nel conto | aperto, decide Mattia quando (28/10) |
+| sullo spot il notebook di ricerca misura anche i trigger short e il Lab no: le chiavi dei due notebook (trigger e celle) non combaciano | aperto, decide Mattia quando (28/10) |
 | strada B: con il filtro vuoto la schermata 6 prova il segnale da solo con le uscite costruite sul segnale dentro la situazione; proposta da decidere: con una situazione scelta il predefinito della 6 diventa il segnale dentro la situazione | prossimo lavoro (Mattia, 26/10) |
 | stop e target non attivi sulla barra d'ingresso | risolto (PR #49) |
 | `ExitSearchBT.top()` ordina per `sharpe`: va ordinato per il t nell'unità che decide | risolto (PR #51) |

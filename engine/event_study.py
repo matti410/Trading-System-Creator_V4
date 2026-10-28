@@ -87,7 +87,8 @@ import pandas as pd
 from .registry import get_entry, get_entry_direction, list_entries, get_filter
 from .giudizio import soglia_rumore_orizzonte
 from .quarantena_trade import maschera_segnali_puliti
-from .stagionalita import fasce_orarie, media_per_fascia
+from .stagionalita import (barre_settimana, errore_sovrapposti, fasce_orarie, media_per_fascia,
+                          usa_calcolo_vecchio)
 
 
 # ========================================================================
@@ -118,8 +119,40 @@ def deduci_pip(prezzo_medio: float) -> float:
 # Incertezza con trigger sovrapposti
 # ========================================================================
 
-def _errore_standard_sovrapposti(v: np.ndarray, pos: np.ndarray, k: int) -> float:
+def _errore_standard_sovrapposti(v: np.ndarray, pos: np.ndarray, k: int, settimana: int | None = None,
+                                 con_blocchi: bool = False):
     """
+    Errore standard della media dei rendimenti a k barre, tenendo conto che
+    trigger VICINI condividono le stesse candele (28/10/2026, docs/75 §7):
+    stagionalita.errore_sovrapposti sulle posizioni degli ingressi, con le
+    coppie a meno di k barre contate PER INTERO e la correzione n/(n-1) degli
+    scarti dalla media (il calcolo collaudato nella PR #86). Se la varianza esce
+    zero o negativa, i blocchi di una settimana (`settimana` barre). Senza
+    coppie vicine il risultato e' quello di prima, al bit. Con con_blocchi
+    ritorna (errore, a_blocchi).
+
+    v    rendimenti a k barre dei trigger validi, nell'ordine delle posizioni
+    pos  posizioni (indici di barra) degli stessi trigger, crescenti
+    """
+    if usa_calcolo_vecchio():
+        se = _errore_standard_sovrapposti_vecchio(v, pos, k)
+        return (se, False) if con_blocchi else se
+    n_v = v.size
+    if n_v < 2:
+        return (np.nan, False) if con_blocchi else np.nan
+    se, blocchi = errore_sovrapposti(v - v.mean(), k, settimana or 1, pos=pos, correzione_n=True)
+    if blocchi and settimana is None:
+        raise ValueError("Varianza zero o negativa: per i blocchi di una settimana serve settimana "
+                         "(stagionalita.barre_settimana).")
+    se = se / n_v
+    return (se, blocchi) if con_blocchi else se
+
+
+def _errore_standard_sovrapposti_vecchio(v: np.ndarray, pos: np.ndarray, k: int) -> float:
+    """
+    Il calcolo di prima del 28/10/2026, solo dentro stagionalita.calcolo_vecchio()
+    (prove d'identita'): si toglie nella PR dopo la correzione (docs/75 §7.4).
+
     Errore standard della media dei rendimenti a k barre, tenendo conto che
     trigger VICINI condividono le stesse candele (24/9/2026).
 
@@ -277,8 +310,9 @@ def run_event_study(
     for d in (curva, mercato, b_lo, b_hi, incert):
         d.index.name = "barre_dal_trigger"
 
-    acc = {nome: {"media": [], "lo": [], "hi": [], "mkt": [], "se": []}
+    acc = {nome: {"media": [], "lo": [], "hi": [], "mkt": [], "se": [], "blocchi": []}
            for nome in attive}
+    settimana = barre_settimana(df.index)        # 28/10/2026: i blocchi dell'incertezza (docs/75 §7)
     n_trade = {nome: 0 for nome in attive}
     prezzo_ing_medio = {nome: float(np.nanmean(prezzo_ing[maschere[nome]]))
                         for nome in attive}
@@ -300,14 +334,17 @@ def run_event_study(
             if v.size == 0:
                 for chiave in ("media", "lo", "hi", "se"):
                     acc[nome][chiave].append(np.nan)
+                acc[nome]["blocchi"].append(False)
             else:
                 v = v * d
                 acc[nome]["media"].append(float(v.mean()))
                 lo, hi = np.percentile(v, banda)
                 acc[nome]["lo"].append(float(lo))
                 acc[nome]["hi"].append(float(hi))
-                acc[nome]["se"].append(
-                    _errore_standard_sovrapposti(v, posizioni[nome][ok[nome]], k))
+                se, blocchi = _errore_standard_sovrapposti(v, posizioni[nome][ok[nome]], k, settimana,
+                                                           con_blocchi=True)
+                acc[nome]["se"].append(se)
+                acc[nome]["blocchi"].append(blocchi)
                 n_trade[nome] = max(n_trade[nome], int(v.size))
             acc[nome]["mkt"].append(mkt_long * d)
 
@@ -357,6 +394,8 @@ def run_event_study(
             "barra_picco_netto": i_ecc,
             "picco_in_coda": i_ecc >= coda,
         })
+        # 28/10/2026: alla barra del picco, la stima a blocchi (docs/75 §7); False con calcolo_vecchio()
+        righe[-1]["incertezza_blocchi"] = bool(acc[nome]["blocchi"][i_pk - 1])
     if fuso is not None:
         # il mercato della stessa ora, alla barra del picco (18/10/2026)
         codici, _ = fasce_orarie(df.index, fuso)

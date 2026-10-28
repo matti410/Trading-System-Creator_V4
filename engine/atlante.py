@@ -41,7 +41,10 @@ Il riferimento della cella non dipende dall'entry: si calcola una volta per
 asse, lato e unita'. L'incertezza di tutte le celle di un asse si calcola in
 un passaggio solo (numba), perche' le celle di un asse si dividono le barre:
 due barre contano insieme solo se sono nella stessa cella. Stessi numeri di
-scarto_orario (test_atlante.py), a meno dell'ordine delle somme.
+scarto_orario (test_atlante.py), a meno dell'ordine delle somme. Dal 28/10/2026
+(docs/75 §7) le coppie a meno di H barre contano per intero
+(_somme_per_cella_piene); le celle con varianza zero o negativa passano alla
+stima a blocchi di una settimana (stagionalita.errore_sovrapposti).
 
 Modulo ADDITIVO: non modifica nessun file esistente dell'engine.
 """
@@ -56,7 +59,8 @@ from . import registry as _reg
 from .indicatori import (SESSIONI_ATLANTE, basis_alta, cella_vol_trend, sessione_ingresso)
 from .quarantena_trade import maschera_segnali_puliti
 from .rosa import MIN_EVENTI, Q_ROSA, _entry_vere, benjamini_hochberg
-from .stagionalita import FUSO_PREDEFINITO, UNITA, fasce_orarie, in_unita
+from .stagionalita import (FUSO_PREDEFINITO, UNITA, barre_settimana, errore_sovrapposti, fasce_orarie, in_unita,
+                           usa_calcolo_vecchio)
 
 try:
     from numba import njit
@@ -135,6 +139,8 @@ def _somme_per_cella(u, cella, n_celle, H):
     Per ogni cella j: somma_t u_t^2 + 2 somma_{t<s<t+H, stessa cella} (1-(s-t)/H) u_t u_s.
     E' errore_standard_pesato (stagionalita.py) al quadrato, una cella alla
     volta: u e' zero fuori dalle barre usate, e le celle si dividono le barre.
+    Il calcolo di prima del 28/10/2026: solo dentro stagionalita.calcolo_vecchio()
+    (prove d'identita'), si toglie nella PR dopo la correzione (docs/75 §7.4).
     """
     tot = np.zeros(n_celle)
     n = u.size
@@ -148,6 +154,31 @@ def _somme_per_cella(u, cella, n_celle, H):
         for s in range(t + 1, fine):
             if cella[s] == ct:
                 acc += 2.0 * (1.0 - (s - t) / H) * ut * u[s]
+        tot[ct] += acc
+    return tot
+
+
+@njit(cache=True)
+def _somme_per_cella_piene(u, cella, n_celle, H):
+    """
+    Per ogni cella j: somma_t u_t^2 + 2 somma_{t<s<t+H, stessa cella} u_t u_s.
+    E' stagionalita.errore_sovrapposti (le coppie per intero, 28/10/2026) al
+    quadrato, una cella alla volta, senza la riserva a blocchi: le celle con
+    somma zero o negativa le ricalcola l'atlante. Somma in fila (errore_sovrapposti
+    a coppie, con numpy): stesso conto, arrotondamento diverso.
+    """
+    tot = np.zeros(n_celle)
+    n = u.size
+    for t in range(n):
+        ut = u[t]
+        ct = cella[t]
+        if ct < 0 or ut == 0.0:
+            continue
+        acc = ut * ut
+        fine = min(n, t + H)
+        for s in range(t + 1, fine):
+            if cella[s] == ct:
+                acc += 2.0 * ut * u[s]
         tot[ct] += acc
     return tot
 
@@ -216,7 +247,8 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
                «qualunque_ora» (l'elenco)
 
     Colonne: candidato, direction, asse, cella, eventi, misurata,
-    scarto_<unita>, t, p, bh, due_meta, netto_<unita>, passa, motivo.
+    scarto_<unita>, t, p, bh, due_meta, netto_<unita>, passa, motivo,
+    incertezza_blocchi (28/10/2026: True se la cella e' passata alla stima a blocchi).
     In .attrs: k_misurate (le celle misurate, il k del passo 5), H, q,
     unita, assi, min_eventi, fuso, scartate (entry sotto min_eventi in tutto).
     """
@@ -252,6 +284,7 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
     valido = np.isfinite(fwd) & np.isfinite(ingresso) & (ingresso > 0)
     pulito = maschera_segnali_puliti(df_is, quarantena)
     prima = np.arange(n) < n // 2
+    settimana = barre_settimana(df_is.index)     # 28/10/2026: i blocchi dell'incertezza (docs/75 §7)
     fascia = fasce_orarie(df_is.index, fuso)[0].astype(np.int64)
     n_fasce = int(fascia.max()) + 1 if n else 1
     # i costi in pips di un evento: commissione sui due lati, spread all'ingresso (come i trade)
@@ -317,6 +350,7 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
         with np.errstate(invalid="ignore", divide="ignore"):
             scarto = np.where(conta > 0, somma / conta, np.nan)
         se = np.full(m, np.nan)
+        blocchi = np.zeros(m, dtype=bool)
         if misurate.any():
             dentro = misurate[cp]
             pm, cm = pos[dentro], cp[dentro]
@@ -333,7 +367,14 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
             r = R["r"].copy()
             r[pm] -= d * scarto[cm]
             u = np.where(ok, c * r, 0.0)
-            tot = _somme_per_cella(u, np.where(ok, cella_barra, -1), m, H)
+            celle_u = np.where(ok, cella_barra, -1)
+            if usa_calcolo_vecchio():
+                tot = _somme_per_cella(u, celle_u, m, H)
+            else:
+                tot = _somme_per_cella_piene(u, celle_u, m, H)
+                for j in np.flatnonzero(misurate & (tot <= 0)):     # la riserva a blocchi, cella per cella
+                    se_j, blocchi[j] = errore_sovrapposti(np.where(celle_u == j, u, 0.0), H, settimana)
+                    tot[j] = se_j ** 2
             se = np.where(misurate, np.sqrt(np.maximum(tot, 0.0)), np.nan)
         # le due meta': lo scarto dal mercato della cella di ciascuna meta'
         a = prima[pos]
@@ -350,7 +391,7 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
             out.append(dict(eventi=int(conta[j]), misurata=bool(misurate[j]),
                             scarto=float(scarto[j]) if misurate[j] else np.nan, t=float(t),
                             due_meta=bool(misurate[j] and na[j] > 0 and nb[j] > 0 and sa[j] > 0 and sb[j] > 0),
-                            netto=float(netto[j]) if misurate[j] else np.nan))
+                            netto=float(netto[j]) if misurate[j] else np.nan, blocchi=bool(blocchi[j])))
         return out
 
     altre = [u for u in UNITA if u != unita]
@@ -376,7 +417,8 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
                 riga = {"candidato": nome, "direction": d, "asse": asse, "cella": cella,
                         "eventi": mm["eventi"], "misurata": mm["misurata"],
                         f"scarto_{unita}": mm["scarto"], "t": mm["t"], "p": _p_una_coda(mm["t"]),
-                        "due_meta": mm["due_meta"], f"netto_{unita}": mm["netto"], "netto": mm["netto"]}
+                        "due_meta": mm["due_meta"], f"netto_{unita}": mm["netto"], "netto": mm["netto"],
+                        "incertezza_blocchi": mm["blocchi"]}
                 for u in unita_riga[1:]:
                     x = misure[u][j]
                     riga.update({f"scarto_{u}": x["scarto"], f"t_{u}": x["t"], f"netto_{u}": x["netto"]})
@@ -387,6 +429,7 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
     if mostra:
         for u in altre:
             colonne += [f"scarto_{u}", f"t_{u}", f"netto_{u}"]
+    colonne += ["incertezza_blocchi"]   # 28/10/2026: la stima a blocchi (docs/75 §7); False con calcolo_vecchio()
     info = dict(H=H, q=q, unita=unita, assi=assi, min_eventi=int(min_eventi), fuso=fuso,
                 scartate=scartate)
     if qualunque_ora:
