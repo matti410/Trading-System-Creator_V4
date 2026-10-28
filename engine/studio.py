@@ -325,6 +325,47 @@ def leggi_voci(cartella_dati, dataset: str, id_studio: str | None) -> tuple[list
     return [v[-1] for v in voci], {"altre_id": altre, "copie": copie}
 
 
+# 27/10/2026 (docs/73 §B.4): gli esiti della mappa delle anomalie, in un file a parte
+# (studio/<dataset>/mappa_<macchina>.jsonl), con le stesse regole dei giornali: uno per
+# macchina, solo in aggiunta. Il conto della mappa sta invece nel giornale, come voce
+# «prova» con dove = "mappa", che registro_dataset.da_voci legge gia'.
+
+def aggiungi_esito_mappa(cartella_dati, dataset: str, macchina: str, id_studio: str, esito: dict,
+                         quando=None) -> dict:
+    """Aggiunge una riga a studio/<dataset>/mappa_<macchina>.jsonl. Ritorna la riga scritta."""
+    _controlla_macchina(macchina)
+    riga = {"studio": id_studio, "quando": _adesso(quando).isoformat(), "macchina": macchina,
+            **_rd.normale(esito)}
+    f = cartella_studio(cartella_dati) / dataset / f"mappa_{macchina}.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with open(f, "a", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(riga, ensure_ascii=False) + "\n")
+    return riga
+
+
+def leggi_esiti_mappa(cartella_dati, dataset: str, id_studio: str | None) -> list[dict]:
+    """
+    Tutti gli esiti della mappa del dataset per lo studio `id_studio`, da tutti i
+    file mappa*.jsonl (anche le copie di conflitto di Drive), in ordine di tempo.
+    id_studio None = tutti.
+    """
+    cartella = cartella_studio(cartella_dati) / dataset
+    righe = []
+    if not cartella.is_dir():
+        return righe
+    for f in sorted(cartella.glob("mappa*.jsonl")):
+        with open(f, encoding="utf-8") as fh:
+            for n, testo in enumerate(fh):
+                testo = testo.strip()
+                if not testo:
+                    continue
+                riga = json.loads(testo)
+                if id_studio is None or riga.get("studio") == id_studio:
+                    righe.append((riga["quando"], riga.get("macchina", ""), f.name, n, riga))
+    righe.sort(key=lambda x: x[:4])
+    return [r[-1] for r in righe]
+
+
 def chiave_registro(dataset: str, studio: dict) -> tuple:
     """La chiave del registro (registro_dataset.chiave_dataset): symbol, timeframe e confine unico."""
     symbol, tf = dataset.rsplit("_", 1)

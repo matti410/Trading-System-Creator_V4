@@ -2037,3 +2037,82 @@ def basis_alta(df: pd.DataFrame, ore_mediana: float = ORE_MEDIANA,
     b = basis_bp(df)
     mediana = b.rolling(m, min_periods=m).median()
     return (b > mediana).astype(float).where(mediana.notna() & b.notna()).rename("basis")
+
+
+# ------------------------------------------------------------------------
+# Variabili della mappa delle anomalie (27/10/2026, docs/73 §B, schede di
+# docs/74). FUORI da aggiungi_indicatori: le chiama solo engine/mappa.py, le
+# colonne del catalogo non cambiano. Ogni valore della barra i usa solo dati
+# fino al Close di i. I rendimenti si prendono per data, non per posizione:
+# una barra mancante da' NaN invece di un rendimento su un'altra durata.
+# ------------------------------------------------------------------------
+
+ORE_PAGAMENTO_FUNDING = (0, 8, 16)     # UTC: i pagamenti del funding a 8 ore (docs/74, M01)
+
+
+def _rendimento_ore(close: pd.Series, ore: float) -> pd.Series:
+    """Il rendimento dal Close della barra di `ore` ore prima (stessa griglia), NaN se quella barra manca."""
+    idx = pd.DatetimeIndex(close.index)
+    prima = close.astype(float).reindex(idx - pd.Timedelta(hours=float(ore))).to_numpy()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return pd.Series(close.astype(float).to_numpy() / prima - 1.0, index=idx)
+
+
+def rendimento_4h(df: pd.DataFrame) -> pd.Series:
+    """Il rendimento delle ultime 4 ore al Close della barra, in bp (docs/74, M07)."""
+    return (_rendimento_ore(df["Close"], 4) * 10_000.0).rename("rendimento_4h")
+
+
+def scarto_btc_1h(df: pd.DataFrame, df_btc: pd.DataFrame) -> pd.Series:
+    """
+    Il rendimento di BTC nell'ultima ora MENO quello dell'altcoin `df` nella
+    stessa ora, in bp (docs/74, M06, versione A). `df_btc` e' BTC dello stesso
+    exchange e mercato, sulla stessa griglia: le barre si allineano per data,
+    e una barra che manca in uno dei due da' NaN.
+    """
+    r_alt = _rendimento_ore(df["Close"], 1)
+    r_btc = _rendimento_ore(df_btc["Close"], 1).reindex(pd.DatetimeIndex(df.index))
+    return ((r_btc - r_alt) * 10_000.0).rename("scarto_btc_1h")
+
+
+def barre_prima_del_pagamento(index) -> np.ndarray:
+    """
+    Le barre che CHIUDONO un'ora prima di un pagamento del funding (00:00,
+    08:00, 16:00 UTC): su M15 quelle delle 22:45, 06:45 e 14:45 (docs/74, M01).
+    Su H4 non ce ne sono.
+    """
+    from engine.quarantena import passo_barre
+    idx = pd.DatetimeIndex(index)
+    t = (idx + passo_barre(idx) + pd.Timedelta(hours=1)).tz_convert("UTC")
+    return np.asarray((t.minute == 0) & (t.second == 0) & t.hour.isin(ORE_PAGAMENTO_FUNDING))
+
+
+def _ultimo_intervallo(df: pd.DataFrame) -> pd.Series:
+    """L'intervallo in ore dell'ultima liquidazione gia' avvenuta all'inizio della barra (come funding_liquidato)."""
+    if "funding_intervallo_ore" not in df.columns:
+        return pd.Series(np.nan, index=df.index)
+    ore = df["funding_intervallo_ore"].astype(float)
+    gruppo = df["funding_tasso"].notna().cumsum()
+    return ore.groupby(gruppo).transform("first").where(gruppo > 0)
+
+
+def funding_segno_prima_pagamento(df: pd.DataFrame) -> pd.Series:
+    """
+    Sulla sola barra che chiude un'ora prima di ogni pagamento (00:00, 08:00,
+    16:00 UTC) il segno dell'ULTIMO tasso gia' liquidato, +1 o -1; NaN sulle
+    altre barre (docs/74, M01). Il tasso del pagamento che sta per arrivare
+    non si usa: si conosce solo quando e' pagato.
+
+    Restano fuori (NaN) le barre dove l'ultimo intervallo del funding non e' di
+    8 ore (Bybit, SOL a 2 ore nel 2022...), quelle con il tasso esattamente
+    zero o non ancora noto. In .attrs: barre (le barre prima di un pagamento),
+    fuori_intervallo (quante restano fuori per l'intervallo).
+    """
+    prima = barre_prima_del_pagamento(df.index)
+    segno = np.sign(funding_liquidato(df).to_numpy(dtype=float))
+    ore = _ultimo_intervallo(df).to_numpy(dtype=float)
+    otto = np.isclose(ore, 8.0)
+    tiene = prima & otto & np.isfinite(segno) & (segno != 0)
+    out = pd.Series(np.where(tiene, segno, np.nan), index=df.index, name="funding_segno_prima_pagamento")
+    out.attrs.update(barre=int(prima.sum()), fuori_intervallo=int((prima & np.isfinite(ore) & ~otto).sum()))
+    return out
