@@ -261,6 +261,16 @@ def _nota(testo: str) -> None:
         print(testo)
 
 
+def _nota_blocchi(tab: pd.DataFrame, cosa: str) -> None:
+    """28/10/2026 (docs/75 §7): la nota, solo se qualche riga ha usato la stima a blocchi di una settimana."""
+    if tab is None or "incertezza_blocchi" not in tab.columns:
+        return
+    n = int(tab["incertezza_blocchi"].astype(bool).sum())
+    if n:
+        _nota(f"{n} {cosa}: la varianza è uscita zero o negativa e l'incertezza è stimata a blocchi di una "
+              "settimana (docs/75).")
+
+
 def _riquadro(cosa: str, buono: str, adesso: str) -> None:
     """Il riquadro «Come leggerlo»: sempre le stesse tre righe."""
     voci = (("Cosa stai guardando", cosa), ("Come capire se è buono", buono),
@@ -1453,6 +1463,7 @@ def esplora(s: Sessione, quanti: int = 5):
         s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=s.H,
                                min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
     misurati = len(s.ev.sintesi)
+    _nota_blocchi(s.ev.sintesi, "segnali")
     s.prove["trigger"] = misurati              # 22/10/2026: soglia cumulata (H e' fisso nella sessione)
     _nota(f"{misurati} segnali misurati su {len(candidati)} "
           f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media)."
@@ -1545,6 +1556,7 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
         s.profilo = (profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso) if u == "pips"
                      else profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso, unita=u))
     p = s.profilo
+    _nota_blocchi(p, "ore")
     luogo = s.fuso.split("/")[-1].replace("_", " ")
     fig, ax = plt.subplots(figsize=(11, 4.5))
     x = np.arange(len(p))
@@ -1758,6 +1770,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     s._serve("ev", "2 · Esplora")
     _avviso_risalita(s, "rileggere le casistiche suggerite")
     r = _rosa_sessione(s)
+    _nota_blocchi(r, "trigger")
     vista = r[r["candidata"]]
     if vista.empty:
         _nota(f"Nessun trigger supera i tre controlli della rosa ({len(r)} misurati, orizzonte {s.H} barre). "
@@ -2186,6 +2199,7 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
                       min_eventi=MIN_TRIGGER, fuso=s.fuso, mostra=mostra, atr=s.atr,
                       **({"qualunque_ora": orari} if orari else {}))
     s.atlante = tab
+    _nota_blocchi(tab, "celle")
     _azzera_cella(s)
     s.fs = s.dm = s.oos = None
     s.sopravvissuti, s.filtro = [], None
@@ -2645,6 +2659,10 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     riga = _durate_orarie(s, bl, bs, "barre impostate")
     if riga:
         _nota(riga)
+    # 28/10/2026 (docs/75 §7.7, D3): sempre visibile
+    _nota("X_INVERSIONE_TREND usa le ore colorate del profilo della 2a: il long si chiude all'arrivo di un'ora "
+          "rossa, lo short all'arrivo di un'ora verde. Se cambiano le ore colorate della 2a, cambiano anche "
+          "queste chiusure.")
     if regola_uscita and "X_INVERSIONE_TREND" in regola_uscita.split(" | "):
         import condizioni_orarie
         contro = condizioni_orarie.fasce_contro()

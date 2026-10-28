@@ -333,6 +333,8 @@ def main() -> int:
                   "scarto_globale_pips", "t_globale"]
         # 20/10/2026 (docs/63 §4, U1): bp e ATR in coda, colonne di prima invariate
         attese += [f"{c}_{u}" for u in ("bp", "atr") for c in ("scarto", "t", "due_meta")]
+        # 28/10/2026 (docs/75, D1): incertezza_blocchi in coda, colonne di prima invariate
+        attese += ["incertezza_blocchi"]
         check("E1. tabella completa: colonne (bp e ATR in coda), una riga per entry misurata, nessuna metro",
               list(re_.columns) == attese and re_["candidato"].is_unique
               and not re_["candidato"].str.startswith("M_").any() and len(re_) >= 40,

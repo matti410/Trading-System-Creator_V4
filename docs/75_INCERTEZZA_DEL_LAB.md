@@ -1,15 +1,15 @@
 # 75 · Incarico: l'incertezza del Lab (rendimenti sovrapposti)
 
 **Data:** 28 ottobre 2026
-**Stato:** incarico scritto, **in attesa del via di Mattia**. Nessun codice, nessun numero sui dati
-veri. Il collaudo del §3 si fa solo dopo il via.
+**Stato:** collaudo fatto (PR #86, §3); correzione in corso (PR 2, piano al §7, via di Mattia del
+28/10/2026).
 **Da dove nasce:** il primo dei «Problemi aperti» di `00`. Il collaudo della mappa del 28/10 (sezione
 G di `test_mappa.py`, PR #84) ha mostrato che l'incertezza con lo **sconto** (pesi decrescenti)
 sottostima l'incertezza dei rendimenti sovrapposti. La mappa ha già la sua correzione; il Lab no.
 
 **Indice:** §0 In breve · §1 Il problema · §2 Dove si usa oggi, e cosa decide · §3 Il collaudo
 proposto · §4 Cosa cambierebbe nel Lab, e le prove d'identità · §5 Le decisioni per Mattia · §6
-Ordine dei lavori.
+Ordine dei lavori · §7 Il piano della correzione.
 
 ---
 
@@ -320,3 +320,66 @@ già fatte nel Lab (rose e atlanti guardati) restano nel conto. Non si rifanno.
 3. La decisione di Mattia sui numeri.
 4. **Correzione** (PR 2): la funzione comune, il calcolo vecchio a richiesta, le prove d'identità
    del §4, `docs/00` (il problema aperto chiuso) e `docs/02`, se cambia la definizione di solidità.
+
+## 7 · Il piano della correzione (PR 2; via di Mattia e del revisore, 28/10/2026)
+
+**7.1 · La funzione unica (D1, D7).** `errore_sovrapposti(u, H, barre_settimana, pos=None,
+fattore_n=1.0) -> (errore, a_blocchi)` si sposta da `mappa.py` a `stagionalita.py`.
+- `pos=None`: `u` su tutte le barre (mappa, profilo, rosa contro la stessa ora, atlante). È il codice
+  della mappa spostato riga per riga: la mappa resta identica al bit (`test_mappa.py` invariato).
+- `pos` dato: `u` sono i valori dei soli ingressi, `pos` le loro barre (event study, `t_globale` della
+  rosa). È il calcolo collaudato nella PR #86 (`_es_senza_sconto`), con `fattore_n = n/(n-1)` sulla
+  diagonale e sulla riserva a blocchi, esattamente come nel collaudo.
+- Le coppie a meno di H barre contano per intero; se la varianza esce zero o negativa, blocchi di
+  una settimana (`a_blocchi = True`). Le barre in una settimana si ricavano dal passo delle barre.
+
+**7.2 · Event study e rosa.** `event_study._errore_standard_sovrapposti` resta come funzione di comodo
+e chiama la funzione unica con `pos`. Entra `_es_senza_sconto` (Mattia, 28/10): con ingressi tutti a
+H barre o più il risultato è quello di oggi, al bit. La sezione D di `test_incertezza_lab.py`
+dimostra l'uguaglianza al bit con il calcolo collaudato, sui mercati inventati della PR #86.
+
+**7.3 · L'atlante.** Resta il motore numba: accanto a `_somme_per_cella` (con lo sconto, solo per il
+calcolo vecchio) nasce `_somme_per_cella_piene` (le coppie per intero). Le celle misurate con somma
+zero o negativa si ricalcolano con la funzione unica (blocchi di una settimana). Il motore somma in
+fila, il collaudo a coppie: la sezione D confronta entro 1e-12 in relativo. Una colonna
+`incertezza_blocchi` in atlante, rosa, profilo e sintesi dell'event study.
+
+**7.4 · Il calcolo vecchio a richiesta (D5).** `with stagionalita.calcolo_vecchio():` rimette le
+formule di oggi nei quattro punti del Lab (la mappa mai). Solo per le prove d'identità e per il test
+B; un controllo verifica che all'uscita dal blocco, anche con un errore dentro, torni sempre il
+calcolo nuovo. Si toglie nella PR dopo questa.
+
+**7.5 · Le prove d'identità in tre passi** (Lab: `lab_btc`, `lab_btc_cella`, `lab_eth`; ricerca:
+`ric_btc`, `ric_eth`).
+1. **Calcolo vecchio a richiesta**, su una copia temporanea dei dati: gli stessi oggetti di main, al bit.
+2. **Calcolo nuovo, sullo studio vero**, fermandosi alle misure: profilo (2a), event study (2c), rosa
+   (3a), atlante (3c/3d), più le scelte che queste fanno da sole (trigger con numero=1, cella di
+   `lab_btc_cella`, ore di X_INVERSIONE_TREND, `curve_scarto`). Le schermate 4–9 non girano; nella
+   ricerca non gira niente dopo l'atlante. Possono cambiare solo (più la colonna nuova):
+   - profilo: `incertezza`, `t`, `p`, `bh`;
+   - event study: tutta la tabella `incertezza`; nella sintesi `incertezza_pct`, `volte_incertezza`,
+     `oltre_rumore` e l'ordine delle righe;
+   - rosa: `t_netto`, `t_globale`, `p`, `bh`, `candidata`, `nella_rosa`, `rho_max`, `perche`, l'ordine;
+   - atlante: `t`, `p`, `bh`, `passa`, `motivo`;
+   - le scelte fatte da queste misure, e quello che ne discende fino all'atlante.
+   Curve, mercato, bande, scarti, eventi, celle misurate, famiglie e `rosa_sistemi` devono restare
+   identici. Ogni differenza fuori elenco, o non spiegata da una scelta cambiata, ferma il lavoro.
+3. **A scelte fissate** (trigger, cella e uscite del passo 1 scritti a mano), su una copia
+   temporanea: le schermate 4–9, e nella ricerca tutto quello che viene dopo la rosa, identiche al
+   bit al passo 1. Se il passo 1 o il passo 3 mostrassero qualcosa con una chiave nuova del conto,
+   ci si ferma.
+
+**7.6 · Il conto delle prove (Mattia, 28/10).** Le stesse cose rimisurate sugli stessi dati lasciano
+il conto uguale; le scelte nuove sono chiavi nuove e contano; il conto non scende mai; nessuna voce
+speciale per la correzione (niente +70). Nella PR, per ogni dataset degli scenari, il conto prima e
+dopo il passo 2 e le chiavi nuove entrate.
+
+**7.7 · La riga alla schermata 4 (D3).** Sempre visibile, sotto la riga delle uscite: «X_INVERSIONE_TREND
+usa le ore colorate del profilo della 2a: il long si chiude all'arrivo di un'ora rossa, lo short
+all'arrivo di un'ora verde. Se cambiano le ore colorate della 2a, cambiano anche queste chiusure.»
+
+**7.8 · File e test.** Cambiano `engine/stagionalita.py`, `mappa.py`, `event_study.py`, `rosa.py`,
+`atlante.py`, `vetrina.py`, `test_incertezza_lab.py` (B: calcolo vecchio a richiesta contro calcolo
+nuovo; D: uguaglianza con il calcolo collaudato; A3: il ritorno al calcolo nuovo), `docs/75`,
+`docs/00`. I notebook no (D9). I test esistenti che misurano effetti o il caso non si toccano: se uno
+fallisce ci si ferma, senza allargare soglie.

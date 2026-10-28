@@ -64,7 +64,7 @@ DURATE = {
     "test_atlante": 25, "test_mm_stress_bp": 55, "test_orari_uscite": 12,
     "test_riordino_motore": 44, "test_riordino_lab": 60, "test_dati_confine": 85,
     "test_spread_per_trade": 40, "test_mappa": 265,
-    "test_incertezza_lab": 760
+    "test_incertezza_lab": 900
 }
 INSIEME = 3          # suite che girano insieme, nella rapida e nella completa
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")

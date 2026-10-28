@@ -68,7 +68,7 @@ from .giudizio import t_stat
 from .livelli import giorno_fx
 from .metriche import atr_alla_entrata, pips_per_trade
 from .quarantena_trade import maschera_segnali_puliti
-from .stagionalita import (FUSO_PREDEFINITO, UNITA, deriva_per_barra_oraria, fasce_orarie,
+from .stagionalita import (FUSO_PREDEFINITO, UNITA, barre_settimana, deriva_per_barra_oraria, fasce_orarie,
                            in_unita, scarto_orario)
 
 Q_ROSA = 0.20
@@ -260,6 +260,8 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         scarto_globale_<unita>, t_globale
                        (solo con baseline oraria) lo stesso confronto con la media
                        di tutte le barre, per vedere quanto conta l'ora
+        incertezza_blocchi  28/10/2026: True se la varianza del t che decide e' uscita
+                       zero o negativa e si e' usata la stima a blocchi di una settimana
     In .attrs: k (entry misurate), q, rho_max, H, scartate (sotto min_eventi),
     baseline, fuso, unita.
     """
@@ -290,6 +292,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     giorno = np.asarray(giorno_fx(df_is))
     uscita = np.minimum(np.arange(n) + H, n - 1)
     codici = fasce_orarie(df_is.index, fuso)[0] if oraria else None
+    settimana = barre_settimana(df_is.index)     # 28/10/2026: i blocchi dell'incertezza (docs/75 §7)
     atr_is = _atr_su(df_is, atr) if "atr" in (unita, *extra) else None
 
     def mercato_in(u: str) -> dict:
@@ -306,24 +309,24 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         pos = pos[np.isfinite(f[pos])]          # in ATR: niente valore nelle prime giornate
         if pos.size < 2:
             return dict(scarto=np.nan, t=np.nan, due_meta=False, globale=np.nan,
-                        t_globale=np.nan, v=None, pos=pos)
+                        t_globale=np.nan, v=None, pos=pos, blocchi=False)
         v = d * f[pos]
-        se = _errore_standard_sovrapposti(v, pos, H)
+        se, blocchi = _errore_standard_sovrapposti(v, pos, H, settimana, con_blocchi=True)
         scarto = float(v.mean()) - d * M["mercato"]
         t = scarto / se if (np.isfinite(se) and se > 0) else np.nan
         a, b = prima[pos], ~prima[pos]
         out = dict(globale=scarto, t_globale=t, v=v, pos=pos)
         if oraria:
-            scarto, se_o = scarto_orario(f, codici, M["usa"], pos, d, H)
+            scarto, se_o, blocchi = scarto_orario(f, codici, M["usa"], pos, d, H, settimana, con_blocchi=True)
             t = scarto / se_o if (np.isfinite(se_o) and se_o > 0) else np.nan
             dm = bool(a.any() and b.any()
-                      and scarto_orario(f, codici, M["usa_meta"][0], pos[a], d, H)[0] > 0
-                      and scarto_orario(f, codici, M["usa_meta"][1], pos[b], d, H)[0] > 0)
+                      and scarto_orario(f, codici, M["usa_meta"][0], pos[a], d, H, settimana)[0] > 0
+                      and scarto_orario(f, codici, M["usa_meta"][1], pos[b], d, H, settimana)[0] > 0)
         else:
             dm = bool(a.any() and b.any()
                       and v[a].mean() - d * M["mercato_meta"][0] > 0
                       and v[b].mean() - d * M["mercato_meta"][1] > 0)
-        out.update(scarto=scarto, t=t, due_meta=dm)
+        out.update(scarto=scarto, t=t, due_meta=dm, blocchi=blocchi)
         return out
 
     mercati = {u: mercato_in(u) for u in (unita, *extra)}
@@ -345,6 +348,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         for u in extra:
             x = misura(mercati[u], pos, d)
             riga.update({f"scarto_{u}": x["scarto"], f"t_{u}": x["t"], f"due_meta_{u}": x["due_meta"]})
+        riga["incertezza_blocchi"] = r["blocchi"]
         righe.append(riga)
         if r["v"] is not None:
             serie[nome] = pd.Series(r["v"], index=giorno[uscita[r["pos"]]]).groupby(level=0).sum()
@@ -355,6 +359,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         colonne += [f"scarto_globale_{unita}", "t_globale"]
     for u in extra:
         colonne += [f"scarto_{u}", f"t_{u}", f"due_meta_{u}"]
+    colonne += ["incertezza_blocchi"]   # 28/10/2026: la stima a blocchi (docs/75 §7); False con calcolo_vecchio()
     info = dict(q=q, rho_max=rho_max, H=H, scartate=scartate,
                 baseline=baseline, fuso=fuso if oraria else None, unita=unita)
     if not righe:

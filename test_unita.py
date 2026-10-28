@@ -168,7 +168,9 @@ def main() -> int:
     vecchie = ["candidato", "direction", "eventi", "scarto_pips", "t_netto", "p", "bh", "due_meta",
                "candidata", "famiglia", "nella_rosa", "rho_max", "perche"]
     check("C1. unita='pips': colonne di prima in testa, bp e ATR in coda, decide il pips",
+          # 28/10/2026 (docs/75, D1): incertezza_blocchi in coda, colonne di prima invariate
           list(rp.columns) == vecchie + [f"{c}_{u}" for u in ("bp", "atr") for c in ("scarto", "t", "due_meta")]
+          + ["incertezza_blocchi"]
           and rp.attrs["unita"] == "pips")
     riga = rp.set_index("candidato").loc["TEST_LONG_OGNI_ORA"]
     pos = np.flatnonzero(_ogni_ora(df).to_numpy() & np.isfinite(fb))
