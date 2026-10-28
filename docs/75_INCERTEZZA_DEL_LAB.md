@@ -2,7 +2,7 @@
 
 **Data:** 28 ottobre 2026
 **Stato:** collaudo fatto (PR #86, §3); correzione fatta (PR 2, piano al §7, risultati al §8,
-28/10/2026). Il calcolo vecchio a richiesta si toglie nella PR dopo.
+28/10/2026). Il calcolo vecchio a richiesta è tolto (D5, PR dopo la #87, 28/10/2026).
 **Da dove nasce:** il primo dei «Problemi aperti» di `00`. Il collaudo della mappa del 28/10 (sezione
 G di `test_mappa.py`, PR #84) ha mostrato che l'incertezza con lo **sconto** (pesi decrescenti)
 sottostima l'incertezza dei rendimenti sovrapposti. La mappa ha già la sua correzione; il Lab no.
@@ -461,3 +461,11 @@ Il passo 2 sullo studio vero:
 | BINANCE_PERP_BTCUSDT_M5, BINANCE_PERP_ETHUSDT_M15 | invariati | 0 e 5, invariati | nessuna |
 
 La copia di sicurezza dello studio, presa prima del passo 2, non è servita.
+
+**8.6 · Il calcolo vecchio tolto (D5, 28/10/2026).** Dall'engine escono `calcolo_vecchio()`,
+`usa_calcolo_vecchio()`, `errore_standard_pesato` (i pesi decrescenti), il calcolo con lo sconto
+dell'event study e `_somme_per_cella` con lo sconto. In `test_incertezza_lab.py` la sezione B
+confronta l'engine con il calcolo collaudato (le copie del test, come la D), con i criteri D4
+invariati e un controllo in più (B0: stesse promozioni per caso); A3 esce con `calcolo_vecchio()`;
+la sezione C usa una copia della formula di prima tenuta nel test. Lab su BTC (lab_btc e
+lab_btc_cella, copia dei dati) identico al bit a main, colonna `incertezza_blocchi` compresa.

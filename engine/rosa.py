@@ -359,7 +359,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         colonne += [f"scarto_globale_{unita}", "t_globale"]
     for u in extra:
         colonne += [f"scarto_{u}", f"t_{u}", f"due_meta_{u}"]
-    colonne += ["incertezza_blocchi"]   # 28/10/2026: la stima a blocchi (docs/75 §7); False con calcolo_vecchio()
+    colonne += ["incertezza_blocchi"]   # 28/10/2026: la stima a blocchi di una settimana (docs/75 §7)
     info = dict(q=q, rho_max=rho_max, H=H, scartate=scartate,
                 baseline=baseline, fuso=fuso if oraria else None, unita=unita)
     if not righe:

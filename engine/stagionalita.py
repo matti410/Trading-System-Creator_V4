@@ -232,56 +232,14 @@ def media_per_fascia(valori: np.ndarray, codici: np.ndarray, usa: np.ndarray) ->
     return media[codici]
 
 
-def errore_standard_pesato(u: np.ndarray, H: int) -> float:
-    """
-    Errore standard di una somma pesata di rendimenti a H barre su TUTTE le
-    barre, sum_j c_j r_j, con u_j = c_j * r_j (r = scarti dal modello). Due
-    barre a d < H barre di distanza condividono H - d candele su H: stessa
-    covarianza di engine/event_study._errore_standard_sovrapposti, qui con un
-    peso per barra (serve quando il riferimento e' la media della fascia,
-    stimata anch'essa sui dati).
-    """
-    u = np.nan_to_num(np.asarray(u, dtype=float))
-    tot = float((u ** 2).sum())
-    for d in range(1, min(int(H), u.size)):
-        tot += 2.0 * (1.0 - d / H) * float((u[d:] * u[:-d]).sum())
-    return float(np.sqrt(max(tot, 0.0)))
-
-
 # ========================================================================
 # L'incertezza dei rendimenti sovrapposti, una funzione sola (28/10/2026,
 # docs/75 §7): mappa, profilo, rosa, atlante ed event study
 # ========================================================================
-# Il calcolo di prima (errore_standard_pesato e i pesi decrescenti 1 - d/H)
-# contava due volte lo sconto delle barre vicine e sottostimava l'incertezza
-# dei trigger frequenti e a grappolo (docs/75 §1, collaudo PR #86). Resta solo
-# dentro calcolo_vecchio(), per le prove d'identita': si toglie nella PR dopo.
-
-_VECCHIO = False
-
-
-class calcolo_vecchio:
-    """
-    Solo per le prove d'identita' e i test: dentro `with calcolo_vecchio():`
-    profilo, rosa, atlante ed event study usano il calcolo di prima (con lo
-    sconto), e devono dare gli stessi numeri di prima al bit. La mappa no.
-    """
-
-    def __enter__(self):
-        global _VECCHIO
-        self._prima = _VECCHIO
-        _VECCHIO = True
-        return self
-
-    def __exit__(self, *exc):
-        global _VECCHIO
-        _VECCHIO = self._prima
-        return False
-
-
-def usa_calcolo_vecchio() -> bool:
-    """True solo dentro `calcolo_vecchio()`."""
-    return _VECCHIO
+# Il calcolo di prima del 28/10/2026 (i pesi decrescenti 1 - d/H) contava due
+# volte lo sconto delle barre vicine e sottostimava l'incertezza dei trigger
+# frequenti e a grappolo (docs/75 §1, collaudo PR #86); tolto dopo le prove
+# d'identita' della PR #87 (D5).
 
 
 def barre_settimana(index: pd.DatetimeIndex) -> int:
@@ -343,9 +301,7 @@ def errore_sovrapposti(u: np.ndarray, H: int, barre_settimana: int, pos=None,
 
 
 def _errore_lab(u: np.ndarray, H: int, barre_settimana: int | None) -> tuple[float, bool]:
-    """L'incertezza nei punti del Lab: il calcolo nuovo, o quello di prima dentro calcolo_vecchio()."""
-    if _VECCHIO:
-        return errore_standard_pesato(u, H), False
+    """L'incertezza nei punti del Lab (errore_sovrapposti), con barre_settimana obbligatorio per i blocchi."""
     se, blocchi = errore_sovrapposti(u, H, barre_settimana or 1)
     if blocchi and not barre_settimana:
         raise ValueError("Varianza zero o negativa: per i blocchi di una settimana serve barre_settimana.")
@@ -611,7 +567,7 @@ def profilo_orario(df_is: pd.DataFrame, H: int, pip: float, fuso: str = FUSO_PRE
     colonne = ["fascia", "barre", f"media_{unita}", f"scarto_{unita}", "incertezza", "t", "p", "bh", "due_meta"]
     if unita != "pips":
         colonne += ["media_pips", "scarto_pips"]
-    colonne += ["incertezza_blocchi"]   # 28/10/2026: la stima a blocchi (docs/75 §7); False con calcolo_vecchio()
+    colonne += ["incertezza_blocchi"]   # 28/10/2026: la stima a blocchi di una settimana (docs/75 §7)
     if len(tab):
         tab["bh"] = benjamini_hochberg(tab["p"].to_numpy(), q)
         tab = tab[colonne].sort_values("fascia").reset_index(drop=True)

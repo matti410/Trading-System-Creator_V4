@@ -226,8 +226,8 @@ def scarto_mappa(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray, pos: np.n
     Lo scarto medio delle barre `pos` dalla media della loro fascia di riferimento
     (verso long) e la sua incertezza: lo stesso modello di
     stagionalita.scarto_orario (pesi +1/n sulle barre della fascia, meno la quota
-    della media di riferimento su ogni barra), con errore_sovrapposti al posto di
-    errore_standard_pesato. Ritorna (scarto, errore, a_blocchi).
+    della media di riferimento su ogni barra), con la stessa errore_sovrapposti.
+    Ritorna (scarto, errore, a_blocchi).
     """
     b = media_per_fascia(fwd, codici, usa)
     scarto = float(np.mean(fwd[pos] - b[pos]))
