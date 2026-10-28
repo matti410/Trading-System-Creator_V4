@@ -1,7 +1,7 @@
 # 76 · Incarico: chiudere i problemi aperti di `00`
 
 **Data:** 28 ottobre 2026
-**Stato:** PR 1 (A1, A2, A3) in revisione, PR #89; PR 2 (B1–B4) da fare.
+**Stato:** PR 1 (A1, A2, A3) unita (PR #89); PR 2 (B1–B4) in revisione.
 **Da dove nasce:** la tabella «Problemi aperti» di `00`, dopo la PR #88.
 
 ---
@@ -134,3 +134,27 @@ Ogni voce ha `visto_il` e `fonte: "A3, docs/76"`. Tutte le chiavi sono a H 25, s
 
   La riga 5 di A3 (558, elenco del 22-23/10) è una terza chiave, contata a parte perché quell'elenco non si ricostruisce con certezza.
 - **L'out-of-sample «fresco»:** vale per tutto lo studio. Parte dopo il 25/10/2026 21:00 (9 aperture nel diario di BTC), quindi copre già il 29/09/2025 (ETH spot) e il 19/10/2025 (SOL perp). Non serve nessuna annotazione nel diario.
+
+## 4 · PR 2: le schermate e Colab (B1–B4, 28/10/2026)
+
+**Cosa cambia:**
+- **B1** (`engine/vetrina.py`, `scheda`): con una situazione scelta alla 3d e il campo del filtro vuoto, la 6 prova il segnale dentro la situazione, cioè il nome `CELLA_…` della 5, e lo dice in una nota. Senza situazione tutto come prima. Cambiano di conseguenza il «Cosa fare adesso» della 5 e la riga d'aiuto del campo filtro nel Lab. Il conto non cambia: la situazione è già contata alla 3c e un filtro solo non fa combinazioni. Cambia solo la voce dell'out-of-sample nel diario, che ora ha «filtri: CELLA_…».
+- **B2** (schermata 4): la riga delle uscite nomina solo i lati accesi (niente «short dopo 41 barre» con lo short spento).
+- **B3** (schermata 4): «Confronta le tre righe» solo se la tabella ha più di una riga.
+- **B4**: nei quattro notebook che girano su Colab (Lab, ricerca, mappa, collaudo del catalogo):
+  - il repo pubblico si clona senza token;
+  - il secret `GITHUB_TOKEN` si legge solo se quel clone non riesce;
+  - nel messaggio d'errore il token resta coperto.
+
+  Provato il clone pubblico senza credenziali: riuscito. Nella ricerca il clone è ora `--depth 1`, come negli altri.
+
+**Collaudo:**
+- `test_atlante.py`, controlli nuovi:
+  - 34b: con la situazione, la 6 a filtro vuoto dà la stessa scheda del nome `CELLA_…` scritto a mano;
+  - 34c: senza situazione, sistema base; con il solo long, niente riga dello short e niente «tre righe»;
+  - 37b: con long e short, le due righe ci sono.
+- Le quattro celle di clone compilano. **Suite completa 47/47** (19,7 minuti).
+- Dati veri, su una copia dello studio, con chiavi già contate:
+  - Lab BINANCE_PERP_BTCUSDT senza situazione, main contro il ramo: 307 oggetti su 309 identici al bit; i 2 diversi sono la cartella temporanea. Le 10 righe delle prove sono identiche.
+  - Ricerca BINANCE_PERP_BTCUSDT: 833 oggetti su 833 identici, nessuna voce nuova (le chiavi sono già contate con A3).
+- **Non fatta:** la prova sui dati veri con una situazione scelta. Nello studio non c'è nessuna chiave di uscite con una situazione: la prova ne creerebbe una nuova e aprirebbe l'out-of-sample. Su una copia non è ammessa, sullo studio vero tocca il conto: si fa solo con il via di Mattia.

@@ -191,14 +191,14 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 | rosa, atlante e 2c usano l'incertezza di `scarto_orario` con lo sconto (pesi decrescenti) sui rendimenti sovrapposti: può sottostimarla per i trigger con ingressi vicini e orizzonti lunghi (vedi collaudo della mappa del 28/10) | risolto (docs/75, PR della correzione, 28/10): un calcolo solo, quello della mappa |
 | il notebook di ricerca non scrive le sue prove nel giornale dello studio (solo l'ingresso del dataset, l'orizzonte e le aperture dell'out-of-sample): quello che misura non entra nel conto. Esempio: la prova su BYBIT_SPOT_ETHUSDT del 25/10 (66 trigger) non è nel conto | risolto per le prove nuove (docs/76, PR 1, 28/10): la ricerca scrive le stesse voci del Lab, con le stesse chiavi; per ogni chiave vale il numero più alto. Le prove passate (A3) scritte nello studio il 28/10, approvate da Mattia (docs/76 §3) |
 | sullo spot il notebook di ricerca misura anche i trigger short e il Lab no: le chiavi dei due notebook (trigger e celle) non combaciano | risolto (docs/76, PR 1, 28/10): sullo spot la ricerca misura solo i long, gli stessi trigger del Lab |
-| strada B: con il filtro vuoto la schermata 6 prova il segnale da solo con le uscite costruite sul segnale dentro la situazione; proposta da decidere: con una situazione scelta il predefinito della 6 diventa il segnale dentro la situazione | prossimo lavoro (Mattia, 26/10) |
+| strada B: con il filtro vuoto la schermata 6 prova il segnale da solo con le uscite costruite sul segnale dentro la situazione; proposta da decidere: con una situazione scelta il predefinito della 6 diventa il segnale dentro la situazione | risolto (docs/76, PR 2, 28/10): con una situazione il filtro vuoto alla 6 è il segnale dentro la situazione |
 | stop e target non attivi sulla barra d'ingresso | risolto (PR #49) |
 | `ExitSearchBT.top()` ordina per `sharpe`: va ordinato per il t nell'unità che decide | risolto (PR #51) |
 | `vwap_ops.py` taglia la giornata a mezzanotte UTC: sulle crypto coincide con la giornata, sul broker (sospeso) no | da decidere se si riapre il broker |
-| il notebook di ricerca su Colab chiede il secret `GITHUB_TOKEN` | non bloccante |
+| il notebook di ricerca su Colab chiede il secret `GITHUB_TOKEN` | risolto (docs/76, PR 2, 28/10): i quattro notebook clonano il repo pubblico, il token solo se serve |
 | interruttore sulla curva dei profitti | rimandato da Mattia |
-| schermata 4: la tabella dice «short dopo 41 barre» anche con lo short spento | prossimo lavoro (Mattia, 26/10) |
-| schermata 4: «confronta le tre righe» anche quando la tabella ne ha una sola | prossimo lavoro (Mattia, 26/10) |
+| schermata 4: la tabella dice «short dopo 41 barre» anche con lo short spento | risolto (docs/76, PR 2, 28/10) |
+| schermata 4: «confronta le tre righe» anche quando la tabella ne ha una sola | risolto (docs/76, PR 2, 28/10) |
 
 ## Convenzioni di lavoro
 

@@ -2660,11 +2660,12 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
 
         def regola_txt(r):
             return f"regola {r}" if r and r != reg.NESSUNA else "nessuna regola"
-        _nota(f"Uscite per lato · long: dopo {bl} barre, stop {soglia(sl_l)}, target {soglia(tp_l)}, "
-              f"{regola_txt(rl)} · short: dopo {bs} barre, stop {soglia(sl_s)}, target {soglia(tp_s)}, "
-              f"{regola_txt(rs)} · chiusura e inversione sul segnale opposto.")
+        # 28/10/2026 (docs/76, B2): solo i lati accesi
+        lati = ([f"long: dopo {bl} barre, stop {soglia(sl_l)}, target {soglia(tp_l)}, {regola_txt(rl)}"] if el else [])             + ([f"short: dopo {bs} barre, stop {soglia(sl_s)}, target {soglia(tp_s)}, {regola_txt(rs)}"] if es_ else [])
+        _nota("Uscite per lato · " + " · ".join(lati) + " · chiusura e inversione sul segnale opposto.")
     else:
-        _nota(f"Uscita a tempo: long dopo {bl} barre, short dopo {bs} barre · "
+        tempo = ", ".join(([f"long dopo {bl} barre"] if el else []) + ([f"short dopo {bs} barre"] if es_ else []))
+        _nota(f"Uscita a tempo: {tempo} · "
               f"stop {soglia(sl)} · target {soglia(tp)} · chiusura e inversione sul segnale opposto"
               + (f" · regola di uscita {regola_uscita}." if regola_uscita else "."))
     riga = _durate_orarie(s, bl, bs, "barre impostate")
@@ -2709,8 +2710,9 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
         "nelle barre successive, e mette lo stop alla distanza che è stata superata solo poche volte "
         "(90° percentile = 1 volta su 10). Mercato agitato, stop più largo; mercato calmo, stop più stretto.",
         "Il guadagno medio netto per trade deve restare sopra zero dopo i costi, e la curva deve salire con "
-        "una certa regolarità, non per un solo periodo fortunato. Confronta le tre righe: a volte un lato "
-        "da solo rende meglio dei due insieme.",
+        "una certa regolarità, non per un solo periodo fortunato."
+        # 28/10/2026 (docs/76, B3): solo se le righe sono piu' di una
+        + (" Confronta le tre righe: a volte un lato da solo rende meglio dei due insieme." if len(r) > 1 else ""),
         "Se vuoi, cambia barre o percentili e riesegui la cella: ogni impostazione nuova conta come le altre "
         "(la riga delle prove qui sotto lo dice subito). Poi vai alla 4b per scegliere il sistema da portare al "
         "passo 5.")
@@ -3099,19 +3101,18 @@ def _grafico_filtri(s: Sessione, filtri: list, promossi: list) -> None:
 def _adesso_strada_b(s: Sessione, righe_cella: list) -> str:
     """
     «Cosa fare adesso» della schermata 5 con una situazione scelta (26/10/2026, revisione di Mattia).
-    Quello che succede davvero alla 6: con il filtro vuoto la scheda usa le entry del passo 5
-    (s.fs.entry_long / entry_short, il segnale SENZA la situazione) con le uscite della 4, costruite
-    sul segnale dentro la situazione; con il nome CELLA_… nel filtro, il segnale dentro la situazione.
+    Quello che succede davvero alla 6: dal 28/10/2026 (docs/76, B1) con il filtro vuoto la scheda prova
+    il segnale dentro la situazione (il nome CELLA_… della 5), coerente con le uscite della 4, costruite
+    cosi'; prima provava il segnale da solo.
     """
     nome = righe_cella[0] if righe_cella else "il nome CELLA_… della tabella"
     regge = bool(righe_cella) and righe_cella[0] in s.sopravvissuti
     return (("La situazione regge le due prove. " if regge else
              "La situazione non ha superato le due prove: lo strumento non te la consiglia, ma puoi portarla lo "
              "stesso alla scheda. ")
-            + f"Per provare alla schermata 6 il segnale dentro la situazione scrivi {nome} nel campo del filtro. Se "
-            "lasci vuoto il filtro, la schermata 6 prova il segnale da solo, senza la situazione, con le uscite che "
-            "la schermata 4 ha costruito sul segnale dentro la situazione. Per provare i filtri del catalogo, torna "
-            "alla 3d e lascia vuota la situazione.")
+            + f"Alla schermata 6, con il campo del filtro vuoto, si prova il segnale dentro la situazione ({nome}), "
+            "con le uscite che la schermata 4 ha costruito proprio così. Per provare il segnale da solo o i filtri "
+            "del catalogo, torna alla 3d e lascia vuota la situazione.")
 
 
 def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
@@ -3818,13 +3819,20 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
 
     filtro   il nome di un filtro della classifica, oppure piu' nomi separati
              da virgola (o una lista): si entra solo dove sono veri TUTTI.
-             None o vuoto = sistema base.
+             None o vuoto = sistema base; con una situazione scelta alla 3d
+             (strada B) = il segnale dentro la situazione (28/10/2026, docs/76, B1).
 
     Con piu' filtri mostra anche la tabella dei passi (base, + primo filtro,
     + secondo ...). Ritorna la tabella della scheda.
     """
     s._serve("fs", "5 · Trova la strategia")
     scelti = _lista_filtri(s, filtro)
+    if not scelti and _strada_b(s):
+        # 28/10/2026 (docs/76, B1): con una situazione scelta il predefinito e' il segnale dentro la situazione,
+        # coerente con le uscite della 4 (costruite cosi'); prima era il segnale da solo
+        scelti = [f for f in s.fs.risultati["filtro"] if str(f).startswith("CELLA_")][:1]
+        if scelti:
+            _nota(f"Filtro vuoto con una situazione scelta: si prova il segnale dentro la situazione ({scelti[0]}).")
     ultimo = scelti[-1] if scelti else None
     kw = _kw_motore(s)
     kw["margin"] = 1.0
