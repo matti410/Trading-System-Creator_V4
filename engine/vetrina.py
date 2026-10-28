@@ -1596,6 +1596,96 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
 
 
 # ========================================================================
+# 2b · La mappa delle anomalie (28/10/2026, docs/73 §B.5), in sola lettura
+# ========================================================================
+
+def _quando_locale(t) -> str:
+    return pd.Timestamp(t).tz_convert("Europe/Rome").strftime("%d/%m/%Y %H:%M")
+
+
+def _attese_in_chiaro(attese: dict) -> str:
+    return " · ".join(f"{f} → {'sopra il mercato (long)' if v > 0 else 'sotto il mercato (short)'}"
+                      for f, v in attese.items())
+
+
+def esiti_mappa_ultimi(esiti: list) -> list[dict]:
+    """L'esito piu' recente di ogni scheda (id, versione, orizzonte), nell'ordine della prima misura."""
+    ultimi = {}
+    for e in esiti:
+        ultimi[(e["scheda"], int(e["versione"]), float(e["orizzonte_ore"]))] = e
+    return list(ultimi.values())
+
+
+def tabella_mappa(esiti: list, prove: dict | None) -> pd.DataFrame:
+    """
+    Le schede della mappa misurate su un dataset (la tabella di docs/73 §B.5):
+    l'ultimo esito di ognuna dal file della mappa, le fasce contate dal registro.
+    La usano la 2b del Lab e il riepilogo del notebook della mappa.
+    """
+    from .ipotesi import SCHEDE
+    contate = (prove or {}).get("mappa", {}) or {}
+    righe = []
+    for e in esiti_mappa_ultimi(esiti):
+        sch = SCHEDE.get(e["scheda"])
+        n = contate.get((e["scheda"], int(e["versione"]), float(e["orizzonte_ore"])))
+        righe.append({
+            "Scheda": f"{e['scheda']} · {e['titolo']} (versione {e['versione']})",
+            "Meccanismo": sch.meccanismo if sch is not None and sch.versione == int(e["versione"]) else "",
+            "Fascia attesa e segno": _attese_in_chiaro(e["attese"]),
+            "Orizzonte (ore)": _fmt(float(e["orizzonte_ore"]), 0),
+            "Esito": e["verdetto"],
+            "Misurata il": _quando_locale(e["quando"]),
+            "Fasce contate": _fmt(int(n)) if n is not None else "alla prossima schermata 1",
+            "TradingView": e["portabilita"],
+            "Trigger nato": "—",
+        })
+    return pd.DataFrame(righe, columns=["Scheda", "Meccanismo", "Fascia attesa e segno", "Orizzonte (ore)", "Esito",
+                                        "Misurata il", "Fasce contate", "TradingView", "Trigger nato"])
+
+
+def mappa_del_dataset(s: Sessione) -> pd.DataFrame:
+    """
+    Schermata 2b (28/10/2026, docs/73 §B.5): le schede della mappa delle anomalie
+    misurate su questo dataset, IN SOLA LETTURA. Legge solo i file
+    studio/<dataset>/mappa_*.jsonl: non misura, non scrive, non cambia s.prove.
+    Le fasce della mappa sono gia' nel conto del dataset dalla schermata 1 (il
+    registro si ricostruisce dai giornali); una scheda misurata dopo entra nel
+    conto alla prossima schermata 1. Ritorna la tabella (anche in s.tabelle["mappa"]).
+    """
+    s._serve("df_is", "1 · Configura")
+    storia = getattr(s, "storia", None)
+    if not _nel_studio(storia):
+        _nota("La mappa delle anomalie vive nello studio: con un confine di collaudo non c'è niente da mostrare.")
+        tab = tabella_mappa([], None)
+        s.tabelle["mappa"] = tab
+        _riga_prove(s, "nessuna")
+        return tab
+    ctx = _CONTESTO_STUDIO[storia.chiave]
+    esiti = _st.leggi_esiti_mappa(ctx["cartella"], ctx["dataset"], ctx["studio"]["id"])
+    tab = tabella_mappa(esiti, s.prove)
+    s.tabelle["mappa"] = tab
+    if tab.empty:
+        _nota(f"Nessuna scheda della mappa misurata su questo dataset ({ctx['dataset']}). Le schede si misurano "
+              "nel notebook Mappa_Anomalie_Crypto.ipynb.")
+    else:
+        _mostra((f"Le schede della mappa misurate su {ctx['dataset']} (in-sample dello studio)", tab))
+        if (tab["Fasce contate"] == "alla prossima schermata 1").any():
+            _nota("Alcune schede sono state misurate dopo la schermata 1 di questa sessione: le loro fasce entrano "
+                  "nel conto quando riesegui la schermata 1.")
+    _riquadro(
+        "Le ipotesi della mappa delle anomalie misurate su questo dataset. Ogni scheda è stata scritta e approvata "
+        "prima di guardare i dati: dice in quale fascia di una variabile il prezzo dovrebbe fare meglio o peggio "
+        "del mercato, e in quale verso. Si misurano nel notebook della mappa; qui le leggi soltanto.",
+        "«Risponde nel verso atteso» vuol dire che la fascia attesa supera gli stessi controlli della rosa (quota "
+        "di falsi positivi, due metà, minimi). Non è ancora un trigger: dice dove guardare. «Segno opposto» non "
+        "conta come scoperta. Ogni fascia misurata è una prova in più nel conto di questo dataset.",
+        "Una scheda che risponde diventa un trigger con il processo degli articoli (scheda, via libera, codice): "
+        "la colonna «Trigger nato» lo dirà. Vai alla 2c.")
+    _riga_prove(s, "nessuna (le fasce della mappa sono già nel conto del dataset)")
+    return tab
+
+
+# ========================================================================
 # 3 · Scegli i trigger
 # ========================================================================
 
@@ -3336,7 +3426,7 @@ def _chiave_filtri(s: Sessione) -> tuple:
 
 def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: list, t: float,
                      schermate: bool, alpha: float = ALPHA, celle: list = (), rimisura: bool = False,
-                     fasce: int = 0, orizzonti=None) -> dict:
+                     fasce: int = 0, orizzonti=None, mappa: int = 0) -> dict:
     """
     La soglia di Sidak (giudizio.soglia_rumore) sul totale delle prove della
     catena, e la frase da mostrare sotto la scheda. Solo informativa.
@@ -3356,11 +3446,13 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
                    e' gia' fra le celle, la frase lo dice
     fasce          23/10/2026: con un trigger a orario, le fasce del profilo orario (una
                    volta sola: scegliere un'ora e' scegliere fra tutte le fasce)
+    mappa          28/10/2026 (docs/73 §B.4): le fasce della mappa delle anomalie contate
+                   nello studio per questo dataset (fasce_mappa). 0 = il conto di prima
     """
     u, f, c, ce = int(sum(uscite)), int(sum(filtri)), int(sum(combinazioni)), int(sum(celle))
     h = sorted({int(x) for x in (orizzonti or [])})
     voce_trigger = prove_trigger_orizzonti(trigger, h, alpha) if len(h) > 1 else int(trigger)
-    k = voce_trigger + int(fasce) + ce + u + f + c
+    k = voce_trigger + int(fasce) + int(mappa) + ce + u + f + c
     if float(k).is_integer():
         k = int(k)
     soglia = _soglia_sidak(k, alpha) if k else np.nan
@@ -3371,10 +3463,14 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
     if len(h) > 1:
         parti = [f"{int(trigger)} trigger misurati con {len(h)} orizzonti provati sullo stesso dataset "
                  f"(H = {', '.join(str(x) for x in h)}), che valgono {_fmt(voce_trigger, 1)} prove{dove('2c')}"]
-    else:
+    elif trigger or not mappa:
         parti = [f"{int(trigger)} trigger misurati{dove('2c')}"]
+    else:
+        parti = []          # 28/10/2026: solo le fasce della mappa (il notebook della mappa), niente «0 trigger»
     if fasce:
         parti.append(f"{int(fasce)} fasce del profilo orario (trigger a orario){dove('2a')}")
+    if mappa:
+        parti.append(f"{int(mappa)} fasce della mappa delle anomalie{dove('2b')}")
     if celle:
         # 26/10/2026 (docs/73, D2): «situazioni» nei testi, «celle» nel codice
         parti.append(f"{ce} situazioni dell'atlante" + (f" in {len(celle)} atlanti" if len(celle) > 1 else "")
@@ -3401,7 +3497,7 @@ def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: lis
               "Non cambia nessun controllo.")
     return {"trigger": int(trigger), "uscite": u, "ricerche_uscite": len(uscite), "filtri": f,
             "ricerche_filtri": len(filtri), "combinazioni": c, "celle": ce, "atlanti": len(celle),
-            "fasce": int(fasce), "k": k, "soglia": soglia, "alpha": alpha, "t": t, "frase": frase,
+            "fasce": int(fasce), "mappa": int(mappa), "k": k, "soglia": soglia, "alpha": alpha, "t": t, "frase": frase,
             "orizzonti": h, "voce_trigger": voce_trigger}
 
 
@@ -3432,7 +3528,7 @@ def _lista(x) -> list:
 
 
 def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float = np.nan,
-                    alpha: float = ALPHA, atlante=None, fasce: int = 0, orizzonti=None) -> dict:
+                    alpha: float = ALPHA, atlante=None, fasce: int = 0, orizzonti=None, mappa: int = 0) -> dict:
     """
     La soglia cumulata per il notebook di ricerca (22/10/2026), con gli
     stessi conti del Lab:
@@ -3454,6 +3550,8 @@ def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float =
         orizzonti      25/10/2026 (docs/68 §9.1): gli H provati sullo stesso dataset
                        (registro_orizzonte(...).h_provati); con piu' di uno la voce dei
                        trigger conta la scelta fra quegli H
+        mappa          28/10/2026 (docs/73 §B.4): le fasce della mappa delle anomalie
+                       contate nello studio per il dataset, fasce_mappa(STORIA)
 
     Lo stesso oggetto passato due volte conta una volta sola (la stessa
     ricerca rieseguita non e' una prova in piu'). Solo informativa: non
@@ -3469,7 +3567,19 @@ def soglia_cumulata(ev=None, es=None, fs=None, combinazioni: int = 0, t: float =
     return _soglia_da_conti(trigger, uscite, filtri, [int(combinazioni)] if combinazioni else [],
                             float(t), schermate=False, alpha=alpha, celle=celle,
                             rimisura=any(getattr(f, "rimisura", False) for f in ricerche),
-                            fasce=int(fasce), orizzonti=orizzonti)
+                            fasce=int(fasce), orizzonti=orizzonti, mappa=int(mappa))
+
+
+def fasce_mappa(storia_o_prove) -> int:
+    """
+    Le fasce della mappa delle anomalie nel conto del dataset (28/10/2026, docs/73
+    §B.4): la somma delle voci «prova» con dove = "mappa" che il registro ha letto
+    dai giornali dello studio, una per scheda, versione e orizzonte. Accetta la
+    storia del dataset (registro_orizzonte, s.storia) o il suo dizionario delle prove.
+    """
+    prove = getattr(storia_o_prove, "prove", storia_o_prove) or {}
+    voci = prove.get("mappa", {})
+    return int(sum(int(n) for n in voci.values())) if isinstance(voci, dict) else int(voci or 0)
 
 
 def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
@@ -3481,7 +3591,7 @@ def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
                             celle=list(p.get("celle", {}).values()),
                             rimisura=bool(getattr(s, "fs", None) is not None and getattr(s.fs, "rimisura", False)),
                             fasce=int(p.get("fasce", 0)),
-                            orizzonti=storia.h_provati if storia is not None else None)
+                            orizzonti=storia.h_provati if storia is not None else None, mappa=fasce_mappa(p))
 
 
 def _riga_prove(s: Sessione, qui: str) -> dict:
@@ -3496,6 +3606,7 @@ def _riga_prove(s: Sessione, qui: str) -> dict:
     k = conti["k"]
     k_testo = _fmt(k, 1) if isinstance(k, float) else _fmt(k)
     voci = [(("trigger", "trigger"), conti["voce_trigger"]), (("fascia oraria", "fasce orarie"), conti["fasce"]),
+            (("fascia della mappa", "fasce della mappa"), conti["mappa"]),
             (("situazione", "situazioni"), conti["celle"]), (("sistema", "sistemi"), conti["uscite"]),
             (("filtro", "filtri"), conti["filtri"]), (("combinazione", "combinazioni"), conti["combinazioni"])]
     dettaglio = ", ".join(f"{_fmt(v, 1) if isinstance(v, float) and not float(v).is_integer() else _fmt(int(v))} "

@@ -11,6 +11,10 @@ file degli esiti in engine/studio.py, su dati sintetici a risultato noto.
         data), funding e spot tagliati al confine; orizzonti non interi
     D · il conto (M01 2 + 96, M07 5 + 5), i doppioni M04/M05, lo studio
     E · le schede approvate coincidono con docs/74
+    F · (28/10/2026, PR B2) il notebook della mappa (engine/vetrina_mappa.py) su
+        file sintetici in una cartella temporanea: non apre lo studio, non scrive
+        H, scrive conto ed esito; le fasce degeneri e M06; la 2b del Lab in sola
+        lettura; la soglia con mappa = 0 identica a prima
 
 Si lancia da terminale, dalla cartella del progetto:
 
@@ -60,6 +64,152 @@ def _drift(n, pos, quanto, h):
     for p in pos:
         extra[p + 1: p + 1 + h] += quanto
     return extra
+
+
+def _scrivi_dataset(cartella, symbol, mercato_, funding_costante=0.0, seme_funding=5):
+    """Il CSV del perpetual, quello dello spot della stessa coppia e il funding (00/08/16 UTC), in `cartella`."""
+    import os
+    df = mercato_.df()
+    X.salva_csv(df, os.path.join(cartella, f"{symbol}_M15.csv"))
+    spot = df.copy()
+    for c in ("Open", "High", "Low", "Close"):
+        spot[c] = df[c] * (1 - mercato_.basis)
+    X.salva_csv(spot, os.path.join(cartella, symbol.replace("_PERP_", "_SPOT_") + "_M15.csv"))
+    ore = pd.date_range(df.index[0].floor("8h"), df.index[-1] + pd.Timedelta(hours=8), freq="8h")
+    tasso = np.random.default_rng(seme_funding).normal(1e-4, 1e-4, len(ore))
+    if funding_costante:
+        tasso[np.random.default_rng(seme_funding + 1).random(len(ore)) < funding_costante] = 1e-4
+    X.salva_funding(pd.DataFrame({"tasso": tasso}, index=ore), X.file_funding(symbol, cartella))
+    return df
+
+
+def _righe(percorso) -> int:
+    from pathlib import Path
+    p = Path(percorso)
+    return sum(1 for r in p.read_text(encoding="utf-8").splitlines() if r.strip()) if p.exists() else 0
+
+
+def sezione_f(check) -> None:
+    """La parte B2: engine/vetrina_mappa.py (le schermate del notebook), la 2b del Lab, il parametro mappa= della soglia."""
+    import contextlib
+    import copy
+    import io
+    import os
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from engine import vetrina as vt
+    from engine import vetrina_mappa as vm
+
+    def zitto(f, *a, **k):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            out = f(*a, **k)
+        plt.close("all")
+        return out, buf.getvalue()
+
+    BTC, ETH = "BINANCE_PERP_BTCUSDT", "BINANCE_PERP_ETHUSDT"
+    idx = _indice("2022-01-03", giorni=730)
+    with tempfile.TemporaryDirectory() as tmp:
+        _scrivi_dataset(tmp, BTC, Mercato(idx, seme=11))
+        _scrivi_dataset(tmp, ETH, Mercato(idx, seme=12), funding_costante=0.6)
+        try:
+            zitto(vm.apri_mappa, BTC, "M15", tmp, macchina="pc")
+            rifiuta = False
+        except RuntimeError as e:
+            rifiuta = "Lo studio non è ancora aperto" in str(e)
+        d = vt.apri_dati(BTC, "M15", tmp, confine="studio", macchina="pc")
+        vt.dividi_dati(d, d.df)                                   # apre lo studio, come la schermata 1 del Lab
+        giornale = os.path.join(tmp, "studio", f"{BTC}_M15", "giornale_pc.jsonl")
+        m, _ = zitto(vm.apri_mappa, BTC, "M15", tmp, macchina="pc")
+        check("F1. il notebook della mappa non apre lo studio (lo apre il Lab) e quando entra non scrive nessun H: "
+              "il giornale resta vuoto, gli orizzonti provati del Lab non cambiano",
+              rifiuta and _righe(giornale) == 0 and m.storia.h_provati == [] and vt.fasce_mappa(m.storia) == 0
+              and m.df_is.index[-1] < m.ingresso.confine)
+
+        tab7, _ = zitto(vm.mappa_di_una_scheda, m, "M07")
+        righe_1 = _righe(giornale)
+        tab7b, _ = zitto(vm.mappa_di_una_scheda, m, "m07")
+        esiti = st.leggi_esiti_mappa(tmp, f"{BTC}_M15", m.ingresso.studio["id"])
+        check("F2. una scheda misurata nel notebook: il conto nel giornale (voce prova, dove = mappa) e l'esito nel "
+              "file della mappa; rimisurarla non scrive prove, l'esito si aggiunge",
+              tab7 is not None and righe_1 == 1 and _righe(giornale) == 1 and len(esiti) == 2
+              and m.prove["mappa"] == {("M07", 1, 4.0): tab7.attrs["conto"]}
+              and vt.fasce_mappa(m.storia) == tab7.attrs["conto"] and tab7b.attrs["conto"] == tab7.attrs["conto"])
+
+        m_eth, _ = zitto(vm.apri_mappa, ETH, "M15", tmp, macchina="pc")
+        giornale_eth = os.path.join(tmp, "studio", f"{ETH}_M15", "giornale_pc.jsonl")
+        tab4, testo4 = zitto(vm.mappa_di_una_scheda, m_eth, "M04")
+        check("F3. M04 con il funding fermo al livello di base per il 60% dei pagamenti: si ferma prima di misurare, "
+              "dice le quote delle fasce, non scrive niente (né conto né esito)",
+              tab4 is None and "non sono quintili veri" in testo4 and "Q1 " in testo4 and _righe(giornale_eth) == 0
+              and st.leggi_esiti_mappa(tmp, f"{ETH}_M15", m_eth.ingresso.studio["id"]) == [])
+
+        tab6, testo6 = zitto(vm.mappa_di_una_scheda, m_eth, "M06")
+        btc_usato = m_eth.btc[BTC]
+        no_btc, testo_no = zitto(vm.mappa_di_una_scheda, m, "M06")
+        check("F4. M06 su ETH: BTC dello stesso exchange e mercato, tagliato all'ultima barra dell'in-sample; su BTC "
+              "non si misura e lo dice",
+              tab6 is not None and len(tab6) == 5 and btc_usato.index[-1] <= m_eth.df_is.index[-1]
+              and no_btc is None and "non si misura su BTC" in testo_no)
+
+        tutte, _ = zitto(vm.tutte_le_schede, m)
+        di_nuovo, testo_dn = zitto(vm.tutte_le_schede, m)
+        conti = {k: (v.attrs["conto"] if isinstance(v, pd.DataFrame) else 0) for k, v in tutte.items()}
+        bozze, _ = zitto(vm.dalla_fascia_al_trigger, m)
+        riep, _ = zitto(vm.riepilogo_mappa, m)
+        check("F5. la 4 misura le schede che mancano su BTC perp (M01, M04, M05: M07 è già fatta, M06 non si misura "
+              "qui), con i controlli prima; rieseguita non misura niente; la 5 e la 6 girano",
+              set(tutte) == {"M01", "M04", "M05"} and di_nuovo == {} and "già state misurate" in testo_dn
+              and vt.fasce_mappa(m.storia) == tab7.attrs["conto"] + sum(conti.values())
+              and isinstance(bozze, list) and len(riep) == 4)
+
+        s = vt.Sessione()
+        s.symbol, s.cartella, s.timeframe = BTC, tmp, "M15"
+        dl = vt.apri_dati(BTC, "M15", tmp, confine="studio", macchina="pc")
+        s.df_is, _ = vt.dividi_dati(dl, dl.df)
+        s.storia, _, _ = vt._storia_dello_studio(dl, 41, lambda: s.prove)
+        s.prove = s.storia.prove
+        prima, righe_prima = copy.deepcopy(s.prove), _righe(giornale)
+        tab_2b, _ = zitto(vt.mappa_del_dataset, s)
+        soglia = vt._soglia_cumulata_lab(s, np.nan)
+        contate = dict(zip(tab_2b["Scheda"].str[:3], tab_2b["Fasce contate"]))
+        check("F6. la 2b del Lab, in sola lettura: mostra le schede di mappa_*.jsonl con le fasce contate, non cambia "
+              "s.prove e non scrive nel giornale; la voce scritta dalla mappa si ritrova nella soglia del Lab",
+              s.prove == prima and _righe(giornale) == righe_prima and len(tab_2b) == 4
+              and contate["M07"] == vt._fmt(tab7.attrs["conto"])
+              and soglia["mappa"] == vt.fasce_mappa(m.storia)
+              and "fasce della mappa delle anomalie (schermata 2b)" in soglia["frase"]
+              and "fasce della mappa" in s.tabelle["riga_prove"])
+
+        s_eth = vt.Sessione()
+        de = vt.apri_dati(ETH, "M15", tmp, confine="studio", macchina="pc")
+        s_eth.df_is, _ = vt.dividi_dati(de, de.df)
+        s_eth.storia, _, _ = vt._storia_dello_studio(de, 41, lambda: s_eth.prove)
+        s_eth.prove = s_eth.storia.prove
+        _, testo_vuoto = zitto(vt.mappa_del_dataset, s_eth)
+        st.aggiungi_esito_mappa(tmp, f"{ETH}_M15", "colab", m_eth.ingresso.studio["id"],
+                                mp.esito_da_salvare(SCHEDE["M07"], tab7, "M15"))
+        tab_dopo, testo_dopo = zitto(vt.mappa_del_dataset, s_eth)
+        check("F7. la 2b su un dataset con solo M06: una scheda misurata dopo la schermata 1 (anche da un'altra "
+              "macchina) compare, e la 2b dice che entra nel conto alla prossima schermata 1",
+              "M06" in testo_vuoto and len(tab_dopo) == 2
+              and (tab_dopo["Fasce contate"] == "alla prossima schermata 1").sum() == 1
+              and "riesegui la schermata 1" in testo_dopo)
+
+    a = vt._soglia_da_conti(4, [3], [10], [], np.nan, schermate=True)
+    b = vt._soglia_da_conti(4, [3], [10], [], np.nan, schermate=True, mappa=0)
+    c = vt._soglia_da_conti(4, [3], [10], [], np.nan, schermate=True, mappa=7)
+    r0, r7 = vt.soglia_cumulata(), vt.soglia_cumulata(mappa=7)
+    check("F8. la soglia: con mappa = 0 tutto identico a prima (k, soglia, frase); con 7 fasce k sale di 7 e la "
+          "frase le elenca; lo stesso nel notebook di ricerca (soglia_cumulata)",
+          a["frase"] == b["frase"] and a["k"] == b["k"] == 17 and a["soglia"] == b["soglia"]
+          and c["k"] == 24 and "7 fasce della mappa delle anomalie (schermata 2b)" in c["frase"]
+          and r0["k"] == 0 and r7["k"] == 7 and "(schermata" not in r7["frase"]
+          and vt.fasce_mappa({"mappa": {("M07", 1, 4.0): 10, ("M01", 1, 1.0): 98}}) == 108
+          and vt.fasce_mappa({"trigger": 3}) == 0)
+    rd.azzera()
 
 
 def esegui() -> int:
@@ -346,6 +496,10 @@ def esegui() -> int:
           and SCHEDE["M06"].escludi_monete == ("BTC",) and SCHEDE["M06"].variabile == "scarto_btc_1h"
           and SCHEDE["M01"].mercati == ("PERP",) and SCHEDE["M05"].serve == ("spot",)
           and SCHEDE["M07"].attese == {"Q5": -1, "Q1": 1} and SCHEDE["M06"].attese == {"Q5": 1, "Q1": -1})
+
+    # =================================================================== F ==
+    print("\nF · IL NOTEBOOK DELLA MAPPA, LA 2b DEL LAB, LA SOGLIA (PR B2)\n" + "-" * 70)
+    sezione_f(check)
 
     tot, ok = len(ESITI), sum(ESITI)
     print("\n" + "=" * 70)
