@@ -87,8 +87,7 @@ import pandas as pd
 from .registry import get_entry, get_entry_direction, list_entries, get_filter
 from .giudizio import soglia_rumore_orizzonte
 from .quarantena_trade import maschera_segnali_puliti
-from .stagionalita import (barre_settimana, errore_sovrapposti, fasce_orarie, media_per_fascia,
-                          usa_calcolo_vecchio)
+from .stagionalita import barre_settimana, errore_sovrapposti, fasce_orarie, media_per_fascia
 
 
 # ========================================================================
@@ -134,9 +133,6 @@ def _errore_standard_sovrapposti(v: np.ndarray, pos: np.ndarray, k: int, settima
     v    rendimenti a k barre dei trigger validi, nell'ordine delle posizioni
     pos  posizioni (indici di barra) degli stessi trigger, crescenti
     """
-    if usa_calcolo_vecchio():
-        se = _errore_standard_sovrapposti_vecchio(v, pos, k)
-        return (se, False) if con_blocchi else se
     n_v = v.size
     if n_v < 2:
         return (np.nan, False) if con_blocchi else np.nan
@@ -146,50 +142,6 @@ def _errore_standard_sovrapposti(v: np.ndarray, pos: np.ndarray, k: int, settima
                          "(stagionalita.barre_settimana).")
     se = se / n_v
     return (se, blocchi) if con_blocchi else se
-
-
-def _errore_standard_sovrapposti_vecchio(v: np.ndarray, pos: np.ndarray, k: int) -> float:
-    """
-    Il calcolo di prima del 28/10/2026, solo dentro stagionalita.calcolo_vecchio()
-    (prove d'identita'): si toglie nella PR dopo la correzione (docs/75 §7.4).
-
-    Errore standard della media dei rendimenti a k barre, tenendo conto che
-    trigger VICINI condividono le stesse candele (24/9/2026).
-
-    Due trade partiti a d barre di distanza, misurati a k barre, hanno in
-    comune k - d candele su k: non sono due prove indipendenti. La formula
-    classica (deviazione standard / radice di n) li conta come
-    indipendenti e SOTTOSTIMA l'incertezza. Misurato su entry casuali: al
-    posto del 5% atteso, falsi allarmi al 15% con un trigger ogni ~25 barre
-    e al 91% con trigger a grappolo.
-
-    Qui la covarianza fra due trade e' proporzionale alle candele condivise:
-
-        var(media) = [ somma_i r_i^2 + 2 somma_{i<j} w_ij r_i r_j ] / n^2
-        w_ij = max(0, 1 - |pos_i - pos_j| / k)
-
-    dove r sono gli scarti dalla media. Senza sovrapposizioni (trigger
-    distanti almeno k barre) tutti i w sono zero e il risultato coincide con
-    la formula classica, a meno del fattore n/(n-1).
-
-    v    rendimenti a k barre dei trigger validi, nell'ordine delle posizioni
-    pos  posizioni (indici di barra) degli stessi trigger, crescenti
-    """
-    n_v = v.size
-    if n_v < 2:
-        return np.nan
-    res = v - v.mean()
-    tot = float((res ** 2).sum()) * n_v / (n_v - 1)
-    d = 1
-    while d < n_v:
-        dist = pos[d:] - pos[:-d]
-        vicini = dist < k
-        if not vicini.any():
-            break
-        w = 1.0 - dist[vicini] / k
-        tot += 2.0 * float((w * res[d:][vicini] * res[:-d][vicini]).sum())
-        d += 1
-    return float(np.sqrt(max(tot, 0.0))) / n_v
 
 
 # ========================================================================
@@ -394,7 +346,7 @@ def run_event_study(
             "barra_picco_netto": i_ecc,
             "picco_in_coda": i_ecc >= coda,
         })
-        # 28/10/2026: alla barra del picco, la stima a blocchi (docs/75 §7); False con calcolo_vecchio()
+        # 28/10/2026: alla barra del picco, la stima a blocchi di una settimana (docs/75 §7)
         righe[-1]["incertezza_blocchi"] = bool(acc[nome]["blocchi"][i_pk - 1])
     if fuso is not None:
         # il mercato della stessa ora, alla barra del picco (18/10/2026)
