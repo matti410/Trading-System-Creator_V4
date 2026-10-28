@@ -171,6 +171,22 @@ def _prove_vuote() -> dict:
     return {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
 
 
+def metti_prova(prove: dict, dove: str, chiave, n) -> None:
+    """
+    Mette una voce nel conto delle prove (28/10/2026, docs/76, D1): per ogni
+    chiave vale il numero piu' alto mai scritto, cosi' il conto non scende mai
+    (anche quando Lab e ricerca scrivono la stessa chiave con numeri diversi).
+    chiave None = voce semplice (trigger, fasce); altrimenti una voce a dizionario.
+    """
+    if chiave is None:
+        prima = prove.get(dove)
+        prove[dove] = n if prima is None else max(prima, n)
+    else:
+        voci = prove.setdefault(dove, {})
+        prima = voci.get(chiave)
+        voci[chiave] = n if prima is None else max(prima, n)
+
+
 def da_voci(chiave: tuple, voci: list, nuove_prove=None) -> StoriaDataset:
     """
     Ricostruisce la storia di un dataset dalle voci dei giornali, gia' in
@@ -181,7 +197,8 @@ def da_voci(chiave: tuple, voci: list, nuove_prove=None) -> StoriaDataset:
                                                         semplice (trigger, fasce)
       {"voce": "oos", "voce_diario": {...}}             un'apertura dell'out-of-sample
       {"voce": "risalita", "risalita": {...}}           una scelta rifatta (non di H)
-    Per ogni chiave del conto vale la voce piu' recente. Le risalite di H nascono
+    Per ogni chiave del conto vale il numero piu' alto (dal 28/10/2026, docs/76;
+    prima la voce piu' recente). Le risalite di H nascono
     dalle voci «orizzonte», come in `apri`.
     """
     s = StoriaDataset(chiave=chiave, prove=nuove_prove() if nuove_prove is not None else _prove_vuote())
@@ -197,10 +214,8 @@ def da_voci(chiave: tuple, voci: list, nuove_prove=None) -> StoriaDataset:
                 s.risalite.append({"cosa": "H", "da": s.h_corrente, "a": H, "oos_visto": s.oos_visto})
                 s.h_corrente = H
         elif tipo == "prova":
-            if v.get("chiave") is None:
-                s.prove[v["dove"]] = v["n"]
-            else:
-                s.prove.setdefault(v["dove"], {})[a_tupla(v["chiave"])] = v["n"]
+            # 28/10/2026 (docs/76, D1): il numero piu' alto mai scritto, non il piu' recente
+            metti_prova(s.prove, v["dove"], None if v.get("chiave") is None else a_tupla(v["chiave"]), v["n"])
         elif tipo == "oos":
             s.diario.append(dict(v["voce_diario"]))
         elif tipo == "risalita":

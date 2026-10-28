@@ -1464,7 +1464,8 @@ def esplora(s: Sessione, quanti: int = 5):
                                min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
     misurati = len(s.ev.sintesi)
     _nota_blocchi(s.ev.sintesi, "segnali")
-    s.prove["trigger"] = misurati              # 22/10/2026: soglia cumulata (H e' fisso nella sessione)
+    # 22/10/2026: soglia cumulata (H e' fisso nella sessione); 28/10/2026 (docs/76): il numero piu' alto
+    _rd.metti_prova(s.prove, "trigger", None, misurati)
     _nota(f"{misurati} segnali misurati su {len(candidati)} "
           f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media)."
           + (" Spot: solo i segnali long, lo short non esiste." if s.solo_long else ""))
@@ -2062,7 +2063,7 @@ def _imposta_casistiche(s: Sessione, tl: tuple, ts: tuple, origini: dict, parti_
     # cumulata si contano tutte le fasce, una volta sola per sessione
     import condizioni_orarie
     if any(condizioni_orarie.e_oraria(n) for n in (*tl, *ts)):
-        s.prove["fasce"] = n_fasce(fasce_orarie(s.df_is.index, s.fuso)[1])
+        _rd.metti_prova(s.prove, "fasce", None, n_fasce(fasce_orarie(s.df_is.index, s.fuso)[1]))
     riga = _durate_orarie(s, s.H, s.H, "l'orizzonte H")
     if riga:
         _nota(riga)
@@ -2205,7 +2206,7 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     s.sopravvissuti, s.filtro = [], None
     k = int(tab.attrs["k_misurate"])
     # soglia cumulata: le celle misurate, una volta per impostazione (H e assi; le entry sono tutte)
-    s.prove.setdefault("celle", {})[(s.H, tab.attrs["assi"], tuple(nomi))] = k
+    _rd.metti_prova(s.prove, "celle", chiave_celle(s.H, tab, nomi), k)
 
     u, a = s.unita, _altra_unita(s)
     poche = dict(tab.attrs.get("scartate", []))
@@ -2522,6 +2523,27 @@ def _regola_oraria(s: Sessione, regola):
     return regola
 
 
+def percentile_uscita(nome: str, v):
+    """
+    Uno stop o un target in percentile, controllato e nella forma del conto (28/10/2026, docs/76: comune al
+    Lab e al notebook di ricerca). 23/10/2026: un numero (i due lati) o una coppia (long, short), come le barre.
+    """
+    coppia = isinstance(v, (tuple, list))
+    valori = per_lato(v) if coppia else (v,)
+    for x in valori:
+        if x is None or not (0 <= float(x) < 100):
+            raise ValueError(f"{nome} è un percentile: da 0 (spento) a 99.")
+    if coppia and float(valori[0]) != float(valori[1]):
+        return (float(valori[0]), float(valori[1]))
+    return float(valori[0])
+
+
+def impostazioni_uscite(barre_long: int, barre_short: int, sl, tp, regola) -> dict:
+    """Le impostazioni delle uscite nella forma di s.uscite del Lab (28/10/2026, docs/76: per le chiavi del conto)."""
+    return dict(n_barre=barre_long, n_barre_long=barre_long, n_barre_short=barre_short,
+                perc_sl=percentile_uscita("sl", sl), perc_tp=percentile_uscita("tp", tp), regola=regola)
+
+
 def imposta_uscite(s: Sessione, barre_long: int | None = None,
                    barre_short: int | None = None, sl: float = 90.0,
                    tp: float = 0.0, regola_uscita: str | None = None) -> pd.DataFrame:
@@ -2583,24 +2605,13 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     bs = s.H if barre_short is None else int(barre_short)
     barre_per_lato(bl, bl, bs)                     # controllo dei valori
 
-    def percentile(nome, v):
-        # 23/10/2026: un numero (i due lati) o una coppia (long, short), come le barre
-        coppia = isinstance(v, (tuple, list))
-        valori = per_lato(v) if coppia else (v,)
-        for x in valori:
-            if x is None or not (0 <= float(x) < 100):
-                raise ValueError(f"{nome} è un percentile: da 0 (spento) a 99.")
-        if coppia and float(valori[0]) != float(valori[1]):
-            return (float(valori[0]), float(valori[1]))
-        return float(valori[0])
-    sl, tp = percentile("sl", sl), percentile("tp", tp)
+    sl, tp = percentile_uscita("sl", sl), percentile_uscita("tp", tp)
     if isinstance(regola_uscita, (tuple, list)):
         rl, rs = per_lato(regola_uscita)
         regola_uscita = reg.coppia_per_lato(_regola_oraria(s, rl), _regola_oraria(s, rs))
     else:
         regola_uscita = _regola_oraria(s, regola_uscita)
-    s.uscite = dict(n_barre=bl, n_barre_long=bl, n_barre_short=bs,
-                    perc_sl=sl, perc_tp=tp, regola=regola_uscita)
+    s.uscite = impostazioni_uscite(bl, bs, sl, tp, regola_uscita)
     s.fs = s.dm = s.oos = s.rosa_sistemi = None
     s.sistema = None
     s.sopravvissuti, s.filtro = [], None
@@ -2623,7 +2634,7 @@ def imposta_uscite(s: Sessione, barre_long: int | None = None,
     # 22/10/2026: soglia cumulata, i sistemi provati con queste impostazioni
     # (25/10/2026: anche la cella, perche' le uscite si costruiscono con la cella dentro)
     nuova = chiave not in s.prove["uscite"]
-    s.prove["uscite"][chiave] = len(s.es.risultati)
+    _rd.metti_prova(s.prove, "uscite", chiave, len(s.es.risultati))
 
     r = s.es.risultati.copy()
     r["Sistema"] = r.apply(_nome_sistema, axis=1)
@@ -3136,7 +3147,7 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     # 22/10/2026: soglia cumulata, i filtri provati con questi trigger e queste uscite. Nella
     # strada B la cella e' la seconda misura delle celle dell'atlante, gia' contate: non si somma
     if not strada_b:
-        s.prove["filtri"][_chiave_filtri(s)] = len(prove)
+        _rd.metti_prova(s.prove, "filtri", _chiave_filtri(s), len(prove))
     promossi =prove.loc[prove["esito"].isin([DA_VALUTARE, CAMPIONE_CORTO]), "filtro"].to_list()
 
     verdetti = {}
@@ -3438,8 +3449,27 @@ def _mostra_costi(s: Sessione, tr_is, tr_oos) -> pd.DataFrame | None:
 
 def _chiave_filtri(s: Sessione) -> tuple:
     """Le impostazioni di una ricerca dei filtri: i trigger, le uscite e (25/10/2026) il sistema della 4b."""
-    return (s.trigger_long, s.trigger_short, tuple(sorted((k, str(v)) for k, v in s.uscite.items())),
-            getattr(s, "sistema", None) or "Long + Short")
+    return chiave_filtri(s.trigger_long, s.trigger_short, s.uscite, getattr(s, "sistema", None))
+
+
+# 28/10/2026 (docs/76, A1): le chiavi del conto in funzioni comuni, chiamate dal Lab e dal notebook di
+# ricerca: le stesse impostazioni danno la stessa chiave, e la stessa prova non si conta due volte
+
+def chiave_celle(H: int, tab: pd.DataFrame, nomi) -> tuple:
+    """La chiave delle celle di un atlante: H, gli assi e i trigger misurati, nell'ordine passato."""
+    return (H, tab.attrs["assi"], tuple(nomi))
+
+
+def chiave_uscite(trigger_long, trigger_short, uscite: dict, cella_long=None, cella_short=None) -> tuple:
+    """La chiave di una ricerca delle uscite: casistiche, barre, stop, target, regola e situazioni."""
+    return (tuple(trigger_long or ()), tuple(trigger_short or ()), uscite["n_barre_long"], uscite["n_barre_short"],
+            uscite["perc_sl"], uscite["perc_tp"], str(uscite["regola"]), cella_long, cella_short)
+
+
+def chiave_filtri(trigger_long, trigger_short, uscite: dict, sistema=None) -> tuple:
+    """La chiave di una ricerca dei filtri: casistiche, uscite e sistema."""
+    return (tuple(trigger_long or ()), tuple(trigger_short or ()),
+            tuple(sorted((k, str(v)) for k, v in uscite.items())), sistema or "Long + Short")
 
 
 def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: list, t: float,
@@ -3600,16 +3630,99 @@ def fasce_mappa(storia_o_prove) -> int:
     return int(sum(int(n) for n in voci.values())) if isinstance(voci, dict) else int(voci or 0)
 
 
-def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
-    """La soglia cumulata delle prove registrate nella sessione (schermate 2, 4, 5, 6)."""
-    p = s.prove
-    storia = getattr(s, "storia", None)
-    return _soglia_da_conti(p["trigger"], list(p["uscite"].values()), list(p["filtri"].values()),
-                            list(p["combinazioni"].values()), t, schermate=True,
-                            celle=list(p.get("celle", {}).values()),
-                            rimisura=bool(getattr(s, "fs", None) is not None and getattr(s.fs, "rimisura", False)),
+def _soglia_dal_conto(p: dict, storia, t: float, schermate: bool, rimisura: bool) -> dict:
+    """La soglia cumulata di un conto delle prove (quello della sessione del Lab o della storia del dataset)."""
+    return _soglia_da_conti(p.get("trigger", 0), list(p.get("uscite", {}).values()),
+                            list(p.get("filtri", {}).values()), list(p.get("combinazioni", {}).values()), t,
+                            schermate=schermate, celle=list(p.get("celle", {}).values()), rimisura=rimisura,
                             fasce=int(p.get("fasce", 0)),
                             orizzonti=storia.h_provati if storia is not None else None, mappa=fasce_mappa(p))
+
+
+def _soglia_cumulata_lab(s: Sessione, t: float) -> dict:
+    """La soglia cumulata delle prove registrate nella sessione (schermate 2, 4, 5, 6)."""
+    return _soglia_dal_conto(s.prove, getattr(s, "storia", None), t, schermate=True,
+                             rimisura=bool(getattr(s, "fs", None) is not None and getattr(s.fs, "rimisura", False)))
+
+
+# ========================================================================
+# 28/10/2026 (docs/76, A1-A2): il conto del notebook di ricerca nello studio
+# ========================================================================
+# Ogni cella della ricerca che misura chiama una di queste funzioni: la voce va nel conto del
+# dataset (registro_orizzonte) con la stessa chiave che userebbe il Lab, e il giornale dello studio
+# riceve solo le voci cambiate (_salva_studio). Per ogni chiave vale il numero piu' alto
+# (registro_dataset.metti_prova): la stessa prova, fatta dal Lab o dalla ricerca, conta una volta.
+# Non stampano niente: i numeri della ricerca restano quelli di prima.
+
+def trigger_candidati(symbol: str) -> list[str]:
+    """I trigger che la ricerca misura, gli stessi del Lab e nello stesso ordine: sullo spot solo i long (A2)."""
+    from .exchange import solo_long
+    return _trigger_candidati(1 if solo_long(symbol) else None)
+
+
+def _conta(storia, dove: str, chiave, n) -> None:
+    if storia is None:
+        return
+    _rd.metti_prova(storia.prove, dove, chiave, int(n))
+    _salva_studio(storia)
+
+
+def conta_trigger(storia, ev) -> None:
+    """Sessione 1.1: i trigger misurati dall'event study (la 2c del Lab)."""
+    _conta(storia, "trigger", None, len(ev.sintesi))
+
+
+def conta_fasce(storia, df_is: pd.DataFrame, symbol: str, scelti) -> None:
+    """Le fasce del profilo orario, se fra i trigger scelti c'e' un trigger a orario (la 3b del Lab)."""
+    import condizioni_orarie
+    if any(n and condizioni_orarie.e_oraria(n) for n in scelti):
+        _conta(storia, "fasce", None, n_fasce(fasce_orarie(df_is.index, fuso_profilo(symbol))[1]))
+
+
+def conta_celle(storia, H: int, atl: pd.DataFrame, nomi) -> None:
+    """Sessione 1.5: le celle misurate dall'atlante (la 3c del Lab), con H, assi e trigger passati all'atlante."""
+    _conta(storia, "celle", chiave_celle(H, atl, nomi), atl.attrs["k_misurate"])
+
+
+def _regola_chiave(regola):
+    """La regola d'uscita nella chiave: un elenco di regole (la 2.3 della ricerca, D2) diventa una tupla."""
+    return tuple(regola) if isinstance(regola, list) else regola
+
+
+def conta_uscite(storia, es, casistiche_long, casistiche_short, H: int, sl, tp, regola=None,
+                 cella_long=None, cella_short=None) -> None:
+    """
+    Sessione 2.2 e 2.3: i sistemi provati da una ricerca delle uscite (la 4 del Lab). regola: quella
+    passata al motore; nella 2.3 l'elenco di tutte le regole provate (docs/76, D2).
+    """
+    u = impostazioni_uscite(H, H, sl, tp, _regola_chiave(regola))
+    _conta(storia, "uscite", chiave_uscite(casistiche_long, casistiche_short, u, cella_long, cella_short),
+           len(es.risultati))
+
+
+def conta_filtri(storia, fs, casistiche_long, casistiche_short, H: int, sl, tp, regola=None, sistema=None,
+                 confidenza=None) -> None:
+    """
+    Sessione 3.1: i filtri provati (la 5 del Lab), senza la baseline. Nella strada B (la cella riprovata,
+    fs.rimisura) niente: la cella e' gia' fra le celle dell'atlante. confidenza (docs/76, D2): nella 3.3
+    (soglie, filtro congelato), una chiave a parte.
+    """
+    if getattr(fs, "rimisura", False):
+        return
+    chiave = chiave_filtri(casistiche_long, casistiche_short, impostazioni_uscite(H, H, sl, tp, regola), sistema)
+    if confidenza is not None:
+        soglie, filtro = confidenza
+        chiave = (*chiave, ("confidenza", tuple(float(x) for x in soglie), filtro))
+    _conta(storia, "filtri", chiave, int((fs.risultati["filtro"] != BASELINE).sum()))
+
+
+def soglia_cumulata_studio(storia, t: float = np.nan, rimisura: bool = False) -> dict:
+    """
+    La soglia cumulata della ricerca letta dal conto del dataset (28/10/2026, docs/76, A1), come il Lab: le
+    prove della ricerca, del Lab e della mappa su questo dataset. rimisura: True nella strada B (la cella
+    riprovata alla 3.1 e' gia' fra le celle). Solo informativa.
+    """
+    return _soglia_dal_conto(storia.prove or {}, storia, float(t), schermate=False, rimisura=bool(rimisura))
 
 
 def _riga_prove(s: Sessione, qui: str) -> dict:
@@ -3657,9 +3770,8 @@ def _avviso_risalita(s: Sessione, cosa: str) -> None:
 
 def _chiave_uscite(s: Sessione) -> tuple:
     """Le impostazioni delle uscite della schermata 4, con le casistiche e la cella (docs/68 §5.4)."""
-    u = s.uscite
-    return (s.trigger_long, s.trigger_short, u["n_barre_long"], u["n_barre_short"], u["perc_sl"],
-            u["perc_tp"], str(u["regola"]), getattr(s, "cella_long", None), getattr(s, "cella_short", None))
+    return chiave_uscite(s.trigger_long, s.trigger_short, s.uscite, getattr(s, "cella_long", None),
+                         getattr(s, "cella_short", None))
 
 
 _NOMI_SCELTE = {"H": "orizzonte H", "trigger_long": "casistiche long", "trigger_short": "casistiche short",
@@ -3748,7 +3860,7 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         n_prove = int((s.fs.risultati["filtro"] != BASELINE).sum())
         combinazioni = math.comb(n_prove, len(scelti))
         # 22/10/2026: soglia cumulata, la famiglia «m filtri fra n» conta una volta
-        s.prove["combinazioni"][(_chiave_filtri(s), len(scelti))] = combinazioni
+        _rd.metti_prova(s.prove, "combinazioni", (_chiave_filtri(s), len(scelti)), combinazioni)
         _salva_studio(s.storia)       # 25/10/2026 (docs/70)
         _spiegazione(
             "Combinazione scelta a mano: non è passata dall'imbuto.",
