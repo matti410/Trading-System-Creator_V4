@@ -115,10 +115,14 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   apre lo studio. Dal 28/10 la mappa ha la sua incertezza (`mappa.errore_sovrapposti`): le coppie di
   barre più vicine dell'orizzonte pesano per intero, senza lo sconto di `scarto_orario`, che il Lab
   continua a usare (sezione G di `test_mappa.py`).
+- **Il conto delle prove** (`76`, 28/10): per ogni chiave vale il numero più alto mai scritto, nel Lab e
+  nella ricerca. Il notebook di ricerca scrive nello studio le stesse voci del Lab (trigger, fasce,
+  situazioni, uscite, filtri; la 2.3 e la 3.3 con una chiave loro), con le stesse chiavi, e la sua soglia
+  cumulata legge il conto dallo studio. Sullo spot misura solo i long, come il Lab.
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 46 suite, 3 alla volta, circa 20 minuti; alla fine deve stampare
+  --tutte`, 47 suite, 3 alla volta, circa 20 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
@@ -185,8 +189,8 @@ Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 | cosa | stato |
 |---|---|
 | rosa, atlante e 2c usano l'incertezza di `scarto_orario` con lo sconto (pesi decrescenti) sui rendimenti sovrapposti: può sottostimarla per i trigger con ingressi vicini e orizzonti lunghi (vedi collaudo della mappa del 28/10) | risolto (docs/75, PR della correzione, 28/10): un calcolo solo, quello della mappa |
-| il notebook di ricerca non scrive le sue prove nel giornale dello studio (solo l'ingresso del dataset, l'orizzonte e le aperture dell'out-of-sample): quello che misura non entra nel conto. Esempio: la prova su BYBIT_SPOT_ETHUSDT del 25/10 (66 trigger) non è nel conto | aperto, decide Mattia quando (28/10) |
-| sullo spot il notebook di ricerca misura anche i trigger short e il Lab no: le chiavi dei due notebook (trigger e celle) non combaciano | aperto, decide Mattia quando (28/10) |
+| il notebook di ricerca non scrive le sue prove nel giornale dello studio (solo l'ingresso del dataset, l'orizzonte e le aperture dell'out-of-sample): quello che misura non entra nel conto. Esempio: la prova su BYBIT_SPOT_ETHUSDT del 25/10 (66 trigger) non è nel conto | risolto per le prove nuove (docs/76, PR 1, 28/10): la ricerca scrive le stesse voci del Lab, con le stesse chiavi; per ogni chiave vale il numero più alto. Le prove passate (A3) scritte nello studio il 28/10, approvate da Mattia (docs/76 §3) |
+| sullo spot il notebook di ricerca misura anche i trigger short e il Lab no: le chiavi dei due notebook (trigger e celle) non combaciano | risolto (docs/76, PR 1, 28/10): sullo spot la ricerca misura solo i long, gli stessi trigger del Lab |
 | strada B: con il filtro vuoto la schermata 6 prova il segnale da solo con le uscite costruite sul segnale dentro la situazione; proposta da decidere: con una situazione scelta il predefinito della 6 diventa il segnale dentro la situazione | prossimo lavoro (Mattia, 26/10) |
 | stop e target non attivi sulla barra d'ingresso | risolto (PR #49) |
 | `ExitSearchBT.top()` ordina per `sharpe`: va ordinato per il t nell'unità che decide | risolto (PR #51) |
