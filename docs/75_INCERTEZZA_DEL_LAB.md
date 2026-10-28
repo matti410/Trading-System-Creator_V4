@@ -1,15 +1,15 @@
 # 75 · Incarico: l'incertezza del Lab (rendimenti sovrapposti)
 
 **Data:** 28 ottobre 2026
-**Stato:** collaudo fatto (PR #86, §3); correzione in corso (PR 2, piano al §7, via di Mattia del
-28/10/2026).
+**Stato:** collaudo fatto (PR #86, §3); correzione fatta (PR 2, piano al §7, risultati al §8,
+28/10/2026). Il calcolo vecchio a richiesta si toglie nella PR dopo.
 **Da dove nasce:** il primo dei «Problemi aperti» di `00`. Il collaudo della mappa del 28/10 (sezione
 G di `test_mappa.py`, PR #84) ha mostrato che l'incertezza con lo **sconto** (pesi decrescenti)
 sottostima l'incertezza dei rendimenti sovrapposti. La mappa ha già la sua correzione; il Lab no.
 
 **Indice:** §0 In breve · §1 Il problema · §2 Dove si usa oggi, e cosa decide · §3 Il collaudo
 proposto · §4 Cosa cambierebbe nel Lab, e le prove d'identità · §5 Le decisioni per Mattia · §6
-Ordine dei lavori · §7 Il piano della correzione.
+Ordine dei lavori · §7 Il piano della correzione · §8 I risultati della correzione.
 
 ---
 
@@ -383,3 +383,81 @@ all'arrivo di un'ora verde. Se cambiano le ore colorate della 2a, cambiano anche
 nuovo; D: uguaglianza con il calcolo collaudato; A3: il ritorno al calcolo nuovo), `docs/75`,
 `docs/00`. I notebook no (D9). I test esistenti che misurano effetti o il caso non si toccano: se uno
 fallisce ci si ferma, senza allargare soglie.
+
+## 8 · I risultati della correzione (PR 2, 28/10/2026)
+
+Numeri di collaudo dello strumento, non verdetti sui mercati. Dati di Google Drive (fino al 25/10),
+confine dello studio 15/06/2025. I passi 1 e 3 su una copia temporanea dei dati, studio compreso;
+il passo 2 sullo studio vero.
+
+**8.1 · Test.** Suite completa: 46/46. In `test_incertezza_lab.py`: A3 (all'uscita da
+`calcolo_vecchio()`, anche con un errore dentro, torna il calcolo nuovo); D1 (event study, rosa e
+profilo identici al bit al calcolo collaudato nella PR #86, su 40 mercati); D2 (atlante entro 1e-12:
+differenza massima 1,1·10⁻¹⁴, dall'ordine delle somme, in fila contro a coppie); D3 (stesse
+promozioni). Test cambiati per la regola D1: `test_rosa.py` E1 e `test_unita.py` C1
+(`incertezza_blocchi` in coda, colonne di prima invariate).
+
+**8.2 · Passo 1, calcolo vecchio a richiesta contro main** (la colonna `incertezza_blocchi` tolta;
+con il calcolo vecchio è False in tutte le tabelle che la hanno):
+
+| scenario | fin dove | oggetti | identici al bit | tabelle con la colonna, tutte False |
+|---|---|---|---|---|
+| lab_btc | tutto il Lab | 292 | 290 (diverse solo le 2 cartelle temporanee) | 4, sì |
+| lab_btc_cella | tutto il Lab | 292 | 290 (idem) | 4, sì |
+| lab_eth (copia presa dopo il passo 2) | fino alla 3d | 95 | 93 (idem) | 4, sì |
+| ric_btc (copia presa dopo il passo 2) | fino all'atlante | 462 | 462 | 5, sì |
+
+ric_eth: né passo 2 né passo 1 (decisione di Mattia, R2): sullo spot la ricerca misura anche i
+trigger short e il Lab no, quindi le chiavi del conto dei due notebook non combaciano (`00`, problemi
+aperti).
+
+**8.3 · Passo 2, calcolo nuovo sullo studio vero, fino alle misure.** Confrontato con il passo 1 di
+main sugli stessi dati. Cambiano solo le colonne dell'elenco del §7.5 (più l'ordine delle righe);
+curve, mercato, bande, scarti, eventi, celle misurate e famiglie identici. Le scelte fatte dalle
+misure non cambiano (trigger con «la rosa», cella di lab_btc_cella: nessuna, come prima).
+
+| dataset, H | punto | colonne cambiate | promozioni prima → dopo | incertezza dopo/prima (mediana, min–max) |
+|---|---|---|---|---|
+| BINANCE_PERP_BTCUSDT, 41 (Lab) | profilo | incertezza, t, p | ore colorate 0 → 0 | 0,887 (0,845–0,968) |
+| | event study | incertezza, solidità, «Supera il rumore» | 3 → 1 (escono E21_BELT_HOLD, E27_SHORT_VSA_BEARISH) | 1,038 (0,910–1,200) |
+| | rosa | t_netto, p, t_globale, t nelle altre unità | candidate 1 → 1, nella rosa 1 → 1 | t dopo/prima 1,001 (0,941–1,116) |
+| | atlante | t, p, t nelle altre unità | celle che passano 0 → 0 | t dopo/prima 1,003 (0,902–1,412) |
+| | curve mostrate | stessi 10 trigger, ordine diverso (E22 prima di E39_HOUR_REVERSAL_UP) | — | — |
+| BYBIT_SPOT_ETHUSDT, 25 (Lab) | profilo | incertezza, t, p | 0 → 0 | 0,949 (0,918–0,983) |
+| | event study | incertezza, solidità, «Supera il rumore» | 1 → 0 (esce E21_BELT_HOLD) | 1,027 (0,994–1,174) |
+| | rosa | t_netto, p, t_globale, t nelle altre unità | candidate 1 → 1, nella rosa 1 → 1 | 1,014 (0,948–1,049) |
+| | atlante | t, p, t nelle altre unità | 0 → 0 | 1,008 (0,927–1,106) |
+| BINANCE_PERP_BTCUSDT, 25 (ricerca) | profilo | incertezza, t, p, bh | ore colorate 5 → 6 (entra 23:45) | 0,952 (0,931–0,976) |
+| | event study | incertezza, solidità, «Supera il rumore» | 3 → 2 (esce E27_SHORT_VSA_BEARISH) | 1,021 (0,989–1,147) |
+| | rosa | t_netto, p, t_globale, t nelle altre unità | candidate 4 → 4, nella rosa 2 → 2 | 1,003 (0,929–1,079) |
+| | atlante | t, p, bh, motivo, t nelle altre unità | 0 → 0 | 1,005 (0,932–1,337) |
+
+lab_btc_cella dà le stesse misure di lab_btc. La stima a blocchi di una settimana non è mai servita
+(colonna `incertezza_blocchi` tutta False in tutte le tabelle).
+
+**8.4 · Passo 3, a scelte fissate, main contro il codice nuovo** (copia temporanea):
+- Lab su BTC, H 41, con le scelte del passo 1 scritte a mano (E21_BELT_HOLD long, nessuna cella,
+  Solo long, uscite consigliate, filtro F3_VOLUME_ABOVE_AVG alla 6): 292 oggetti, 284 identici; i 8
+  diversi sono le 2 cartelle temporanee e le 6 misure del §8.3 (profilo, incertezza e sintesi
+  dell'event study, rosa, atlante, ordine delle curve). Dalla schermata 4 alla 9 tutto identico al bit.
+- Ricerca su BTC, H 25, con la combinazione del giornale di Colab (long E22_ASIAN_RANGE_BREAKOUT,
+  short E39_SHORT_HOUR_REVERSAL_DOWN): 817 oggetti, 812 identici; i 5 diversi sono le misure. Tutto
+  quello che viene dopo la rosa identico al bit. La riga del diario dell'out-of-sample
+  (`segna_oos`) è spenta per la prova, su main e sul nuovo: scrive in un formato diverso da quello
+  del Lab e avrebbe aggiunto un'apertura che nel giornale non c'è.
+- Nel Lab la colonna `incertezza_blocchi` non compare in nessuna tabella mostrata; alla schermata 4
+  c'è la riga su X_INVERSIONE_TREND.
+
+**8.5 · I giornali e il conto.** Nei passi 1 e 3 sulla copia: nessuna voce «prova» nuova; le
+aperture dell'out-of-sample del Lab hanno le stesse scelte di un'apertura già nel giornale vero
+(H 41, E21_BELT_HOLD, filtro F3_VOLUME_ABOVE_AVG); in più una voce «orizzonte» (H 41, già fra gli
+orizzonti provati) e tre «risalita» (scelte rifatte dopo l'out-of-sample), che non cambiano il conto.
+Il passo 2 sullo studio vero:
+
+| dataset | voci nel giornale prima → dopo | conto (somma delle voci «prova») prima → dopo | chiavi nuove |
+|---|---|---|---|
+| BINANCE_PERP_BTCUSDT_M15 | 58 → 62 | 2.662 → 2.662 | nessuna; +2 «orizzonte» (41 e 25, già provati) e +2 «risalita» (casistiche) |
+| BYBIT_SPOT_ETHUSDT_M15 | — → 3 | — → 214 | trigger 32; celle (25, vol_trend e sessione, i 36 trigger long) 182; +1 «orizzonte» 25 |
+| BINANCE_PERP_BTCUSDT_M5, BINANCE_PERP_ETHUSDT_M15 | invariati | 0 e 5, invariati | nessuna |
+
+La copia di sicurezza dello studio, presa prima del passo 2, non è servita.
