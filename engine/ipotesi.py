@@ -45,7 +45,7 @@ class Scheda:
     categorie: dict = field(default_factory=dict)    # categorie: valore della variabile -> nome della fascia
     prove_extra: int = 0              # fasce gia' viste da contare (M01: le 96 del profilo 2a)
     conta_segno_opposto: bool = False  # M07: il segno scelto dopo aver visto E39, si conta anche l'opposto
-    doppione_di: str | None = None    # M04: se e' doppione di questa scheda, non si misura (regola di Mattia)
+    doppione_di: str | None = None    # se e' doppione di questa scheda, non si misura (M04 fino al 28/10; oggi nessuna)
 
     @property
     def fasce(self) -> tuple:
@@ -68,15 +68,21 @@ SCHEDE = {s.id: s for s in (
         portabilita="approssimata (l'ora si', il segno del funding con il segno della basis)",
         serve=("funding",), mercati=("PERP",), prove_extra=96),
     Scheda(
-        id="M04", versione=1, approvata="27/10/2026",
+        id="M04", versione=1, approvata="28/10/2026",
         titolo="Funding estremo",
-        meccanismo=("Con il funding molto positivo i long a leva pagano ogni 8 ore e sono affollati: alla prima "
-                    "discesa scattano le liquidazioni. Con il funding molto negativo, lo stesso sugli short."),
-        idea="Meccanismo del funding. Niente di visto sui dati sul funding come variabile.",
-        variabile="funding_liquidato", tipo="quintili",
-        attese={"Q5": -1, "Q1": 1}, orizzonte_ore=24, riferimento=STESSA_ORA,
+        meccanismo=("Con il funding sopra il livello di base i long a leva pagano ogni 8 ore e sono affollati: alla "
+                    "prima discesa scattano le liquidazioni. Con il funding sotto zero, lo stesso sugli short."),
+        idea=("Meccanismo del funding. Niente di visto sui dati sul funding come variabile. Riscritta da Mattia il "
+              "28/10/2026 prima della misura: con i quintili le fasce erano degeneri (Q1 31,1%) per il funding fermo "
+              "al livello di base. Categorie dalla regola dell'exchange (0,01% ogni 8 ore); la regola dei doppioni "
+              "con M05 cade."),
+        variabile="funding_rispetto_al_base", tipo="categorie",
+        categorie={-1.0: "funding sotto zero", 0.0: "funding fra zero e il livello di base",
+                   1.0: "funding al livello di base", 2.0: "funding sopra il livello di base"},
+        attese={"funding sotto zero": 1, "funding sopra il livello di base": -1}, orizzonte_ore=24,
+        riferimento=STESSA_ORA,
         portabilita="approssimata (il funding no, la basis si')",
-        serve=("funding",), mercati=("PERP",), doppione_di="M05"),
+        serve=("funding",), mercati=("PERP",)),
     Scheda(
         id="M05", versione=1, approvata="27/10/2026",
         titolo="Basis estrema",
