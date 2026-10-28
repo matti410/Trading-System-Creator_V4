@@ -259,6 +259,7 @@ def _controlli(m: SessioneMappa, ids: list[str]) -> tuple[dict, dict]:
 _COLONNE = {"fascia": "Fascia", "attesa": "Attesa", "barre": "Barre", "giornate": "Giornate",
             "scarto_bp": "Scarto dal mercato (bp)", "scarto_pips": "Scarto dal mercato (pips)", "t": "Solidità",
             "bh": "Supera i falsi positivi", "due_meta": "Regge sulle due metà",
+            "incertezza_blocchi": "Incertezza a blocchi di una settimana",
             "netto_bp": "Netto dei costi (bp, solo da leggere)", "esito": "Esito"}
 
 _COLORI_ESITO = {mp.RISPONDE: "tab:green", mp.OPPOSTO: "tab:orange", mp.NON_RISPONDE: "tab:gray",
@@ -307,6 +308,8 @@ def _mostra_misura(m: SessioneMappa, sch, tab: pd.DataFrame, valori: pd.Series, 
     mostra = tab.reindex(columns=list(_COLONNE)).rename(columns=_COLONNE)
     mostra["Supera i falsi positivi"] = [_v._si_no(v) for v in tab["bh"]]
     mostra["Regge sulle due metà"] = [_v._si_no(v) if mis else "—" for v, mis in zip(tab["due_meta"], tab["misurata"])]
+    mostra["Incertezza a blocchi di una settimana"] = [_v._si_no(v) if mis else "—"
+                                                       for v, mis in zip(tab["incertezza_blocchi"], tab["misurata"])]
     m.tabelle[f"misura_{sch.id}"] = mostra
     _v._mostra((f"Le fasce di {sch.id} (in-sample dello studio, orizzonte {_v._fmt(float(sch.orizzonte_ore), 0)} "
                 f"ore = {tab.attrs['H']} barre, riferimento: {sch.riferimento})", mostra),
