@@ -1,7 +1,7 @@
 # 76 · Incarico: chiudere i problemi aperti di `00`
 
 **Data:** 28 ottobre 2026
-**Stato:** incarico ricevuto; proposta in chat, da approvare.
+**Stato:** PR 1 (A1, A2, A3) in revisione, PR #89; PR 2 (B1–B4) da fare.
 **Da dove nasce:** la tabella «Problemi aperti» di `00`, dopo la PR #88.
 
 ---
@@ -103,3 +103,34 @@ copia e il conto non sale. Esito al §2.
 | ricerca, BYBIT_SPOT_ETHUSDT, fino all'atlante | **la verifica di Mattia:** la chiave dell'atlante della ricerca (H 25, assi vol_trend e sessione, i 36 trigger long) coincide con quella scritta dal Lab nella PR #87 (182 situazioni), e i trigger misurati sono gli stessi 32: **nessuna voce nuova, il conto non sale**. Le righe long dell'event study sono identiche a main (main misurava anche 32 short: 64 trigger e 359 situazioni) |
 
 Suite: `test_conto_ricerca.py` 26/26; **suite completa 47/47** (19,9 minuti, 28/10/2026).
+
+## 3 · A3: le prove passate della ricerca (scritte il 28/10/2026)
+
+**Fonti.**
+- I diari dello studio vero hanno solo voci del Lab. Anche le aperture dell'out-of-sample hanno il formato del Lab, quindi nessun giro della ricerca è stato fatto da Mattia sullo studio.
+- Gli HTML sul Desktop sono del Lab e della mappa.
+- Nella storia dei commit il notebook di ricerca è salvato solo con le uscite di EURUSD (broker); i salvataggi da Colab sono del Lab.
+- Restano le prove d'identità di Claude dal 19/10 al 28/10, circa 60 giri. Sono state trovate nei registri delle sessioni sul PC. Le chiavi vengono dai pickle e dalle uscite delle celle salvate. I giri del 25/10 senza file salvati sono stati rifatti con la stessa versione del codice (`37690da`, `c1625a3`, `900b189`, `2a91bd6`) e gli stessi CSV del 19/10, leggendo solo i conteggi.
+- Dal 19/10 al 25/10 mattina la ricerca aveva le stesse scelte predefinite: H 25, OR(E11, E1) long e OR(E9, E4) short, stop al 90° percentile. Quei giri danno le stesse chiavi.
+
+**Approvato da Mattia il 28/10:**
+- le righe 1–23, cioè i giri con l'in-sample dentro lo studio;
+- i giri con l'in-sample oltre il confine: ETH spot dal 20/10 al 28/10, fino al 29/09/2025; BYBIT_PERP_SOLUSDT il 21/10, fino al 19/10/2025. Hanno la nota nel giornale.
+
+Ogni voce ha `visto_il` e `fonte: "A3, docs/76"`. Tutte le chiavi sono a H 25, stop al 90° percentile, target spento.
+
+| dataset | voci scritte | conto prima → dopo |
+|---|---|---|
+| BINANCE_PERP_BTCUSDT_M15 | 15 voci (righe 1–15): 4 famiglie di casistiche (OR(E11, E1) / OR(E9, E4); E21 / —; E21 / E39; E22 / E39) con uscite 2.2 e 2.3 e filtri 3.1 e 3.3; più le situazioni con l'elenco del 22-23/10 (558, chiave incerta, contata a parte) | 2.662 → **3.351** |
+| BINANCE_PERP_XRPUSDT_M15 (nuovo) | orizzonte 25; trigger 70; situazioni 541; E3 / E36: uscite 3 e 6, filtri 29 e 3 | 0 → **652** |
+| BYBIT_SPOT_ETHUSDT_M15 | trigger 64 (giro su main del 28/10) e 66 (giri oltre il confine): vale 66; situazioni a 71 nomi 359 e 370: stessa chiave, vale 370; situazioni con l'elenco del 22-23/10: 370; OR(E11, E1) / OR(E9, E4) e E21 / —: uscite e filtri (41 + 40) | 214 → **1.069** |
+| BYBIT_PERP_SOLUSDT_M15 (nuovo) | orizzonte 25; trigger 64; OR(E11, E1) / OR(E9, E4): uscite 3 e 6, filtri 29 e 3 | 0 → **105** |
+
+**Precisazioni:**
+- **ETH:** nella proposta avevo stimato 605 + 823. Il giro del 28/10 e quelli del 25-28/10 oltre il confine hanno però la stessa chiave di situazioni: H 25, vol_trend e sessione, gli stessi 71 nomi. Con la regola del più alto vale 370, non 359 + 370. Il conto vero è 1.069.
+- **BTC, 565 e 558:** a H 25 nello studio ci sono due chiavi diverse, contate tutte e due:
+  - 558 = l'atlante con i 71 trigger del catalogo;
+  - 565 = l'atlante con 72 nomi, perché c'è in più il trigger a orario ORA_LONG_@23:00 o ORA_SHORT_@23:00.
+
+  La riga 5 di A3 (558, elenco del 22-23/10) è una terza chiave, contata a parte perché quell'elenco non si ricostruisce con certezza.
+- **L'out-of-sample «fresco»:** vale per tutto lo studio. Parte dopo il 25/10/2026 21:00 (9 aperture nel diario di BTC), quindi copre già il 29/09/2025 (ETH spot) e il 19/10/2025 (SOL perp). Non serve nessuna annotazione nel diario.
