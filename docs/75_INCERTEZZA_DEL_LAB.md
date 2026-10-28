@@ -126,6 +126,125 @@ nel livello di q.
 - l'atlante è di più (8 situazioni per lato, numba);
 - in tutto, il giro da 1.000 mercati è di decine di minuti.
 
+**Aggiunte dopo il primo giro da 200 (Mattia, 28/10/2026).**
+- Il raro (300 ingressi) nell'atlante non si misura mai: circa 37 ingressi per situazione, sotto
+  il minimo di 200. Il riferimento dell'atlante è un quinto tipo, **D · raro denso**: circa 1.800
+  ingressi, a distanze casuali di 41 o 42 barre (mai due a meno di H), indipendente dai prezzi. Per
+  rosa ed event study il riferimento resta il raro. Il test conta le situazioni misurate dei
+  riferimenti e si ferma con un errore se sono zero.
+- Nella rosa il riferimento resta il raro con il calcolo nuovo, senza tolleranza sulle quote.
+- **Profilo:** con il calcolo nuovo il profilo colora ore per caso circa il doppio di prima (dal 5%
+  al 10–11% dei mercati inventati), sempre sotto q = 20%, e queste ore decidono `X_INVERSIONE_TREND`.
+
+**La scomposizione dell'incertezza (28/10/2026, sezione C del test).** L'incertezza della rosa e
+dell'atlante è una somma su tutte le barre di pesi per rendimenti: +1/n sulle barre del trigger,
+meno la quota della media del mercato della stessa ora su ogni barra. Si divide esattamente in tre
+parti: **(1)** la parte del trigger, **(2)** quella del mercato della stessa ora, **(3)** quella
+incrociata. I due calcoli cambiano solo il peso delle coppie di barre a meno di H: se gli ingressi
+del trigger sono tutti a H barre o più, la (1) non ha coppie e deve coincidere. Su 3 mercati
+inventati (rosa con il raro, atlante con il raro denso), valori divisi per la (1):
+
+| mercato · punto | oggi (2) | oggi (3) | **oggi totale** | mappa (2) | mappa (3) | **mappa totale** |
+|---|---|---|---|---|---|---|
+| volatilità costante · rosa | 0,113 | −0,224 | 0,889 | 0,167 | −0,338 | 0,828 |
+| volatilità costante · atlante (8 situazioni) | 0,354 | −0,712 | 0,643 | 0,444 | −0,894 | 0,550 |
+| volatilità variabile 1 · rosa | 0,088 | −0,204 | 0,884 | 0,127 | −0,292 | 0,835 |
+| volatilità variabile 1 · atlante | 0,434 | −0,835 | 0,599 | 0,559 | −1,091 | 0,468 |
+| volatilità variabile 2 · rosa | 0,099 | −0,237 | 0,862 | 0,149 | −0,360 | 0,789 |
+| volatilità variabile 2 · atlante | 0,394 | −0,824 | 0,569 | 0,517 | −1,068 | 0,449 |
+
+- Con la stessa formula la (1) coincide al bit nei due calcoli in tutte le 27 misure (3 rose, 24
+  situazioni): la differenza fra i calcoli sta tutta in (2) e (3). Le tre parti sommate danno
+  l'incertezza di ciascun calcolo; la riserva a blocchi qui non scatta.
+- Con le funzioni dell'engine la (1) coincide al bit nella rosa. Nell'atlante coincide al bit in 3
+  situazioni su 24; nelle altre la differenza massima osservata è 7,6·10⁻¹⁶ in relativo (5 unità
+  sull'ultima cifra). Viene dall'ordine delle somme: il motore dell'atlante (numba) somma i quadrati
+  in fila, mappa.errore_sovrapposti (numpy) a coppie. Il test (C1b) accetta fino a 10⁻¹² in
+  relativo (Mattia, 28/10/2026).
+- La parte incrociata è negativa: il trigger e il mercato della stessa ora hanno pesi di segno
+  opposto sulle stesse candele. Contare per intero le coppie vicine fa crescere sia la (2) sia la
+  (3), la (3) di più: per questi riferimenti l'incertezza nuova è un po' più piccola di quella di
+  oggi.
+
+**La densità degli scatti (28/10/2026).** Per confronto con un trigger vero, le stesse tre cifre
+per E21 su BINANCE_PERP_BTCUSDT M15: **solo i tempi di scatto, nell'in-sample** (fino al confine
+dello studio, 15/06/2025 17:30 UTC), senza prezzi dopo l'ingresso, senza rendimenti né esiti. Non è
+una prova e non va nel conto. Grappolo = barre accese una dopo l'altra; finti = media sui trigger
+del giro da 200.
+
+| trigger | ingressi | grappolo medio | coppie consecutive a meno di 41 barre | ingressi ogni 1.000 barre |
+|---|---|---|---|---|
+| F · frequente finto (76.800 barre) | 15.626 | 16,2 barre | 96,7% | 203 |
+| M · medio finto | 3.000 | 1,04 barre | 79,8% | 39 |
+| E21_BELT_HOLD, long (191.206 barre) | 15.041 | 1,0 barre | 96,8% | 79 |
+| E21_SHORT_BELT_HOLD, short | 14.895 | 1,0 barre | 96,5% | 78 |
+
+Il frequente finto è più denso di E21 (circa 2,6 volte gli ingressi per barra, a grappoli): non si
+aggiunge un «frequente denso» (Mattia, 28/10/2026).
+
+### I risultati del collaudo (28/10/2026, PR 1 del §6)
+
+Promozioni per caso, in %, senza nessun effetto, H = 41. Riferimento: R nella rosa e nell'event
+study, D nell'atlante (R nell'atlante non si misura). Il criterio D4 si legge sulle righe «mappa».
+
+**Giro da 200 (la suite: 100 + 100 mercati), 11/11 test superati, 13 minuti.**
+
+| volatilità · calcolo | rosa F | M | R | D | atlante F | M | **D** | es F | M | R | D | profilo |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| costante · oggi | 2,8 | 3,8 | 1,5 | 0,0 | 1,3 | 0,8 | 0,6 | 0,5 | 0,0 | 0,0 | 0,0 | 5,0 |
+| costante · mappa | 1,5 | 3,5 | **2,0** | 4,0 | 0,5 | 0,6 | **0,8** | 0,2 | 0,0 | **0,0** | 0,0 | 11,0 |
+| variabile · oggi | 2,8 | 2,5 | 2,5 | 0,0 | 0,9 | 0,3 | 0,3 | 0,0 | 0,2 | 0,5 | 0,0 | 5,0 |
+| variabile · mappa | 2,8 | 2,8 | **3,5** | 3,5 | 0,5 | 0,2 | **0,5** | 0,0 | 0,2 | **0,5** | 0,0 | 10,0 |
+
+- **D4 rispettato** in tutte e due le varianti: F e M entro 3 punti dal riferimento e sotto il 20%;
+  il profilo (mercati con almeno un'ora colorata) sotto q.
+- Situazioni misurate dei riferimenti, in ogni variante e in tutti e due i calcoli: rosa (R) 200,
+  atlante (D) 1.600, event study (R) 200.
+- Il trigger raro ha la stessa solidità dell'event study nei due calcoli, al bit.
+- Profilo: incertezza della mappa / incertezza di oggi, in media sulle ore, 0,896 (costante) e
+  0,895 (variabile).
+- Riserva dei blocchi di una settimana (calcolo della mappa), costante / variabile: rosa 298 su
+  12.656 / 542 su 12.578, **tutte del raro denso** (298 su 2.135 / 542 su 2.092); atlante 0 su
+  8.000 / 4 su 8.000; profilo 0 su 9.600 in tutte e due; event study 0 su 49.200 in tutte e due.
+- Solo da scrivere, non sono criteri:
+  - raro denso nella rosa: 0,0% oggi, 4,0% / 3,5% con la mappa; nell'event study 0,0% nei due
+    calcoli; riserva a blocchi nella rosa come sopra, nell'event study 0 su 8.200;
+  - raro nella rosa: incertezza della mappa / incertezza di oggi media 0,970 (minimo 0,956, massimo
+    0,989) a volatilità costante, 0,971 (minimo 0,903, massimo 1,044) a volatilità variabile;
+    promozioni solo con il calcolo di oggi 0 e 0, solo con quello della mappa 1 e 2.
+- Rispetto al primo giro da 200 le quote del raro cambiano un po' (es. rosa R 2,0 → 1,5 a
+  volatilità costante, calcolo di oggi): il raro denso è entrato nella famiglia, e la quota di falsi
+  positivi si calcola fra tutti.
+
+**Giro da 1.000 (1.000 + 1.000 mercati, una volta sola), 11/11 test superati, 2 ore e 9 minuti.**
+
+| volatilità · calcolo | rosa F | M | R | D | atlante F | M | **D** | es F | M | R | D | profilo |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| costante · oggi | 3,4 | 2,4 | 1,6 | 0,0 | 1,0 | 0,6 | 0,2 | 0,1 | 0,2 | 0,0 | 0,0 | 4,5 |
+| costante · mappa | 2,1 | 2,4 | **1,8** | 2,6 | 0,6 | 0,5 | **0,5** | 0,0 | 0,0 | **0,0** | 0,0 | 9,7 |
+| variabile · oggi | 3,6 | 2,1 | 1,8 | 0,0 | 0,7 | 0,4 | 0,1 | 0,1 | 0,0 | 0,2 | 0,1 | 4,8 |
+| variabile · mappa | 2,3 | 2,1 | **2,1** | 2,0 | 0,5 | 0,4 | **0,5** | 0,0 | 0,0 | **0,2** | 0,1 | 8,5 |
+
+- **D4 rispettato** in tutte e due le varianti; il profilo sotto q.
+- Situazioni misurate dei riferimenti, in ogni variante e in tutti e due i calcoli: rosa (R) 2.000,
+  atlante (D) 16.000, event study (R) 2.000.
+- Il trigger raro ha la stessa solidità dell'event study nei due calcoli, al bit. Scomposizione
+  (sezione C): uguale a quella sopra; nell'atlante differenza massima 7,6·10⁻¹⁶.
+- Profilo: incertezza della mappa / incertezza di oggi, in media sulle ore, 0,895 in tutte e due
+  le varianti.
+- Riserva dei blocchi di una settimana (calcolo della mappa), costante / variabile: rosa 3.873 su
+  125.961 / 5.577 su 125.845, **tutte del raro denso** (3.873 su 21.040 / 5.577 su 21.043); atlante
+  0 su 80.000 / 54 su 80.000; profilo 0 su 96.000 in tutte e due; event study 0 su 492.000 in tutte
+  e due.
+- Solo da scrivere, non sono criteri:
+  - raro denso nella rosa: 0,0% oggi, 2,6% / 1,9% con la mappa; nell'event study 0,1% nei due
+    calcoli, in tutte e due le varianti; riserva a blocchi nella rosa come sopra, nell'event study 0
+    su 82.000;
+  - raro nella rosa: incertezza della mappa / incertezza di oggi media 0,970 (minimo 0,947, massimo
+    0,995) a volatilità costante, 0,971 (minimo 0,879, massimo 1,067) a volatilità variabile;
+    promozioni solo con il calcolo di oggi 2 e 0, solo con quello della mappa 7 e 4 (su 2.000
+    misure per variante).
+
 ## 4 · Cosa cambierebbe nel Lab, e le prove d'identità
 
 **Quali numeri si spostano.** Le medie restano uguali; cambiano l'incertezza e tutto quello che
@@ -178,6 +297,19 @@ già fatte nel Lab (rose e atlanti guardati) restano nel conto. Non si rifanno.
 | D7 | La funzione della mappa | Si sposta in `stagionalita.py` e la mappa la usa da lì, con i numeri della mappa identici al bit (`test_mappa` invariato) |
 | D8 | La soglia dell'event study (`soglia_rumore_orizzonte`) | Non si tocca: è una simulazione che suppone l'incertezza giusta. Con l'incertezza corretta torna coerente |
 | D9 | Il notebook di ricerca | Usa le stesse funzioni: si allinea da solo. Il confronto del §4 si fa anche lì, su BINANCE_PERP_BTCUSDT |
+
+### Decisioni di Mattia (28/10/2026, via sul documento, PR #85)
+
+- **D1 sì:** un calcolo solo, quello della mappa, con i blocchi settimanali se la varianza esce zero o
+  negativa.
+- **D2 sì:** tutti e quattro i punti insieme (event study, rosa, atlante, profilo).
+- **D3 sì:** il profilo 2a rientra. Alla schermata 4 una riga dice che le ore colorate della 2a decidono
+  `X_INVERSIONE_TREND`.
+- **D4 sì, margine fissato adesso, prima del collaudo:** con il calcolo nuovo, trigger frequenti e medi
+  entro **3 punti** dal raro, e sotto il **20%**; il profilo entro q.
+- **D5 sì, ma solo per le prove d'identità:** il calcolo vecchio a richiesta si toglie nella PR dopo la
+  correzione.
+- **D6, D7, D8, D9 sì.**
 
 ## 6 · Ordine dei lavori
 
