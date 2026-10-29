@@ -2011,6 +2011,34 @@ def rendimento_4h(df: pd.DataFrame) -> pd.Series:
     return (_rendimento_ore(df["Close"], 4) * 10_000.0).rename("rendimento_4h")
 
 
+def quintile_rendimento_4h(df: pd.DataFrame) -> pd.Series:
+    """
+    Il quintile (0 = Q1 ... 4 = Q5) del rendimento a 4 ore della barra, con le soglie della scheda M07
+    della mappa (29/10/2026, docs/77, lavoro 3): mappa.fasce_quintili sulla finestra della scheda (365
+    giorni di sole barre passate, la barra esclusa). NaN dove il rendimento manca (un buco nelle 4 ore) o la
+    finestra non e' ancora piena. FUORI da aggiungi_indicatori: le colonne del catalogo non cambiano.
+    """
+    from engine.ipotesi import SCHEDE
+    from engine.mappa import fasce_quintili
+    codici = fasce_quintili(rendimento_4h(df), SCHEDE["M07"].finestra_giorni)
+    return pd.Series(codici, index=df.index, name="quintile_r4h")
+
+
+def entra_nel_quintile_r4h(df: pd.DataFrame, quintile: int) -> pd.Series:
+    """
+    L'EVENTO della scheda M07 (docs/77, lavoro 3): il rendimento a 4 ore ENTRA nel quintile `quintile`
+    (0 = Q1, 4 = Q5), cioe' la barra e' in quel quintile e la barra subito prima (una barra esatta prima,
+    nessun buco) aveva un quintile noto e diverso. Un quintile non noto (NaN) non conta mai come «fuori».
+    """
+    from engine.quarantena import passo_barre
+    q = quintile_rendimento_4h(df).to_numpy(dtype=float)
+    idx = pd.DatetimeIndex(df.index)
+    prima = np.r_[np.nan, q[:-1]]
+    contigua = np.r_[False, np.asarray((idx[1:] - idx[:-1]) == passo_barre(idx))] if len(idx) > 1 else np.zeros(len(idx), bool)
+    entra = (q == float(quintile)) & np.isfinite(prima) & (prima != float(quintile)) & contigua
+    return pd.Series(entra, index=df.index, name=f"entra_q{int(quintile) + 1}_r4h")
+
+
 def scarto_btc_1h(df: pd.DataFrame, df_btc: pd.DataFrame) -> pd.Series:
     """
     Il rendimento di BTC nell'ultima ora MENO quello dell'altcoin `df` nella

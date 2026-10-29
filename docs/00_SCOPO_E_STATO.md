@@ -126,8 +126,8 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
   --tutte`, 47 suite, 3 alla volta, circa 20 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
-- **Catalogo:** 129 condizioni (71 entry, 38 filtri, 10 uscite, 10
-  entry-metro); dalle fonti testuali 53 prove, registro in `50` §10.
+- **Catalogo:** 131 condizioni (73 entry, 38 filtri, 10 uscite, 10
+  entry-metro); dalle fonti testuali 53 prove, dalla mappa 2 (E45, scheda M07, 29/10), registro in `50` §10.
 
 ## Prossimi lavori, in ordine (Mattia, 21/10), un ramo ciascuno
 
@@ -192,7 +192,10 @@ misurate con la basis non si contano di nuovo. Lavoro 2 fatto (29/10, `77` §P6)
 griglia di 1, 4 e 8 ore (in barre secondo il timeframe); la 2c del Lab (la 1.3 della ricerca) mostra i trigger ai tre
 orizzonti e l'H si sceglie dopo averli visti. I tre H entrano subito fra gli H provati del dataset: la voce dei
 trigger vale la scelta fra loro (circa tre volte il numero dei trigger). Un orizzonte solo, in barre, resta
-possibile (prove d'identità: 41 nel Lab, 25 nella ricerca).
+possibile (prove d'identità: 41 nel Lab, 25 nella ricerca). Lavoro 3 fatto (29/10, `77` §P7): il trigger M07,
+E45 long (il rendimento a 4 ore entra nel quintile più basso) e short (nel più alto), con le soglie della scheda;
+le situazioni dell'atlante con la regola (b) (si contano solo quelle dei trigger nuovi). Con la griglia la 2a mostra
+il profilo una volta sola, dopo la scelta dell'orizzonte.
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.

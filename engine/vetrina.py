@@ -1686,6 +1686,8 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte=""):
         "pesa l'ora.",
         "Vai alla 3a: i segnali che la rosa suggerisce, con i numeri.")
     if getattr(s, "griglia", None):
+        _nota(f"Hai scelto {_ore_di(s.H, s.timeframe)} ({s.H} barre): riesegui la 2a per vedere il mercato ora per "
+              "ora a questo orizzonte (con la griglia si mostra solo adesso).")
         _dettaglio("I trigger ai tre orizzonti (la tabella su cui hai scelto)",
                    (f"Hai scelto {_ore_di(s.H, s.timeframe)} = {s.H} barre", s.tabelle.get("orizzonti",
                                                                                          pd.DataFrame())))
@@ -1786,8 +1788,12 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     s._serve("df_is", "1 · Configura")
     _avviso_risalita(s, "rieseguire il profilo orario")
     if getattr(s, "griglia", None) and getattr(s, "h_scelto", None) is None:
-        _nota(f"Con la griglia degli orizzonti il profilo è a {s.H} barre ({_ore_di(s.H, s.timeframe)}, il più "
-              "lungo) finché non scegli l'orizzonte alla 2c; le schermate dopo lo rifanno all'orizzonte scelto.")
+        # 29/10/2026 (docs/77, lavoro 3): con la griglia il profilo si mostra una volta sola, all'orizzonte
+        # scelto; prima della scelta niente profilo (vederlo a un orizzonte e poi a un altro sarebbero due viste)
+        _nota("Con la griglia degli orizzonti il profilo ora per ora si mostra dopo la scelta dell'orizzonte alla "
+              "2c: scegli lì, poi riesegui questa schermata.")
+        _riga_prove(s, "nessuna")
+        return None
     u = s.unita
     with _zitto():
         s.profilo = (profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso) if u == "pips"
@@ -2449,7 +2455,9 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     s.sopravvissuti, s.filtro = [], None
     k = int(tab.attrs["k_misurate"])
     # soglia cumulata: le celle misurate, una volta per impostazione (H e assi; le entry sono tutte)
-    contata = _rd.metti_prova(s.prove, "celle", chiave_celle(s.H, tab, nomi), k)
+    chiave = chiave_celle(s.H, tab, nomi)
+    da_contare, coperta = celle_da_contare(s.prove, chiave, tab)      # 29/10/2026 (docs/77): la regola (b)
+    contata = _rd.metti_prova(s.prove, "celle", chiave, da_contare)
 
     u, a = s.unita, _altra_unita(s)
     poche = dict(tab.attrs.get("scartate", []))
@@ -2522,8 +2530,14 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
         "anche una che non passa. Il segnale scatterà solo lì, e al passo 5 l'asticella terrà conto di tutte le "
         f"{k} situazioni guardate (solidità {_fmt(soglia_rumore(max(k, 1), ALPHA))}). Altrimenti vai alla 4: la "
         "strada di sempre, con tutti i filtri al passo 5.")
-    _riga_prove(s, f"{k} situazioni misurate" if contata else
-                f"nessuna in più ({k} situazioni misurate, già contate in un atlante con la basis, docs/77)")
+    if not contata:
+        qui = f"nessuna in più ({k} situazioni misurate, già contate in un atlante con la basis, docs/77)"
+    elif coperta is not None:
+        qui = (f"{da_contare} situazioni dei trigger nuovi ({k} misurate; quelle degli altri {len(coperta[2])} "
+               "trigger erano già contate)")
+    else:
+        qui = f"{k} situazioni misurate"
+    _riga_prove(s, qui)
     return tab
 
 
@@ -3738,6 +3752,35 @@ def chiave_celle(H: int, tab: pd.DataFrame, nomi) -> tuple:
     return (H, tab.attrs["assi"], tuple(nomi))
 
 
+def _sottosequenza(corta, lunga) -> bool:
+    """True se `corta` sta tutta dentro `lunga`, nello stesso ordine (non per forza di fila)."""
+    it = iter(lunga)
+    return all(x in it for x in corta)
+
+
+def celle_da_contare(prove: dict, chiave: tuple, tab: pd.DataFrame) -> tuple[int, tuple | None]:
+    """
+    29/10/2026 (docs/77, lavoro 3, regola (b)): le situazioni da contare per un atlante con trigger in piu'.
+    Se una voce gia' contata ha lo stesso H, assi che contengono quelli dell'atlante e trigger che stanno
+    tutti nell'elenco nuovo, nello stesso ordine, le loro situazioni sono gia' misurate e contate: si
+    contano solo quelle dei trigger nuovi (righe misurate dell'atlante). Fra piu' voci cosi' vale quella con
+    piu' trigger. Ritorna (situazioni da contare, la voce che copre le altre o None = si conta tutto).
+    Con gli stessi trigger e assi contenuti decide gia' registro_dataset.celle_gia_contate (nessuna in piu').
+    """
+    H, assi, nomi = chiave
+    migliore = None
+    for k in (prove or {}).get("celle", {}) or {}:
+        if (isinstance(k, tuple) and len(k) == 3 and k[0] == H and set(assi) <= set(k[1])
+                and len(k[2]) < len(nomi) and _sottosequenza(k[2], nomi)
+                and (migliore is None or len(k[2]) > len(migliore[2]))):
+            migliore = k
+    if migliore is None:
+        return int(tab.attrs["k_misurate"]), None
+    nuovi = set(nomi) - set(migliore[2])
+    righe = tab[tab["candidato"].isin(nuovi) & tab["misurata"].astype(bool)]
+    return int(len(righe)), migliore
+
+
 def chiave_uscite(trigger_long, trigger_short, uscite: dict, cella_long=None, cella_short=None) -> tuple:
     """La chiave di una ricerca delle uscite: casistiche, barre, stop, target, regola e situazioni."""
     return (tuple(trigger_long or ()), tuple(trigger_short or ()), uscite["n_barre_long"], uscite["n_barre_short"],
@@ -3959,7 +4002,10 @@ def conta_fasce(storia, df_is: pd.DataFrame, symbol: str, scelti) -> None:
 
 def conta_celle(storia, H: int, atl: pd.DataFrame, nomi) -> None:
     """Sessione 1.5: le celle misurate dall'atlante (la 3c del Lab), con H, assi e trigger passati all'atlante."""
-    _conta(storia, "celle", chiave_celle(H, atl, nomi), atl.attrs["k_misurate"])
+    if storia is None:
+        return
+    chiave = chiave_celle(H, atl, nomi)
+    _conta(storia, "celle", chiave, celle_da_contare(storia.prove, chiave, atl)[0])   # 29/10/2026: la regola (b)
 
 
 def _regola_chiave(regola):

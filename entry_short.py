@@ -37,6 +37,7 @@ from helpers import (
     _confermato,
     _conferma_ribassista,
 )
+from engine.indicatori import entra_nel_quintile_r4h
 from engine.livelli import primo_del_giorno, quarantena_cached, range_finestra
 from engine.sessioni import in_sessione
 
@@ -548,6 +549,21 @@ def entry_short_daily_quintile_down(df: pd.DataFrame) -> pd.Series:
     return _evento(df["quintile_giorno"] == -1)
 
 
+# ------------------------------------------------------------ E45 --------
+def entry_short_r4h_enters_q5(df: pd.DataFrame) -> pd.Series:
+    """
+    Rendimento recente estremo, inversione (scheda M07 della mappa): il
+    rendimento delle ultime 4 ore ENTRA nel quintile piu' alto (Q5) -> short.
+    Soglie e finestra della scheda: quintili sulle barre dei 365 giorni prima
+    (mappa.fasce_quintili); la barra prima era in un altro quintile noto, senza
+    buchi. Nessun parametro nuovo; l'orizzonte della scheda e' di 4 ore.
+
+    Fonte: la mappa delle anomalie, scheda M07 (docs/74), trigger in docs/77
+    lavoro 3 (29/10/2026). Funzione: engine.indicatori.entra_nel_quintile_r4h.
+    """
+    return _evento(entra_nel_quintile_r4h(df, 4))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -598,6 +614,7 @@ TRIGGER_SHORT = {
     "E39_SHORT_HOUR_REVERSAL_DOWN": entry_short_hour_reversal_down,
     "E40_SHORT_JUMP_MOMENTUM_DOWN": entry_short_jump_momentum_down,
     "E41_SHORT_DAILY_QUINTILE_DOWN": entry_short_daily_quintile_down,
+    "E45_SHORT_RENDIMENTO_4H_ENTRA_Q5": entry_short_r4h_enters_q5,   # 29/10/2026, scheda M07 della mappa (docs/77)
 }
 
 
