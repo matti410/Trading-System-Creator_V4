@@ -121,6 +121,10 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   nella ricerca. Il notebook di ricerca scrive nello studio le stesse voci del Lab (trigger, fasce,
   situazioni, uscite, filtri; la 2.3 e la 3.3 con una chiave loro), con le stesse chiavi, e la sua soglia
   cumulata legge il conto dallo studio. Sullo spot misura solo i long, come il Lab.
+- **Le prove d'identità** (Mattia, 29/10/2026, `77` §P8): una prova conta da quando se ne vede il risultato.
+  Le prove d'identità che mostrano risultati con chiavi nuove (un trigger nuovo, un H mai provato sul dataset,
+  un atlante con trigger in più) si fanno sullo **studio vero**, mai su una copia. Su una copia solo i giri che
+  mostrano chiavi già contate.
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
