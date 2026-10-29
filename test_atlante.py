@@ -526,7 +526,9 @@ def esegui() -> int:
               and s.tabelle["filtri"]["Filtro"].iat[1].startswith("Il segnale dentro la situazione: "))
         muto(vt.scegli_cella, s, long="VOL_ALTA_TREND_FAVORE")
         muto(vt.imposta_uscite, s, barre_long=H, sl=90)
-        muto(vt.trova_strategia, s)
+        buf5 = io.StringIO()
+        with contextlib.redirect_stdout(buf5):
+            vt.trova_strategia(s)
         r = s.fs.risultati
         check("33. strada B al passo 5: si prova solo la cella (una riga), asticella = Šidák sulle k celle "
               "dell'atlante, ricerca segnata come rimisura e non contata fra i filtri",
@@ -541,6 +543,14 @@ def esegui() -> int:
               sc["celle"] == k and sc["filtri"] == 0 and sc["k"] == sc["trigger"] + k + sc["uscite"]
               and np.isclose(sc["soglia"], soglia_rumore(sc["k"])) and "situazioni dell'atlante (schermata 3c" in sc["frase"]
               and "non conta due volte" in sc["frase"], sc["frase"][:150])
+        # 28/10/2026 (docs/76, B1): con una situazione scelta, il filtro vuoto alla 6 = il segnale dentro la situazione
+        tab_cella = muto(vt.scheda, s, filtro="CELLA_VOL_ALTA_TREND_FAVORE_L")
+        tab_vuoto = muto(vt.scheda, s, filtro="")
+        check("34b. (docs/76, B1) strada B, filtro vuoto alla 6: si prova il segnale dentro la situazione, la "
+              "stessa scheda del nome CELLA_… scritto a mano; la 5 lo dice",
+              s.filtri_scelti == ["CELLA_VOL_ALTA_TREND_FAVORE_L"] and tab_vuoto.equals(tab_cella)
+              and "con il campo del filtro vuoto, si prova il segnale dentro la situazione" in buf5.getvalue()
+              and "prova il segnale da solo, senza la situazione" not in buf5.getvalue())
         muto(vt.atlante_dei_trigger, s)
         check("35. atlante rifatto uguale: le celle non contano due volte; la cella scelta si azzera e "
               "i suoi filtri escono dal registro",
@@ -548,8 +558,16 @@ def esegui() -> int:
               and not any(n.startswith("CELLA_") for n in reg.list_filters()))
         muto(vt.scegli_cella, s, long="VOL_ALTA_TREND_FAVORE")
         muto(vt.scegli_cella, s)
-        muto(vt.imposta_uscite, s, barre_long=H, sl=90)
+        buf4 = io.StringIO()
+        with contextlib.redirect_stdout(buf4):
+            vt.imposta_uscite(s, barre_long=H, sl=90)
         muto(vt.trova_strategia, s)
+        tab_base = muto(vt.scheda, s, filtro="")
+        check("34c. (docs/76, B1-B3) senza situazione la 6 con il filtro vuoto e' il sistema base; schermata 4 con "
+              "il solo long: niente riga dello short e niente «confronta le tre righe»",
+              s.filtri_scelti == [] and s.filtro is None and len(tab_base)
+              and "long dopo" in buf4.getvalue() and "short dopo" not in buf4.getvalue()
+              and "Confronta le tre righe" not in buf4.getvalue())
         muto(vt.scegli_trigger, s0, long="T_LAB_VOL_ALTA")
         muto(vt.imposta_uscite, s0, barre_long=H, sl=90)
         muto(vt.trova_strategia, s0)
@@ -565,6 +583,15 @@ def esegui() -> int:
               "rimisura non si conta",
               sc_n["celle"] == k and sc_n["filtri"] == len(s.fs.risultati) - 1
               and vt.soglia_cumulata(fs=fs_b)["filtri"] == 0 and vt.soglia_cumulata(fs=fs_a)["filtri"] == 1)
+        # 28/10/2026 (docs/76, B2-B3): con i due lati accesi la riga dello short e il confronto delle tre righe ci sono
+        _registra_entry("T_LAB_SHORT", -1, dl.index[posl])
+        muto(vt.scegli_trigger, s0, long="T_LAB_VOL_ALTA", short="T_LAB_SHORT")
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            vt.imposta_uscite(s0, barre_long=H, sl=90)
+        check("37b. (docs/76, B2-B3) schermata 4 con long e short: la riga dei due lati e «confronta le tre righe»",
+              len(s0.es.risultati) == 3 and "long dopo" in buf2.getvalue() and "short dopo" in buf2.getvalue()
+              and "Confronta le tre righe" in buf2.getvalue())
 
     reg.clear_registry()
     print("\n" + "=" * 70)
