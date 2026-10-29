@@ -37,6 +37,7 @@ from helpers import (
     _confermato,
     _conferma_rialzista,
 )
+from engine.indicatori import entra_nel_quintile_r4h
 from engine.livelli import primo_del_giorno, quarantena_cached, range_finestra
 from engine.sessioni import in_sessione
 
@@ -632,6 +633,21 @@ def entry_daily_quintile_up(df: pd.DataFrame) -> pd.Series:
     return _evento(df["quintile_giorno"] == 1)
 
 
+# ------------------------------------------------------------ E45 --------
+def entry_r4h_enters_q1(df: pd.DataFrame) -> pd.Series:
+    """
+    Rendimento recente estremo, inversione (scheda M07 della mappa): il
+    rendimento delle ultime 4 ore ENTRA nel quintile piu' basso (Q1) -> long.
+    Soglie e finestra della scheda: quintili sulle barre dei 365 giorni prima
+    (mappa.fasce_quintili); la barra prima era in un altro quintile noto, senza
+    buchi. Nessun parametro nuovo; l'orizzonte della scheda e' di 4 ore.
+
+    Fonte: la mappa delle anomalie, scheda M07 (docs/74), trigger in docs/77
+    lavoro 3 (29/10/2026). Funzione: engine.indicatori.entra_nel_quintile_r4h.
+    """
+    return _evento(entra_nel_quintile_r4h(df, 0))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -682,6 +698,7 @@ TRIGGER_LONG = {
     "E39_HOUR_REVERSAL_UP": entry_hour_reversal_up,
     "E40_JUMP_MOMENTUM_UP": entry_jump_momentum_up,
     "E41_DAILY_QUINTILE_UP": entry_daily_quintile_up,
+    "E45_RENDIMENTO_4H_ENTRA_Q1": entry_r4h_enters_q1,   # 29/10/2026, scheda M07 della mappa (docs/77)
 }
 
 

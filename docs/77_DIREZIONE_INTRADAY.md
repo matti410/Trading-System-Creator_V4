@@ -3,12 +3,12 @@
 **Incarico del 29/10/2026** (Mattia e il revisore, per Claude Code). Sostituisce la bozza «dalla fascia al trigger» (ramo locale `dalla-fascia-al-trigger`, mai pushato: si butta).
 Flusso: proposta in testo senza codice → controllo del revisore → via di Mattia → codice, una PR per lavoro.
 
-**Stato:** decisioni di Mattia il 29/10/2026 (§P4). Lavoro 1 fatto (§P5, PR #91); lavoro 2 fatto (§P6).
+**Stato:** decisioni di Mattia il 29/10/2026 (§P4). Lavoro 1 fatto (§P5, PR #91); lavoro 2 fatto (§P6, PR #92); lavoro 3 fatto (§P7).
 
 **Indice.** Incarico: Cosa cerchiamo · Decisioni · Lavoro 1 · Lavoro 2 · Lavoro 3 · Lavoro 4 · Regole.
 Proposta (Claude Code, 29/10/2026): §P1 Lavoro 1, togliere funding e basis · §P2 Lavoro 2, orizzonti
 1, 4 e 8 ore · §P3 Decisioni da prendere prima del codice · §P4 Decisioni di Mattia · §P5 Resoconto
-del lavoro 1 (*resoconto*) · §P6 Resoconto del lavoro 2 (*resoconto*).
+del lavoro 1 (*resoconto*) · §P6 Resoconto del lavoro 2 (*resoconto*) · §P7 Resoconto del lavoro 3 (*resoconto*).
 
 ## Cosa cerchiamo (Mattia, 29/10/2026)
 
@@ -485,3 +485,43 @@ XRP perp da 70 a 234,9, SOL perp da 64 a 217,2, ETH spot da 66 a 222.
   e nel Lab il profilo della 2a non tenuto (era all'H provvisorio).
 
 **Conto per dataset nello studio vero, letto con main e con il ramo:** identico (come in §P5).
+
+## P7 · Resoconto del lavoro 3 (*resoconto*, 29/10/2026)
+
+**La domanda di Mattia sulla 2a.** Con la griglia, prima di questa PR, la 2a mostrava il profilo all'H provvisorio
+(8 ore) e, rieseguita dopo la scelta, all'H scelto: due viste. Le fasce si contano una volta sola (dipendono solo
+dal timeframe). Ora, con la griglia e l'H non ancora scelto, la 2a del Lab e la 1.0 della ricerca mostrano solo una
+nota; il profilo si mostra una volta, all'H scelto (2a rieseguita dopo la 2c, ricerca rieseguita con `H_SCELTO`).
+
+**Il trigger** (additivo):
+- `engine/indicatori.py`: `quintile_rendimento_4h` (le soglie della scheda M07: `mappa.fasce_quintili` sulla
+  finestra della scheda, 365 giorni di sole barre passate) e `entra_nel_quintile_r4h` (l'evento: la barra e' nel
+  quintile e la barra subito prima, senza buchi, aveva un quintile noto e diverso). Fuori da
+  `aggiungi_indicatori`: le colonne del catalogo non cambiano.
+- `entry_long.py`: `E45_RENDIMENTO_4H_ENTRA_Q1`; `entry_short.py`: `E45_SHORT_RENDIMENTO_4H_ENTRA_Q5`.
+- Nota: sul Lab le prime barre dello storico (il riscaldamento degli indicatori) sono tolte, quindi il primo anno
+  di quintili parte qualche barra dopo quello della mappa; dopo il primo anno le soglie sono le stesse.
+
+**La regola (b) del conto** (`vetrina.celle_da_contare`, usata dalla 3c e da `conta_celle`): se una voce delle
+situazioni gia' contata ha lo stesso H, assi che contengono quelli dell'atlante e trigger che stanno tutti
+nell'elenco nuovo nello stesso ordine, si contano solo le situazioni dei trigger nuovi. La riga della 3c lo dice
+(«16 situazioni dei trigger nuovi (445 misurate; quelle degli altri 71 trigger erano già contate)»).
+
+**Collaudo** (docs/50 §7): `test_trigger_m07.py` 18/18 (e in `test_vetrina_trigger.py` i due E45 fra i trigger con solo nome e candela del segnale, come E41) — quintili uguali a quelli della mappa e rifatti a mano,
+barre giuste, eventi e non stati, niente dopo un buco, trappola (soglie da tutto lo storico) segnata LOOKAHEAD,
+`verifica_lookahead` e `verifica_degenerazione` OK, nessun doppione con E39 ed E41, la regola (b), la 2a con la
+griglia. Sui dati veri, solo segnali (in-sample di BTC perp, ETH spot Bybit, XRP perp): degenerazione OK, nessun
+doppione con il catalogo (la sovrapposizione piu' alta 53,6%, sotto il 70%), una famiglia nuova per ciascun lato.
+Registro in `50` §10, riga 20 (+2 prove dalla mappa).
+
+**Prove d'identita'** (orizzonte fisso: 41 nel Lab, 25 nella ricerca; BTC perp ed ETH spot; copia dello studio):
+- con i due E45 tolti dal catalogo: identico a main al bit (oggetti e voci del giornale);
+- con i due E45: due trigger in piu' (sullo spot uno, solo long). Nelle righe degli altri trigger event study e
+  atlante identici al bit; nella rosa cambia solo il numero delle famiglie (due nuove), chi e' nella rosa no;
+  nella ricerca su BTC un trigger cambia «oltre il rumore» perche' la soglia sale con 72 trigger invece di 70.
+  Conto su BTC (copia): trigger 70 -> 72, situazioni +16 (solo quelle degli E45, regola (b)): 3.410,6 -> 3.431,9.
+
+**Conto per dataset nello studio vero, letto con main e con il ramo:** identico. Al prossimo giro: +2 trigger
+sui perpetual; sullo spot se ne misura uno in piu' (solo long), ma su BYBIT_SPOT_ETHUSDT il conto tiene gia' 66
+(le prove passate della ricerca) e non sale; e le sole situazioni
+degli E45 dove c'e' gia' un atlante con lo stesso H.

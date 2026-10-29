@@ -72,6 +72,7 @@ ECCEZIONI_ATTESE = {          # trigger che hanno per scelta solo nome + candela
     "E39_HOUR_REVERSAL_UP", "E39_SHORT_HOUR_REVERSAL_DOWN",
     "E40_JUMP_MOMENTUM_UP", "E40_SHORT_JUMP_MOMENTUM_DOWN",           # momentum dopo un salto, docs/50 §10 (19/10/2026)
     "E41_DAILY_QUINTILE_UP", "E41_SHORT_DAILY_QUINTILE_DOWN",         # quintili del rendimento giornaliero, docs/50 §10 (19/10/2026)
+    "E45_RENDIMENTO_4H_ENTRA_Q1", "E45_SHORT_RENDIMENTO_4H_ENTRA_Q5",   # scheda M07 della mappa, docs/77 (29/10/2026)
 }
 W = 60                        # candele di contesto per il test delle candele
 N_RILEVAZIONI = 40
