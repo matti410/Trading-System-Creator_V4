@@ -223,8 +223,8 @@ def sezione_g(radice: Path):
     dopo = muto(vt.profilo_delle_ore, s)
     s1 = muto(vt.prepara, "BINANCE_PERP_BTCUSDT", H=16, cartella=str(radice))
     fisso = muto(vt.profilo_delle_ore, s1)
-    check("G1. con la griglia, prima della scelta la 2a non mostra il profilo: solo la nota",
-          prima is None and profilo_prima is None and "si mostra dopo la scelta" in buf.getvalue())
+    check("G1. con la griglia, prima della scelta la 2a non mostra il profilo: solo la nota (compare nella 2c)",
+          prima is None and profilo_prima is None and "compare nella 2c" in buf.getvalue())
     check("G2. dopo la scelta la 2a mostra il profilo all'orizzonte scelto, uguale a quello con H = 16 fisso",
           dopo is not None and dopo.equals(fisso))
     RD.azzera()

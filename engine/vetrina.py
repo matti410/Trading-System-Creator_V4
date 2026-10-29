@@ -1187,6 +1187,39 @@ def _frase_griglia(s) -> str:
     return testo
 
 
+def _frase_orizzonte(s) -> str:
+    """
+    29/10/2026 (flusso dell'orizzonte): da dove viene l'H della sessione, in parole. Con la griglia
+    «l'orizzonte scelto alla 2c (16 barre = 4 ore)»; con un orizzonte fisso «l'orizzonte della schermata 1
+    (41 barre = 10,25 ore)»; con la griglia non ancora scelta «l'orizzonte che sceglierai alla 2c».
+    """
+    tf = getattr(s, "timeframe", None) or "M15"
+    if getattr(s, "griglia", None):
+        if getattr(s, "h_scelto", None) is None:
+            return "l'orizzonte che sceglierai alla 2c"
+        return f"l'orizzonte scelto alla 2c ({s.H} barre = {_ore_di(s.H, tf)})"
+    return f"l'orizzonte della schermata 1 ({s.H} barre = {_ore_di(s.H, tf)})"
+
+
+# gli orizzonti che entrano nel conto senza essere impostati adesso: da dove vengono, quando lo si sa
+ORIGINE_ORIZZONTI = {41: "il valore delle prove d'identità del Lab (collaudo)",
+                     25: "il valore predefinito del notebook di ricerca (e dei primi giri del Lab)"}
+
+
+def _orizzonti_gia_nel_conto(storia, adesso) -> str:
+    """Gli H gia' fra gli H provati del dataset che non sono quelli impostati adesso, con la loro origine."""
+    tf = storia.chiave[1] if storia is not None and len(storia.chiave) > 1 else "M15"
+    altri = [h for h in (storia.h_provati if storia is not None else []) if h not in set(adesso)]
+    parti = []
+    for h in altri:
+        try:
+            ore = f" = {_ore_di(h, tf)}"
+        except Exception:
+            ore = ""
+        parti.append(f"{h} barre{ore}: {ORIGINE_ORIZZONTI.get(h, 'provato in una sessione precedente')}")
+    return "; ".join(parti)
+
+
 def _serve_orizzonte(s) -> None:
     """Con la griglia, le schermate dopo la 2c vogliono l'orizzonte scelto."""
     if getattr(s, "griglia", None) and getattr(s, "h_scelto", None) is None:
@@ -1455,10 +1488,15 @@ def _nota_dataset(s: Sessione, esito: str, precedente) -> None:
     if esito == "stesso_h":
         return
     if esito == "griglia":
-        # 29/10/2026 (docs/77): la griglia aggiunge i suoi H agli orizzonti gia' provati sul dataset
-        testo = (f"Orizzonti provati su questo dataset: {', '.join(str(x) for x in storia.h_provati)} barre. La "
-                 "griglia aggiunge i suoi: scegliere l'orizzonte dopo averli visti è una scelta fra tutti gli "
-                 "orizzonti provati, e si conta. Il conto delle prove continua da dove era.")
+        # 29/10/2026 (docs/77): la griglia aggiunge i suoi H agli orizzonti gia' provati sul dataset; detto in
+        # modo che non sembri un'impostazione (flusso dell'orizzonte, 29/10/2026)
+        griglia = getattr(s, "griglia", None) or []
+        gia = _orizzonti_gia_nel_conto(storia, griglia)
+        testo = ((f"Nel conto di questo dataset ci sono già orizzonti provati in sessioni precedenti, che non stai "
+                  f"impostando adesso: {gia}. " if gia else "")
+                 + f"La griglia di adesso aggiunge {', '.join(str(x) for x in griglia)} barre. Scegliere "
+                 "l'orizzonte alla 2c dopo aver visto i segnali è una scelta fra tutti gli orizzonti provati su "
+                 "questo dataset: la voce dei trigger del conto la tiene, e il conto continua da dove era.")
         if storia.oos_visto:
             testo += (f" Hai anche già guardato l'out-of-sample ({len(storia.diario)} "
                       f"{'volta' if len(storia.diario) == 1 else 'volte'}): la prossima scheda non è più una prova "
@@ -1466,10 +1504,11 @@ def _nota_dataset(s: Sessione, esito: str, precedente) -> None:
         _avviso(testo)
         return
     r = storia.risalite[-1]
-    h = ", ".join(str(x) for x in storia.h_provati)
+    gia = _orizzonti_gia_nel_conto(storia, [s.H] if getattr(s, "H", None) else [])
     testo = (f"Hai già lavorato su questo dataset con H = {r['da']}. Cambiare orizzonte dopo aver visto i "
-             f"risultati è una scelta fra orizzonti: si conta. Orizzonti provati su questo dataset: {h}"
-             + (" (questo era già fra loro: nessuna prova in più)." if esito == "h_gia_provato" else ".")
+             "risultati è una scelta fra orizzonti: si conta."
+             + (f" Nel conto ci sono già, provati in sessioni precedenti e non impostati adesso: {gia}." if gia else "")
+             + (" L'orizzonte di adesso era già fra loro: nessuna prova in più." if esito == "h_gia_provato" else "")
              + " Il conto delle prove continua da dove era.")
     if storia.oos_visto:
         testo += (f" Hai anche già guardato l'out-of-sample ({len(storia.diario)} "
@@ -1681,16 +1720,24 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte=""):
         "della 2a), prima dei costi. Per long e short vale la stessa regola: sopra lo zero il segnale fa meglio "
         f"del mercato. Sono i segnali più solidi della rosa (3a), al massimo {quanti} per lato.",
         "Una linea che sale e resta sopra lo zero indica un segnale che aggiunge qualcosa al mercato. La curva si "
-        "legge, non si sceglie: la durata del trade resta l'orizzonte H che hai dichiarato alla schermata 1. Nel "
+        f"legge, non si sceglie: la durata del trade resta {_frase_orizzonte(s)}. Nel "
         "dettaglio sotto il grafico, gli stessi segnali contro il mercato di tutte le ore: serve a vedere quanto "
         "pesa l'ora.",
         "Vai alla 3a: i segnali che la rosa suggerisce, con i numeri.")
     if getattr(s, "griglia", None):
-        _nota(f"Hai scelto {_ore_di(s.H, s.timeframe)} ({s.H} barre): riesegui la 2a per vedere il mercato ora per "
-              "ora a questo orizzonte (con la griglia si mostra solo adesso).")
+        # 29/10/2026 (flusso dell'orizzonte): la tabella dei tre orizzonti c'e' anche se la scelta e' arrivata al
+        # primo giro della 2c (le rose degli altri H si calcolano qui, una volta)
+        s.rose = rosa_orizzonti(s.df_is, s.griglia, s.pip, _trigger_candidati(1 if s.solo_long else None),
+                                min_eventi=MIN_TRIGGER, fuso=s.fuso, unita=s.unita, atr=s.atr,
+                                gia=getattr(s, "rose", None))
+        s.tabelle["orizzonti"] = tabella_orizzonti(s.rose, s.timeframe, s.unita)
+        tab_o = s.tabelle["orizzonti"]
         _dettaglio("I trigger ai tre orizzonti (la tabella su cui hai scelto)",
-                   (f"Hai scelto {_ore_di(s.H, s.timeframe)} = {s.H} barre", s.tabelle.get("orizzonti",
-                                                                                         pd.DataFrame())))
+                   (f"Hai scelto {_ore_di(s.H, s.timeframe)} = {s.H} barre", tab_o),
+                   decimali={c: 2 for c in tab_o.columns if c.startswith("Solidità")})
+        # il profilo della 2a, all'orizzonte scelto: con la griglia si mostra qui, una volta sola
+        _titolo(f"2a · Il mercato ora per ora, a {_ore_di(s.H, s.timeframe)} ({s.H} barre), l'orizzonte scelto")
+        profilo_delle_ore(s, riga=False)
     _riga_prove(s, f"{misurati} trigger misurati")
     return s.ev
 
@@ -1769,7 +1816,7 @@ def _frasi_profilo(p: pd.DataFrame, u: str, luogo: str) -> list[str]:
     ]
 
 
-def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
+def profilo_delle_ore(s: Sessione, riga: bool = True) -> pd.DataFrame:
     """
     Schermata 2a (dal 25/10/2026, docs/68 §6: prima delle curve; prima era la
     2b). Il profilo orario di engine/stagionalita.py sull'in-sample: per ogni
@@ -1783,6 +1830,8 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     accanto nella tabella; pips sul broker, come prima).
 
     Ritorna la tabella del profilo (anche in `s.profilo`).
+    riga (29/10/2026): False quando la mostra la 2c dopo la scelta dell'orizzonte (la riga delle prove e'
+    quella della 2c).
     """
     import matplotlib.pyplot as plt
     s._serve("df_is", "1 · Configura")
@@ -1790,8 +1839,8 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     if getattr(s, "griglia", None) and getattr(s, "h_scelto", None) is None:
         # 29/10/2026 (docs/77, lavoro 3): con la griglia il profilo si mostra una volta sola, all'orizzonte
         # scelto; prima della scelta niente profilo (vederlo a un orizzonte e poi a un altro sarebbero due viste)
-        _nota("Con la griglia degli orizzonti il profilo ora per ora si mostra dopo la scelta dell'orizzonte alla "
-              "2c: scegli lì, poi riesegui questa schermata.")
+        _nota("Con la griglia degli orizzonti il profilo ora per ora si mostra una volta sola, all'orizzonte che "
+              "sceglierai: compare nella 2c, subito sotto la scelta. Non serve tornare qui.")
         _riga_prove(s, "nessuna")
         return None
     u = s.unita
@@ -1815,7 +1864,7 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     ax.set_xlabel(f"ora d'ingresso ({luogo})")
     ax.set_ylabel(f"variazione del prezzo nelle {s.H} barre dopo,\nin più o in meno della media di tutte le ore ({u})")
     ax.set_title("Il mercato ora per ora: dopo quest'ora il prezzo sale (verde) o scende (rosso) più del solito?   "
-                 "(grigio = può essere caso)")
+                 f"(grigio = può essere caso)\nOrizzonte: {s.H} barre = {_ore_di(s.H, s.timeframe)}")
     ax.grid(alpha=.3, axis="y")
     plt.tight_layout()
     plt.show()
@@ -1833,9 +1882,11 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
         if u != "pips":                             # i pips accanto, solo da leggere
             tabella.insert(3, "In più o in meno della media di tutte le ore (pips)", oltre["scarto_pips"].to_numpy())
         s.tabelle["profilo"] = tabella
-        _mostra((f"Le ore che il caso da solo non spiega (in-sample, {s.H} barre, prima dei costi)", tabella),
+        _mostra((f"Le ore che il caso da solo non spiega (in-sample, {s.H} barre = {_ore_di(s.H, s.timeframe)}, "
+                 "prima dei costi)", tabella),
                 decimali={"Solidità": 2})
     _riquadro(
+        f"Orizzonte del profilo: {_frase_orizzonte(s)}. "
         f"Per ogni ora del giorno ({luogo}): di quanto sale o scende in media il prezzo nelle {s.H} barre dopo, "
         f"in più o in meno della media di tutte le ore, in {u}. Sopra lo zero il prezzo tende a salire più del "
         "solito, sotto lo zero a scendere più del solito. Le stanghette nere sono l'oscillazione dovuta al caso.",
@@ -1846,7 +1897,8 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
         f"Vai alla 2c. Se vuoi un segnale a orario (es. ORA_LONG_@12:30: si entra ogni giorno alle 12:30, ora "
         f"{luogo}), lo aggiungi alla 3b. Alla 4 puoi chiudere a un orario (X_ORA_@16:00), oppure quando arriva "
         "un'ora rossa per il long o verde per lo short (X_INVERSIONE_TREND).")
-    _riga_prove(s, "nessuna (le fasce si contano solo se scegli un trigger a orario)")
+    if riga:
+        _riga_prove(s, "nessuna (le fasce si contano solo se scegli un trigger a orario)")
     return p
 
 
@@ -3117,7 +3169,7 @@ def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int,
     if griglia and scelto not in (None, ""):
         _segna_scelta(storia, H)
     _ULTIMO_DATASET["chiave"] = storia.chiave
-    _nota_dataset(SimpleNamespace(storia=storia), esito, precedente)
+    _nota_dataset(SimpleNamespace(storia=storia, griglia=griglia, H=H), esito, precedente)
     _note_studio(storia, info)
     return storia
 
@@ -3221,7 +3273,7 @@ def _mostra_consigliate(s: Sessione, bl, bs, sl, tp, regola) -> None:
                           "Target": mie[2], "Regola oraria": mie[3], "Picco della curva (solo da leggere)": ""})
     tabella = pd.DataFrame(righe)
     s.tabelle["uscite_consigliate"] = tabella
-    _mostra(("Uscite consigliate (barre = l'orizzonte H della schermata 1)", tabella))
+    _mostra((f"Uscite consigliate · barre = {_frase_orizzonte(s)}", tabella))
     for lato, x in c.items():
         if x["picco"]["nota"]:
             _nota(f"{lato.capitalize()}: {x['picco']['nota']}")
@@ -4731,7 +4783,11 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
         "un'altra domanda: quanti lotti, sempre uguali, per non superare quel drawdown su tutto lo storico.")
     _nota("Limiti da conoscere: le storie simulate trattano i trade come indipendenti; con lo stop spento il rischio "
           "è quello tipico, non il massimo; un trade può perdere più di 1 R (gap, stop non attivo sulla barra "
-          "d'ingresso); i costi di swap non sono nel backtest.")
+          "d'ingresso); "
+          + (("il funding dei perpetual è contato nel backtest, trade per trade, ma resta fuori dal rischio del "
+              "money management (si conosce solo a trade chiuso)." if "_PERP_" in str(symbol).upper()
+              else "sullo spot non ci sono né funding né swap.") if da_exchange(symbol)
+             else "i costi di swap non sono nel backtest."))
     return out
 
 
@@ -4756,6 +4812,7 @@ def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: 
     Ritorna il dict di `money_management_trade`, salvato anche in `s.mm`.
     """
     s._serve("oos", "6 · Scheda strategia")
+    _nota(_frase_scheda_usata(s))
     if leva is not None and float(leva) == 0:
         leva = None
     u = s.uscite
@@ -4774,6 +4831,15 @@ def money_management(s: Sessione, capitale: float = 10_000.0, drawdown_max_pct: 
 # ========================================================================
 # 9 · Stress test
 # ========================================================================
+
+def _frase_scheda_usata(s: Sessione) -> str:
+    """29/10/2026: la scheda della 6 che usano la 7 e la 9, in testa, cosi' un output rimasto da un giro vecchio si riconosce."""
+    n_is = len(s.trades_is) if s.trades_is is not None else 0
+    n_oos = len(s.trades_oos) if s.trades_oos is not None else 0
+    return (f"Usa la scheda della 6 di adesso: {_fmt(n_is)} trade in-sample e {_fmt(n_oos)} out-of-sample, "
+            f"{('filtro ' + s.filtro) if getattr(s, 'filtro', None) else 'senza filtro'}, {_frase_orizzonte(s)}. "
+            "Se rifai la 6, rifai anche questa schermata.")
+
 
 def passo_lotti(symbol: str) -> float:
     """
@@ -4826,6 +4892,7 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
     "drawdown_max_usd", "unita", e sulle crypto "prezzo" e "data_prezzo"}.
     """
     s._serve("oos", "6 · Scheda strategia")
+    _nota(_frase_scheda_usata(s))
     if s.mm is not None:
         drawdown_max_usd = s.mm["capitale"] * s.mm["drawdown_max_pct"] / 100.0
         origine = (f"dalla schermata 7: {_fmt(s.mm['capitale'], 0)} $ × {_fmt(s.mm['drawdown_max_pct'], 1)} % "

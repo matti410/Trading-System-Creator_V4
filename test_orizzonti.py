@@ -20,7 +20,11 @@ D  un orizzonte solo in barre: tutto come prima (la griglia non c'e', il campo
    della 2c non conta);
 E  lo studio: la griglia e la scelta nel giornale, ritrovate dopo il riavvio;
 F  la ricerca: orizzonti_della_ricerca, la 1.3 che si ferma senza H_SCELTO,
-   registro_orizzonte con la griglia e con un orizzonte solo.
+   registro_orizzonte con la griglia e con un orizzonte solo;
+G  (29/10/2026, il flusso dell'orizzonte) la nota della schermata 1 dice da dove
+   vengono gli orizzonti gia' nel conto; la frase dell'orizzonte (scelto alla 2c o
+   della schermata 1); la 2c con la scelta al primo giro mostra la tabella dei tre
+   orizzonti e il profilo della 2a all'orizzonte scelto.
 
 Come si lancia (da terminale, dalla cartella del progetto):
 
@@ -264,6 +268,50 @@ def sezione_f(radice: Path):
     RD.azzera()
 
 
+def sezione_g(radice: Path):
+    print("\nG · Il flusso dell'orizzonte (29/10/2026)")
+    cg = radice / "flusso"
+    cg.mkdir()
+    scrivi_dataset(cg)
+    RD.azzera()
+    muto(vt.prepara, SYM, H=41, cartella=str(cg))
+    muto(vt.prepara, SYM, H=25, cartella=str(cg))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        s = vt.prepara(SYM, H=vt.GRIGLIA, cartella=str(cg))
+    import matplotlib.pyplot as plt
+    plt.close("all")
+    testo = out.getvalue()
+    check("G1. schermata 1 con la griglia su un dataset con 41 e 25 gia' provati: la nota dice che non sono "
+          "impostati adesso e da dove vengono (41: prove d'identita' del Lab; 25: notebook di ricerca)",
+          "non stai impostando adesso" in testo and "41 barre" in testo and "prove d'identità del Lab" in testo
+          and "25 barre" in testo and "notebook di ricerca" in testo and "aggiunge 4, 16, 32 barre" in testo
+          and "Orizzonti provati su questo dataset" not in testo)
+    f_prima = vt._frase_orizzonte(s)
+    out2 = io.StringIO()
+    with contextlib.redirect_stdout(out2):
+        vt.esplora(s, orizzonte="4 ore")
+    plt.close("all")
+    testo2 = out2.getvalue()
+    tab = s.tabelle.get("orizzonti")
+    fisso = vt.profilo_orario(s.df_is, 16, s.pip, fuso=s.fuso, unita=s.unita)
+    check("G2. scelta «4 ore» gia' al primo giro della 2c: la tabella dei tre orizzonti c'e' (non vuota, un gruppo "
+          "di colonne per orizzonte)", tab is not None and len(tab) > 0
+          and all(f"Solidità netta a {o}" in tab.columns for o in ("1 ora", "4 ore", "8 ore")))
+    check("G3. dopo la scelta la 2c mostra anche il profilo della 2a all'orizzonte scelto (16 barre), con il titolo "
+          "che lo dice; nessuna fascia contata in piu'",
+          s.profilo is not None and s.profilo.equals(fisso) and "Il mercato ora per ora, a 4 ore (16 barre)" in testo2
+          and "Orizzonte del profilo: l'orizzonte scelto alla 2c (16 barre = 4 ore)" in testo2 and "fasce" not in s.prove)
+    s1 = muto(vt.prepara, SYM, H=41, cartella=str(cg))
+    check("G4. la frase dell'orizzonte: da scegliere / scelto alla 2c (16 barre = 4 ore) / della schermata 1 "
+          "(41 barre = 10,25 ore)",
+          f_prima == "l'orizzonte che sceglierai alla 2c"
+          and vt._frase_orizzonte(s) == "l'orizzonte scelto alla 2c (16 barre = 4 ore)"
+          and vt._frase_orizzonte(s1) == "l'orizzonte della schermata 1 (41 barre = 10,25 ore)",
+          vt._frase_orizzonte(s1))
+    RD.azzera()
+
+
 def esegui() -> int:
     print("=" * 70)
     print("test_orizzonti · gli orizzonti 1, 4 e 8 ore (docs/77, lavoro 2)")
@@ -276,6 +324,7 @@ def esegui() -> int:
         sezione_c_d(radice)
         sezione_e(radice)
         sezione_f(radice)
+        sezione_g(radice)
     finally:
         RD.azzera()
         shutil.rmtree(radice, ignore_errors=True)
