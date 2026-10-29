@@ -181,6 +181,11 @@ sola lettura) — fatta (PR #82 e la successiva, primo giro sullo studio il 28/1
 dopo la mappa, come variabile in più. Orizzonti multipli in un lavoro a parte (`68` §13). Il conto
 delle prove fra dataset si decide nel lavoro dei testimoni.
 
+**Direzione dal 29/10/2026 (`77`):** edge direzionali intraday sul prezzo (e sul volume), trade da 1 a
+8 ore; niente edge da meccanica dello strumento (funding, basis). Lavori in ordine: 1) togliere funding e basis
+come variabili; 2) orizzonti 1, 4 e 8 ore; 3) trigger M07; 4) volume aggressivo. Proposta dei lavori 1 e 2 in
+`77` §P1–§P3, in attesa delle decisioni.
+
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.
 
