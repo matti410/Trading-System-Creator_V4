@@ -8,7 +8,7 @@ Flusso: proposta in testo senza codice → controllo del revisore → via di Mat
 **Indice.** Incarico: Cosa cerchiamo · Decisioni · Lavoro 1 · Lavoro 2 · Lavoro 3 · Lavoro 4 · Regole.
 Proposta (Claude Code, 29/10/2026): §P1 Lavoro 1, togliere funding e basis · §P2 Lavoro 2, orizzonti
 1, 4 e 8 ore · §P3 Decisioni da prendere prima del codice · §P4 Decisioni di Mattia · §P5 Resoconto
-del lavoro 1 (*resoconto*) · §P6 Resoconto del lavoro 2 (*resoconto*) · §P7 Resoconto del lavoro 3 (*resoconto*) · §P8 Il conto delle prove d'identità (*resoconto*).
+del lavoro 1 (*resoconto*) · §P6 Resoconto del lavoro 2 (*resoconto*) · §P7 Resoconto del lavoro 3 (*resoconto*) · §P8 Il conto delle prove d'identità (*resoconto*) · §P9 Il flusso dell'orizzonte nel Lab (*resoconto*).
 
 ## Cosa cerchiamo (Mattia, 29/10/2026)
 
@@ -555,3 +555,28 @@ di oggi con la griglia su BTC: gli H 4, 16 e 32):
 | BINANCE_PERP_XRPUSDT_M15 | 652 | 652 | — |
 | BYBIT_PERP_SOLUSDT_M15 | 105 | 105 | — |
 | BINANCE_PERP_ETHUSDT_M15 | 5 | 5 | — |
+
+## P9 · Il flusso dell'orizzonte nel Lab (*resoconto*, 29/10/2026)
+
+Dalla prova di Mattia su Colab (BINANCE_PERP_BTCUSDT M15, griglia, 4 ore scelte alla 2c). Solo vetrina, testi e
+notebook; nessun numero cambia (prove d'identità a orizzonte fisso identiche a main al bit).
+1. **Schermata 1:** la nota non elenca più gli orizzonti come se fossero un'impostazione: dice che nel conto ci sono
+   già orizzonti provati in sessioni precedenti, non impostati adesso, e da dove vengono (41: il valore delle prove
+   d'identità del Lab; 25: il valore predefinito del notebook di ricerca), poi cosa aggiunge la griglia.
+2. **2a:** titolo del grafico, tabella e testo dicono sempre l'orizzonte del profilo. Con la griglia la 2a, prima
+   della scelta, mostra solo una nota; dopo la scelta la **2c mostra anche il profilo all'orizzonte scelto**, una
+   volta sola (le fasce si contano una volta sola, come prima).
+3. **2c:** la tabella dei tre orizzonti c'e' anche quando l'orizzonte si sceglie al primo giro (era vuota perche'
+   la rosa ai tre orizzonti non era ancora stata calcolata).
+4. **Schermata 4:** titolo e aiuto del campo dicono «l'orizzonte scelto alla 2c (es. 16 barre = 4 ore)», o quello
+   della schermata 1 se e' fisso.
+5. **Schermata 7:** sulle crypto i «limiti» dicono che il funding dei perpetual e' contato nel backtest (sullo spot:
+   ne' funding ne' swap); lo swap resta solo per il broker.
+6. **Le schermate 7 e 9 del notebook salvato** (1.406 e 381 trade, 1.787) erano output di un giro precedente: le due
+   celle non avevano numero di esecuzione e lo stesso output, byte per byte, c'era gia' nel notebook prima del giro.
+   Il Lab non usa una scheda vecchia: rifare la 6 azzera il money management (`s.mm`), e la 7 e la 9 usano sempre i
+   trade della scheda di adesso. In testa alla 7 e alla 9 ora c'e' una riga con la scheda usata (trade in-sample e
+   out-of-sample, filtro, orizzonte), cosi' un output rimasto da un giro vecchio si riconosce subito.
+
+I campi del notebook salvato da Colab (togli, situazioni della 3d, regole d'uscita, orizzonte scelto) sono tornati ai
+valori predefiniti.
