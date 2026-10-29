@@ -115,6 +115,47 @@ def apri(symbol: str, timeframe: str, confine, H: int, nuove_prove=None) -> tupl
     return s, esito
 
 
+def apri_griglia(symbol: str, timeframe: str, confine, orizzonti, nuove_prove=None) -> tuple[StoriaDataset, str, list]:
+    """
+    29/10/2026 (docs/77, lavoro 2): apre (o riprende) la storia del dataset con la GRIGLIA degli orizzonti
+    (1, 4 e 8 ore): tutti gli H della griglia entrano subito fra gli H provati, perche' la 2c li mostra tutti
+    e l'H si sceglie dopo averli visti (la scelta fra gli H provati si conta, prove_trigger_orizzonti).
+    Nessuna risalita per ciascuno: e' una scelta sola. L'H corrente, finche' non si sceglie, e' l'ultimo
+    della griglia (il piu' lungo). Ritorna (storia, esito, gli H nuovi in ordine): esito "nuovo" (primo
+    orizzonte sul dataset), "stesso_h" (tutti gia' provati) o "griglia" (alcuni H nuovi).
+    """
+    orizzonti = [int(h) for h in orizzonti]
+    if not orizzonti or min(orizzonti) < 1:
+        raise ValueError("La griglia degli orizzonti deve avere H di almeno 1 barra.")
+    chiave = chiave_dataset(symbol, timeframe, confine)
+    s = _REGISTRO.get(chiave)
+    if s is None:
+        s = StoriaDataset(chiave=chiave, prove=nuove_prove() if nuove_prove is not None else None)
+        _REGISTRO[chiave] = s
+    if s.prove is None and nuove_prove is not None:
+        s.prove = nuove_prove()
+    nuovi = [h for h in dict.fromkeys(orizzonti) if h not in s.h_provati]
+    esito = "nuovo" if s.h_corrente is None else ("griglia" if nuovi else "stesso_h")
+    s.h_provati.extend(nuovi)
+    if nuovi:
+        s.h_corrente = nuovi[-1]
+    return s, esito, nuovi
+
+
+def scegli_h(s: StoriaDataset, H: int) -> bool:
+    """
+    29/10/2026 (docs/77): l'H scelto fra quelli gia' provati (la griglia della 2c) diventa l'H corrente.
+    Nessuna prova in piu': e' fra gli H provati. Ritorna True se l'H corrente cambia (da scrivere nel giornale).
+    """
+    H = int(H)
+    if H not in s.h_provati:
+        raise ValueError(f"H = {H} non e' fra gli orizzonti provati su questo dataset ({s.h_provati}).")
+    if s.h_corrente == H:
+        return False
+    s.h_corrente = H
+    return True
+
+
 def annota_oos(s: StoriaDataset, scelte: dict, oos_fino_al=None) -> int:
     """
     Scrive nel diario un'apertura dell'out-of-sample con le scelte di quel momento; ritorna quante sono.

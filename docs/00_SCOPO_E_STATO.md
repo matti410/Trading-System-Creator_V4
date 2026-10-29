@@ -188,7 +188,11 @@ delle prove fra dataset si decide nel lavoro dei testimoni.
 come variabili; 2) orizzonti 1, 4 e 8 ore; 3) trigger M07; 4) volume aggressivo. Proposta in `77` §P1–§P3,
 decisioni di Mattia in `77` §P4. Lavoro 1 fatto (29/10, `77` §P5): il funding resta solo come costo dei trade sui
 perpetual; via il funding come variabile, l'asse basis dell'atlante e le schede M01, M04, M05. Le situazioni già
-misurate con la basis non si contano di nuovo.
+misurate con la basis non si contano di nuovo. Lavoro 2 fatto (29/10, `77` §P6): l'orizzonte predefinito è la
+griglia di 1, 4 e 8 ore (in barre secondo il timeframe); la 2c del Lab (la 1.3 della ricerca) mostra i trigger ai tre
+orizzonti e l'H si sceglie dopo averli visti. I tre H entrano subito fra gli H provati del dataset: la voce dei
+trigger vale la scelta fra loro (circa tre volte il numero dei trigger). Un orizzonte solo, in barre, resta
+possibile (prove d'identità: 41 nel Lab, 25 nella ricerca).
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.

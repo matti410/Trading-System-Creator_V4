@@ -367,6 +367,11 @@ class Sessione:
         self.entry_casistica_long = self.entry_casistica_short = None   # con la cella dentro (§3.3)
         self.consigliate = None       # le uscite consigliate e il picco da leggere (§5)
         self.sistema = None           # il sistema scelto alla 4b, portato al passo 5 (§7)
+        # 29/10/2026 (docs/77, lavoro 2): la griglia degli orizzonti (1, 4 e 8 ore) e l'H scelto alla 2c;
+        # con un orizzonte solo in barre la griglia e' None e l'H e' quello della schermata 1
+        self.griglia = None
+        self.h_scelto = None
+        self.rose = {}                # le rose dei trigger della sessione, una per H
 
     def __repr__(self):
         return f"<Sessione {self.symbol} {self.timeframe} · H={self.H}>"
@@ -998,18 +1003,25 @@ def _stato_scritto(storia) -> dict:
             "risalite": len(storia.risalite)}
 
 
-def _storia_dello_studio(d: SimpleNamespace, H: int, nuove_prove):
+def _storia_dello_studio(d: SimpleNamespace, H: int, nuove_prove, griglia=None):
     """
     Il registro del dataset dallo studio: ricostruito da tutti i giornali, poi
     aperto con H come sempre (registro_dataset.apri). Un H nuovo (o un ritorno)
     si aggiunge al giornale. Ritorna (storia, esito, info dei giornali).
+    griglia (29/10/2026, docs/77): la griglia degli orizzonti; tutti i suoi H nuovi
+    entrano fra gli H provati e nel giornale (registro_dataset.apri_griglia).
     """
     i = d.ingresso
     storia, info = _st.ricostruisci(d.cartella, i.dataset, i.studio, nuove_prove=nuove_prove)
     _CONTESTO_STUDIO[storia.chiave] = {"cartella": d.cartella, "dataset": i.dataset, "macchina": d.macchina,
                                        "studio": i.studio}
-    storia, esito = _rd.apri(d.symbol, d.timeframe, i.confine, H, nuove_prove=nuove_prove)
-    if esito != "stesso_h":
+    if griglia:
+        storia, esito, nuovi = _rd.apri_griglia(d.symbol, d.timeframe, i.confine, griglia, nuove_prove=nuove_prove)
+        for h in nuovi:
+            _st.aggiungi_voce(d.cartella, i.dataset, d.macchina, i.studio["id"], {"voce": "orizzonte", "H": int(h)})
+    else:
+        storia, esito = _rd.apri(d.symbol, d.timeframe, i.confine, H, nuove_prove=nuove_prove)
+    if not griglia and esito != "stesso_h":
         _st.aggiungi_voce(d.cartella, i.dataset, d.macchina, i.studio["id"], {"voce": "orizzonte", "H": int(H)})
     _SCRITTO[storia.chiave] = _stato_scritto(storia)
     return storia, esito, info
@@ -1103,6 +1115,132 @@ def _minuti_barra(timeframe: str) -> int:
     return int(timeframe[1:]) * (1 if timeframe.startswith("M") else 60)
 
 
+# ========================================================================
+# 29/10/2026 (docs/77, lavoro 2): gli orizzonti multipli, 1, 4 e 8 ore
+# ========================================================================
+# La griglia e' in ORE e si converte nelle barre del timeframe (nessuna costante da M15). Con la griglia
+# la 2c mostra i tre orizzonti e l'H si sceglie dopo averli visti: tutti e tre entrano fra gli H provati
+# del dataset (la voce dei trigger conta la scelta, giudizio.prove_trigger_orizzonti). Un orizzonte solo,
+# in barre, resta possibile (le prove d'identita' contro main: 41 nel Lab, 25 nella ricerca).
+
+ORIZZONTI_ORE = (1, 4, 8)
+GRIGLIA = "1, 4 e 8 ore: scelgo alla 2c"
+
+
+def orizzonti_in_barre(timeframe: str, ore=ORIZZONTI_ORE) -> tuple[list[int], list]:
+    """Le barre del timeframe per ogni durata in ore; le ore che non sono un numero intero di barre si saltano."""
+    minuti = _minuti_barra(timeframe)
+    barre, saltate = [], []
+    for h in ore:
+        b = float(h) * 60.0 / minuti
+        if b >= 1 and b.is_integer():
+            barre.append(int(b))
+        else:
+            saltate.append(h)
+    return barre, saltate
+
+
+def _ore_di(H: int, timeframe: str) -> str:
+    """H barre in ore, in parole: «1 ora», «4 ore», «6,25 ore»."""
+    ore = H * _minuti_barra(timeframe) / 60
+    return "1 ora" if ore == 1 else f"{_fmt(ore, 0 if float(ore).is_integer() else 2)} ore"
+
+
+def leggi_orizzonte(valore, timeframe: str) -> list[int]:
+    """
+    Gli orizzonti da provare, in barre, dal campo della schermata 1 (o dalla cella della ricerca):
+    la griglia (GRIGLIA, o un testo che inizia con «1, 4 e 8») -> [4, 16, 32] su M15; un numero
+    (anche scritto come testo) -> [quel numero di barre]; «N ore» / «1 ora» -> [N ore in barre].
+    """
+    if isinstance(valore, (int, np.integer)) and not isinstance(valore, bool):
+        H = int(valore)
+    else:
+        testo = str(valore).strip().lower()
+        if testo == GRIGLIA.lower() or testo.startswith("1, 4 e 8") or testo == "griglia":
+            barre, _ = orizzonti_in_barre(timeframe)
+            if len(barre) < 2:
+                raise ValueError(f"Su {timeframe} la griglia 1, 4 e 8 ore ha meno di due orizzonti interi: "
+                                 "fissa un orizzonte in barre.")
+            return barre
+        parti = testo.replace(",", ".").split()
+        try:
+            if len(parti) == 2 and parti[1] in ("ora", "ore"):
+                b, _ = orizzonti_in_barre(timeframe, (float(parti[0]),))
+                if not b:
+                    raise ValueError
+                H = b[0]
+            else:
+                H = int(float(testo))
+        except ValueError:
+            raise ValueError(f"Orizzonte «{valore}»: scrivi un numero di barre (es. 41), «4 ore» o «{GRIGLIA}».")
+    if H < 1:
+        raise ValueError("H deve essere almeno 1 barra.")
+    return [H]
+
+
+def _frase_griglia(s) -> str:
+    _, saltate = orizzonti_in_barre(s.timeframe)
+    testo = (", ".join(f"{_ore_di(h, s.timeframe)} = {h} barre" for h in s.griglia)
+             + ": lo scegli alla 2c, dopo averli visti (la scelta fra i tre si conta)")
+    if saltate:
+        testo += f"; {', '.join(f'{x:g}' for x in saltate)} ore saltate (non sono un numero intero di barre)"
+    return testo
+
+
+def _serve_orizzonte(s) -> None:
+    """Con la griglia, le schermate dopo la 2c vogliono l'orizzonte scelto."""
+    if getattr(s, "griglia", None) and getattr(s, "h_scelto", None) is None:
+        raise RuntimeError("Manca un passaggio: scegli l'orizzonte alla 2c (campo «orizzonte_scelto») e "
+                           "riesegui la 2c.")
+
+
+def rosa_orizzonti(df_is: pd.DataFrame, orizzonti, pip: float, nomi, min_eventi: int = MIN_TRIGGER,
+                   fuso: str = "UTC", unita: str = "bp", atr=None, gia=None) -> dict:
+    """
+    La rosa dei trigger (rosa_entry) a ogni orizzonte della griglia, comune al Lab (2c) e alla ricerca
+    (1.3). gia: un dizionario {H: rosa} gia' calcolato (non si rifa'). Ritorna {H: rosa}.
+    """
+    out = dict(gia or {})
+    for H in orizzonti:
+        if int(H) not in out:
+            with _zitto():
+                out[int(H)] = rosa_entry(df_is, int(H), pip, nomi=nomi, min_eventi=min_eventi, fuso=fuso,
+                                         atr=atr, unita=unita)
+    return {int(H): out[int(H)] for H in orizzonti}
+
+
+def tabella_orizzonti(rose: dict, timeframe: str, unita: str) -> pd.DataFrame:
+    """
+    I tre orizzonti uno accanto all'altro: per ogni trigger misurato a tutti gli H, quanto fa meglio del
+    mercato della stessa ora e la sua solidita' netta a ogni H, e se e' nella rosa. In ordine di lato e
+    di solidita' piu' alta fra gli H. Solo da leggere: e' la tabella su cui si sceglie l'H (si conta).
+    """
+    hs = list(rose)
+    comuni = None
+    for H in hs:
+        nomi = list(rose[H]["candidato"])
+        comuni = nomi if comuni is None else [n for n in comuni if n in set(nomi)]
+    righe = []
+    for nome in comuni or []:
+        r = {"Trigger": nome}
+        migliore = -np.inf
+        for H in hs:
+            x = rose[H].set_index("candidato").loc[nome]
+            r["Lato"] = "long" if int(x["direction"]) == 1 else "short"
+            o = _ore_di(H, timeframe)
+            r[f"Più del mercato della stessa ora a {o} ({unita})"] = float(x[f"scarto_{unita}"])
+            r[f"Solidità netta a {o}"] = float(x["t_netto"])
+            r[f"Nella rosa a {o}"] = _si_no(x["nella_rosa"])
+            migliore = max(migliore, float(x["t_netto"]) if np.isfinite(x["t_netto"]) else -np.inf)
+        r["_ordine"] = migliore
+        righe.append(r)
+    if not righe:
+        return pd.DataFrame(columns=["Trigger", "Lato"])
+    t = pd.DataFrame(righe)
+    t = t.sort_values(["Lato", "_ordine"], ascending=[True, False]).drop(columns="_ordine").reset_index(drop=True)
+    return t[["Trigger", "Lato"] + [c for c in t.columns if c not in ("Trigger", "Lato")]]
+
+
 def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
             cartella: str = "dati", timeframe: str = "M15", funding: bool = True,
             motore: str | None = None, confine=None, aggiorna: bool = False,
@@ -1150,9 +1288,10 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
 
     Ritorna la sessione da passare alle schermate successive.
     """
-    H = int(H)
-    if H < 1:
-        raise ValueError("H deve essere almeno 1 barra.")
+    # 29/10/2026 (docs/77, lavoro 2): H e' un numero di barre (un orizzonte solo, come prima) o la griglia
+    # GRIGLIA (1, 4 e 8 ore): allora H e' provvisorio, il piu' lungo, finche' non si sceglie alla 2c
+    orizzonti = leggi_orizzonte(H, timeframe)
+    H = orizzonti[-1]
     # 25/10/2026 (docs/70): aggiornamento, studio, reset e taglio al funding; con confine=None
     # apri_dati fa solo quello che facevano prima carica_storico e carica_funding
     dati = apri_dati(symbol, timeframe, cartella, confine=confine, aggiorna=aggiorna,
@@ -1167,6 +1306,8 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     s.funding = storico_funding
     s.motore = scegli_motore(motore)     # 21/10/2026 (docs/65)
     s.symbol, s.H, s.cartella, s.timeframe = symbol, H, cartella, timeframe
+    s.griglia = orizzonti if len(orizzonti) > 1 else None          # 29/10/2026 (docs/77)
+    s.h_scelto = None if s.griglia else H
     s.da_exchange = da_exchange(symbol)
     if s.da_exchange:
         from .exchange import solo_long
@@ -1194,7 +1335,11 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     info_giornali = None
     if dati.ingresso is not None:
         # 25/10/2026 (docs/70 §3-§4): il registro dai giornali dello studio, e ogni cambio nel giornale
-        s.storia, esito, info_giornali = _storia_dello_studio(dati, H, lambda: s.prove)
+        s.storia, esito, info_giornali = _storia_dello_studio(dati, H, lambda: s.prove, griglia=s.griglia)
+    elif s.griglia:
+        # 29/10/2026 (docs/77): la griglia entra tutta fra gli H provati
+        s.storia, esito, _ = _rd.apri_griglia(symbol, timeframe, s.df_is.index[-1], s.griglia,
+                                              nuove_prove=lambda: s.prove)
     else:
         s.storia, esito = _rd.apri(symbol, timeframe, s.df_is.index[-1], H, nuove_prove=lambda: s.prove)
     s.prove = s.storia.prove
@@ -1219,7 +1364,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
               f"{_fmt(len(s.df_is))} barre, fino al {giorno(s.df_is.index[-1])}",
               f"{_fmt(len(s.df_oos))} barre, dal {giorno(s.df_oos.index[0])}",
               costo, rollover,
-              f"{H} barre ({_fmt(H * _minuti_barra(timeframe) / 60, 1)} ore)",
+              (_frase_griglia(s) if s.griglia else f"{H} barre ({_fmt(H * _minuti_barra(timeframe) / 60, 1)} ore)"),
               f"{len(_trigger_candidati(1))} long · {n_short}",
               _fmt(len(_tutti_i_filtri()))]
     if s.da_exchange and not s.solo_long:
@@ -1309,6 +1454,17 @@ def _nota_dataset(s: Sessione, esito: str, precedente) -> None:
         return
     if esito == "stesso_h":
         return
+    if esito == "griglia":
+        # 29/10/2026 (docs/77): la griglia aggiunge i suoi H agli orizzonti gia' provati sul dataset
+        testo = (f"Orizzonti provati su questo dataset: {', '.join(str(x) for x in storia.h_provati)} barre. La "
+                 "griglia aggiunge i suoi: scegliere l'orizzonte dopo averli visti è una scelta fra tutti gli "
+                 "orizzonti provati, e si conta. Il conto delle prove continua da dove era.")
+        if storia.oos_visto:
+            testo += (f" Hai anche già guardato l'out-of-sample ({len(storia.diario)} "
+                      f"{'volta' if len(storia.diario) == 1 else 'volte'}): la prossima scheda non è più una prova "
+                      "pulita.")
+        _avviso(testo)
+        return
     r = storia.risalite[-1]
     h = ", ".join(str(x) for x in storia.h_provati)
     testo = (f"Hai già lavorato su questo dataset con H = {r['da']}. Cambiare orizzonte dopo aver visto i "
@@ -1374,10 +1530,13 @@ def _rosa_sessione(s: Sessione) -> pd.DataFrame:
     """La rosa dei trigger della sessione (rosa_entry), calcolata una volta per orizzonte."""
     r = getattr(s, "rosa_trigger", None)
     if r is None or r.attrs.get("H") != s.H:
-        with _zitto():
-            s.rosa_trigger = rosa_entry(s.df_is, s.H, s.pip,
-                                        nomi=_trigger_candidati(1 if s.solo_long else None),
-                                        min_eventi=MIN_TRIGGER, fuso=s.fuso, atr=s.atr, unita=s.unita)
+        rose = s.__dict__.setdefault("rose", {})     # 29/10/2026 (docs/77): una rosa per H, calcolata una volta
+        if s.H not in rose:
+            with _zitto():
+                rose[s.H] = rosa_entry(s.df_is, s.H, s.pip,
+                                       nomi=_trigger_candidati(1 if s.solo_long else None),
+                                       min_eventi=MIN_TRIGGER, fuso=s.fuso, atr=s.atr, unita=s.unita)
+        s.rosa_trigger = rose[s.H]
     return s.rosa_trigger
 
 
@@ -1395,13 +1554,18 @@ def _grafico_scarto(s: Sessione, curve: pd.DataFrame, lato: str) -> None:
     grafico_scarto(curve, s.H, s.unita, lato)
 
 
-def grafico_scarto(curve: pd.DataFrame, H: int, unita: str, lato: str) -> None:
-    """Le curve dello scarto di un lato (25/10/2026, docs/68 §2.1): sopra lo zero = meglio del mercato a quell'ora."""
+def grafico_scarto(curve: pd.DataFrame, H: int, unita: str, lato: str, punti=None) -> None:
+    """
+    Le curve dello scarto di un lato (25/10/2026, docs/68 §2.1): sopra lo zero = meglio del mercato a quell'ora.
+    punti (29/10/2026, docs/77): gli orizzonti della griglia, segnati con una linea verticale.
+    """
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(11, 5))
     for c in curve.columns:
         ax.plot(curve.index, curve[c], lw=1.7, label=c)
     ax.axhline(0, color="black", lw=0.8)
+    for k in punti or ():
+        ax.axvline(k, color="gray", ls=":", lw=1.2)
     # 26/10/2026 (docs/73 §A.1.3): titoli allineati al testo deciso da Mattia
     ax.set_xlabel("barre dall'ingresso")
     ax.set_ylabel(f"in più o in meno del mercato a quell'ora\n({unita}, prima dei costi)")
@@ -1413,7 +1577,51 @@ def grafico_scarto(curve: pd.DataFrame, H: int, unita: str, lato: str) -> None:
     plt.show()
 
 
-def esplora(s: Sessione, quanti: int = 5):
+def _scegli_orizzonte(s: Sessione, valore) -> int | None:
+    """
+    29/10/2026 (docs/77): l'H scelto alla 2c fra quelli della griglia (None se il campo e' vuoto). Diventa
+    l'H della sessione per tutte le schermate dopo, e l'H corrente del dataset (nel giornale). Nessuna prova
+    in piu': i tre H sono gia' fra gli H provati.
+    """
+    if valore in (None, "") or (isinstance(valore, str) and not valore.strip()):
+        return None
+    H = leggi_orizzonte(valore, s.timeframe)
+    if len(H) != 1 or H[0] not in s.griglia:
+        raise ValueError(f"Orizzonte «{valore}»: scegli uno della griglia ("
+                         + ", ".join(_ore_di(h, s.timeframe) for h in s.griglia) + ").")
+    H = H[0]
+    if s.H != H:
+        s.H = H
+        s.ev = s.profilo = None
+        s.rosa_trigger = None
+        s.curve_scarto = None
+    s.h_scelto = H
+    _segna_scelta(s.storia, H)
+    return H
+
+
+def _segna_scelta(storia, H: int) -> None:
+    """L'H scelto diventa l'H corrente del dataset; nello studio una voce «orizzonte» (nessuna prova in piu')."""
+    if storia is not None and _rd.scegli_h(storia, H) and _nel_studio(storia):
+        ctx = _CONTESTO_STUDIO[storia.chiave]
+        _st.aggiungi_voce(ctx["cartella"], ctx["dataset"], ctx["macchina"], ctx["studio"]["id"],
+                          {"voce": "orizzonte", "H": int(H)})
+
+
+def _mostra_griglia(s: Sessione, scelto: int | None) -> pd.DataFrame:
+    """La rosa dei trigger ai tre orizzonti, uno accanto all'altro (docs/77)."""
+    s.rose = rosa_orizzonti(s.df_is, s.griglia, s.pip, _trigger_candidati(1 if s.solo_long else None),
+                            min_eventi=MIN_TRIGGER, fuso=s.fuso, unita=s.unita, atr=s.atr,
+                            gia=getattr(s, "rose", None))
+    tab = tabella_orizzonti(s.rose, s.timeframe, s.unita)
+    s.tabelle["orizzonti"] = tab
+    titolo = ("I trigger ai tre orizzonti (in-sample, prima dei costi)"
+              + (f": hai scelto {_ore_di(scelto, s.timeframe)}" if scelto else ""))
+    _mostra((titolo, tab), decimali={c: 2 for c in tab.columns if c.startswith("Solidità")})
+    return tab
+
+
+def esplora(s: Sessione, quanti: int = 5, orizzonte=""):
     """
     Schermata 2c (dal 25/10/2026, docs/68 §2.1; prima schermata 2). Misura,
     per ogni trigger del registro, come si muove in media il prezzo nelle H
@@ -1428,6 +1636,15 @@ def esplora(s: Sessione, quanti: int = 5):
     """
     s._serve("df_is", "1 · Configura")
     _avviso_risalita(s, "rieseguire l'esplorazione")
+    # 29/10/2026 (docs/77, lavoro 2): con la griglia la 2c mostra i tre orizzonti; l'H si sceglie nel campo
+    # «orizzonte_scelto» e si riesegue la 2c. Con un orizzonte solo in barre tutto come prima.
+    if getattr(s, "griglia", None):
+        scelto = _scegli_orizzonte(s, orizzonte)
+        if scelto is None:
+            return _esplora_griglia(s, quanti)
+    elif str(orizzonte or "").strip():
+        _nota(f"L'orizzonte è fissato alla schermata 1 ({s.H} barre): il campo «orizzonte_scelto» conta solo con "
+              "la griglia di 1, 4 e 8 ore.")
     candidati = _trigger_candidati(1 if s.solo_long else None)    # spot: solo long (19/10/2026)
     with _zitto():
         s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=s.H,
@@ -1468,7 +1685,53 @@ def esplora(s: Sessione, quanti: int = 5):
         "dettaglio sotto il grafico, gli stessi segnali contro il mercato di tutte le ore: serve a vedere quanto "
         "pesa l'ora.",
         "Vai alla 3a: i segnali che la rosa suggerisce, con i numeri.")
+    if getattr(s, "griglia", None):
+        _dettaglio("I trigger ai tre orizzonti (la tabella su cui hai scelto)",
+                   (f"Hai scelto {_ore_di(s.H, s.timeframe)} = {s.H} barre", s.tabelle.get("orizzonti",
+                                                                                         pd.DataFrame())))
     _riga_prove(s, f"{misurati} trigger misurati")
+    return s.ev
+
+
+def _esplora_griglia(s: Sessione, quanti: int):
+    """
+    La 2c con la griglia, prima della scelta (29/10/2026, docs/77): l'event study fino all'orizzonte piu'
+    lungo (e' il conto dei trigger misurati), la rosa a ogni H della griglia, la tabella dei tre orizzonti e
+    le curve dello scarto fino all'H piu' lungo con i tre H segnati. Non sceglie niente.
+    """
+    candidati = _trigger_candidati(1 if s.solo_long else None)
+    Hmax = max(s.griglia)
+    with _zitto():
+        s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=Hmax,
+                               min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
+    misurati = len(s.ev.sintesi)
+    _rd.metti_prova(s.prove, "trigger", None, misurati)
+    _nota(f"{misurati} segnali misurati su {len(candidati)}, a tre orizzonti: "
+          + ", ".join(f"{_ore_di(h, s.timeframe)} ({h} barre)" for h in s.griglia) + "."
+          + (" Spot: solo i segnali long, lo short non esiste." if s.solo_long else ""))
+    _mostra_griglia(s, None)
+    mostrati = []
+    for direzione in (1, -1):
+        if direzione in s.lati():
+            migliori = (pd.concat([r[r["direction"] == direzione][["candidato", "t_netto"]] for r in s.rose.values()])
+                        .groupby("candidato")["t_netto"].max().sort_values(ascending=False))
+            mostrati += list(migliori.index[:quanti])
+    if mostrati:
+        curve = curva_scarto_orario(s.df_is, mostrati, Hmax, s.pip, fuso=s.fuso, unita=s.unita,
+                                    atr=getattr(s, "atr", None))
+        for direzione, nome in ((1, "long"), (-1, "short")):
+            nomi = [m for m in mostrati if int(reg.get_entry_direction(m)) == direzione]
+            if nomi:
+                grafico_scarto(curve[nomi], Hmax, s.unita, nome, punti=s.griglia)
+    _riquadro(
+        "Gli stessi segnali a tre orizzonti: per ognuno, quanto fa meglio del mercato della stessa ora e con quale "
+        "solidità tenendo il trade 1, 4 o 8 ore (prima dei costi). Le curve vanno fino all'orizzonte più lungo; "
+        "le linee tratteggiate segnano i tre orizzonti.",
+        "Scegliere l'orizzonte dopo averli visti è una scelta fra tre: si conta. Nella riga delle prove la voce dei "
+        "trigger vale più del numero dei trigger (la scelta fra gli orizzonti provati sul dataset).",
+        "Scegli l'orizzonte nel campo «orizzonte_scelto» e riesegui la 2c: da lì in poi tutto il Lab lavora con "
+        "quell'orizzonte.")
+    _riga_prove(s, f"{misurati} trigger misurati a {len(s.griglia)} orizzonti")
     return s.ev
 
 
@@ -1522,6 +1785,9 @@ def profilo_delle_ore(s: Sessione) -> pd.DataFrame:
     import matplotlib.pyplot as plt
     s._serve("df_is", "1 · Configura")
     _avviso_risalita(s, "rieseguire il profilo orario")
+    if getattr(s, "griglia", None) and getattr(s, "h_scelto", None) is None:
+        _nota(f"Con la griglia degli orizzonti il profilo è a {s.H} barre ({_ore_di(s.H, s.timeframe)}, il più "
+              "lungo) finché non scegli l'orizzonte alla 2c; le schermate dopo lo rifanno all'orizzonte scelto.")
     u = s.unita
     with _zitto():
         s.profilo = (profilo_orario(s.df_is, s.H, s.pip, fuso=s.fuso) if u == "pips"
@@ -1743,6 +2009,7 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
     Ritorna la tabella completa di rosa_entry (anche in `s.rosa_trigger`).
     """
     s._serve("ev", "2 · Esplora")
+    _serve_orizzonte(s)
     _avviso_risalita(s, "rileggere le casistiche suggerite")
     r = _rosa_sessione(s)
     _nota_blocchi(r, "trigger")
@@ -1868,6 +2135,7 @@ def scegli_trigger(s: Sessione, long=None, short=None) -> None:
                    Almeno un lato deve essere indicato.
     """
     s._serve("ev", "2 · Esplora")
+    _serve_orizzonte(s)
     tl, ts = _lista_nomi(long), _lista_nomi(short)
     _imposta_casistiche(s, tl, ts, {n: "a mano" for n in (*tl, *ts)})
 
@@ -1895,6 +2163,7 @@ def scegli_casistiche(s: Sessione, togli_long="", aggiungi_long="", togli_short=
     Ritorna la tabella delle casistiche.
     """
     s._serve("ev", "2 · Esplora")
+    _serve_orizzonte(s)
     partenza = _partenza(parti_da)
     r = _rosa_sessione(s)
     tl, ts = [], []
@@ -2782,7 +3051,32 @@ def entry_del_sistema(sistema, entry_long, entry_short) -> tuple:
     return el, es_
 
 
-def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int, dati=None):
+def orizzonti_della_ricerca(orizzonte, timeframe: str, h_scelto=None) -> tuple[list[int], int]:
+    """
+    29/10/2026 (docs/77, lavoro 2): gli orizzonti della ricerca e l'H con cui lavorano le celle, dalla
+    cella della Sessione 1. ORIZZONTE: la griglia (GRIGLIA) o un numero di barre (25 = la prova
+    d'identita'). H_SCELTO: con la griglia, l'H scelto alla 1.3 dopo averli visti (in barre o «4 ore»);
+    finche' e' None si lavora all'H piu' lungo, e la 1.3 si ferma. Ritorna (orizzonti, H).
+    """
+    orizzonti = leggi_orizzonte(orizzonte, timeframe)
+    if len(orizzonti) == 1 or h_scelto in (None, ""):
+        return orizzonti, orizzonti[-1]
+    H = leggi_orizzonte(h_scelto, timeframe)[0]
+    if H not in orizzonti:
+        raise ValueError(f"H_SCELTO = {h_scelto}: scegli uno degli orizzonti della griglia ({orizzonti} barre).")
+    return orizzonti, H
+
+
+def ferma_senza_orizzonte(orizzonti, h_scelto, timeframe: str) -> None:
+    """La 1.3 della ricerca con la griglia (docs/77): si ferma finche' H_SCELTO non e' scritto."""
+    if len(orizzonti) > 1 and h_scelto in (None, ""):
+        raise RuntimeError("Hai visto i tre orizzonti: scrivi H_SCELTO nella cella della Sessione 1 ("
+                           + ", ".join(f"{h} = {_ore_di(h, timeframe)}" for h in orizzonti)
+                           + ") e riesegui da lì. La scelta fra i tre è già nel conto.")
+
+
+def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int, dati=None,
+                       orizzonti=None, scelto=None):
     """
     Il registro del dataset per il notebook di ricerca (25/10/2026, docs/68
     §9.1): la stessa cosa che fa prepara nel Lab. Da chiamare nella cella
@@ -2792,14 +3086,22 @@ def registro_orizzonte(symbol: str, timeframe: str, df_is: pd.DataFrame, H: int,
     dati   25/10/2026 (docs/70 §12.4): quello che ritorna apri_dati. Con il
            confine dello studio il registro e' lo stesso del Lab, nei giornali
            dello studio; None = in memoria, come prima.
+    orizzonti, scelto   29/10/2026 (docs/77): la griglia (orizzonti_della_ricerca) entra
+           tutta fra gli H provati, come nel Lab; con l'H scelto (H_SCELTO), quello
+           diventa l'H corrente. Un orizzonte solo = come prima.
     """
     precedente = _ULTIMO_DATASET.get("chiave")
     vuote = lambda: {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}  # noqa: E731
     info = None
+    griglia = list(orizzonti) if orizzonti is not None and len(orizzonti) > 1 else None
     if dati is not None and getattr(dati, "ingresso", None) is not None:
-        storia, esito, info = _storia_dello_studio(dati, H, vuote)
+        storia, esito, info = _storia_dello_studio(dati, H, vuote, griglia=griglia)
+    elif griglia:
+        storia, esito, _ = _rd.apri_griglia(symbol, timeframe, df_is.index[-1], griglia, nuove_prove=vuote)
     else:
         storia, esito = _rd.apri(symbol, timeframe, df_is.index[-1], H, nuove_prove=vuote)
+    if griglia and scelto not in (None, ""):
+        _segna_scelta(storia, H)
     _ULTIMO_DATASET["chiave"] = storia.chiave
     _nota_dataset(SimpleNamespace(storia=storia), esito, precedente)
     _note_studio(storia, info)
