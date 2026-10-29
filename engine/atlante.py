@@ -17,8 +17,9 @@ LE CELLE (docs/66 §2), per lato, assi NON incrociati fra loro
                (indicatori.cella_vol_trend, la griglia di confidenza.py)
     sessione   4 celle: ASIA_NOTTE (e fine settimana), EUROPA, LONDRA_NY,
                AMERICA, sulla barra d'ingresso (indicatori.sessione_ingresso)
-    basis      2 celle, solo perpetual con lo spot: basis alta/bassa
-               (indicatori.basis_alta)
+    (l'asse basis, 2 celle sui perpetual con lo spot, e' stato tolto il
+    29/10/2026, docs/77 lavoro 1: non si cercano edge da meccanica dello
+    strumento)
 Ogni stato della barra del segnale usa solo dati fino al suo Close.
 
 LA MISURA (docs/66 §3), stessa convenzione della rosa
@@ -56,7 +57,7 @@ import numpy as np
 import pandas as pd
 
 from . import registry as _reg
-from .indicatori import (SESSIONI_ATLANTE, basis_alta, cella_vol_trend, sessione_ingresso)
+from .indicatori import (SESSIONI_ATLANTE, cella_vol_trend, sessione_ingresso)
 from .quarantena_trade import maschera_segnali_puliti
 from .rosa import MIN_EVENTI, Q_ROSA, _entry_vere, benjamini_hochberg
 from .stagionalita import (FUSO_PREDEFINITO, UNITA, barre_settimana, errore_sovrapposti, fasce_orarie,
@@ -74,9 +75,10 @@ CELLE = {
     "vol_trend": ("VOL_BASSA_TREND_CONTRO", "VOL_BASSA_TREND_FAVORE",
                   "VOL_ALTA_TREND_CONTRO", "VOL_ALTA_TREND_FAVORE"),
     "sessione": SESSIONI_ATLANTE,
-    "basis": ("BASIS_BASSA", "BASIS_ALTA"),
 }
-ASSI = ("vol_trend", "sessione", "basis")
+ASSI = ("vol_trend", "sessione")
+# 29/10/2026 (docs/77, lavoro 1): le celle dell'asse tolto, per un messaggio chiaro se qualcuno le sceglie
+CELLE_TOLTE = {"BASIS_BASSA": "29/10/2026", "BASIS_ALTA": "29/10/2026"}
 # come si mostra il nome di una cella (decisione di Mattia del 22/10/2026, docs/66 §13)
 ETICHETTE = {"ASIA_NOTTE": "ASIA_NOTTE (e fine settimana)"}
 PREFISSO_FILTRI = "CELLA_"
@@ -93,18 +95,16 @@ def asse_di(cella: str) -> str:
     for asse, nomi in CELLE.items():
         if cella in nomi:
             return asse
+    if cella in CELLE_TOLTE:
+        raise ValueError(f"La basis è stata tolta il {CELLE_TOLTE[cella]} (docs/77): la situazione {cella} non "
+                         "esiste più. Scegli una situazione di volatilità o di sessione.")
     tutte = [c for nomi in CELLE.values() for c in nomi]
     raise ValueError(f"Cella {cella!r} sconosciuta. Celle possibili: {', '.join(tutte)}.")
 
 
-def ha_basis(df: pd.DataFrame) -> bool:
-    """True se df ha lo spot agganciato (colonna spot_close con almeno un valore)."""
-    return "spot_close" in df.columns and bool(np.isfinite(df["spot_close"].to_numpy(dtype=float)).any())
-
-
 def assi_disponibili(df: pd.DataFrame) -> tuple:
-    """vol_trend e sessione sempre; basis solo con lo spot agganciato (perpetual)."""
-    return ASSI if ha_basis(df) else ASSI[:2]
+    """vol_trend e sessione, su ogni dataset (dal 29/10/2026 la basis non c'e' piu')."""
+    return ASSI
 
 
 def _stato(df: pd.DataFrame, asse: str, direzione: int) -> pd.Series:
@@ -112,8 +112,6 @@ def _stato(df: pd.DataFrame, asse: str, direzione: int) -> pd.Series:
         return cella_vol_trend(df, direzione)
     if asse == "sessione":
         return sessione_ingresso(df)
-    if asse == "basis":
-        return basis_alta(df)
     raise ValueError(f"Asse {asse!r} sconosciuto: usa uno di {ASSI}.")
 
 
@@ -121,7 +119,7 @@ def celle_atlante(df: pd.DataFrame, direzione: int, assi=None) -> pd.DataFrame:
     """
     I codici di cella di ogni barra per il lato `direzione`, una colonna per
     asse (0..celle-1, nell'ordine di CELLE). NaN dove lo stato non e' ancora
-    calcolabile (inizio dello storico, spot mancante).
+    calcolabile (inizio dello storico).
     """
     if direzione not in (1, -1):
         raise ValueError("direzione deve essere 1 (long) o -1 (short).")
@@ -196,8 +194,7 @@ def atlante(df_is: pd.DataFrame, H: int, pip: float, costi: dict | None = None, 
     """
     L'atlante sull'IN-SAMPLE, a orizzonte H: una riga per entry x cella.
 
-    df_is      l'in-sample con gli indicatori (sui perpetual con lo spot
-               agganciato: vetrina.aggancia_spot)
+    df_is      l'in-sample con gli indicatori
     H          l'orizzonte gia' scelto
     pip        il pip fisso del symbol (engine/simboli.py)
     costi      i costi di vetrina.costi_storico: commission (per lato, frazione)
@@ -455,8 +452,6 @@ NOMI_IN_CHIARO = {
     "EUROPA": "Europa (Londra aperta, New York chiusa)",
     "LONDRA_NY": "Londra + New York",
     "AMERICA": "America (New York aperta, Londra chiusa)",
-    "BASIS_ALTA": "basis alta (perpetual caro sullo spot)",
-    "BASIS_BASSA": "basis bassa (perpetual a buon mercato sullo spot)",
 }
 
 
@@ -522,8 +517,6 @@ def registra_filtri_cella(df_storico: pd.DataFrame, cella_long: str | None = Non
         if not cella:
             continue
         asse = asse_di(cella)
-        if asse == "basis" and not ha_basis(df_storico):
-            raise ValueError(f"La cella {cella} serve la basis: lo storico non ha lo spot agganciato.")
         nome = f"{PREFISSO_FILTRI}{cella}{suffisso}"
         _DATI_FILTRI[nome] = (_stato(df_storico, asse, direzione), float(CELLE[asse].index(cella)))
         _reg.register_filter(nome, direction=direzione, pair=coppia)(_funzione_filtro(nome))

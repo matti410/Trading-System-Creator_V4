@@ -50,8 +50,7 @@ class SessioneMappa:
         self.symbol = self.timeframe = self.cartella = self.macchina = None
         self.dati = self.ingresso = self.df_is = self.df = None
         self.storia = self.prove = None
-        self.costi = self.pip = self.funding = self.spot = None
-        self.spot_nota = None
+        self.costi = self.pip = self.funding = None
         self.btc = {}                 # symbol di BTC -> in-sample (M06)
         self.fs = None                # come la Sessione del Lab: nessuna ricerca dei filtri
         self.tabelle = {}
@@ -76,20 +75,6 @@ def _avviso_oos(m: SessioneMappa) -> None:
         _v._avviso(f"Hai già guardato l'out-of-sample di questo dataset ({n} {'volta' if n == 1 else 'volte'}). "
                    "Una scheda scritta dopo averlo guardato non è più una prova pulita: la misura si fa lo stesso, "
                    "e il giornale lo segna.")
-
-
-def _carica_spot(symbol: str, timeframe: str, cartella) -> tuple[pd.DataFrame | None, str | None]:
-    """Lo spot della stessa coppia e dello stesso exchange di un perpetual (per la basis), o (None, motivo)."""
-    from .exchange import leggi_csv, parti_symbol
-    p = parti_symbol(symbol)
-    if p["mercato"] != "PERP":
-        return None, None
-    spot = f"{p['exchange']}_SPOT_{p['coppia']}"
-    percorso = os.path.join(str(cartella), f"{spot}_{timeframe}.csv")
-    if not os.path.exists(percorso):
-        return None, (f"manca {percorso}: le schede che vogliono lo spot (la basis) non si misurano "
-                      f"(scaricalo con «python scarica_dati_crypto.py {spot}»)")
-    return leggi_csv(percorso), None
 
 
 def _schede_qui(symbol: str) -> list[str]:
@@ -122,18 +107,16 @@ def apri_mappa(symbol: str, timeframe: str = "M15", cartella="dati", aggiorna: b
     m.funding = d.funding
     m.costi, sp = _v.costi_storico(symbol, d.df, funding=d.funding, df_prezzo=m.df_is)
     m.pip = m.costi["pip_size"]
-    m.spot, m.spot_nota = _carica_spot(symbol, timeframe, cartella)
     _ricostruisci(m)
 
     i = m.ingresso
     qui = _schede_qui(symbol)
     voci = ["Strumento", f"Barre {timeframe}", "In-sample (si misura qui)", "Out-of-sample (mai visto)",
-            "Funding (perpetual)", "Spot della stessa coppia", "Studio", "Schede che si misurano qui"]
+            "Funding (perpetual)", "Studio", "Schede che si misurano qui"]
     valori = [symbol, _v._fmt(len(d.df)),
               f"{_v._fmt(len(m.df_is))} barre, fino al {_v._giorno_ora(i.confine)} · confine dello studio",
               f"{_v._fmt(len(i.df_oos))} barre, dal {_v._giorno_ora(i.confine)}",
-              "sì: le schede del funding si misurano" if m.funding is not None else "no (spot: niente funding)",
-              ("sì" if m.spot is not None else (m.spot_nota or "no (spot: la basis non c'è)")),
+              "sì, contato come costo nel netto" if m.funding is not None else "no (spot: niente funding)",
               f"aperto il {pd.Timestamp(i.studio['aperto_il']):%d/%m/%Y} su {i.studio['aperto_su']} · vale per "
               "tutti i dataset",
               ", ".join(qui) if qui else "nessuna"]
@@ -145,7 +128,7 @@ def apri_mappa(symbol: str, timeframe: str = "M15", cartella="dati", aggiorna: b
     _v._riquadro(
         "Il dataset su cui misuri le schede della mappa: solo l'in-sample dello studio, con lo stesso confine del "
         "Lab. Qui non c'è l'orizzonte del Lab: ogni scheda ha il suo, in ore.",
-        "Qui non c'è niente da giudicare. Controlla che strumento, confine, funding e spot siano quelli che ti "
+        "Qui non c'è niente da giudicare. Controlla che strumento, confine e funding siano quelli che ti "
         "aspetti.",
         "Vai alla 2 per vedere le schede approvate e quali sono già state misurate.")
     _v._riga_prove(m, "nessuna")
@@ -224,18 +207,9 @@ def _df_btc(m: SessioneMappa) -> pd.DataFrame:
     return m.btc[nome]
 
 
-def _df_scheda(m: SessioneMappa, sch) -> pd.DataFrame:
-    if "spot" in sch.serve and m.spot is None:
-        raise ValueError(f"{sch.id} vuole lo spot della stessa coppia: {m.spot_nota or "non c'è"}.")
-    if "funding" in sch.serve and m.funding is None:
-        raise ValueError(f"{sch.id} vuole il funding del perpetual, che qui non c'è.")
-    return mp.prepara_df(m.df_is, funding=m.funding if "funding" in sch.serve else None,
-                         spot=m.spot if "spot" in sch.serve else None)
-
-
 def _variabile(m: SessioneMappa, sid: str) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame | None]:
     sch = SCHEDE[sid]
-    df = _df_scheda(m, sch)
+    df = m.df_is          # 29/10/2026 (docs/77): niente piu' colonne del funding e dello spot
     btc = _df_btc(m) if "btc" in sch.serve else None
     return df, mp.variabile(sch, df, btc), btc
 
@@ -320,9 +294,6 @@ def _mostra_misura(m: SessioneMappa, sch, tab: pd.DataFrame, valori: pd.Series, 
              f"una fascia l'ha il {_v._fmt(con_fascia * 100, 1)}%"
              + (" (le prime barre non hanno fascia finché la finestra di 365 giorni non è piena)."
                 if sch.tipo == "quintili" else "."))
-    if tab.attrs.get("fuori_intervallo"):
-        _v._nota(f"{_v._fmt(int(tab.attrs['fuori_intervallo']))} barre sono rimaste fuori perché l'ultimo pagamento "
-                 "del funding aveva un intervallo diverso da 8 ore: la scheda parla dei pagamenti ogni 8 ore.")
     _v._riquadro(
         f"Verdetto: {tab.attrs['verdetto']}. " + _frase_conto(sch, tab)
         + " Per ogni fascia, di quanto il prezzo fa meglio (sopra lo zero) o peggio (sotto) del mercato di "

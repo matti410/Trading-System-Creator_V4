@@ -11,12 +11,12 @@ dove il test lo dice. Sezioni:
 
     A · gli stati delle celle (engine/indicatori.py): identita' su M15 con
         confidenza.py, durate sugli altri timeframe, niente lookahead,
-        sessioni con l'ora legale, basis
+        sessioni con l'ora legale (la basis e' tolta dal 29/10/2026, docs/77)
     B · l'atlante (engine/atlante.py): casi a risultato noto, conto a mano,
         minimo di eventi, mercato senza vantaggi
     C · le celle come filtri del passo 5 (strada B): registrazione, coppie,
         k_prove e rimisura nella ricerca dei filtri
-    D · il Lab (engine/vetrina.py): spot agganciato ai perpetual, schermate 3c e
+    D · il Lab (engine/vetrina.py): nessuno spot agganciato ai perpetual, schermate 3c e
         3d, strada B al passo 5, celle nella soglia cumulata, strada A identica
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ import pandas as pd
 
 from engine import registry as reg
 from engine.confidenza import asse_volatilita, cella_contesto
-from engine.indicatori import (SESSIONI_ATLANTE, barre_per_durata, basis_alta, basis_bp,
+from engine.indicatori import (SESSIONI_ATLANTE, barre_per_durata,
                                cella_vol_trend, sessione_ingresso, trend_durata,
                                volatilita_durata)
 from engine.livelli import GIORNATA_UTC, imposta_giornata, svuota_cache
@@ -132,8 +132,7 @@ def esegui() -> int:
 
     ds = M.df(spot=True)
     stati = {"volatilità": lambda x: volatilita_durata(x), "trend long": lambda x: trend_durata(x, 1),
-             "trend short": lambda x: trend_durata(x, -1), "sessione": sessione_ingresso,
-             "basis": basis_alta}
+             "trend short": lambda x: trend_durata(x, -1), "sessione": sessione_ingresso}
     pieni = {k: f(ds) for k, f in stati.items()}
     diversi = []
     for taglio in (900, 2500, 4100, len(ds) - 7):
@@ -145,7 +144,7 @@ def esegui() -> int:
                 diversi.append((k, taglio))
     svuota_cache()
     check("5. nessun lookahead: tagliati i dati alla barra i, gli stati fino a i non cambiano "
-          "(volatilità, trend dei due lati, sessione, basis; 4 tagli)", not diversi, str(diversi))
+          "(volatilità, trend dei due lati, sessione; 4 tagli)", not diversi, str(diversi))
 
     sess = sessione_ingresso(ds)
     sabato = ds.index.tz_convert("Europe/London").dayofweek >= 5
@@ -174,15 +173,19 @@ def esegui() -> int:
     check("7. sessioni sulla barra d'ingresso (i+1), ora locale con l'ora legale sfasata di marzo",
           trovati == casi, str({t: v for t, v in trovati.items() if v != casi[t]}))
 
-    b = basis_bp(ds)
-    spot_buco = ds.copy()
-    spot_buco.iloc[3000:3010, spot_buco.columns.get_loc("spot_close")] = np.nan
-    ba = basis_alta(spot_buco)
-    check("8. basis: (perpetual − spot) / spot × 10.000; NaN dove manca lo spot e per la finestra "
-          "che lo contiene; senza spot tutta NaN",
-          np.allclose(b, (ds["Close"] - ds["spot_close"]) / ds["spot_close"] * 1e4)
-          and ba.iloc[3000:3010 + 500 - 1].isna().all() and ba.iloc[3010 + 500 - 1:].notna().all()
-          and basis_alta(df).isna().all() and basis_bp(df).isna().all())
+    # 29/10/2026 (docs/77, lavoro 1): la basis e' tolta; qui prima c'era il controllo di basis_bp e basis_alta
+    import engine.indicatori as _ind
+    from engine.atlante import ASSI, assi_disponibili, asse_di
+    try:
+        asse_di("BASIS_ALTA")
+        frase = ""
+    except ValueError as err:
+        frase = str(err)
+    check("8. la basis è tolta (29/10/2026): niente basis_bp e basis_alta; gli assi sono vol_trend e sessione "
+          "anche con la colonna dello spot nei dati; una situazione della basis si ferma con una frase chiara",
+          not hasattr(_ind, "basis_bp") and not hasattr(_ind, "basis_alta")
+          and ASSI == ("vol_trend", "sessione") and assi_disponibili(ds) == ASSI
+          and "tolta il 29/10/2026" in frase and "volatilità o di sessione" in frase, frase)
 
     # =================================================================== B ==
     print("\nB · L'atlante (engine/atlante.py)")
@@ -207,7 +210,7 @@ def esegui() -> int:
     check("9. vantaggio solo in volatilità alta (trigger piatto in media): passano solo le 2 celle "
           "a volatilità alta, nessuna sessione",
           passano == ["VOL_ALTA_TREND_CONTRO", "VOL_ALTA_TREND_FAVORE"], f"passano {passano}")
-    check("10. senza lo spot l'atlante ha 8 celle per entry (niente basis)",
+    check("10. l'atlante ha 8 celle per entry (vol_trend e sessione)",
           len(a1) == 8 and set(a1["asse"]) == {"vol_trend", "sessione"})
 
     # una deriva del mercato solo in EUROPA, trigger senza vantaggio che scatta soprattutto li'
@@ -306,13 +309,11 @@ def esegui() -> int:
     dspot = M.df(extra, spot=True)
     dspot.iloc[20_000:30_000, dspot.columns.get_loc("spot_close")] = np.nan     # un buco dello spot
     a7 = atlante(dspot, H, PIP, nomi=["T_VOL_ALTA"], fuso="UTC")
-    eventi_basis = a7.loc[a7["asse"] == "basis", "eventi"].sum()
-    validi = int(np.isfinite(celle_atlante(dspot, 1)["basis"].to_numpy()[pos]).sum())
-    check("18. con lo spot agganciato 10 celle (basis alta e bassa); gli eventi della basis sono "
-          "quelli con lo stato calcolabile",
-          len(a7) == 10 and eventi_basis == validi and validi < pos.size - 200
-          and a7.loc[a7["asse"] != "basis", "eventi"].sum() == 2 * pos.size,
-          f"{eventi_basis} eventi su {pos.size}")
+    check("18. con la colonna dello spot nei dati (basis tolta il 29/10/2026) l'atlante è identico a quello "
+          "senza: 8 celle, stessi numeri, stessi assi, stesso k",
+          a7.equals(a1) and a7.attrs["assi"] == a1.attrs["assi"] == ("vol_trend", "sessione")
+          and a7.attrs["k_misurate"] == a1.attrs["k_misurate"]
+          and list(celle_atlante(dspot, 1).columns) == ["vol_trend", "sessione"])
 
     # mercato senza vantaggi: 60 entry casuali, 10 mercati
     con_celle = 0
@@ -373,16 +374,16 @@ def esegui() -> int:
           and reg.get_filter("CELLA_EUROPA_L")(dfc).equals(sess_c == 1)
           and reg.get_filter("CELLA_EUROPA_S")(dfc).equals(sess_c == 1))
 
-    nomi_d = registra_filtri_cella(dfc, "VOL_ALTA_TREND_FAVORE", "BASIS_BASSA")
+    nomi_d = registra_filtri_cella(dfc, "VOL_ALTA_TREND_FAVORE", "LONDRA_NY")
     coppie = {p: (u, g) for p, u, g in reg.list_filter_pairs()}
-    etichetta = nome_filtro_cella("VOL_ALTA_TREND_FAVORE", "BASIS_BASSA")
+    etichetta = nome_filtro_cella("VOL_ALTA_TREND_FAVORE", "LONDRA_NY")
     m_l = reg.get_filter(nomi_d[0])(dfc)
     m_s = reg.get_filter(nomi_d[1])(dfc)
     check("23. celle diverse sui due lati: una coppia con il nome delle due celle; il long usa il "
-          "trend del long, lo short la basis; le celle di prima tolte dal registro",
-          etichetta == "CELLA_VOL_ALTA_TREND_FAVORE_L_BASIS_BASSA_S"
+          "trend del long, lo short la sessione; le celle di prima tolte dal registro",
+          etichetta == "CELLA_VOL_ALTA_TREND_FAVORE_L_LONDRA_NY_S"
           and coppie.get(etichetta) == tuple(nomi_d)
-          and m_l.equals(cella_vol_trend(dfc, 1) == 3) and m_s.equals(basis_alta(dfc) == 0)
+          and m_l.equals(cella_vol_trend(dfc, 1) == 3) and m_s.equals(sessione_ingresso(dfc) == 2)
           and not any(n.startswith("CELLA_EUROPA") for n in reg.list_filters()))
 
     corto = dfc.iloc[:5000]
@@ -394,12 +395,12 @@ def esegui() -> int:
     errori = []
     for celle in (("VOL_ALTA", None), ("BASIS_ALTA", None), (None, None)):
         try:
-            registra_filtri_cella(df if celle[0] == "BASIS_ALTA" else dfc, *celle)
+            registra_filtri_cella(dfc, *celle)
             errori.append(None)
         except ValueError as e:
             errori.append(str(e)[:40])
-    check("25. si ferma con una cella sconosciuta, con la basis senza lo spot e senza celle",
-          all(errori), str(errori))
+    check("25. si ferma con una cella sconosciuta, con una cella della basis (tolta il 29/10/2026) e senza celle",
+          all(errori) and "tolta" in errori[1], str(errori))
 
     nomi_c = registra_filtri_cella(dfc, "EUROPA", "EUROPA")
     _registra_entry("T_LONG_C", 1, dfc.index[pos])
@@ -466,11 +467,11 @@ def esegui() -> int:
         s = muto(vt.prepara, "BINANCE_PERP_BTCUSDT", H=H, cartella=tmp)
         s0 = muto(vt.prepara, "BINANCE_PERP_BTCUSDT", H=H, cartella=senza)
         rie = s.tabelle["riepilogo"].set_index("")[" "]
-        check("28. prepara sul perpetual aggancia lo spot della stessa coppia (riga «Spot» nel "
-              "riepilogo); senza il file dello spot non si ferma e dice quale file serve",
-              "spot_close" in s.df.columns and "BINANCE_SPOT_BTCUSDT" in rie["Spot (perpetual)"]
-              and "spot_close" not in s0.df.columns and "manca" in s0.spot_nota
-              and "scarica_dati_crypto.py BINANCE_SPOT_BTCUSDT" in s0.spot_nota)
+        check("28. prepara sul perpetual non aggancia più lo spot (basis tolta il 29/10/2026): niente colonna "
+              "spot_close né riga «Spot» nel riepilogo, anche con il file dello spot nella cartella; "
+              "storico identico con e senza il file",
+              "spot_close" not in s.df.columns and "Spot (perpetual)" not in rie.index
+              and not hasattr(s, "spot_nota") and s.df.equals(s0.df))
 
         check("29. l'atlante vuole i trigger scelti (schermata 3)",
               errore(lambda: vt.atlante_dei_trigger(s), "Esplora"))
@@ -482,10 +483,10 @@ def esegui() -> int:
         tab = muto(vt.atlante_dei_trigger, s)
         k = int(tab.attrs["k_misurate"])
         passano = sorted(tab.loc[(tab["candidato"] == "T_LAB_VOL_ALTA") & tab["passa"], "cella"])
-        check("31. schermata 3c: tutte le entry vere, 10 celle per entry con la basis; per il trigger "
-              "scelto le colonne in pips accanto; passano solo celle a volatilità alta (con lo spread di un passo a prezzo 100 non sempre tutte e due)",
-              set(tab.attrs["assi"]) == {"vol_trend", "sessione", "basis"}
-              and (tab.groupby("candidato").size() == 10).all()
+        check("31. schermata 3c: tutte le entry vere, 8 celle per entry sul perpetual (basis tolta); per il "
+              "trigger scelto le colonne in pips accanto; passano solo celle a volatilità alta (con lo spread di un passo a prezzo 100 non sempre tutte e due)",
+              set(tab.attrs["assi"]) == {"vol_trend", "sessione"}
+              and (tab.groupby("candidato").size() == 8).all()
               and tab["candidato"].nunique() == len(vt._trigger_candidati(None)) - len(tab.attrs["scartate"])
               and tab.loc[tab["candidato"] == "T_LAB_VOL_ALTA", "scarto_pips"].notna().any()
               and tab.loc[tab["candidato"] != "T_LAB_VOL_ALTA", "scarto_pips"].isna().all()
@@ -572,10 +573,10 @@ def esegui() -> int:
         muto(vt.imposta_uscite, s0, barre_long=H, sl=90)
         muto(vt.trova_strategia, s0)
         check("36. strada A (nessuna cella): tutti i filtri del catalogo, nessuna cella; risultati identici "
-              "al bit con e senza lo spot agganciato",
+              "al bit con e senza il file dello spot nella cartella",
               not s.fs.rimisura and not any(f.startswith("CELLA_") for f in s.fs.risultati["filtro"])
               and s.fs.risultati.equals(s0.fs.risultati) and s.es.risultati.equals(s0.es.risultati)
-              and s.df_is.drop(columns="spot_close").equals(s0.df_is),
+              and s.df_is.equals(s0.df_is),
               f"{len(s.fs.risultati) - 1} filtri")
         sc_n = vt.soglia_cumulata(ev=s.ev, es=s.es, fs=[s.fs, s.fs], atlante=[tab, tab],
                                   t=1.5)

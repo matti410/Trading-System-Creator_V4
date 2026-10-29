@@ -359,7 +359,6 @@ class Sessione:
         self.prove = {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
         self.atlante = None           # 22/10/2026 (docs/66): l'atlante del trigger, schermata 3c
         self.cella_long = self.cella_short = None   # la cella scelta per lato (3d); None = strada di sempre
-        self.spot_nota = None         # lo spot agganciato al perpetual, per la basis
         self.tabelle = {}
         # 25/10/2026 (docs/68): il riordino delle schermate 2-4
         self.storia = None            # il registro del dataset (engine/registro_dataset.py, §9.1)
@@ -699,33 +698,8 @@ def carica_funding(symbol: str, df: pd.DataFrame, cartella="dati") -> pd.DataFra
     return funding
 
 
-def aggancia_spot(symbol: str, df: pd.DataFrame, cartella="dati",
-                  timeframe: str = "M15") -> tuple[pd.DataFrame, str | None]:
-    """
-    Sui perpetual da exchange aggancia il Close dello spot della stessa
-    coppia e dello stesso exchange (22/10/2026, docs/66 §2.3, decisione di
-    Mattia: sempre): colonna spot_close (exchange.colonne_perpetual), che
-    serve alla basis dell'atlante. Da chiamare DOPO aggiungi_indicatori.
-    Comune al Lab e al notebook di ricerca.
-
-    Ritorna (df, frase). Sugli altri symbol: (df com'e', None). Se il CSV
-    dello spot manca non si ferma: df com'e' e la frase dice quale file serve
-    (l'atlante resta senza l'asse della basis).
-    """
-    if not da_exchange(symbol):
-        return df, None
-    from .exchange import colonne_perpetual, leggi_csv, parti_symbol
-    p = parti_symbol(symbol)
-    if p["mercato"] != "PERP":
-        return df, None
-    spot = f"{p['exchange']}_SPOT_{p['coppia']}"
-    percorso = os.path.join(str(cartella), f"{spot}_{timeframe}.csv")
-    if not os.path.exists(percorso):
-        return df, (f"manca {percorso}: l'atlante non avrà l'asse della basis (scaricalo con "
-                    f"«python scarica_dati_crypto.py {spot}»)")
-    out = colonne_perpetual(df, spot=leggi_csv(percorso))
-    quota = float(np.isfinite(out["spot_close"].to_numpy(dtype=float)).mean())
-    return out, f"{spot}, per la basis dell'atlante: c'è sul {_fmt(quota * 100, 1)}% delle barre"
+# 29/10/2026 (docs/77, lavoro 1): tolta aggancia_spot (lo spot agganciato al perpetual per la basis
+# dell'atlante): la basis non c'e' piu'.
 
 
 def _frase_funding(s) -> str:
@@ -883,7 +857,7 @@ def apri_dati(symbol: str, timeframe: str = "M15", cartella="dati", confine=None
             from .aggiorna_dati import aggiorna_per_lab, file_storico
             if not file_storico(symbol, timeframe, cartella).exists():
                 _nota(f"Primo download completo di {symbol} {timeframe} dal 2/1/2020"
-                      + (" (con lo spot della stessa coppia e il funding)" if "_PERP_" in symbol else "")
+                      + (" (con il funding)" if "_PERP_" in symbol else "")
                       + f": {_TEMPI_PRIMO.get(timeframe, 'qualche minuto')}. Puoi fermare la cella e rilanciarla: "
                       "riparte dall'ultima barra salvata.")
             d.aggiornamento = aggiorna_per_lab(symbol, timeframe, cartella, verbose=verbose)
@@ -1199,7 +1173,6 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
         s.solo_long = solo_long(symbol)
     with _zitto():
         df = aggiungi_indicatori(df)
-        df, s.spot_nota = aggancia_spot(symbol, df, cartella, timeframe)   # 22/10/2026 (docs/66)
         s.df_is, s.df_oos = dividi_dati(dati, df)    # 25/10/2026: al confine dello studio, o all'80%
     # 25/10/2026 (docs/70 §15.3, strada A): lo spread si converte con il prezzo mediano dell'in-sample
     costi, sp = costi_storico(symbol, grezzo, funding=storico_funding, df_prezzo=s.df_is)
@@ -1252,9 +1225,6 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     if s.da_exchange and not s.solo_long:
         voci.append("Funding (perpetual)")
         valori.append(_frase_funding(s))      # 21/10/2026
-    if s.spot_nota is not None:
-        voci.append("Spot (perpetual)")
-        valori.append(s.spot_nota)            # 22/10/2026
     if dati.ingresso is not None:             # 25/10/2026 (docs/70 §1.2): da dove viene il confine
         ing = dati.ingresso
         nuove = 0
@@ -1635,7 +1605,7 @@ def tabella_mappa(esiti: list, prove: dict | None) -> pd.DataFrame:
     l'ultimo esito di ognuna dal file della mappa, le fasce contate dal registro.
     La usano la 2b del Lab e il riepilogo del notebook della mappa.
     """
-    from .ipotesi import SCHEDE
+    from .ipotesi import SCHEDE, SCHEDE_TOLTE
     contate = (prove or {}).get("mappa", {}) or {}
     righe = []
     for e in esiti_mappa_ultimi(esiti):
@@ -1643,7 +1613,10 @@ def tabella_mappa(esiti: list, prove: dict | None) -> pd.DataFrame:
         n = contate.get((e["scheda"], int(e["versione"]), float(e["orizzonte_ore"])))
         righe.append({
             "Scheda": f"{e['scheda']} · {e['titolo']} (versione {e['versione']})",
-            "Meccanismo": sch.meccanismo if sch is not None and sch.versione == int(e["versione"]) else "",
+            "Meccanismo": (sch.meccanismo if sch is not None and sch.versione == int(e["versione"])
+                           # 29/10/2026 (docs/77): gli esiti delle schede tolte restano, con la nota
+                           else f"scheda tolta dal catalogo il {SCHEDE_TOLTE[e['scheda']]}"
+                           if e["scheda"] in SCHEDE_TOLTE else ""),
             "Fascia attesa e segno": _attese_in_chiaro(e["attese"]),
             "Orizzonte (ore)": _fmt(float(e["orizzonte_ore"]), 0),
             "Esito": e["verdetto"],
@@ -1652,6 +1625,7 @@ def tabella_mappa(esiti: list, prove: dict | None) -> pd.DataFrame:
             "TradingView": e["portabilita"],
             "Trigger nato": "—",
         })
+    righe.sort(key=lambda r: r["Meccanismo"].startswith("scheda tolta"))   # le schede tolte in fondo (29/10)
     return pd.DataFrame(righe, columns=["Scheda", "Meccanismo", "Fascia attesa e segno", "Orizzonte (ore)", "Esito",
                                         "Misurata il", "Fasce contate", "TradingView", "Trigger nato"])
 
@@ -2172,7 +2146,7 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     Schermata 3c, facoltativa (22/10/2026, docs/66). Dopo la scelta dei
     trigger: l'atlante di engine/atlante.py su TUTTE le entry vere
     dell'in-sample, all'orizzonte H. Per ogni entry e cella (4 di volatilita'
-    x trend, 4 sessioni, 2 di basis sui perpetual con lo spot) lo scarto
+    x trend, 4 sessioni; la basis tolta il 29/10/2026, docs/77) lo scarto
     lordo dal mercato della cella, la sua solidita', il netto dei costi e se
     passa i controlli (200 occasioni, quota di falsi positivi, due meta',
     netto > 0). Mostra la mappa dei trigger scelti e la tabella delle entry
@@ -2206,7 +2180,7 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     s.sopravvissuti, s.filtro = [], None
     k = int(tab.attrs["k_misurate"])
     # soglia cumulata: le celle misurate, una volta per impostazione (H e assi; le entry sono tutte)
-    _rd.metti_prova(s.prove, "celle", chiave_celle(s.H, tab, nomi), k)
+    contata = _rd.metti_prova(s.prove, "celle", chiave_celle(s.H, tab, nomi), k)
 
     u, a = s.unita, _altra_unita(s)
     poche = dict(tab.attrs.get("scartate", []))
@@ -2265,7 +2239,7 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
     _riquadro(
         "Per ogni segnale, una situazione alla volta: volatilità alta o bassa con trend a favore o contro (4), la "
         "sessione in cui si apre il trade (4: Asia, che comprende il fine settimana, Europa, Londra + New York, "
-        "America)" + (", sui perpetual la basis alta o bassa (2)" if "basis" in tab.attrs["assi"] else "")
+        "America)"
         + f". In ogni situazione: quanto il segnale batte il mercato della stessa situazione e della stessa ora "
         f"({u}, prima dei costi) e quanto resta dopo commissione, spread" + (" e funding" if s.funding is not None
                                                                             else "") + ".",
@@ -2279,7 +2253,8 @@ def atlante_dei_trigger(s: Sessione) -> pd.DataFrame:
         "anche una che non passa. Il segnale scatterà solo lì, e al passo 5 l'asticella terrà conto di tutte le "
         f"{k} situazioni guardate (solidità {_fmt(soglia_rumore(max(k, 1), ALPHA))}). Altrimenti vai alla 4: la "
         "strada di sempre, con tutti i filtri al passo 5.")
-    _riga_prove(s, f"{k} situazioni misurate")
+    _riga_prove(s, f"{k} situazioni misurate" if contata else
+                f"nessuna in più ({k} situazioni misurate, già contate in un atlante con la basis, docs/77)")
     return tab
 
 

@@ -171,20 +171,43 @@ def _prove_vuote() -> dict:
     return {"trigger": 0, "uscite": {}, "filtri": {}, "combinazioni": {}}
 
 
-def metti_prova(prove: dict, dove: str, chiave, n) -> None:
+def celle_gia_contate(voci: dict, chiave) -> tuple | None:
+    """
+    29/10/2026 (docs/77, lavoro 1, decisione D2 di Mattia): la voce delle situazioni gia' contata che
+    CONTIENE `chiave`, o None. Una chiave delle situazioni e' (H, assi, trigger): un atlante con lo stesso
+    H, gli stessi trigger nello stesso ordine e assi contenuti in quelli di una voce gia' contata misura
+    celle gia' misurate (gli assi non si incrociano: ogni cella si misura da sola). Serve all'atlante senza
+    la basis, tolta il 29/10/2026, sui dataset dove le situazioni erano gia' contate con la basis.
+    """
+    if not (isinstance(chiave, tuple) and len(chiave) == 3):
+        return None
+    H, assi, nomi = chiave
+    for k in voci or {}:
+        if (isinstance(k, tuple) and len(k) == 3 and k != chiave and k[0] == H and tuple(k[2]) == tuple(nomi)
+                and set(assi) < set(k[1])):
+            return k
+    return None
+
+
+def metti_prova(prove: dict, dove: str, chiave, n) -> bool:
     """
     Mette una voce nel conto delle prove (28/10/2026, docs/76, D1): per ogni
     chiave vale il numero piu' alto mai scritto, cosi' il conto non scende mai
     (anche quando Lab e ricerca scrivono la stessa chiave con numeri diversi).
     chiave None = voce semplice (trigger, fasce); altrimenti una voce a dizionario.
+    29/10/2026 (docs/77, D2): una voce delle situazioni contenuta in una voce gia'
+    contata (celle_gia_contate) non entra: ritorna False. Altrimenti True.
     """
     if chiave is None:
         prima = prove.get(dove)
         prove[dove] = n if prima is None else max(prima, n)
     else:
         voci = prove.setdefault(dove, {})
+        if dove == "celle" and celle_gia_contate(voci, chiave) is not None:
+            return False
         prima = voci.get(chiave)
         voci[chiave] = n if prima is None else max(prima, n)
+    return True
 
 
 def da_voci(chiave: tuple, voci: list, nuove_prove=None) -> StoriaDataset:

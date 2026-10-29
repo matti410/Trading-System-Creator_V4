@@ -88,7 +88,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   `X_INVERSIONE_TREND` con il profilo nell'unità che decide (bp sulle crypto), come il Lab.
 - **Dati in locale** (`70`, 25/10): l'interruttore «aggiorna i dati» dell'Avvio
   scarica, solo sul PC, le barre nuove del symbol e del timeframe scelti alla
-  schermata 1 (con spot e funding del perpetual); su Colab si leggono i file di Drive.
+  schermata 1 (con il funding del perpetual; lo spot della stessa coppia non più dal 29/10, `77`); su Colab si leggono i file di Drive.
   Stesso codice di `scarica_dati_crypto.py` (`engine/aggiorna_dati.py`).
 - **Il confine dell'in-sample è dello studio** (`70` §2): una data sola per tutti gli
   exchange, le monete e i timeframe, fissata dal primo dataset aperto all'80% delle sue
@@ -109,7 +109,9 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   misura sull'in-sample dello studio nel notebook della mappa, con lo stesso cancello
   della rosa (falsi positivi q = 20%, due metà, 200 barre in 100 giornate). Prima della
   misura il controllo delle fasce (quintili fra il 10% e il 30%); M04, fermata da quel
-  controllo, è stata riscritta a categorie del funding il 28/10 prima di misurarla. Ogni fascia misurata è una prova nel conto del dataset (voce «prova» con
+  controllo, è stata riscritta a categorie del funding il 28/10 prima di misurarla. Dal 29/10 (`77`, lavoro 1) le schede del
+  funding e della basis (M01, M04, M05) sono tolte: restano M06 e M07; gli esiti già misurati restano visibili con la
+  nota e le loro fasce nel conto. Ogni fascia misurata è una prova nel conto del dataset (voce «prova» con
   dove = "mappa" nel giornale): il Lab la conta nella soglia cumulata e nella riga delle
   prove, e la mostra alla 2b in sola lettura. Il notebook della mappa non scrive H e non
   apre lo studio. Dal 28/10 la mappa ha la sua incertezza (`mappa.errore_sovrapposti`): le coppie di
@@ -144,7 +146,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
    (`vetrina.soglia_cumulata`).
 5. **C · atlante del trigger** — fatto (PR #53; lo stato aggiornato in
    questo file con la PR #54, solo testo; proposta e decisioni in `66`).
-   Per ogni entry vera, 8 celle per lato (10 sui perpetual con lo spot): scarto lordo dal mercato della cella e netto dei costi (`02`,
+   Per ogni entry vera, 8 celle per lato (10 sui perpetual con lo spot fino al 29/10, poi la basis è tolta, `77`): scarto lordo dal mercato della cella e netto dei costi (`02`,
    «L'atlante del trigger»). Lab 3c–3d, ricerca 1.5. Con una cella scelta
    (strada B) il passo 5 prova solo la cella, con la soglia a k = celle
    dell'atlante; senza cella tutto come prima.
@@ -183,8 +185,10 @@ delle prove fra dataset si decide nel lavoro dei testimoni.
 
 **Direzione dal 29/10/2026 (`77`):** edge direzionali intraday sul prezzo (e sul volume), trade da 1 a
 8 ore; niente edge da meccanica dello strumento (funding, basis). Lavori in ordine: 1) togliere funding e basis
-come variabili; 2) orizzonti 1, 4 e 8 ore; 3) trigger M07; 4) volume aggressivo. Proposta dei lavori 1 e 2 in
-`77` §P1–§P3, in attesa delle decisioni.
+come variabili; 2) orizzonti 1, 4 e 8 ore; 3) trigger M07; 4) volume aggressivo. Proposta in `77` §P1–§P3,
+decisioni di Mattia in `77` §P4. Lavoro 1 fatto (29/10, `77` §P5): il funding resta solo come costo dei trade sui
+perpetual; via il funding come variabile, l'asse basis dell'atlante e le schede M01, M04, M05. Le situazioni già
+misurate con la basis non si contano di nuovo.
 
 Fonti: una alla volta con il processo di `50`; la coda dei paper è in
 `GUIDA_ANALISI_FONTI.md` §11.6.

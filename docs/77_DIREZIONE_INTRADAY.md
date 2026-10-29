@@ -3,11 +3,12 @@
 **Incarico del 29/10/2026** (Mattia e il revisore, per Claude Code). Sostituisce la bozza «dalla fascia al trigger» (ramo locale `dalla-fascia-al-trigger`, mai pushato: si butta).
 Flusso: proposta in testo senza codice → controllo del revisore → via di Mattia → codice, una PR per lavoro.
 
-**Stato:** proposta dei lavori 1 e 2 scritta (29/10/2026), in attesa del revisore e delle decisioni di Mattia (§P3).
+**Stato:** decisioni di Mattia il 29/10/2026 (§P4). Lavoro 1 fatto (§P5); lavoro 2 da fare, una PR a sé.
 
 **Indice.** Incarico: Cosa cerchiamo · Decisioni · Lavoro 1 · Lavoro 2 · Lavoro 3 · Lavoro 4 · Regole.
 Proposta (Claude Code, 29/10/2026): §P1 Lavoro 1, togliere funding e basis · §P2 Lavoro 2, orizzonti
-1, 4 e 8 ore · §P3 Decisioni da prendere prima del codice.
+1, 4 e 8 ore · §P3 Decisioni da prendere prima del codice · §P4 Decisioni di Mattia · §P5 Resoconto
+del lavoro 1 (*resoconto*).
 
 ## Cosa cerchiamo (Mattia, 29/10/2026)
 
@@ -388,3 +389,62 @@ Dettagli di forma che risolvo io e scrivo in una riga nella PR:
 - gli esiti delle schede tolte restano visibili, con la nota;
 - la frase che ferma il Lab sulle situazioni `BASIS_*`;
 - i segni sulla curva della 3a.
+
+## P4 · Decisioni di Mattia (29/10/2026, dopo il revisore)
+
+1. **D1:** il funding resta come **costo** dei trade sui perpetual (backtest identici); si toglie solo il funding
+   come variabile da cui nascono segnali, con tutta la basis, come proposto.
+2. **D2:** sì alla regola «già misurate»: stesso orizzonte, stessi trigger e assi contenuti in una voce già
+   contata, non si contano di nuovo. Nel test del conto.
+3. **D3:** (a), la griglia alla 2c, scelta dopo aver visto i tre orizzonti, e contata. Alla schermata 1 resta
+   possibile fissare un orizzonte solo, in barre: serve alle prove d'identità contro main (41 nel Lab, 25 nella
+   ricerca).
+4. **D4:** griglia 1, 4 e 8 ore, niente 2 ore.
+5. Niente push del solo documento: il lavoro 1 è una PR a sé, il lavoro 2 un'altra.
+
+## P5 · Resoconto del lavoro 1 (*resoconto*, 29/10/2026)
+
+**Cosa si e' tolto** (modifiche non additive, dichiarate):
+- `engine/indicatori.py`: `funding_liquidato`, `basis_bp`, `basis_alta`, `barre_prima_del_pagamento`,
+  `funding_segno_prima_pagamento`, `funding_rispetto_al_base` e le loro costanti;
+- `engine/exchange.py`: `colonne_perpetual`; il funding come costo resta tutto;
+- `engine/atlante.py`: l'asse `basis` (`ASSI` = vol_trend e sessione); una cella `BASIS_*` si ferma con la frase
+  «la basis è stata tolta il 29/10/2026 ... scegli una situazione di volatilità o di sessione»;
+- `engine/vetrina.py`: `aggancia_spot` e la riga «Spot (perpetual)» della schermata 1;
+- `engine/aggiorna_dati.py`: lo scarico dello spot di un perpetual (`spot_della_coppia`);
+- `engine/mappa.py`, `engine/ipotesi.py`, `engine/vetrina_mappa.py`: le variabili del funding e della basis,
+  `prepara_df`, le schede M01, M04 e M05 (ora in `SCHEDE_TOLTE`, con la data). I loro esiti si mostrano in
+  fondo alla tabella della 2b e del riepilogo della mappa, con la nota «scheda tolta dal catalogo il 29/10/2026».
+
+**Cosa si e' aggiunto:** `registro_dataset.celle_gia_contate` e la regola D2 in `metti_prova` (una voce delle
+situazioni contenuta in una gia' contata non entra; `metti_prova` ritorna False). La riga delle prove della 3c
+lo dice: «nessuna in più (N situazioni misurate, già contate in un atlante con la basis)».
+
+**Test cambiati:**
+- `test_funding` 42/42: la parte E (stati del funding e basis) diventa un controllo solo, «tolti»;
+- `test_atlante` 42/42: i controlli 5, 8, 10, 18, 23, 25, 28, 31, 36 senza la basis;
+- `test_mappa` 34/34 (prima 39): tolti C2-C5 e C10 (M01, M04), C1 nuovo (schede tolte), F3 su una scheda di
+  prova con i valori uguali, F5 con una misura vecchia di M05 che resta con la nota; la parte G usa schede di
+  prova con i campi di M04 e M05 e da' gli stessi numeri di main (118/135, 67/73, 66/53);
+- `test_dati_confine` 84/84: A4, A23, E6 (lo spot non si scarica piu');
+- `test_conto_ricerca` 31/31: la parte E nuova, la regola D2 in memoria e nello studio.
+
+**Prove d'identita'** (main contro ramo, a parita' di barre, copia dello studio):
+- BYBIT_SPOT_ETHUSDT, Lab e ricerca, giro completo: identici (283/285 e 449/449 oggetti; le differenze sono
+  la cartella temporanea e l'attributo `spot_nota` che non c'e' piu');
+- BINANCE_PERP_BTCUSDT, Lab (H = 41) e ricerca (H = 25): tutto identico tranne l'atlante (700 righe -> 560:
+  via le 140 righe della basis; nelle altre tutte le colonne identiche al bit, compresi `bh` e `passa`;
+  `k_misurate` 558 -> 429) e la colonna `spot_close` che non c'e' piu' (il resto del df identico). Nessuna voce
+  nuova delle situazioni nel giornale; la riga della 3c dice «nessuna in più»; il conto resta 3.410,6;
+- la mappa sui dati veri, senza scrivere: M07 su BTC perp e M06 su ETH perp, tabelle e attributi identici.
+
+**Conto per dataset nello studio vero, letto con main e con il ramo:** identico.
+
+| dataset | k | situazioni |
+|---|---|---|
+| BINANCE_PERP_BTCUSDT_M15 | 3.410,6 | 2.804 |
+| BINANCE_PERP_ETHUSDT_M15 | 5 | 0 |
+| BINANCE_PERP_XRPUSDT_M15 | 652 | 541 |
+| BYBIT_PERP_SOLUSDT_M15 | 105 | 0 |
+| BYBIT_SPOT_ETHUSDT_M15 | 1.069 | 922 |
+| BINANCE_PERP_BTCUSDT_M5 | 0 | 0 |

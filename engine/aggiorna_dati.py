@@ -17,8 +17,9 @@ lo script e il Lab usano lo stesso codice.
         con i controlli confrontati con le barre del timeframe scelto (lo
         script li faceva sempre su M15).
     aggiorna_per_lab(symbol, timeframe, cartella)   quello che fa la schermata 1
-        con l'interruttore acceso: candele, spot della stessa coppia (per la
-        basis dell'atlante) e funding sui perpetual. Un errore di rete NON
+        con l'interruttore acceso: candele e, sui perpetual, funding (lo spot
+        della stessa coppia, per la basis, non piu' dal 29/10/2026, docs/77).
+        Un errore di rete NON
         ferma: si lavora sui dati che ci sono, con un avviso. Si ferma solo
         se il CSV delle candele non c'e' e non si riesce a scaricarlo.
 
@@ -140,18 +141,12 @@ def controlli_nuove(symbol: str, timeframe: str, cartella, vecchia) -> dict:
     return controlla_storico(pezzo, timeframe)
 
 
-def spot_della_coppia(symbol: str) -> str | None:
-    """Lo spot dello stesso exchange e della stessa coppia di un perpetual (None sugli altri)."""
-    p = parti_symbol(symbol)
-    return f"{p['exchange']}_SPOT_{p['coppia']}" if p["mercato"] == "PERP" else None
-
-
 def aggiorna_per_lab(symbol: str, timeframe: str, cartella, aperti: dict | None = None,
                      verbose: bool = True, attesa: float = 2.0) -> dict:
     """
     L'aggiornamento della schermata 1 con l'interruttore acceso (docs/70 §1.3).
-    Ritorna un dizionario con una voce per parte, "candele", "spot" (solo
-    perpetual), "funding" (solo perpetual), ciascuna:
+    Ritorna un dizionario con una voce per parte, "candele" e "funding" (solo
+    perpetual), ciascuna:
         {"esito": "aggiornato" | "non aggiornato", "nome", "nuove", "dal", "al",
          "controlli" (sulle barre nuove), "errore" (il motivo, se non aggiornato)}
     Un errore di rete o dell'exchange non ferma: la parte resta «non
@@ -179,9 +174,6 @@ def aggiorna_per_lab(symbol: str, timeframe: str, cartella, aperti: dict | None 
         raise FileNotFoundError(
             f"Non trovo {file_storico(symbol, timeframe, cartella)} e non sono riuscito a scaricarlo "
             f"({out['candele']['errore']}). Controlla la connessione e riprova.")
-    spot = spot_della_coppia(symbol)
-    if spot is not None:
-        out["spot"] = candele(spot)
     if ha_funding(symbol):
         try:
             c = aggiorna_funding(symbol, cartella, timeframe, aperti=aperti, verbose=verbose)

@@ -2,11 +2,11 @@
 Suite di validazione del FUNDING DEI PERPETUAL (21/10/2026, docs/63 §5,
 lavoro B): engine/exchange.py (scarica_funding, salva/leggi_funding,
 controlla_funding, copertura_funding, funding_per_trade, aggiungi_funding,
-funding_avanti, colonne_perpetual), engine/metriche.pips_per_trade (toglie
+funding_avanti), engine/metriche.pips_per_trade (toglie
 FundingPips), i motori (parametro funding), due_meta, il money management
-(il funding NON entra nel rischio), gli stati di engine/indicatori.py
-(funding_liquidato, basis_bp) e la vetrina (carica_funding, prepara, la
-tabella dei costi).
+(il funding NON entra nel rischio) e la vetrina (carica_funding, prepara, la
+tabella dei costi). Dal 29/10/2026 (docs/77, lavoro 1) il funding e' solo un
+COSTO: gli stati funding_liquidato e basis_bp sono tolti (parte E).
 
 Cosa verifica
 -------------
@@ -20,9 +20,8 @@ B  i motori: FundingPips nei trade, avg_trade_netto spostato del funding
 C  money management: rischio e costo identici con e senza funding, pips netti
    con il funding;
 D  funding_avanti (rendimenti a H barre): casi a mano e calcolo a forza bruta;
-E  stati: funding_liquidato (nessuna liquidazione vista prima che avvenga,
-   riporto a 8 ore), basis_bp (NaN senza spot), prova di lookahead per
-   troncamento;
+E  29/10/2026: il funding come variabile e la basis sono tolti (le funzioni non
+   ci sono piu'), il funding come costo resta;
 F  scaricatore con un exchange finto, senza rete: Bybit all'indietro con 200
    tassi al massimo e liquidazioni ogni ora (piu' di 200 in 200 ore), finestra
    troppo larga -> errore; Binance in avanti con i millesimi di secondo;
@@ -57,7 +56,6 @@ warnings.simplefilter("ignore")
 from engine import exchange as X
 from engine import registry as R
 from engine.exit_search_bt import run_exit_search_bt
-from engine.indicatori import basis_bp, funding_liquidato
 from engine.metriche import bp_per_trade, pips_per_trade
 
 ESITI = []
@@ -296,39 +294,14 @@ def main() -> int:
     check("D4. contro il calcolo a forza bruta su 300 barre (H = 25)", np.allclose(fl[campione], forza))
 
     # -------------------------------------------------------------- stati --
-    print("\nE · Gli stati: funding liquidato e basis")
-    dfc = X.colonne_perpetual(df, f2)
-    fl_ = funding_liquidato(dfc)
-    v = lambda t: fl_.at[pd.Timestamp(t, tz="UTC")]
-    check("E1. la liquidazione delle 08:00 non si vede alle 07:45, si vede dalle 08:00 (riportata a 8 ore)",
-          np.isnan(v("2024-01-01 07:45")) and np.isclose(v("2024-01-01 08:00"), 0.0002)
-          and np.isclose(v("2024-01-01 09:45"), 0.0002), "prima del primo intervallo noto: NaN")
-    check("E2. riporto a 8 ore: 0,04% ogni 2 ore vale 0,16% ogni 8 ore",
-          np.isclose(v("2024-01-01 10:00"), 0.0016) and np.isclose(v("2024-01-01 15:45"), 0.0016)
-          and np.isclose(v("2024-01-01 16:00"), 0.0001 * 8 / 2))
-    spot = df[["Close"]] * 0.999
-    spot = spot.drop(index=spot.index[100:120])
-    dfs = X.colonne_perpetual(df, f2, spot)
-    bb = basis_bp(dfs)
-    check("E3. basis in bp sulla stessa barra; NaN dove manca lo spot",
-          np.isclose(bb.iloc[0], (1 - 0.999) / 0.999 * 10_000) and bb.iloc[100:120].isna().all()
-          and bb.drop(index=bb.index[100:120]).notna().all())
-    check("E4. senza le colonne grezze (CFD, spot, mercato sintetico): NaN",
-          funding_liquidato(df).isna().all() and basis_bp(df).isna().all())
-    piena_f, piena_b = funding_liquidato(X.colonne_perpetual(sd, fs_, sd[["Close"]] * 1.0002)), None
-    piena_b = basis_bp(X.colonne_perpetual(sd, fs_, sd[["Close"]] * 1.0002))
-    tagli = [500, 2_000, 3_333, len(sd) - 7]
-    ok_f = ok_b = True
-    for k in tagli:
-        corto = X.colonne_perpetual(sd.iloc[:k], fs_[fs_.index <= sd.index[k - 1]], sd[["Close"]].iloc[:k] * 1.0002)
-        ok_f &= np.allclose(funding_liquidato(corto).to_numpy(), piena_f.iloc[:k].to_numpy(), equal_nan=True)
-        ok_b &= np.allclose(basis_bp(corto).to_numpy(), piena_b.iloc[:k].to_numpy(), equal_nan=True)
-    check("E5. lookahead per troncamento: tagliando lo storico (e il funding) i valori gia' calcolati non cambiano",
-          ok_f and ok_b, f"tagli {tagli}")
-    check("E6. funding liquidato = l'ultimo tasso con S <= inizio della barra, sul campione intero",
-          all(np.isclose(piena_f.iloc[i], fs_["tasso"][fs_.index <= sd.index[i]].iloc[-1] * 8
-                         / fs_["intervallo_ore"][fs_.index <= sd.index[i]].iloc[-1])
-              for i in rng.integers(100, len(sd), 200)))
+    print("\nE · Il funding come variabile e la basis, tolti il 29/10/2026 (docs/77)")
+    import engine.indicatori as I
+    tolte = ["funding_liquidato", "basis_bp", "basis_alta", "funding_segno_prima_pagamento",
+             "funding_rispetto_al_base", "barre_prima_del_pagamento"]
+    check("E1. gli stati del funding e della basis non ci sono piu' (indicatori, exchange.colonne_perpetual); "
+          "il funding come costo resta (funding_per_trade, funding_avanti, aggiungi_funding)",
+          not any(hasattr(I, n) for n in tolte) and not hasattr(X, "colonne_perpetual")
+          and all(callable(getattr(X, n, None)) for n in ("funding_per_trade", "funding_avanti", "aggiungi_funding")))
 
     # -------------------------------------------------------- scaricatore --
     print("\nF · Lo scaricatore (exchange finto, senza rete)")

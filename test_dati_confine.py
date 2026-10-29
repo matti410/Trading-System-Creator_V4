@@ -209,13 +209,14 @@ def sezione_e(check, errore, cartella) -> None:
     finally:
         AD_.apri_exchange = originale
     oos5 = s5.tabelle["riepilogo"].set_index("")[" "]["Out-of-sample (mai visto)"]
-    # lo spot mancava e l'aggiornamento l'ha scaricato: il df ha in piu' la colonna spot_close (la basis
-    # dell'atlante); barre, prezzi e indicatori dell'in-sample sono quelli di prima
-    check("E6. aggiorna=True: +30 barre, in-sample identico al bit, out-of-sample +30, confine fermo",
-          s5.df_is[s4.df_is.columns].equals(s4.df_is) and "spot_close" in s5.df_is.columns
+    # 29/10/2026 (docs/77): lo spot mancava e l'aggiornamento non lo scarica piu' (la basis dell'atlante e'
+    # tolta); barre, prezzi e indicatori dell'in-sample sono quelli di prima
+    check("E6. aggiorna=True: +30 barre, in-sample identico al bit, out-of-sample +30, confine fermo; lo spot "
+          "della stessa coppia non si scarica più",
+          s5.df_is.equals(s4.df_is) and "spot_close" not in s5.df_is.columns
           and len(s5.df_oos) == len(s4.df_oos) + 30
           and "Dati aggiornati" in testo5 and "il confine non si è mosso" in testo5
-          and "(di cui 30 arrivate oggi)" in oos5 and (c / f"{SPOT}_M15.csv").exists(),
+          and "(di cui 30 arrivate oggi)" in oos5 and not (c / f"{SPOT}_M15.csv").exists(),
           f"out-of-sample {len(s4.df_oos)} -> {len(s5.df_oos)}")
     # 25/10/2026 (docs/71, strada D): lo spread e' un passo per trade, fuori dal prezzo e fuori da ogni mediana
     check("E6c. lo spread (un passo per trade, docs/71) non cambia con le barre nuove",
@@ -412,7 +413,7 @@ def esegui() -> int:
         check("A3e. scarica_dati_crypto.py e il Lab scrivono lo stesso CSV",
               (c_script / f"{SYM}_H4.csv").read_bytes() == (c_lab / f"{SYM}_H4.csv").read_bytes())
 
-        # il Lab con l'interruttore acceso: candele, spot e funding del perpetual
+        # il Lab con l'interruttore acceso: candele e funding del perpetual (lo spot non piu', 29/10/2026)
         orari = pd.date_range("2019-12-25", adesso.tz_convert(None), freq="8h", tz="UTC")
         funding = pd.DataFrame({"tasso": np.random.default_rng(3).normal(1e-4, 5e-5, len(orari))}, index=orari)
         c_per = cartella("perp")
@@ -420,10 +421,14 @@ def esegui() -> int:
         X.salva_csv(chiuse.iloc[:-30], c_per / "BINANCE_SPOT_BTCUSDT_H4.csv")
         X.salva_funding(X.con_intervalli(funding.iloc[:-20]), c_per / f"{SYM}_FUNDING.csv")
         perp, spot = Finto(fonte, funding=funding), Finto(fonte, ident="binance")
+        spot_prima = (c_per / "BINANCE_SPOT_BTCUSDT_H4.csv").read_bytes()
         rep = muto(AD.aggiorna_per_lab, SYM, "H4", c_per, aperti={"binanceusdm": perp, "binance": spot})
-        check("A4. aggiorna_per_lab: candele +30, spot +30, funding aggiornato, controlli sulle barre nuove",
+        check("A4. aggiorna_per_lab: candele +30, funding aggiornato, controlli sulle barre nuove; lo spot della "
+              "stessa coppia non si aggiorna più (29/10/2026, docs/77)",
               rep["candele"]["esito"] == "aggiornato" and rep["candele"]["nuove"] == 30
-              and rep["spot"]["nuove"] == 30 and rep["funding"]["esito"] == "aggiornato"
+              and set(rep) == {"candele", "funding"} and spot.funzioni == []
+              and (c_per / "BINANCE_SPOT_BTCUSDT_H4.csv").read_bytes() == spot_prima
+              and rep["funding"]["esito"] == "aggiornato"
               and rep["funding"]["nuove"] > 0 and rep["candele"]["controlli"]["barre"] == 31
               and rep["candele"]["controlli"]["buchi"] == 0,
               f"funding +{rep['funding']['nuove']}")
@@ -442,9 +447,8 @@ def esegui() -> int:
         usate = set(perp.funzioni) | set(spot.funzioni) | set(giu.funzioni)
         check("A22. sola lettura: solo fetch_ohlcv e fetch_funding_rate_history (e load_markets)",
               usate <= consentite and "fetch_ohlcv" in usate, ", ".join(sorted(usate)))
-        check("A23. lo spot di un perpetual e' della stessa coppia e dello stesso exchange; spot -> None",
-              AD.spot_della_coppia("BYBIT_PERP_ETHUSDT") == "BYBIT_SPOT_ETHUSDT"
-              and AD.spot_della_coppia("BYBIT_SPOT_ETHUSDT") is None)
+        check("A23. (29/10/2026, docs/77) spot_della_coppia non c'è più: l'aggiornamento di un perpetual non "
+              "cerca lo spot", not hasattr(AD, "spot_della_coppia"))
 
         # ------------------------------------------------------------ confine --
         print("\nB · Il confine dello studio")
