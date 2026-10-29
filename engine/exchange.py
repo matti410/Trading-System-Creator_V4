@@ -653,38 +653,5 @@ def funding_avanti(df: pd.DataFrame, H: int, funding: pd.DataFrame, pip: float) 
     return out
 
 
-def colonne_perpetual(df: pd.DataFrame, funding: pd.DataFrame | None = None,
-                      spot: pd.DataFrame | None = None) -> pd.DataFrame:
-    """
-    Le colonne grezze per gli stati dei perpetual (docs/63 §5.3), da aggiungere
-    DOPO indicatori.aggiungi_indicatori (che toglie le righe con un NaN):
-
-      funding_tasso, funding_intervallo_ore   il tasso e l'intervallo della
-               liquidazione, sulla prima barra che inizia in S o dopo; NaN
-               sulle altre barre (piu' liquidazioni sulla stessa barra, dopo
-               una pausa dei dati: vale l'ultima)
-      spot_close   il Close dello spot della stessa coppia sulla stessa barra;
-               NaN dove lo spot manca (Bybit spot parte nel 2021, Binance spot
-               ha dei buchi)
-
-    Le leggono indicatori.funding_liquidato e indicatori.basis_bp. Copia di df.
-    """
-    out = df.copy()
-    idx = pd.DatetimeIndex(df.index)
-    if funding is not None:
-        f = funding.dropna(subset=["tasso"])
-        S = _istanti(f.index, idx)
-        pos = idx.searchsorted(S, side="left")
-        dentro = pos < len(idx)
-        tab = pd.DataFrame({"pos": pos[dentro], "tasso": f["tasso"].to_numpy(dtype=float)[dentro],
-                            "ore": f["intervallo_ore"].to_numpy(dtype=float)[dentro]}).groupby("pos").last()
-        tasso = np.full(len(idx), np.nan)
-        ore = np.full(len(idx), np.nan)
-        tasso[tab.index.to_numpy()] = tab["tasso"].to_numpy()
-        ore[tab.index.to_numpy()] = tab["ore"].to_numpy()
-        out["funding_tasso"], out["funding_intervallo_ore"] = tasso, ore
-    if spot is not None:
-        sp = spot["Close"].astype(float)
-        sp.index = _istanti(sp.index, idx)
-        out["spot_close"] = sp[~sp.index.duplicated(keep="first")].reindex(idx).to_numpy()
-    return out
+# 29/10/2026 (docs/77, lavoro 1): tolta colonne_perpetual (funding_tasso, funding_intervallo_ore e
+# spot_close sulle barre), che serviva solo al funding come variabile e alla basis.

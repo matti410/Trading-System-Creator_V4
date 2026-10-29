@@ -37,7 +37,7 @@ dichiarata, si mostrano ma non contano come scoperta.
 IL CONTO (docs/73 §B.4, docs/74)
 --------------------------------
 Ogni fascia misurata e' una prova, piu' le prove gia' viste della scheda
-(M01: le 96 fasce del profilo 2a) e, se il segno e' stato scelto dopo aver
+(M01, tolta il 29/10/2026: le 96 fasce del profilo 2a) e, se il segno e' stato scelto dopo aver
 visto i dati (M07), le fasce della versione opposta. La voce va nel giornale
 dello studio come «prova» con dove = "mappa": il Lab la ritrova.
 
@@ -74,11 +74,8 @@ DOPPIONE = "non misurata: doppione"
 _NORMALE = NormalDist()
 
 # le variabili delle schede: nome -> funzione di (df, df_btc)
+# 29/10/2026 (docs/77, lavoro 1): tolte le variabili del funding e della basis (M01, M04, M05)
 VARIABILI = {
-    "funding_segno_prima_pagamento": lambda df, btc: ind.funding_segno_prima_pagamento(df),
-    "funding_liquidato": lambda df, btc: ind.funding_liquidato(df),
-    "funding_rispetto_al_base": lambda df, btc: ind.funding_rispetto_al_base(df),   # M04 dal 28/10/2026
-    "basis_bp": lambda df, btc: ind.basis_bp(df),
     "rendimento_4h": lambda df, btc: ind.rendimento_4h(df),
     "scarto_btc_1h": lambda df, btc: ind.scarto_btc_1h(df, btc),
 }
@@ -88,17 +85,8 @@ VARIABILI = {
 # Dati, variabile, fasce
 # ========================================================================
 
-def prepara_df(df_is: pd.DataFrame, funding: pd.DataFrame | None = None,
-               spot: pd.DataFrame | None = None) -> pd.DataFrame:
-    """
-    L'in-sample con le colonne del funding e dello spot (exchange.colonne_perpetual).
-    I tassi e i prezzi spot si agganciano solo alle barre di `df_is`: niente di
-    quello che viene dopo l'ultima barra dell'in-sample entra (test 14 di test_mappa).
-    """
-    from .exchange import colonne_perpetual
-    if funding is None and spot is None:
-        return df_is
-    return colonne_perpetual(df_is, funding=funding, spot=spot)
+# 29/10/2026 (docs/77, lavoro 1): tolta prepara_df (le colonne del funding e dello spot sulle barre):
+# le schede si misurano sull'in-sample com'e'.
 
 
 def barre_orizzonte(ore: float, index) -> int:
@@ -132,18 +120,11 @@ def simbolo_btc(symbol: str) -> str:
 
 
 def variabile(scheda: Scheda, df: pd.DataFrame, df_btc: pd.DataFrame | None = None) -> pd.Series:
-    """La variabile della scheda sulle barre di `df` (gia' preparato con prepara_df)."""
+    """La variabile della scheda sulle barre di `df` (l'in-sample)."""
     if scheda.variabile not in VARIABILI:
         raise ValueError(f"{scheda.id}: variabile {scheda.variabile!r} sconosciuta (mappa.VARIABILI).")
     if "btc" in scheda.serve and df_btc is None:
         raise ValueError(f"{scheda.id} vuole il dataset di BTC dello stesso exchange e mercato (df_btc).")
-    if "funding" in scheda.serve and "funding_tasso" not in df.columns:
-        raise ValueError(f"{scheda.id} vuole il funding: prepara_df(df_is, funding=...).")
-    if "spot" in scheda.serve and "spot_close" not in df.columns:
-        raise ValueError(f"{scheda.id} vuole lo spot della stessa coppia: prepara_df(df_is, spot=...).")
-    if scheda.variabile == "funding_segno_prima_pagamento" and not ind.barre_prima_del_pagamento(df.index).any():
-        raise ValueError(f"{scheda.id}: su questo timeframe nessuna barra chiude un'ora prima di un pagamento del "
-                         "funding (00:00, 08:00, 16:00 UTC). La scheda non si misura.")
     return VARIABILI[scheda.variabile](df, df_btc)
 
 
@@ -257,7 +238,7 @@ def misura(scheda: Scheda, df: pd.DataFrame, pip: float, valori: pd.Series | Non
            df_btc: pd.DataFrame | None = None, costi: dict | None = None,
            funding: pd.DataFrame | None = None, q: float = Q_ROSA, quarantena=True) -> pd.DataFrame:
     """
-    Misura la scheda sull'IN-SAMPLE `df` (gia' preparato con prepara_df).
+    Misura la scheda sull'IN-SAMPLE `df`.
 
     pip      il pip fisso del symbol (engine/simboli.py)
     valori   la variabile gia' calcolata; None = mappa.variabile(scheda, df, df_btc)
@@ -384,9 +365,7 @@ def misura(scheda: Scheda, df: pd.DataFrame, pip: float, valori: pd.Series | Non
     tab = tab.drop(columns="due_meta_opposto")
     tab.attrs.update(scheda=scheda.id, versione=scheda.versione, verdetto=verdetto, H=H,
                      orizzonte_ore=scheda.orizzonte_ore, riferimento=scheda.riferimento,
-                     misurate=misurate, conto=conto(scheda, misurate), q=q,
-                     **({"fuori_intervallo": valori.attrs.get("fuori_intervallo")}
-                        if "fuori_intervallo" in getattr(valori, "attrs", {}) else {}))
+                     misurate=misurate, conto=conto(scheda, misurate), q=q)
     return tab
 
 

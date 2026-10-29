@@ -349,7 +349,9 @@ del mercato. Le celle, per lato, con assi non incrociati fra loro:
 |---|---|---|
 | volatilità × trend | 4: volatilità alta/bassa × trend a favore/contro | la griglia di `confidenza.py`, con finestre in ore (5 e 125, almeno 20 rendimenti; su M15 = 20 e 500 barre) |
 | sessione | 4: ASIA_NOTTE (e fine settimana), EUROPA, LONDRA_NY, AMERICA | la barra d'ingresso (i+1), ora locale di Londra e New York con l'ora legale |
-| basis (solo perpetual con lo spot) | 2: alta/bassa | basis perpetual − spot sulla sua mediana di 125 ore |
+
+L'asse **basis** (2 celle sui perpetual con lo spot) è stato tolto il 29/10/2026 (`77`, lavoro 1):
+non si cercano edge da meccanica dello strumento. Da allora 8 celle per lato su ogni dataset.
 
 Ogni stato della barra del segnale usa solo dati fino al suo Close.
 

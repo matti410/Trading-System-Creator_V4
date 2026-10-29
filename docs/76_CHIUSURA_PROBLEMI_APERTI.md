@@ -1,7 +1,7 @@
 # 76 · Incarico: chiudere i problemi aperti di `00`
 
 **Data:** 28 ottobre 2026
-**Stato:** PR 1 (A1, A2, A3) unita (PR #89); PR 2 (B1–B4) in revisione.
+**Stato:** chiuso. PR 1 (A1, A2, A3) unita con la PR #89, PR 2 (B1–B4) con la PR #90.
 **Da dove nasce:** la tabella «Problemi aperti» di `00`, dopo la PR #88.
 
 ---

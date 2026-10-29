@@ -1896,44 +1896,8 @@ COLONNE_INDICATORI = (
 )
 
 
-# ------------------------------------------------------------------------
-# Stati dei perpetual (21/10/2026, docs/63 §5.3): FUORI da aggiungi_indicatori,
-# le colonne del catalogo non cambiano. Leggono le colonne grezze di
-# exchange.colonne_perpetual (funding_tasso, funding_intervallo_ore,
-# spot_close); senza quelle colonne (CFD, spot, mercato sintetico) danno NaN.
-# ------------------------------------------------------------------------
-
-def funding_liquidato(df: pd.DataFrame) -> pd.Series:
-    """
-    L'ultimo tasso del funding gia' liquidato all'inizio della barra (una
-    liquidazione che cade all'inizio della barra conta: e' passata prima di
-    ogni suo prezzo), riportato a 8 ore: tasso x 8 / intervallo_ore. Una
-    liquidazione futura non si vede prima che avvenga. NaN prima del primo
-    tasso, dove l'intervallo non e' noto, e senza le colonne grezze.
-    """
-    if not {"funding_tasso", "funding_intervallo_ore"} <= set(df.columns):
-        return pd.Series(np.nan, index=df.index, name="funding_liquidato")
-    tasso = df["funding_tasso"].astype(float)
-    ore = df["funding_intervallo_ore"].astype(float)
-    segna = tasso.notna()
-    valore = (tasso * 8.0 / ore.where(ore > 0)).where(segna)
-    gruppo = segna.cumsum()
-    esito = valore.groupby(gruppo).transform("first").where(gruppo > 0)
-    return esito.rename("funding_liquidato")
-
-
-def basis_bp(df: pd.DataFrame) -> pd.Series:
-    """
-    La basis del perpetual sullo spot, in punti base, sulla stessa barra:
-    (Close perpetual - Close spot) / Close spot x 10.000. NaN dove lo spot
-    manca (Bybit spot parte nel 2021, Binance spot ha dei buchi) e senza la
-    colonna spot_close.
-    """
-    if "spot_close" not in df.columns:
-        return pd.Series(np.nan, index=df.index, name="basis_bp")
-    spot = df["spot_close"].astype(float)
-    spot = spot.where(spot > 0)
-    return ((df["Close"].astype(float) - spot) / spot * 10_000.0).rename("basis_bp")
+# 29/10/2026 (docs/77, lavoro 1): tolti funding_liquidato e basis_bp, gli stati dei perpetual
+# (il funding come variabile e la basis). Il funding resta come costo dei trade (engine/exchange.py).
 
 
 # ------------------------------------------------------------------------
@@ -2026,19 +1990,6 @@ def sessione_ingresso(df: pd.DataFrame) -> pd.Series:
     return pd.Series(codice, index=df.index, name="sessione")
 
 
-def basis_alta(df: pd.DataFrame, ore_mediana: float = ORE_MEDIANA,
-               minimo: int = MINIMO_RENDIMENTI) -> pd.Series:
-    """
-    Basis alta (1) o bassa (0): basis_bp sopra o no la sua mediana mobile
-    delle ultime `ore_mediana` ore. NaN dove lo spot manca, finche' la
-    finestra non e' piena, e senza la colonna spot_close (CFD, spot).
-    """
-    m = barre_per_durata(df.index, ore_mediana, minimo)
-    b = basis_bp(df)
-    mediana = b.rolling(m, min_periods=m).median()
-    return (b > mediana).astype(float).where(mediana.notna() & b.notna()).rename("basis")
-
-
 # ------------------------------------------------------------------------
 # Variabili della mappa delle anomalie (27/10/2026, docs/73 §B, schede di
 # docs/74). FUORI da aggiungi_indicatori: le chiama solo engine/mappa.py, le
@@ -2046,9 +1997,6 @@ def basis_alta(df: pd.DataFrame, ore_mediana: float = ORE_MEDIANA,
 # fino al Close di i. I rendimenti si prendono per data, non per posizione:
 # una barra mancante da' NaN invece di un rendimento su un'altra durata.
 # ------------------------------------------------------------------------
-
-ORE_PAGAMENTO_FUNDING = (0, 8, 16)     # UTC: i pagamenti del funding a 8 ore (docs/74, M01)
-
 
 def _rendimento_ore(close: pd.Series, ore: float) -> pd.Series:
     """Il rendimento dal Close della barra di `ore` ore prima (stessa griglia), NaN se quella barra manca."""
@@ -2075,73 +2023,5 @@ def scarto_btc_1h(df: pd.DataFrame, df_btc: pd.DataFrame) -> pd.Series:
     return ((r_btc - r_alt) * 10_000.0).rename("scarto_btc_1h")
 
 
-def barre_prima_del_pagamento(index) -> np.ndarray:
-    """
-    Le barre che CHIUDONO un'ora prima di un pagamento del funding (00:00,
-    08:00, 16:00 UTC): su M15 quelle delle 22:45, 06:45 e 14:45 (docs/74, M01).
-    Su H4 non ce ne sono.
-    """
-    from engine.quarantena import passo_barre
-    idx = pd.DatetimeIndex(index)
-    t = (idx + passo_barre(idx) + pd.Timedelta(hours=1)).tz_convert("UTC")
-    return np.asarray((t.minute == 0) & (t.second == 0) & t.hour.isin(ORE_PAGAMENTO_FUNDING))
-
-
-def _ultimo_intervallo(df: pd.DataFrame) -> pd.Series:
-    """L'intervallo in ore dell'ultima liquidazione gia' avvenuta all'inizio della barra (come funding_liquidato)."""
-    if "funding_intervallo_ore" not in df.columns:
-        return pd.Series(np.nan, index=df.index)
-    ore = df["funding_intervallo_ore"].astype(float)
-    gruppo = df["funding_tasso"].notna().cumsum()
-    return ore.groupby(gruppo).transform("first").where(gruppo > 0)
-
-
-def funding_segno_prima_pagamento(df: pd.DataFrame) -> pd.Series:
-    """
-    Sulla sola barra che chiude un'ora prima di ogni pagamento (00:00, 08:00,
-    16:00 UTC) il segno dell'ULTIMO tasso gia' liquidato, +1 o -1; NaN sulle
-    altre barre (docs/74, M01). Il tasso del pagamento che sta per arrivare
-    non si usa: si conosce solo quando e' pagato.
-
-    Restano fuori (NaN) le barre dove l'ultimo intervallo del funding non e' di
-    8 ore (Bybit, SOL a 2 ore nel 2022...), quelle con il tasso esattamente
-    zero o non ancora noto. In .attrs: barre (le barre prima di un pagamento),
-    fuori_intervallo (quante restano fuori per l'intervallo).
-    """
-    prima = barre_prima_del_pagamento(df.index)
-    segno = np.sign(funding_liquidato(df).to_numpy(dtype=float))
-    ore = _ultimo_intervallo(df).to_numpy(dtype=float)
-    otto = np.isclose(ore, 8.0)
-    tiene = prima & otto & np.isfinite(segno) & (segno != 0)
-    out = pd.Series(np.where(tiene, segno, np.nan), index=df.index, name="funding_segno_prima_pagamento")
-    out.attrs.update(barre=int(prima.sum()), fuori_intervallo=int((prima & np.isfinite(ore) & ~otto).sum()))
-    return out
-
-
-FUNDING_BASE = 1e-4          # il livello di base del funding di Binance e Bybit: 0,01% ogni 8 ore (docs/74, M04)
-FUNDING_TOLLERANZA = 1e-7    # il confronto con il livello di base (np.isclose, atol)
-
-
-def funding_rispetto_al_base(df: pd.DataFrame) -> pd.Series:
-    """
-    L'ultimo tasso gia' liquidato (funding_liquidato) confrontato con il livello
-    di base dell'exchange, 0,01% ogni 8 ore (docs/74, M04 riscritta da Mattia il
-    28/10/2026 prima della misura). Le categorie:
-       -1  sotto zero
-        0  fra zero (compreso) e il livello di base
-        1  al livello di base (np.isclose, atol FUNDING_TOLLERANZA)
-        2  sopra il livello di base
-    Restano fuori (NaN) le barre dove l'ultimo intervallo del funding non e' di 8
-    ore, come per M01, e quelle con il tasso non ancora noto. In .attrs:
-    fuori_intervallo (quante barre restano fuori per l'intervallo).
-    """
-    t = funding_liquidato(df).to_numpy(dtype=float)
-    ore = _ultimo_intervallo(df).to_numpy(dtype=float)
-    otto = np.isclose(ore, 8.0)
-    tol = FUNDING_TOLLERANZA
-    al_base = np.isclose(t, FUNDING_BASE, rtol=0.0, atol=tol)
-    cat = np.select([al_base, t < -tol, t > FUNDING_BASE + tol, t >= -tol], [1.0, -1.0, 2.0, 0.0], default=np.nan)
-    tiene = otto & np.isfinite(t)
-    out = pd.Series(np.where(tiene, cat, np.nan), index=df.index, name="funding_rispetto_al_base")
-    out.attrs.update(fuori_intervallo=int((np.isfinite(ore) & ~otto & np.isfinite(t)).sum()))
-    return out
+# 29/10/2026 (docs/77, lavoro 1): tolte le variabili del funding delle schede M01 e M04
+# (barre_prima_del_pagamento, funding_segno_prima_pagamento, funding_rispetto_al_base).

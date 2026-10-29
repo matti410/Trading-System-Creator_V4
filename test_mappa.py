@@ -6,20 +6,21 @@ file degli esiti in engine/studio.py, su dati sintetici a risultato noto.
     A · le fasce dalle sole barre passate (troncamento, finestra, valori uguali)
     B · la misura: un effetto messo apposta si ritrova; il riferimento; i quattro
         esiti; senza effetto «risponde» non esce piu' di quanto consente q
-    C · le variabili delle schede: M04 a categorie del funding (28/10), M01 (una barra per pagamento, tasso gia'
-        liquidato, intervalli diversi da 8 ore fuori), M06 (BTC e altcoin per
-        data), funding e spot tagliati al confine; orizzonti non interi
-    D · il conto (M01 2 + 96, M07 5 + 5), la regola dei doppioni (su schede di prova:
-        dal 28/10 M04 non la usa piu'), lo studio
+    C · le variabili delle schede: le schede del funding e della basis (M01, M04,
+        M05) tolte il 29/10/2026 (docs/77), M06 (BTC e altcoin per data);
+        orizzonti non interi
+    D · il conto (le prove gia' viste, M07 5 + 5), la regola dei doppioni (su
+        schede di prova), lo studio
     E · le schede approvate coincidono con docs/74
     G · (28/10/2026) l'incertezza della mappa senza sconto e il passaggio ai
         blocchi settimanali; senza effetto, con variabili persistenti come quelle
-        vere: a blocchi di 8 ore (come M04), lente a quintili (come M05), e con la
+        vere: a blocchi di 8 ore (come la M04 di allora), lente a quintili (come la
+        M05 di allora), e con la
         volatilita' variabile; «risponde» su 1.000 mercati sotto il 15%
     F · (28/10/2026, PR B2) il notebook della mappa (engine/vetrina_mappa.py) su
         file sintetici in una cartella temporanea: non apre lo studio, non scrive
-        H, scrive conto ed esito; le fasce degeneri e M06; la 2b del Lab in sola
-        lettura; la soglia con mappa = 0 identica a prima
+        H, scrive conto ed esito; le fasce degeneri e M06; le schede tolte; la 2b
+        del Lab in sola lettura; la soglia con mappa = 0 identica a prima
 
 Si lancia da terminale, dalla cartella del progetto:
 
@@ -44,7 +45,7 @@ from engine import indicatori as ind
 from engine import mappa as mp
 from engine import registro_dataset as rd
 from engine import studio as st
-from engine.ipotesi import QUALUNQUE_ORA, QUINTILI, SCHEDE, STESSA_ORA, Scheda
+from engine.ipotesi import QUALUNQUE_ORA, QUINTILI, SCHEDE, SCHEDE_TOLTE, STESSA_ORA, Scheda
 from engine.quarantena import imposta_rollover
 from engine.stagionalita import fasce_orarie, in_unita, media_per_fascia, rendimenti_avanti
 from test_atlante import Mercato, _indice
@@ -148,16 +149,28 @@ def sezione_f(check) -> None:
 
         m_eth, _ = zitto(vm.apri_mappa, ETH, "M15", tmp, macchina="pc")
         giornale_eth = os.path.join(tmp, "studio", f"{ETH}_M15", "giornale_pc.jsonl")
-        tab5, testo5 = zitto(vm.mappa_di_una_scheda, m_eth, "M05")
-        tab4, _ = zitto(vm.mappa_di_una_scheda, m_eth, "M04")
-        check("F3. M05 con lo spot uguale al perpetual sul 60% delle barre (basis zero): si ferma prima di misurare, dice "
-              "le quote delle fasce, non scrive niente; M04 (categorie, 28/10) con il funding fermo al livello di base "
-              "per il 60% dei pagamenti si misura, con le 4 categorie e la fascia del livello di base piena",
-              tab5 is None and "non sono quintili veri" in testo5 and "Q1 " in testo5
-              and tab4 is not None and list(tab4["fascia"]) == list(SCHEDE["M04"].fasce)
-              and tab4.set_index("fascia").loc["funding al livello di base", "barre"] > 0
-              and [e["scheda"] for e in st.leggi_esiti_mappa(tmp, f"{ETH}_M15", m_eth.ingresso.studio["id"])] == ["M04"]
-              and _righe(giornale_eth) == 1)
+        # 29/10/2026 (docs/77): M04 e M05 sono tolte; le fasce degeneri si provano su una scheda di prova a
+        # quintili con il 60% dei valori uguali (come faceva M05 con lo spot uguale al perpetual)
+        piatta = np.random.default_rng(3)
+        mp.VARIABILI["_prova_piatta"] = lambda d, btc: pd.Series(
+            np.where(piatta.random(len(d)) < 0.6, 0.0, piatta.normal(size=len(d))), index=d.index)
+        SCHEDE["TQ"] = dataclasses.replace(SCHEDE["M07"], id="TQ", variabile="_prova_piatta", conta_segno_opposto=False)
+        try:
+            tab_q, testo_q = zitto(vm.mappa_di_una_scheda, m_eth, "TQ")
+        finally:
+            del SCHEDE["TQ"], mp.VARIABILI["_prova_piatta"]
+        tolte = []
+        for sid in ("M04", "M05"):
+            try:
+                zitto(vm.mappa_di_una_scheda, m_eth, sid)
+                tolte.append("")
+            except ValueError as e:
+                tolte.append(str(e))
+        check("F3. una scheda a quintili con il 60% dei valori uguali: si ferma prima di misurare, dice le quote delle "
+              "fasce, non scrive niente; le schede tolte il 29/10/2026 (M04, M05) non si misurano più",
+              tab_q is None and "non sono quintili veri" in testo_q and "Q1 " in testo_q
+              and st.leggi_esiti_mappa(tmp, f"{ETH}_M15", m_eth.ingresso.studio["id"]) == []
+              and _righe(giornale_eth) == 0 and all("sconosciuta" in t for t in tolte), str(tolte)[:120])
 
         tab6, testo6 = zitto(vm.mappa_di_una_scheda, m_eth, "M06")
         btc_usato = m_eth.btc[BTC]
@@ -167,16 +180,22 @@ def sezione_f(check) -> None:
               tab6 is not None and len(tab6) == 5 and btc_usato.index[-1] <= m_eth.df_is.index[-1]
               and no_btc is None and "non si misura su BTC" in testo_no)
 
-        tutte, _ = zitto(vm.tutte_le_schede, m)
-        di_nuovo, testo_dn = zitto(vm.tutte_le_schede, m)
-        conti = {k: (v.attrs["conto"] if isinstance(v, pd.DataFrame) else 0) for k, v in tutte.items()}
+        # una misura di M05 fatta prima del 29/10 (la scheda di allora: quintili, 8 ore): voce ed esito nello studio
+        m05_vecchia = dataclasses.replace(SCHEDE["M07"], id="M05", titolo="Basis estrema", orizzonte_ore=8,
+                                          conta_segno_opposto=False)
+        mp.registra(tmp, f"{BTC}_M15", "pc", m.ingresso.studio, m05_vecchia, tab7, "M15")
+        vm._ricostruisci(m)
+        tutte, testo_t = zitto(vm.tutte_le_schede, m)
         bozze, _ = zitto(vm.dalla_fascia_al_trigger, m)
         riep, _ = zitto(vm.riepilogo_mappa, m)
-        check("F5. la 4 misura le schede che mancano su BTC perp (M01, M04, M05: M07 è già fatta, M06 non si misura "
-              "qui), con i controlli prima; rieseguita non misura niente; la 5 e la 6 girano",
-              set(tutte) == {"M01", "M04", "M05"} and di_nuovo == {} and "già state misurate" in testo_dn
-              and vt.fasce_mappa(m.storia) == tab7.attrs["conto"] + sum(conti.values())
-              and isinstance(bozze, list) and len(riep) == 4)
+        check("F5. la 4 su BTC perp: M07 già fatta, M06 non si misura qui, le schede tolte non ci sono più: niente da "
+              "misurare; la misura vecchia di M05 resta nel conto e nel riepilogo, in fondo, con la nota; la 5 e la 6 "
+              "girano",
+              tutte == {} and "già state misurate" in testo_t
+              and vt.fasce_mappa(m.storia) == 2 * tab7.attrs["conto"]
+              and isinstance(bozze, list) and len(riep) == 2 and riep["Scheda"].iloc[-1].startswith("M05")
+              and riep["Meccanismo"].iloc[-1] == f"scheda tolta dal catalogo il {SCHEDE_TOLTE['M05']}"
+              and riep["Fasce contate"].iloc[-1] == vt._fmt(tab7.attrs["conto"]))
 
         s = vt.Sessione()
         s.symbol, s.cartella, s.timeframe = BTC, tmp, "M15"
@@ -190,7 +209,7 @@ def sezione_f(check) -> None:
         contate = dict(zip(tab_2b["Scheda"].str[:3], tab_2b["Fasce contate"]))
         check("F6. la 2b del Lab, in sola lettura: mostra le schede di mappa_*.jsonl con le fasce contate, non cambia "
               "s.prove e non scrive nel giornale; la voce scritta dalla mappa si ritrova nella soglia del Lab",
-              s.prove == prima and _righe(giornale) == righe_prima and len(tab_2b) == 4
+              s.prove == prima and _righe(giornale) == righe_prima and len(tab_2b) == 2
               and contate["M07"] == vt._fmt(tab7.attrs["conto"])
               and soglia["mappa"] == vt.fasce_mappa(m.storia)
               and "fasce della mappa delle anomalie (schermata 2b)" in soglia["frase"]
@@ -205,9 +224,9 @@ def sezione_f(check) -> None:
         st.aggiungi_esito_mappa(tmp, f"{ETH}_M15", "colab", m_eth.ingresso.studio["id"],
                                 mp.esito_da_salvare(SCHEDE["M07"], tab7, "M15"))
         tab_dopo, testo_dopo = zitto(vt.mappa_del_dataset, s_eth)
-        check("F7. la 2b su un dataset con M04 e M06: una scheda misurata dopo la schermata 1 (anche da un'altra "
+        check("F7. la 2b su un dataset con M06: una scheda misurata dopo la schermata 1 (anche da un'altra "
               "macchina) compare, e la 2b dice che entra nel conto alla prossima schermata 1",
-              "M06" in testo_vuoto and len(tab_dopo) == 3
+              "M06" in testo_vuoto and len(tab_dopo) == 2
               and (tab_dopo["Fasce contate"] == "alla prossima schermata 1").sum() == 1
               and "riesegui la schermata 1" in testo_dopo)
 
@@ -267,9 +286,14 @@ def sezione_g(check) -> None:
     idx = _indice("2022-01-03", giorni=800, minuti=15)
     n = len(idx)
     otto_ore = pd.date_range(idx[0], idx[-1], freq="8h")
-    m04 = SCHEDE["M04"]                                 # categorie, 24 ore, stessa ora
-    m05_cat = dataclasses.replace(SCHEDE["M05"], tipo="categorie",
-                                  categorie={float(j): q for j, q in enumerate(QUINTILI)})   # 8 ore, fasce gia' fatte
+    # 29/10/2026 (docs/77): M04 e M05 sono tolte; le stesse schede come schede di prova (fasce, attese, orizzonte
+    # e riferimento di allora: gli stessi numeri di prima)
+    m04 = _scheda(tipo="categorie", orizzonte_ore=24,              # categorie, 24 ore, stessa ora
+                  categorie={-1.0: "funding sotto zero", 0.0: "funding fra zero e il livello di base",
+                             1.0: "funding al livello di base", 2.0: "funding sopra il livello di base"},
+                  attese={"funding sotto zero": 1, "funding sopra il livello di base": -1})
+    m05_cat = _scheda(tipo="categorie", orizzonte_ore=8,
+                      categorie={float(j): q for j, q in enumerate(QUINTILI)})   # 8 ore, fasce gia' fatte
 
     def variabile_a(rng):
         # costante a blocchi di 8 ore, AR(1) molto persistente sui pagamenti (mezza vita circa 11 giorni),
@@ -429,51 +453,14 @@ def esegui() -> int:
     print("\nC · LE VARIABILI DELLE SCHEDE, IL CONFINE, GLI ORIZZONTI\n" + "-" * 70)
     idx15 = _indice(giorni=60, minuti=15)
     df15 = Mercato(idx15, seme=5).df()
-    orari = pd.date_range(idx15[0].floor("8h"), idx15[-1].ceil("8h"), freq="8h")
-    segni = np.where(np.arange(len(orari)) % 2 == 0, 0.0001, -0.0001)
-    fund = X.con_intervalli(pd.DataFrame({"tasso": segni}, index=orari))
-    d01 = mp.prepara_df(df15, funding=fund)
-    seg = ind.funding_segno_prima_pagamento(d01)
-    dove = seg.dropna().index
-    atteso = np.sign(fund["tasso"].reindex(dove.floor("8h")).to_numpy())     # l'ultimo pagato: 8 ore prima del prossimo
-    check("C1. M01, una barra per pagamento: su M15 solo le barre delle 22:45, 06:45, 14:45 UTC; il segno è quello "
-          "del tasso pagato 8 ore prima, mai quello che sta per arrivare",
-          set(dove.strftime("%H:%M")) == {"22:45", "06:45", "14:45"} and np.array_equal(seg.dropna().to_numpy(), atteso)
-          and len(dove) == seg.attrs["barre"] - 1, f"{len(dove)} barre su {len(idx15)}")
-    t_ok = all(set(pd.DatetimeIndex(i)[ind.barre_prima_del_pagamento(i)].strftime("%H:%M")) == v for i, v in (
-        (_indice(giorni=3, minuti=5), {"22:55", "06:55", "14:55"}),
-        (_indice(giorni=3, minuti=60), {"22:00", "06:00", "14:00"})))
-    i22 = int(np.flatnonzero(idx15 == dove[0])[0])
-    H01 = mp.barre_orizzonte(1, idx15)
-    fine = idx15[i22 + H01] + pd.Timedelta(minutes=15)
-    check("C2. M01 su M5 e H1 le barre giuste; l'orizzonte di 1 ora finisce esattamente al pagamento",
-          t_ok and H01 == 4 and fine.hour in (0, 8, 16) and fine.minute == 0, f"fine della misura {fine:%H:%M}")
-    tronco = fund[fund.index < pd.Timestamp("2022-01-20 16:00", tz="UTC")]
-    seg_t = ind.funding_segno_prima_pagamento(mp.prepara_df(df15, funding=tronco))
-    prima_t = seg.index < pd.Timestamp("2022-01-20 16:00", tz="UTC")
-    check("C3. troncamento del funding: togliendo i tassi da un istante in poi, il segno sulle barre prima non "
-          "cambia", np.array_equal(seg[prima_t].to_numpy(), seg_t[prima_t].to_numpy(), equal_nan=True))
-    orari_by = orari.union(pd.date_range("2022-01-25 04:00", "2022-02-05 20:00", freq="8h", tz="UTC"))
-    fund_by = X.con_intervalli(pd.DataFrame({"tasso": 0.0001}, index=orari_by))
-    seg_by = ind.funding_segno_prima_pagamento(mp.prepara_df(df15, funding=fund_by))
-    fuori = seg_by.attrs["fuori_intervallo"]
-    tab_by = mp.misura(SCHEDE["M01"], mp.prepara_df(df15, funding=fund_by), PIP)
-    check("C4. M01 su Bybit: i pagamenti con un intervallo diverso da 8 ore restano fuori, e la funzione lo dice "
-          "(fuori_intervallo, anche negli attributi della misura)",
-          fuori > 0 and seg_by.notna().sum() == seg_by.attrs["barre"] - fuori - 1
-          and tab_by.attrs.get("fuori_intervallo") == fuori, f"{fuori} barre fuori")
+    vecchie = ("funding_segno_prima_pagamento", "funding_liquidato", "funding_rispetto_al_base", "basis_bp")
+    check("C1. le schede del funding e della basis (M01, M04, M05) sono tolte dal catalogo il 29/10/2026 (docs/77) e "
+          "segnate in SCHEDE_TOLTE; le loro variabili non ci sono più, né prepara_df",
+          not set(SCHEDE_TOLTE) & set(SCHEDE) and set(SCHEDE_TOLTE) == {"M01", "M04", "M05"}
+          and not any(v in mp.VARIABILI for v in vecchie) and not hasattr(mp, "prepara_df")
+          and all(s_.serve in ((), ("btc",)) for s_ in SCHEDE.values()))
     confine = idx15[3000]
     df_is = df15[df15.index < confine]
-    spot = df15.copy()
-    spot[["Open", "High", "Low", "Close"]] *= 0.999
-    a = mp.prepara_df(df_is, funding=fund, spot=spot)
-    b2 = mp.prepara_df(df_is, funding=fund[fund.index < confine + pd.Timedelta(minutes=15)],
-                       spot=spot[spot.index < confine])
-    check("C5. funding e spot si tagliano allo stesso confine dell'in-sample: con o senza i tassi e i prezzi spot "
-          "dopo il confine, le colonne, la basis e il segno M01 dell'in-sample sono identici",
-          a.equals(b2) and ind.basis_bp(a).equals(ind.basis_bp(b2))
-          and ind.funding_segno_prima_pagamento(a).equals(ind.funding_segno_prima_pagamento(b2))
-          and a.index[-1] < confine)
     btc = Mercato(idx15, seme=6).df()
     btc_buchi = btc.drop(btc.index[[1000, 2000]])
     btc_corto = btc[btc.index >= idx15[500]]
@@ -497,55 +484,31 @@ def esegui() -> int:
           and errore(lambda: mp.simbolo_btc("BINANCE_PERP_BTCUSDT"), "è già BTC")
           and mp.adatta(SCHEDE["M06"], "BINANCE_PERP_BTCUSDT") is not None
           and mp.adatta(SCHEDE["M06"], "BYBIT_SPOT_XRPUSDT") is None
-          and mp.adatta(SCHEDE["M01"], "BINANCE_SPOT_ETHUSDT") is not None
           and sc_lungo.equals(sc_corto))
     idx_h4 = _indice(giorni=30, minuti=240)
-    df_h4 = mp.prepara_df(Mercato(idx_h4, seme=7).df(), funding=fund)
     check("C8. orizzonte che non è un numero intero di barre (1 ora su H4): la scheda non si misura, con il "
-          "messaggio; M01 su H4 si ferma (nessuna barra chiude un'ora prima del pagamento)",
+          "messaggio",
           errore(lambda: mp.barre_orizzonte(1, idx_h4), "non è un numero intero di barre")
-          and errore(lambda: mp.misura(SCHEDE["M01"], df_h4, PIP), "nessuna barra chiude un'ora prima")
           and mp.barre_orizzonte(4, idx_h4) == 1)
     check("C9. una scheda senza i dati che le servono si ferma e dice quali",
-          errore(lambda: mp.variabile(SCHEDE["M06"], df15), "df_btc")
-          and errore(lambda: mp.variabile(SCHEDE["M04"], df15), "funding")
-          and errore(lambda: mp.variabile(SCHEDE["M05"], df15), "spot"))
-    # M04 riscritta da Mattia il 28/10/2026: le categorie del funding rispetto al livello di base (0,01% ogni 8 ore)
-    # il primo pagamento non ha un intervallo noto (nessun pagamento prima): fuori, come per M01
-    tassi = [-3e-4, -2e-4, 0.0, 5e-5, 1e-4, 1e-4 + 5e-8, 1e-4 - 5e-8, 1e-4 + 5e-7, 3e-4, 1e-4]
-    attesi = [np.nan, -1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, np.nan]
-    orari4 = (list(pd.date_range("2022-01-03 16:00", periods=9, freq="8h", tz="UTC"))
-              + [pd.Timestamp("2022-01-06 12:00", tz="UTC")])               # l'ultimo a 4 ore: fuori
-    f04 = X.con_intervalli(pd.DataFrame({"tasso": tassi}, index=pd.DatetimeIndex(orari4)))
-    d04 = mp.prepara_df(df15.loc[:"2022-01-07"], funding=f04)
-    cat = ind.funding_rispetto_al_base(d04)
-    presi = cat.reindex(pd.DatetimeIndex(orari4) + pd.Timedelta(hours=1)).to_numpy()   # un'ora dopo ogni pagamento
-    prima_pag = cat.loc[: orari4[0] - pd.Timedelta(minutes=15)]
-    cod04 = mp.codici_fasce(SCHEDE["M04"], cat)
-    check("C10. M04 (riscritta il 28/10): le quattro categorie dell'ultimo tasso liquidato (sotto zero, fra zero e il "
-          "livello di base, al livello di base con la tolleranza di 1e-7, sopra); un pagamento a 4 ore resta fuori e "
-          "si conta; prima del primo tasso, e sul primo (intervallo non noto), nessuna categoria; nessun controllo delle fasce (categorie)",
-          np.array_equal(presi, np.array(attesi), equal_nan=True) and prima_pag.isna().all()
-          and cat.attrs["fuori_intervallo"] > 0 and ind.FUNDING_BASE == 1e-4 and ind.FUNDING_TOLLERANZA == 1e-7
-          and SCHEDE["M04"].tipo == "categorie" and mp.controlla_fasce(SCHEDE["M04"], cod04) is None
-          and set(np.unique(cod04[np.isfinite(cod04)])) == {0.0, 1.0, 2.0, 3.0},
-          f"categorie {presi.tolist()}")
+          errore(lambda: mp.variabile(SCHEDE["M06"], df15), "df_btc"))
 
     # =================================================================== D ==
     print("\nD · IL CONTO, I DOPPIONI, LO STUDIO\n" + "-" * 70)
     tab7 = mp.misura(dataclasses.replace(SCHEDE["M07"], orizzonte_ore=4), d_giu, PIP, valori=var)
-    check("D1. il conto: M01 = 2 fasce + 96 del profilo = 98; M07 misura 5 fasce e ne conta 10 (il segno scelto "
-          "dopo aver visto E39), e il verdetto guarda solo le fasce dell'inversione",
-          mp.conto(SCHEDE["M01"], 2) == 98 and tab7.attrs["misurate"] == 5 and tab7.attrs["conto"] == 10
+    check("D1. il conto: una scheda con prove già viste le aggiunge (2 fasce + 96 = 98, come M01 prima del 29/10); "
+          "M07 misura 5 fasce e ne conta 10 (il segno scelto dopo aver visto E39), e il verdetto guarda solo le "
+          "fasce dell'inversione",
+          mp.conto(_scheda(prove_extra=96), 2) == 98 and tab7.attrs["misurate"] == 5 and tab7.attrs["conto"] == 10
           and set(tab7.loc[tab7["attesa"] != "", "fascia"]) == {"Q5", "Q1"}
-          and mp.conto(SCHEDE["M04"], 4) == 4)
+          and mp.conto(_scheda(), 4) == 4)
     base = pd.Series(rng.normal(size=n), index=idx_h)
     quasi = base + rng.normal(scale=0.05, size=n)
     altro = pd.Series(rng.normal(size=n), index=idx_h)
     c_base, c_quasi, c_altro = (mp.fasce_quintili(x, 365) for x in (base, quasi, altro))
     # la regola dei doppioni resta nel codice per le schede future: si prova su due schede di prova (TA doppione di TB)
-    SCHEDE["TA"] = dataclasses.replace(SCHEDE["M05"], id="TA", doppione_di="TB")
-    SCHEDE["TB"] = dataclasses.replace(SCHEDE["M05"], id="TB")
+    SCHEDE["TA"] = dataclasses.replace(_scheda(), id="TA", doppione_di="TB")
+    SCHEDE["TB"] = dataclasses.replace(_scheda(), id="TB")
     try:
         fuori_d = mp.escluse_per_doppione({"TA": c_quasi, "TB": c_base})
         diverse = mp.escluse_per_doppione({"TA": c_altro, "TB": c_base})
@@ -556,11 +519,9 @@ def esegui() -> int:
     finally:
         del SCHEDE["TA"], SCHEDE["TB"]
     check("D2. la regola dei doppioni (nella scheda, doppione_di): quasi uguali = la scheda non si misura (e lo dice); "
-          "diverse = si misurano tutte e due. Dal 28/10 M04 non ha più la regola: con M05 si misurano e si contano "
-          "tutte e due",
+          "diverse = si misurano tutte e due. Nessuna scheda del catalogo la usa",
           set(fuori_d) == {"TA"} and "si misura solo TB" in fuori_d["TA"] and diverse == {}
-          and all(s_.doppione_di is None for s_ in SCHEDE.values())
-          and mp.escluse_per_doppione({"M04": mp.codici_fasce(SCHEDE["M04"], cat), "M05": c_base}) == {})
+          and all(s_.doppione_di is None for s_ in SCHEDE.values()))
     check("D2b. il controllo delle fasce viene prima dei doppioni: la scheda con le fasce degeneri esce con il suo "
           "motivo (non come doppione); se le fasce degeneri sono dell'altra, non si confronta con lei",
           set(fuori_p) == {"TA"} and "non sono quintili veri" in fuori_p["TA"]
@@ -602,20 +563,15 @@ def esegui() -> int:
     rd.azzera()
 
     # =================================================================== E ==
-    print("\nE · LE SCHEDE APPROVATE (docs/74)\n" + "-" * 70)
-    attese = {"M01": (1, STESSA_ORA, "categorie", 96, False), "M04": (24, STESSA_ORA, "categorie", 0, False),
-              "M05": (8, STESSA_ORA, "quintili", 0, False), "M06": (1, STESSA_ORA, "quintili", 0, False),
-              "M07": (4, STESSA_ORA, "quintili", 0, True)}
+    print("\nE · LE SCHEDE APPROVATE (docs/74; dal 29/10 senza M01, M04, M05)\n" + "-" * 70)
+    attese = {"M06": (1, STESSA_ORA, "quintili", 0, False), "M07": (4, STESSA_ORA, "quintili", 0, True)}
     coerenti = all((s_.orizzonte_ore, s_.riferimento, s_.tipo, s_.prove_extra, s_.conta_segno_opposto) == attese[k]
-                   and s_.approvata == ("28/10/2026" if k == "M04" else "27/10/2026") and s_.variabile in mp.VARIABILI
+                   and s_.approvata == "27/10/2026" and s_.variabile in mp.VARIABILI
                    and set(s_.attese) <= set(s_.fasce) for k, s_ in SCHEDE.items())
-    check("E1. in engine/ipotesi.py solo le 5 schede approvate, con orizzonte, riferimento, fasce e conto di docs/74 "
-          "(M02 e M03 fuori)", set(SCHEDE) == set(attese) and coerenti
+    check("E1. in engine/ipotesi.py le schede approvate rimaste (M06, M07), con orizzonte, riferimento, fasce e conto "
+          "di docs/74 (M02 e M03 fuori; M01, M04 e M05 tolte il 29/10/2026)", set(SCHEDE) == set(attese) and coerenti
           and SCHEDE["M06"].escludi_monete == ("BTC",) and SCHEDE["M06"].variabile == "scarto_btc_1h"
-          and SCHEDE["M01"].mercati == ("PERP",) and SCHEDE["M05"].serve == ("spot",)
-          and SCHEDE["M07"].attese == {"Q5": -1, "Q1": 1} and SCHEDE["M06"].attese == {"Q5": 1, "Q1": -1}
-          and SCHEDE["M04"].attese == {"funding sotto zero": 1, "funding sopra il livello di base": -1}
-          and len(SCHEDE["M04"].fasce) == 4 and SCHEDE["M04"].variabile == "funding_rispetto_al_base")
+          and SCHEDE["M07"].attese == {"Q5": -1, "Q1": 1} and SCHEDE["M06"].attese == {"Q5": 1, "Q1": -1})
 
     # =================================================================== F ==
     print("\nF · IL NOTEBOOK DELLA MAPPA, LA 2b DEL LAB, LA SOGLIA (PR B2)\n" + "-" * 70)

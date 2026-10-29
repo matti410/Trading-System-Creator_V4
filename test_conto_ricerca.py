@@ -16,7 +16,11 @@ C  lo studio: la ricerca scrive solo le voci cambiate; la stessa ricerca due vol
    ritrova lo stesso conto; la soglia della ricerca e' quella del Lab sullo stesso
    conto; una voce con «visto il» (A3) si rilegge;
 D  lo spot (A2): la ricerca misura gli stessi trigger del Lab, nello stesso ordine;
-   sullo spot solo i long, sui perpetual tutti.
+   sullo spot solo i long, sui perpetual tutti;
+E  (29/10/2026, docs/77, decisione D2 di Mattia) le situazioni gia' misurate: un
+   atlante senza la basis, con lo stesso H e gli stessi trigger di una voce gia'
+   contata con la basis, non si conta di nuovo (ne' in memoria ne' nel giornale);
+   con un H nuovo o con altri trigger si conta come sempre.
 
 Come si lancia (da terminale, dalla cartella del progetto):
 
@@ -248,6 +252,48 @@ def sezione_d():
     check("D3. perpetual: lo stesso elenco di prima (a registro appena caricato)", perp == vecchi)
 
 
+def sezione_e(radice: Path):
+    print("\nE · Le situazioni gia' misurate (docs/77, D2)")
+    vecchia = (25, ("vol_trend", "sessione", "basis"), ("E1", "E2"))
+    nuova = (25, ("vol_trend", "sessione"), ("E1", "E2"))
+    p = {"celle": {vecchia: 558}}
+    entrata = RD.metti_prova(p, "celle", nuova, 450)
+    check("E1. stesso H, stessi trigger, assi contenuti in una voce contata: non entra, il conto resta 558",
+          entrata is False and p["celle"] == {vecchia: 558} and RD.celle_gia_contate(p["celle"], nuova) == vecchia)
+    altre = [(16, ("vol_trend", "sessione"), ("E1", "E2")),           # un H nuovo
+             (25, ("vol_trend", "sessione"), ("E1", "E2", "E3")),     # un trigger in piu'
+             (25, ("vol_trend", "sessione"), ("E2", "E1"))]           # gli stessi trigger in un altro ordine
+    entrate = [RD.metti_prova(p, "celle", k, 400) for k in altre]
+    check("E2. con un H nuovo, un trigger in piu' o un altro ordine dei trigger: si conta come sempre",
+          entrate == [True, True, True] and all(p["celle"][k] == 400 for k in altre) and p["celle"][vecchia] == 558)
+    check("E3. le altre voci non cambiano regola: uscite e filtri con chiavi che si somigliano contano come prima",
+          RD.metti_prova(p, "uscite", (25, ("a",), ("E1",)), 3) is True
+          and RD.metti_prova(p, "uscite", (25, ("a", "b"), ("E1",)), 4) is True and len(p["uscite"]) == 2)
+    # nello studio: la voce con la basis gia' nel giornale (come su BTC e XRP), poi l'atlante senza la basis
+    cg = radice / "e"
+    cg.mkdir()
+    i = ST.entra(cg, "BINANCE_PERP_XRPUSDT", "H1", storico(seme=9), "pc", adesso="2026-10-29 09:00")
+    dati = SimpleNamespace(ingresso=i, cartella=cg, symbol="BINANCE_PERP_XRPUSDT", timeframe="H1", macchina="pc")
+    RD.azzera()
+    ST.aggiungi_voce(cg, i.dataset, "pc", i.studio["id"],
+                     {"voce": "prova", "dove": "celle", "chiave": RD.normale(list(vecchia)), "n": 541})
+    storia = muto(vt.registro_orizzonte, "BINANCE_PERP_XRPUSDT", "H1", i.df_is, 25, dati=dati)
+    giornale = cg / "studio" / i.dataset / "giornale_pc.jsonl"
+    n0 = len(giornale.read_text(encoding="utf-8").splitlines())
+    vt.conta_celle(storia, 25, tabella(assi=("vol_trend", "sessione"), k_misurate=430), ["E1", "E2"])
+    n1 = len(giornale.read_text(encoding="utf-8").splitlines())
+    RD.azzera()
+    rilett, _ = ST.ricostruisci(cg, i.dataset, i.studio)
+    check("E4. nello studio: l'atlante senza la basis (ricerca o Lab, stessa funzione) non scrive voci e il conto "
+          "delle situazioni resta quello di prima, anche dopo il riavvio",
+          n1 == n0 and storia.prove["celle"] == {vecchia: 541} and rilett.prove["celle"] == {vecchia: 541}
+          and vt.soglia_cumulata_studio(rilett)["celle"] == 541)
+    vt.conta_celle(storia, 16, tabella(assi=("vol_trend", "sessione"), k_misurate=430), ["E1", "E2"])
+    check("E5. nello studio, con un H nuovo: la voce si scrive e si conta",
+          len(giornale.read_text(encoding="utf-8").splitlines()) == n1 + 1
+          and storia.prove["celle"][(16, ("vol_trend", "sessione"), ("E1", "E2"))] == 430)
+
+
 def esegui() -> int:
     print("=" * 70)
     print("test_conto_ricerca · il conto del notebook di ricerca nello studio (docs/76)")
@@ -258,6 +304,7 @@ def esegui() -> int:
         sezione_b()
         sezione_c(radice)
         sezione_d()
+        sezione_e(radice)
     finally:
         RD.azzera()
         shutil.rmtree(radice, ignore_errors=True)
