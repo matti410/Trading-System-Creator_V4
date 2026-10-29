@@ -3,12 +3,12 @@
 **Incarico del 29/10/2026** (Mattia e il revisore, per Claude Code). Sostituisce la bozza «dalla fascia al trigger» (ramo locale `dalla-fascia-al-trigger`, mai pushato: si butta).
 Flusso: proposta in testo senza codice → controllo del revisore → via di Mattia → codice, una PR per lavoro.
 
-**Stato:** decisioni di Mattia il 29/10/2026 (§P4). Lavoro 1 fatto (§P5, PR #91); lavoro 2 fatto (§P6, PR #92); lavoro 3 fatto (§P7).
+**Stato:** decisioni di Mattia il 29/10/2026 (§P4). Lavoro 1 fatto (§P5, PR #91); lavoro 2 fatto (§P6, PR #92); lavoro 3 fatto (§P7, PR #93); conto delle prove d'identità registrato (§P8).
 
 **Indice.** Incarico: Cosa cerchiamo · Decisioni · Lavoro 1 · Lavoro 2 · Lavoro 3 · Lavoro 4 · Regole.
 Proposta (Claude Code, 29/10/2026): §P1 Lavoro 1, togliere funding e basis · §P2 Lavoro 2, orizzonti
 1, 4 e 8 ore · §P3 Decisioni da prendere prima del codice · §P4 Decisioni di Mattia · §P5 Resoconto
-del lavoro 1 (*resoconto*) · §P6 Resoconto del lavoro 2 (*resoconto*) · §P7 Resoconto del lavoro 3 (*resoconto*).
+del lavoro 1 (*resoconto*) · §P6 Resoconto del lavoro 2 (*resoconto*) · §P7 Resoconto del lavoro 3 (*resoconto*) · §P8 Il conto delle prove d'identità (*resoconto*).
 
 ## Cosa cerchiamo (Mattia, 29/10/2026)
 
@@ -525,3 +525,33 @@ Registro in `50` §10, riga 20 (+2 prove dalla mappa).
 sui perpetual; sullo spot se ne misura uno in piu' (solo long), ma su BYBIT_SPOT_ETHUSDT il conto tiene gia' 66
 (le prove passate della ricerca) e non sale; e le sole situazioni
 degli E45 dove c'e' gia' un atlante con lo stesso H.
+
+## P8 · Il conto delle prove d'identità (*resoconto*, 29/10/2026)
+
+**Il punto di Mattia.** Le prove d'identità della PR #93 con i due E45 hanno misurato i dati veri (event study,
+rosa, atlante, uscite, filtri) su una **copia** dello studio, e i risultati si sono visti: una prova conta da quando
+se ne vede il risultato. Da oggi le prove d'identità che mostrano risultati con chiavi nuove si fanno sullo studio
+vero (regola in `00`).
+
+**Cosa è stato registrato nello studio vero** (giornale `pc`, «visto il» 29/10/2026, «fonte»: le prove d'identità
+della PR #93), con le stesse chiavi che il Lab e la ricerca hanno scritto nella copia. Decisione di Mattia: tutto
+quello che si è visto, e una sola apertura dell'out-of-sample per dataset.
+- **BINANCE_PERP_BTCUSDT_M15:** trigger 72; situazioni dei due E45 a H = 41 (Lab, 16) e a H = 25 (ricerca, 16),
+  regola (b); un'apertura dell'out-of-sample (fino al 25/10/2026 21:00, la data già nel diario).
+- **BYBIT_SPOT_ETHUSDT_M15:** situazioni dei due E45 a H = 25 (ricerca, 8); il giro del Lab era a H = 41, mai
+  provato su questo dataset: orizzonte 41, l'atlante intero a H = 41 (190 situazioni, comprese le 182 viste nei
+  giri delle PR #91 e #92 con lo stesso H), 1 sistema, 29 filtri; un'apertura dell'out-of-sample (fino al
+  19/10/2026 13:30, la data già nel diario). Il trigger resta 66, il numero più alto.
+- Le aperture dell'out-of-sample sono una voce per dataset per tutti i giri di collaudo delle PR #91, #92 e #93
+  (il tratto «mai guardato» non cambia: le date finali sono quelle già nel diario).
+
+**Il conto, prima e dopo** (il «prima» è lo studio un istante prima della scrittura, comprese le prove di Mattia
+di oggi con la griglia su BTC: gli H 4, 16 e 32):
+
+| dataset | k prima | k dopo | cosa cambia |
+|---|---|---|---|
+| BINANCE_PERP_BTCUSDT_M15 | 4.009,3 | 4.048,3 | trigger 70 -> 72 (voce 287,3 -> 294,3 con 5 H); situazioni 3.233 -> 3.265 |
+| BYBIT_SPOT_ETHUSDT_M15 | 1.069 | 1.353,1 | H provati 25 -> 25, 41 (voce trigger 66 -> 122,1); situazioni 922 -> 1.120; sistemi 17 -> 18; filtri 64 -> 93 |
+| BINANCE_PERP_XRPUSDT_M15 | 652 | 652 | — |
+| BYBIT_PERP_SOLUSDT_M15 | 105 | 105 | — |
+| BINANCE_PERP_ETHUSDT_M15 | 5 | 5 | — |
