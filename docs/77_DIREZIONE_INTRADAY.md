@@ -3,12 +3,12 @@
 **Incarico del 29/10/2026** (Mattia e il revisore, per Claude Code). Sostituisce la bozza «dalla fascia al trigger» (ramo locale `dalla-fascia-al-trigger`, mai pushato: si butta).
 Flusso: proposta in testo senza codice → controllo del revisore → via di Mattia → codice, una PR per lavoro.
 
-**Stato:** decisioni di Mattia il 29/10/2026 (§P4). Lavoro 1 fatto (§P5); lavoro 2 da fare, una PR a sé.
+**Stato:** decisioni di Mattia il 29/10/2026 (§P4). Lavoro 1 fatto (§P5, PR #91); lavoro 2 fatto (§P6).
 
 **Indice.** Incarico: Cosa cerchiamo · Decisioni · Lavoro 1 · Lavoro 2 · Lavoro 3 · Lavoro 4 · Regole.
 Proposta (Claude Code, 29/10/2026): §P1 Lavoro 1, togliere funding e basis · §P2 Lavoro 2, orizzonti
 1, 4 e 8 ore · §P3 Decisioni da prendere prima del codice · §P4 Decisioni di Mattia · §P5 Resoconto
-del lavoro 1 (*resoconto*).
+del lavoro 1 (*resoconto*) · §P6 Resoconto del lavoro 2 (*resoconto*).
 
 ## Cosa cerchiamo (Mattia, 29/10/2026)
 
@@ -448,3 +448,40 @@ lo dice: «nessuna in più (N situazioni misurate, già contate in un atlante co
 | BYBIT_PERP_SOLUSDT_M15 | 105 | 0 |
 | BYBIT_SPOT_ETHUSDT_M15 | 1.069 | 922 |
 | BINANCE_PERP_BTCUSDT_M5 | 0 | 0 |
+
+## P6 · Resoconto del lavoro 2 (*resoconto*, 29/10/2026)
+
+**Cosa c'e' di nuovo** (modifiche additive):
+- `engine/vetrina.py`: `ORIZZONTI_ORE = (1, 4, 8)` e `GRIGLIA`; `orizzonti_in_barre` (ore -> barre del
+  timeframe, le ore non intere si saltano: 1 ora su H4), `leggi_orizzonte` (la griglia, un numero di barre,
+  «4 ore»), `rosa_orizzonti` e `tabella_orizzonti` (comuni a Lab e ricerca), `orizzonti_della_ricerca`,
+  `ferma_senza_orizzonte`; `prepara(H=GRIGLIA)`; `esplora(s, orizzonte=...)`; `registro_orizzonte(...,
+  orizzonti=, scelto=)`; `grafico_scarto(..., punti=)` per segnare i tre H.
+- `engine/registro_dataset.py`: `apri_griglia` (i tre H entrano subito fra gli H provati, senza una risalita
+  per ciascuno) e `scegli_h` (l'H scelto diventa quello corrente).
+- Lab: alla 1 il campo `orizzonte` ha come predefinito la griglia (si puo' scrivere un numero di barre: 41 per
+  le prove d'identita'); alla 2c il campo `orizzonte_scelto`. Al primo giro la 2c mostra l'event study fino
+  all'H piu' lungo, la rosa ai tre H (tabella con un gruppo di colonne per H) e le curve con i tre H segnati; le
+  schermate dalla 3a si fermano finche' l'H non e' scelto. Scelto l'H, la 2c rifa' event study e rosa a
+  quell'H e tutto il Lab lavora li'. La 2a, prima della scelta, e' all'H piu' lungo, con una nota.
+- Ricerca: `ORIZZONTE = GRIGLIA` e `H_SCELTO` nella cella della Sessione 1; la 1.3 mostra la rosa ai tre H e si
+  ferma finche' `H_SCELTO` non e' scritto.
+
+**Il conto.** I tre H si scrivono fra gli H provati gia' alla schermata 1 (dettaglio di forma: chi sceglie la
+griglia li vede alla 2c; contarli una schermata prima e' solo piu' prudente). La voce dei trigger diventa la
+scelta fra tutti gli H provati sul dataset (`prove_trigger_orizzonti`, gia' nel codice). Nello studio vero,
+se si usasse la griglia (simulazione su rumore, nessun dato): BTC perp da 129,6 a 287,3 (H 41, 25, 4, 16, 32),
+XRP perp da 70 a 234,9, SOL perp da 64 a 217,2, ETH spot da 66 a 222.
+
+**Test:** `test_orizzonti.py` nuovo, 24/24 (sezioni A-F), in `suite_rapida.py`. Suite completa 48/48.
+
+**Prove d'identita'** (main contro ramo, stesse barre, copia dello studio):
+- Lab BTC perp con `orizzonte = 41`, ricerca BTC perp con `ORIZZONTE = 25`, Lab e ricerca ETH spot (41 e 25):
+  identici al bit (oggetti e voci del giornale); in piu' solo i nomi nuovi (`s.griglia`, `s.h_scelto`,
+  `ORIZZONTI`...).
+- Su dati inventati (non sui veri: la griglia sarebbe una prova nuova non contata): Lab con la griglia e la
+  scelta «4 ore» contro Lab con 16 barre fisse, e ricerca con la griglia e `H_SCELTO = 16` contro 16 fisso:
+  stessi numeri (trade, filtri, scheda); cambiano solo gli H provati (4, 16, 32) e quindi la voce dei trigger,
+  e nel Lab il profilo della 2a non tenuto (era all'H provvisorio).
+
+**Conto per dataset nello studio vero, letto con main e con il ramo:** identico (come in §P5).
