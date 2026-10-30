@@ -21,6 +21,11 @@ file degli esiti in engine/studio.py, su dati sintetici a risultato noto.
         file sintetici in una cartella temporanea: non apre lo studio, non scrive
         H, scrive conto ed esito; le fasce degeneri e M06; le schede tolte; la 2b
         del Lab in sola lettura; la soglia con mappa = 0 identica a prima
+    H · (30/10/2026) il notebook semplice (il_dataset, misura_mappa,
+        dettagli_mappa): semaforo dal verdetto, la frase di una fascia LONG e di
+        una SHORT su numeri inventati (il segno), la scheda che non si misura,
+        nessuna fascia verde, ▶ due volte senza prove in piu', i trigger del
+        catalogo, le parole vietate nelle celle 1 e 2
 
 Si lancia da terminale, dalla cartella del progetto:
 
@@ -241,6 +246,137 @@ def sezione_f(check) -> None:
           and r0["k"] == 0 and r7["k"] == 7 and "(schermata" not in r7["frase"]
           and vt.fasce_mappa({"mappa": {("M07", 1, 4.0): 10, ("M01", 1, 1.0): 98}}) == 108
           and vt.fasce_mappa({"trigger": 3}) == 0)
+    rd.azzera()
+
+
+def sezione_h(check) -> None:
+    """Il notebook semplice (30/10/2026): solo presentazione, le misure sono quelle della sezione F."""
+    import contextlib
+    import io
+    import os
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from engine import vetrina as vt
+    from engine import vetrina_mappa as vm
+    from entry_long import TRIGGER_LONG
+    from entry_short import TRIGGER_SHORT
+
+    def zitto(f, *a, **k):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            out = f(*a, **k)
+        plt.close("all")
+        return out, buf.getvalue()
+
+    check("H1. il semaforo viene dal verdetto già calcolato: risponde = verde, non risponde = grigio, segno opposto = "
+          "arancione, pochi casi o fuori ipotesi = grigio chiaro",
+          vm.semaforo(mp.RISPONDE) == ("verde", "Risponde nel verso atteso")
+          and vm.semaforo(mp.NON_RISPONDE) == ("grigio", "Non si distingue dal caso")
+          and vm.semaforo(mp.OPPOSTO) == ("arancione", "Va nel verso opposto")
+          and vm.semaforo(mp.POCHI) == vm.semaforo(mp.FUORI) == ("grigio chiaro", "Troppi pochi casi per dirlo"))
+
+    m07, m06 = SCHEDE["M07"], SCHEDE["M06"]
+    riga = lambda f, x: {"fascia": f, "barre": 1500, "giornate": 600, "misurata": True, "scarto_bp": x}
+    l_su, l_giu = vm.frase_fascia(m07, riga("Q1", 12.34), "X"), vm.frase_fascia(m07, riga("Q1", -12.34), "X")
+    check("H2. la frase di una fascia LONG (M07, Q1) su numeri inventati: +12,34 bp = «sopra il mercato», a favore del "
+          "long; -12,34 = «sotto», contro il long; ore, casi e giornate giusti",
+          l_su == "Quando il rendimento delle ultime 4 ore è fra il 20% più basso dell'ultimo anno (una discesa forte), "
+                  "nelle 4 ore dopo il prezzo ha fatto in media 12,3 bp (1 bp = 0,01%) sopra il mercato della stessa "
+                  "ora (su 1.500 casi in 600 giornate): a favore del long."
+          and "12,3 bp (1 bp = 0,01%) sotto il mercato" in l_giu and l_giu.endswith(": contro il long."), l_su)
+    s_giu = vm.frase_fascia(m06, riga("Q1", -8.0), "BINANCE_PERP_ETHUSDT")
+    s_su = vm.frase_fascia(m06, riga("Q1", 8.0), "BINANCE_PERP_ETHUSDT")
+    pochi = vm.frase_fascia(m06, {**riga("Q1", np.nan), "barre": 150, "giornate": 90, "misurata": False}, "BINANCE_PERP_ETHUSDT")
+    check("H3. la frase di una fascia SHORT (M06, Q1, su ETH) su numeri inventati: -8 bp = «sotto il mercato», a "
+          "favore dello short; +8 = «sopra», contro lo short; nell'ora dopo; sotto i minimi niente numeri",
+          s_giu == "Quando nell'ultima ora BTC ha fatto molto peggio di ETH (il 20% dei casi più bassi dell'ultimo "
+                   "anno), nell'ora dopo il prezzo ha fatto in media 8,0 bp (1 bp = 0,01%) sotto il mercato della "
+                   "stessa ora (su 1.500 casi in 600 giornate): a favore dello short."
+          and "8,0 bp (1 bp = 0,01%) sopra il mercato" in s_su and s_su.endswith(": contro lo short.")
+          and "troppi pochi casi per dirlo (150 casi in 90 giornate" in pochi and "bp" not in pochi, s_giu)
+
+    tab7 = pd.DataFrame([{**riga(f, x), "esito": e} for f, x, e in
+                         (("Q1", 9.5, mp.RISPONDE), ("Q3", 30.0, mp.FUORI), ("Q5", -4.26, mp.RISPONDE))])
+    tab6 = pd.DataFrame([{**riga("Q5", 6.0), "esito": mp.RISPONDE}, {**riga("Q1", -2.0), "esito": mp.NON_RISPONDE}])
+    casa = vm.cosa_ti_porti_a_casa({"M07": tab7, "M06": tab6}, "BINANCE_PERP_ETHUSDT")
+    grigie = vm.cosa_ti_porti_a_casa({"M07": tab7.assign(esito=mp.NON_RISPONDE), "M06": tab6.assign(esito=mp.OPPOSTO)},
+                                     "X")
+    _, testo_vuoto = zitto(vm._testo, (grigie or [vm.NESSUNA_VERDE])[0], "")
+    check("H4. «Cosa ti porti a casa»: una riga per fascia verde attesa (Q3 fuori ipotesi no), lo scarto nel verso del "
+          "trade (lo short a -4,26 bp dà 4,3 a favore), i trigger E45 di M07, M06 senza trigger; nessuna verde = la "
+          "frase e basta",
+          len(casa) == 3 and casa[0].startswith("LONG quando il rendimento delle ultime 4 ore è fra il 20% più basso")
+          and "tieni 4 ore; scarto medio 9,5 bp (1 bp = 0,01%) a favore del trade, prima dei costi" in casa[0]
+          and casa[0].endswith("Trigger da usare nel Lab: E45_RENDIMENTO_4H_ENTRA_Q1.")
+          and casa[1].startswith("SHORT quando") and "scarto medio 4,3 bp" in casa[1]
+          and casa[1].endswith("E45_SHORT_RENDIMENTO_4H_ENTRA_Q5.")
+          and casa[2].startswith("LONG quando nell'ultima ora BTC ha fatto molto meglio di ETH") and "tieni 1 ora;" in casa[2]
+          and casa[2].endswith("nessun trigger nel catalogo: si crea col processo docs/50.")
+          and grigie == [] and testo_vuoto.strip() == "Nessuna fascia risponde su questo dataset.", casa[1])
+    check("H5. la tabella scheda → trigger usa trigger che esistono nel catalogo, dal lato giusto",
+          all((nome in TRIGGER_LONG) if SCHEDE[sid].attese[f] > 0 else (nome in TRIGGER_SHORT)
+              for sid, fasce in vm.TRIGGER_DELLE_SCHEDE.items() for f, nome in fasce.items())
+          and set(vm.TRIGGER_DELLE_SCHEDE) == {"M07"})
+
+    BTC, ETH = "BINANCE_PERP_BTCUSDT", "BINANCE_PERP_ETHUSDT"
+    idx = _indice("2022-01-03", giorni=730)
+    vietate = ("studio", "confine", "impronta", "conto del dataset", "falsi positivi", "quintil", "p-value")
+    with tempfile.TemporaryDirectory() as tmp:
+        _scrivi_dataset(tmp, BTC, Mercato(idx, seme=11))
+        _scrivi_dataset(tmp, ETH, Mercato(idx, seme=12))
+        nessuno, testo_chiuso = zitto(vm.il_dataset, BTC, "M15", tmp, macchina="pc")
+        senza_1, testo_senza = zitto(vm.misura_mappa, None)
+        d = vt.apri_dati(BTC, "M15", tmp, confine="studio", macchina="pc")
+        vt.dividi_dati(d, d.df)                                   # apre lo studio, come la schermata 1 del Lab
+        giornale = os.path.join(tmp, "studio", f"{BTC}_M15", "giornale_pc.jsonl")
+        m, testo_1 = zitto(vm.il_dataset, BTC, "M15", tmp, macchina="pc")
+        check("H6. la cella 1: senza il Lab aperto la frase e None; con il Lab al massimo 3 righe (strumento e "
+              "timeframe, periodo, dati già divisi), il resto tenuto per i Dettagli; la 2 senza la 1 lo dice",
+              nessuno is None and testo_chiuso.strip() == vm.PRIMA_IL_LAB and senza_1 == {}
+              and testo_senza.strip() == vm.PRIMA_LA_1
+              and len(testo_1.strip().splitlines()) == 3 and testo_1.startswith(f"{BTC} · M15")
+              and "Strumento" not in testo_1 and "Strumento" in m.uscita_1.stdout, testo_1)
+
+        r1, testo_2 = zitto(vm.misura_mappa, m)
+        righe_1, esiti_1 = _righe(giornale), len(st.leggi_esiti_mappa(tmp, f"{BTC}_M15", m.ingresso.studio["id"]))
+        prove_1 = dict(m.prove["mappa"])
+        r2, testo_2b = zitto(vm.misura_mappa, m)
+        esiti_2 = len(st.leggi_esiti_mappa(tmp, f"{BTC}_M15", m.ingresso.studio["id"]))
+        uguali = all(r2["M07"][c].equals(r1["M07"][c]) for c in ("fascia", "barre", "giornate", "misurata", "esito"))
+        uguali &= all(np.allclose(r2["M07"][c].to_numpy(float), r1["M07"][c].to_numpy(float), equal_nan=True)
+                      for c in ("scarto_bp", "t", "netto_bp"))
+        check("H7. ▶ due volte: la prima misura M07 (una voce nel giornale, un esito); la seconda mostra l'ultimo esito "
+              "senza misurare: giornale, esiti e prove uguali, stesso verdetto, stesse fasce, stesso testo",
+              list(r1) == ["M07"] and righe_1 == 1 and esiti_1 == 1 and prove_1 == {("M07", 1, 4.0): 10}
+              and _righe(giornale) == 1 and esiti_2 == 1 and m.prove["mappa"] == prove_1
+              and r2["M07"].attrs["verdetto"] == r1["M07"].attrs["verdetto"] and uguali and testo_2 == testo_2b)
+        check("H8. la scheda che non si misura qui (M06 su BTC) lo dice con il motivo; nome in chiaro con il codice; "
+              "una frase per fascia attesa; «Cosa ti porti a casa» e la riga delle prove in fondo",
+              "BTC anticipa le altcoin (M06)" in testo_2
+              and "Non si misura su questo dataset: M06 non si misura su BTC" in testo_2
+              and "Inversione dopo 4 ore estreme (M07)" in testo_2 and testo_2.count("Quando ") == 2
+              and "Cosa ti porti a casa" in testo_2
+              and testo_2.strip().splitlines()[-1] == "Prove contate su questo dataset finora (Lab e mappa): 10.")
+        parole = [p for p in vietate if p in (testo_1 + testo_2).lower()]
+        check("H9. nelle celle 1 e 2 nessuna delle parole tolte (studio, confine, impronta, conto del dataset, falsi "
+              "positivi, quintile, p-value); ogni bp con (1 bp = 0,01%)",
+              not parole and " bp" not in testo_2.replace(" bp (1 bp = 0,01%)", ""), str(parole))
+
+        m_eth, _ = zitto(vm.il_dataset, ETH, "M15", tmp, macchina="pc")
+        giornale_eth = os.path.join(tmp, "studio", f"{ETH}_M15", "giornale_pc.jsonl")
+        r6, testo_6 = zitto(vm.misura_mappa, m_eth, solo=["M06"])
+        righe_eth = _righe(giornale_eth)
+        _, testo_d = zitto(vm.dettagli_mappa, m_eth)
+        m_nuova, _ = zitto(vm.il_dataset, ETH, "M15", tmp, macchina="pc")
+        _, testo_d2 = zitto(vm.dettagli_mappa, m_nuova)
+        check("H10. M06 su ETH (solo=): misurata con BTC dello stesso exchange; i Dettagli mostrano la tabella completa "
+              "(anche senza la 2, dall'ultimo esito), l'elenco, le bozze e il riepilogo, senza scrivere niente",
+              list(r6) == ["M06"] and "Inversione" not in testo_6 and righe_eth == 1
+              and _righe(giornale_eth) == righe_eth and "Supera i falsi positivi" in testo_d
+              and "Le schede approvate" in testo_d and "Strumento" in testo_d and "Le fasce di M06" in testo_d2
+              and "Le schede misurate su" in testo_d2 and "trigger" in testo_d2)
     rd.azzera()
 
 
@@ -576,6 +712,10 @@ def esegui() -> int:
     # =================================================================== F ==
     print("\nF · IL NOTEBOOK DELLA MAPPA, LA 2b DEL LAB, LA SOGLIA (PR B2)\n" + "-" * 70)
     sezione_f(check)
+
+    # =================================================================== H ==
+    print("\nH · IL NOTEBOOK SEMPLICE (30/10/2026)\n" + "-" * 70)
+    sezione_h(check)
 
     # =================================================================== G ==
     print("\nG · SENZA EFFETTO, CON VARIABILI PERSISTENTI (28/10/2026)\n" + "-" * 70)
