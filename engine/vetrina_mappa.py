@@ -12,6 +12,13 @@ queste funzioni.
     dalla_fascia_al_trigger 5 · la bozza in testo del trigger (nessun codice)
     riepilogo_mappa        6 · le schede misurate e la soglia cumulata del dataset
 
+Dal 30/10/2026 il notebook e' semplice e chiama solo tre funzioni (in fondo al
+file; le sei qui sopra restano com'erano):
+
+    il_dataset             1 · il dataset, in tre righe
+    misura_mappa           2 · ogni scheda: semaforo, numeri, grafico; «Cosa ti porti a casa»
+    dettagli_mappa         Dettagli · tutto quello che le schermate 1-6 mostravano
+
 LO STUDIO (docs/73 §B.4)
 ------------------------
 La mappa entra nello studio con studio.entra (confine e impronta, come il Lab)
@@ -452,3 +459,355 @@ def riepilogo_mappa(m: SessioneMappa) -> pd.DataFrame:
         "Nel Lab, alla 2b, ritrovi questa stessa tabella; le fasce della mappa entrano nel conto alla schermata 1.")
     _v._riga_prove(m, "nessuna")
     return tab
+
+# ========================================================================
+# 30/10/2026 · Il notebook semplice: tre celle (Il dataset, Misura, Dettagli)
+# ========================================================================
+# Solo presentazione: le misure sono quelle di prima (mappa.misura, mappa.registra, gli
+# stessi argomenti di _misura_e_registra). Le funzioni qui sopra restano com'erano; il
+# notebook chiama queste. La cella 2 misura una scheda solo se su questo dataset non c'e'
+# ancora un esito con la stessa versione e lo stesso orizzonte: altrimenti mostra l'ultimo,
+# cosi' premere ▶ due volte non cambia il conto delle prove.
+
+from .ipotesi import STESSA_ORA  # noqa: E402
+
+PRIMA_IL_LAB = "Prima apri il Lab (schermata 1) su BINANCE_PERP_BTCUSDT M15: la mappa usa gli stessi dati."
+PRIMA_LA_1 = "Prima premi ▶ sulla cella 1 · Il dataset."
+NESSUNA_VERDE = "Nessuna fascia risponde su questo dataset."
+NESSUN_TRIGGER = "nessun trigger nel catalogo: si crea col processo docs/50"
+
+# il nome in chiaro di ogni scheda (il codice va tra parentesi)
+NOMI_IN_CHIARO = {"M06": "BTC anticipa le altcoin", "M07": "Inversione dopo 4 ore estreme"}
+
+# la condizione in parole da trader, per le fasce attese ({moneta}: la moneta del dataset)
+CONDIZIONI = {
+    ("M06", "Q5"): "nell'ultima ora BTC ha fatto molto meglio di {moneta} (il 20% dei casi più alti dell'ultimo anno)",
+    ("M06", "Q1"): "nell'ultima ora BTC ha fatto molto peggio di {moneta} (il 20% dei casi più bassi dell'ultimo anno)",
+    ("M07", "Q1"): "il rendimento delle ultime 4 ore è fra il 20% più basso dell'ultimo anno (una discesa forte)",
+    ("M07", "Q5"): "il rendimento delle ultime 4 ore è fra il 20% più alto dell'ultimo anno (una salita forte)",
+}
+
+# scheda -> fascia -> il trigger del catalogo (entry_long.TRIGGER_LONG, entry_short.TRIGGER_SHORT)
+TRIGGER_DELLE_SCHEDE = {"M07": {"Q1": "E45_RENDIMENTO_4H_ENTRA_Q1", "Q5": "E45_SHORT_RENDIMENTO_4H_ENTRA_Q5"}}
+
+# il semaforo: il colore viene dal verdetto gia' calcolato da mappa.misura
+SEMAFORO = {mp.RISPONDE: ("verde", "Risponde nel verso atteso"),
+            mp.NON_RISPONDE: ("grigio", "Non si distingue dal caso"),
+            mp.OPPOSTO: ("arancione", "Va nel verso opposto"),
+            mp.POCHI: ("grigio chiaro", "Troppi pochi casi per dirlo"),
+            mp.FUORI: ("grigio chiaro", "Troppi pochi casi per dirlo")}
+_TINTE = {"verde": "#2e9e44", "grigio": "#8a8a8a", "arancione": "#e07b00", "grigio chiaro": "#d4d4d4"}
+
+
+def semaforo(verdetto: str | None) -> tuple[str, str]:
+    """(colore, testo) del semaforo di una scheda, dal verdetto di mappa.misura."""
+    return SEMAFORO.get(verdetto, ("grigio chiaro", "Troppi pochi casi per dirlo"))
+
+
+def nome_in_chiaro(sid: str) -> str:
+    sch = SCHEDE.get(sid)
+    return NOMI_IN_CHIARO.get(sid, sch.titolo if sch else sid)
+
+
+def _moneta(symbol: str) -> str:
+    from .exchange import parti_symbol
+    return parti_symbol(symbol)["base"]
+
+
+def condizione(sch, fascia: str, symbol: str) -> str:
+    """La condizione di una fascia in parole: dal dizionario, altrimenti generica."""
+    testo = CONDIZIONI.get((sch.id, fascia))
+    if testo:
+        return testo.format(moneta=_moneta(symbol)) if "{moneta}" in testo else testo
+    if sch.tipo == "quintili" and fascia in QUINTILI:
+        j = QUINTILI.index(fascia)
+        return f"{sch.variabile} è fra il {20 * j}% e il {20 * (j + 1)}% dei valori dell'ultimo anno"
+    return f"la barra è nella categoria «{fascia}»"
+
+
+def _ore_dopo(sch) -> str:
+    ore = float(sch.orizzonte_ore)
+    return "nell'ora dopo" if ore == 1 else f"nelle {_v._fmt(ore, 0)} ore dopo"
+
+
+def _il_mercato(sch) -> str:
+    return "il mercato della stessa ora" if sch.riferimento == STESSA_ORA else "il mercato"
+
+
+_LATI = {1: ("LONG", "del long", "il long"), -1: ("SHORT", "dello short", "lo short")}
+
+
+def frase_fascia(sch, riga: dict, symbol: str) -> str:
+    """
+    La frase con i numeri di una fascia. Lo scarto di mappa.misura e' nel verso
+    long (+ = il prezzo fa meglio del mercato): «sopra» o «sotto» descrive il
+    prezzo; per una fascia attesa si dice anche se e' a favore del trade o contro.
+    """
+    fascia = riga["fascia"]
+    quando = f"Quando {condizione(sch, fascia, symbol)}"
+    casi = f"{_v._fmt(int(riga['barre']))} casi in {_v._fmt(int(riga['giornate']))} giornate"
+    if not riga.get("misurata"):
+        return (f"{quando}: troppi pochi casi per dirlo ({casi}; ne servono almeno {mp.MIN_BARRE} in "
+                f"{mp.MIN_GIORNATE} giornate).")
+    x = float(riga["scarto_bp"])
+    if x == 0:
+        frase = f"{quando}, {_ore_dopo(sch)} il prezzo ha fatto in media come {_il_mercato(sch)} (su {casi})"
+    else:
+        frase = (f"{quando}, {_ore_dopo(sch)} il prezzo ha fatto in media {_v._fmt(abs(x), 1)} bp (1 bp = 0,01%) "
+                 f"{'sopra' if x > 0 else 'sotto'} {_il_mercato(sch)} (su {casi})")
+    lato = sch.attese.get(fascia, 0)
+    if lato and x != 0:
+        _, del_lato, il_lato = _LATI[lato]
+        frase += f": a favore {del_lato}" if x * lato > 0 else f": contro {il_lato}"
+    return frase + "."
+
+
+def trigger_della_fascia(sid: str, fascia: str) -> str:
+    return TRIGGER_DELLE_SCHEDE.get(sid, {}).get(fascia) or NESSUN_TRIGGER
+
+
+def cosa_ti_porti_a_casa(risultati: dict, symbol: str) -> list[str]:
+    """Una riga per ogni fascia verde (esito «risponde»): lato, condizione, orizzonte, scarto nel verso del trade, trigger."""
+    righe = []
+    for sid, tab in risultati.items():
+        sch = SCHEDE[sid]
+        for r in tab.to_dict("records"):
+            if r.get("esito") != mp.RISPONDE:
+                continue
+            lato = sch.attese.get(r["fascia"], 0)
+            if not lato:
+                continue
+            ore = float(sch.orizzonte_ore)
+            righe.append(f"{_LATI[lato][0]} quando {condizione(sch, r['fascia'], symbol)}; tieni "
+                         f"{_v._fmt(ore, 0)} {'ora' if ore == 1 else 'ore'}; scarto medio "
+                         f"{_v._fmt(lato * float(r['scarto_bp']), 1)} bp (1 bp = 0,01%) a favore del trade, prima dei "
+                         f"costi (i costi li giudica il Lab). Trigger da usare nel Lab: "
+                         f"{trigger_della_fascia(sid, r['fascia'])}.")
+    return righe
+
+
+def _testo(testo: str, stile: str) -> None:
+    if _v._in_notebook():
+        _v._html(f"<div style='{stile}'>{_html_escape(testo)}</div>")
+    else:
+        print(testo)
+
+
+def _html_escape(testo: str) -> str:
+    import html
+    return html.escape(testo)
+
+
+def _grande(testo: str) -> None:
+    if _v._in_notebook():
+        _testo(testo, "font:600 21px/1.3 system-ui,sans-serif;margin:24px 0 6px")
+    else:
+        print(f"\n{testo}\n" + "=" * len(testo))
+
+
+def _mostra_semaforo(verdetto) -> None:
+    colore, testo = semaforo(verdetto)
+    if _v._in_notebook():
+        _v._html(f"<div style='font:600 15px/1.4 system-ui,sans-serif;margin:2px 0 6px'>"
+                 f"<span style='display:inline-block;width:14px;height:14px;border-radius:50%;"
+                 f"background:{_TINTE[colore]};border:1px solid #777;vertical-align:-2px;margin-right:8px'></span>"
+                 f"{_html_escape(testo)}</div>")
+    else:
+        print(f"[{colore.upper()}] {testo}")
+
+
+def _non_qui(motivo: str) -> None:
+    _testo(f"Non si misura su questo dataset: {motivo}", "font:14px/1.5 system-ui,sans-serif;opacity:.75;margin:2px 0 8px")
+
+
+def _riga_grigia(testo: str) -> None:
+    _testo(testo, "font:12.5px/1.45 system-ui,sans-serif;color:#8a8a8a;margin:14px 0 4px;"
+                  "border-top:1px solid rgba(128,128,128,.4);padding-top:5px")
+
+
+def il_dataset(symbol: str, timeframe: str = "M15", cartella="dati", aggiorna: bool = False,
+               macchina: str | None = None) -> SessioneMappa | None:
+    """
+    Cella 1 del notebook semplice: apri_mappa senza stampare niente, poi al
+    massimo tre righe (strumento e timeframe, periodo dei dati, se il Lab ha gia'
+    diviso i dati). Quello che apri_mappa stampa resta per la cella Dettagli.
+    Senza lo studio aperto: la frase che dice di aprire il Lab, e None.
+    """
+    if _st.leggi_confine(cartella) is None:
+        print(PRIMA_IL_LAB)
+        return None
+    from IPython.utils.capture import capture_output
+    with capture_output() as uscita:
+        m = apri_mappa(symbol, timeframe, cartella, aggiorna=aggiorna, macchina=macchina)
+    m.uscita_1 = uscita
+    i = m.ingresso
+    print(f"{symbol} · {timeframe}")
+    print(f"Dati dal {m.df.index[0]:%d/%m/%Y} al {m.df.index[-1]:%d/%m/%Y}: la mappa misura solo le barre fino al "
+          f"{_v._giorno_ora(i.confine)}; le altre restano per l'out-of-sample del Lab.")
+    riga = (f"Pronto: i dati sono già divisi dal Lab (dal {pd.Timestamp(i.studio['aperto_il']):%d/%m/%Y}), la mappa "
+            "usa la stessa divisione.")
+    if m.storia is not None and m.storia.oos_visto:
+        n = len(m.storia.diario)
+        riga += (f" Attenzione: l'out-of-sample di questo dataset l'hai già guardato ({n} "
+                 f"{'volta' if n == 1 else 'volte'}).")
+    print(riga)
+    return m
+
+
+def _tabella_da_esito(m: SessioneMappa, e: dict) -> pd.DataFrame:
+    """La tabella delle fasce dall'ultimo esito salvato (le stesse colonne di mappa.misura, senza ricalcolare)."""
+    tab = pd.DataFrame(e.get("fasce") or [])
+    for c in ("scarto_bp", "scarto_pips", "t", "p", "netto_bp"):
+        tab[c] = pd.to_numeric(tab[c], errors="coerce") if c in tab.columns else np.nan
+    for c in ("misurata", "bh", "due_meta", "incertezza_blocchi"):
+        tab[c] = tab[c].fillna(False).astype(bool) if c in tab.columns else False
+    try:
+        H = mp.barre_orizzonte(e["orizzonte_ore"], m.df_is.index)
+    except ValueError:
+        H = None
+    tab.attrs.update(scheda=e["scheda"], versione=int(e["versione"]), verdetto=e.get("verdetto"), H=H,
+                     orizzonte_ore=float(e["orizzonte_ore"]), riferimento=e.get("riferimento"),
+                     misurate=int(tab["misurata"].sum()) if len(tab) else 0, conto=int(e.get("conto") or 0))
+    return tab
+
+
+def _misura_scheda(m: SessioneMappa, sid: str) -> pd.DataFrame | str:
+    """Come _misura_e_registra, senza mostrare niente: la tabella, o il motivo per cui non si misura."""
+    sch = SCHEDE[sid]
+    try:
+        pronte, fuori = _controlli(m, [sid])
+        if sid in fuori:
+            return fuori[sid]
+        df, valori, btc = pronte[sid]
+        tab = mp.misura(sch, df, m.pip, valori=valori, df_btc=btc, costi=m.costi, funding=m.funding)
+    except (FileNotFoundError, ValueError) as e:
+        return str(e)
+    scritte = mp.registra(m.cartella, m.ingresso.dataset, m.macchina, m.ingresso.studio, sch, tab, m.timeframe,
+                          oos_visto=bool(m.storia is not None and m.storia.oos_visto))
+    m.misure[sid] = tab
+    _ricostruisci(m)
+    if any(v.get("voce") == "risalita" for v in scritte):
+        _v._avviso(f"{sid} era già stata misurata con un'altra versione o un altro orizzonte: è una scheda cambiata "
+                   "dopo la misura. Si conta di nuovo.")
+    return tab
+
+
+def _ultimi_qui(m: SessioneMappa) -> dict:
+    """{id: ultimo esito} delle schede del catalogo con la stessa versione e lo stesso orizzonte, su questo dataset."""
+    ultimi = {}
+    for e in _v.esiti_mappa_ultimi(_esiti(m)):
+        sch = SCHEDE.get(e["scheda"])
+        if sch and (int(e["versione"]), float(e["orizzonte_ore"])) == (sch.versione, float(sch.orizzonte_ore)):
+            ultimi[e["scheda"]] = e
+    return ultimi
+
+
+def _grafico_semplice(sch, tab: pd.DataFrame, symbol: str) -> None:
+    """Il grafico di _grafico, con il nome in chiaro e la legenda."""
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    x = np.arange(len(tab))
+    y = tab["scarto_bp"].to_numpy(dtype=float)
+    t = tab["t"].to_numpy(dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        err = np.where(np.isfinite(t) & (t != 0), np.abs(y / t), np.nan)
+    fig, ax = plt.subplots(figsize=(max(6, 1.4 * len(tab) + 3) + 3, 4))
+    attese = np.array([f in sch.attese for f in tab["fascia"]])
+    ax.bar(x, np.nan_to_num(y), color=[_COLORI_ESITO.get(e, "lightgray") for e in tab["esito"]],
+           edgecolor=np.where(attese, "black", "none"), linewidth=np.where(attese, 2.0, 0.0), width=0.7)
+    ax.errorbar(x, y, yerr=2 * err, fmt="none", ecolor="black", elinewidth=0.8, alpha=0.6)
+    ax.axhline(0, color="black", lw=0.8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(tab["fascia"])
+    if sch.tipo == "quintili":
+        ax.set_xlabel("Q1 = barre col valore più basso, Q5 = più alto")
+    ax.set_ylabel(f"scarto dal {_il_mercato(sch)[3:]}, {_ore_dopo(sch)}\n"
+                  "(bp, 1 bp = 0,01%; sopra zero = il prezzo fa meglio)")
+    ax.set_title(f"{nome_in_chiaro(sch.id)} ({sch.id}) · {symbol}", fontsize=10)
+    legenda = [Patch(facecolor=_COLORI_ESITO[mp.RISPONDE], label="risponde nel verso atteso"),
+               Patch(facecolor=_COLORI_ESITO[mp.OPPOSTO], label="va nel verso opposto"),
+               Patch(facecolor=_COLORI_ESITO[mp.NON_RISPONDE], label="non si distingue dal caso"),
+               Patch(facecolor=_COLORI_ESITO[mp.FUORI], label="fascia senza attesa"),
+               Patch(facecolor=_COLORI_ESITO[mp.POCHI], edgecolor="lightgray", label="troppi pochi casi"),
+               Patch(facecolor="white", edgecolor="black", linewidth=2, label="bordo nero = fascia attesa"),
+               Line2D([0], [0], color="black", lw=0.8, label="stanghetta = quanto può fare il caso")]
+    ax.legend(handles=legenda, fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False)
+    ax.grid(alpha=.3, axis="y")
+    plt.tight_layout()
+    plt.show()
+
+
+def misura_mappa(m: SessioneMappa | None, solo=None) -> dict:
+    """
+    Cella 2 del notebook semplice: per ogni scheda del catalogo, il nome, il
+    semaforo, una frase con i numeri per ogni fascia attesa e il grafico; poi
+    «Cosa ti porti a casa» e il numero di prove contate sul dataset. Misura (e
+    scrive nello studio, come la schermata 3) solo le schede senza un esito
+    qui con la stessa versione e lo stesso orizzonte; per le altre mostra
+    l'ultimo esito. `solo`: le schede da guardare (prove d'identita'), None = tutte.
+    Ritorna {id: tabella delle fasce}.
+    """
+    if m is None:
+        print(PRIMA_LA_1)
+        return {}
+    m._serve("df_is", "1 · Il dataset")
+    ultimi = _ultimi_qui(m)
+    risultati = {}
+    for sid, sch in SCHEDE.items():
+        if solo is not None and sid not in solo:
+            continue
+        _grande(f"{nome_in_chiaro(sid)} ({sid})")
+        motivo = mp.adatta(sch, m.symbol)
+        if motivo:
+            _non_qui(motivo)
+            continue
+        tab = _tabella_da_esito(m, ultimi[sid]) if sid in ultimi else _misura_scheda(m, sid)
+        if isinstance(tab, str):
+            _non_qui(tab)
+            continue
+        risultati[sid] = tab
+        _mostra_semaforo(tab.attrs.get("verdetto"))
+        righe = {r["fascia"]: r for r in tab.to_dict("records")}
+        for fascia in sch.attese:
+            if fascia in righe:
+                r = righe[fascia]
+                esito = f" Questa fascia: {semaforo(r.get('esito'))[1].lower()}." if r.get("misurata") else ""
+                _testo(frase_fascia(sch, r, m.symbol) + esito, "font:14px/1.5 system-ui,sans-serif;margin:2px 0 4px")
+        _grafico_semplice(sch, tab, m.symbol)
+    m.ultime = risultati
+
+    _grande("Cosa ti porti a casa")
+    righe = cosa_ti_porti_a_casa(risultati, m.symbol)
+    for r in righe or [NESSUNA_VERDE]:
+        _testo(r, "font:14px/1.5 system-ui,sans-serif;margin:3px 0")
+    k = _v._soglia_cumulata_lab(m, np.nan)["k"]
+    _riga_grigia(f"Prove contate su questo dataset finora (Lab e mappa): {_v._fmt(k, 1) if isinstance(k, float) else _v._fmt(k)}.")
+    return risultati
+
+
+def dettagli_mappa(m: SessioneMappa | None) -> None:
+    """
+    Cella Dettagli (facoltativa): quello che la cella 1 non stampa, l'elenco delle
+    schede, la tabella completa di ogni scheda guardata alla 2 (colonne, nota,
+    riquadro), le bozze dei trigger, il riepilogo con la soglia cumulata. Non misura niente.
+    """
+    if m is None:
+        print(PRIMA_LA_1)
+        return
+    m._serve("df_is", "1 · Il dataset")
+    uscita = getattr(m, "uscita_1", None)
+    if uscita is not None:
+        _v._titolo("Il dataset, in dettaglio")
+        uscita.show()
+    elenco_schede(m)
+    tabelle = getattr(m, "ultime", None)
+    if tabelle is None:
+        tabelle = {sid: _tabella_da_esito(m, e) for sid, e in _ultimi_qui(m).items()
+                   if mp.adatta(SCHEDE[sid], m.symbol) is None}
+    for sid, tab in tabelle.items():
+        sch = SCHEDE[sid]
+        _, valori, _ = _variabile(m, sid)
+        _mostra_misura(m, sch, tab, valori, mp.codici_fasce(sch, valori))
+    dalla_fascia_al_trigger(m)
+    riepilogo_mappa(m)

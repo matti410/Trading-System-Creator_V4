@@ -116,7 +116,11 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   prove, e la mostra alla 2b in sola lettura. Il notebook della mappa non scrive H e non
   apre lo studio. Dal 28/10 la mappa ha la sua incertezza (`mappa.errore_sovrapposti`): le coppie di
   barre più vicine dell'orizzonte pesano per intero, senza lo sconto di `scarto_orario`, che il Lab
-  continua a usare (sezione G di `test_mappa.py`).
+  continua a usare (sezione G di `test_mappa.py`). Dal 30/10 il notebook della mappa è semplice (solo
+  presentazione, i calcoli sono gli stessi): 1 · Il dataset (tre righe), 2 · Misura (per ogni scheda nome in
+  chiaro, semaforo, una frase con i numeri per fascia attesa, grafico; poi «Cosa ti porti a casa» con il trigger
+  da usare nel Lab), Dettagli facoltativa con tutto quello di prima. La 2 misura una scheda solo la prima volta,
+  poi mostra l'ultimo esito: premere ▶ due volte non aggiunge prove (sezione H di `test_mappa.py`).
 - **Il conto delle prove** (`76`, 28/10): per ogni chiave vale il numero più alto mai scritto, nel Lab e
   nella ricerca. Il notebook di ricerca scrive nello studio le stesse voci del Lab (trigger, fasce,
   situazioni, uscite, filtri; la 2.3 e la 3.3 con una chiave loro), con le stesse chiavi, e la sua soglia
