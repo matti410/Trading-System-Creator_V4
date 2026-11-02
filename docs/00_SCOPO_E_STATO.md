@@ -7,6 +7,10 @@ storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
 manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10)
 stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede.
 
+**Incarico in corso (02/11/2026): `78`**, il catalogo dei trigger intraday più grande (7 idee, fino a 14 trigger,
+per il ML che legge i dizionari di V4). Proposta in `79`, solo testo: in attesa della revisione e del via di Mattia,
+idea per idea. Nessun codice finché non c'è il via.
+
 ## Il progetto
 
 - **Uno strumento per scovare strategie di trading**: una base che cresce con
