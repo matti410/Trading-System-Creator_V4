@@ -38,6 +38,8 @@ from helpers import (
     _conferma_rialzista,
 )
 from engine.indicatori import entra_nel_quintile_r4h
+from engine.indicatori import (area_rumore_uscita, canale_24h_impulso, compressione_rottura,
+                               massimi_uguali_rottura, movimento_volume_calo, salto_contro, sweep_reclaim)
 from engine.livelli import primo_del_giorno, quarantena_cached, range_finestra
 from engine.sessioni import in_sessione
 
@@ -648,6 +650,107 @@ def entry_r4h_enters_q1(df: pd.DataFrame) -> pd.Series:
     return _evento(entra_nel_quintile_r4h(df, 0))
 
 
+# ------------------------------------------------------------- E46-E52 ---
+# Trigger intraday (02/11/2026, docs/78 e docs/79): finestre in ore, convertite
+# nelle barre del timeframe in engine/indicatori.py; fuori dai timeframe
+# ammessi la condizione e' tutta falsa (con un avviso).
+# -------------------------------------------------------------------------
+def entry_canale_24h_impulso_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Rottura del canale di 24 ore con impulso (setup composto, una prova) -> long:
+      1. il Close supera il massimo degli High delle 24 ore prima (barra esclusa);
+      2. il rendimento degli ultimi 45 minuti e' sopra il suo 60° percentile sulle 24 ore.
+    Traduzione nostra: 3 barre da 15 minuti -> 45 minuti. M5 e M15.
+
+    Fonte: PyQuantLab, «Impulse Breakout Trading Strategy», Medium, 24/9/2025,
+    https://pyquantlab.medium.com/impulse-breakout-trading-strategy-6bd5984b431e
+    (letto il 02/11/2026). Funzione: engine.indicatori.canale_24h_impulso.
+    """
+    return _evento(canale_24h_impulso(df, 1))
+
+
+def entry_compressione_rottura_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Compressione e rottura del canale (setup composto) -> long:
+      1. sulla barra prima l'ATR di 70 minuti era sotto 0,8 x la sua media dell'ultima ora;
+      2. il Close supera il massimo degli High delle 3 ore fino alla barra prima.
+    Traduzioni nostre: finestre da barre di 5 minuti a minuti (su M15 l'ATR e' di 5 barre,
+    arrotondato); la rottura della fonte e' sull'High, qui sul Close. M5 e M15.
+
+    Fonte: PyQuantLab, «An Intraday Volatility Breakout Strategy», Medium, 25/5/2025,
+    https://medium.com/@pyquantlab/an-intraday-volatility-breakout-strategy-8961a7898247
+    (letto il 02/11/2026). Funzione: engine.indicatori.compressione_rottura.
+    """
+    return _evento(compressione_rottura(df, 1))
+
+
+def entry_massimi_uguali_rottura_up(df: pd.DataFrame) -> pd.Series:
+    """
+    Rottura di massimi uguali -> long: gli ultimi 3 massimi locali delle chiusure gia'
+    confermati, dentro 500 minuti, stanno entro lo 0,2% e il Close e' >= la loro media x 1,001.
+    Traduzione nostra (D1 di docs/79): 15 minuti per lato (su M15 1 barra per lato), finestra
+    di 500 minuti (33 barre su M15). M5 e M15.
+
+    Fonte: F. Ridder, «I Backtested S&R Breakouts in Python», Coinmonks, 25/11/2023,
+    https://medium.com/coinmonks/backtesting-s-r-breakouts-in-python-8c77ca3f62fb
+    (letto il 02/11/2026). Funzione: engine.indicatori.massimi_uguali_rottura.
+    """
+    return _evento(massimi_uguali_rottura(df, 1))
+
+
+def entry_sweep_reclaim_minimo(df: pd.DataFrame) -> pd.Series:
+    """
+    Sweep & reclaim, la falsa rottura -> long: nell'ultima ora il Low e' andato sotto l'ultimo
+    minimo confermato (3 ore per lato, tenuto fino al successivo) e il Close e' tornato sopra.
+    Traduzione nostra: la candela giornaliera della fonte diventa la candela oraria. M5-H1.
+
+    Fonte: R. Shu, «Algo Trading Series, Part 3: The Concept — Hunting for Liquidity», CodeX,
+    7/1/2026, https://medium.com/codex/algo-trading-series-part-3-the-concept-hunting-for-liquidity-a689a16b807b
+    (letto il 02/11/2026). Funzioni: engine.indicatori.livello_sweep, sweep_reclaim.
+    """
+    return _evento(sweep_reclaim(df, 1))
+
+
+def entry_salto_giu_contro(df: pd.DataFrame) -> pd.Series:
+    """
+    Salto di volatilita', contro -> long: il rendimento della barra diviso la deviazione
+    standard delle 15 ore prima (60 barre da 15 minuti) e' sotto -3. M5-H1.
+
+    Fonte: A. Murtazin, «Intraday Volatility Jump Mean-Reversion Strategy for BTC-USD in
+    Python», DEV Community (versione a 15 minuti tolta dall'autore; regola di docs/78 §5,
+    confermata da Mattia: docs/79 §5, D2). Funzione: engine.indicatori.salto_z.
+    """
+    return _evento(salto_contro(df, 1))
+
+
+def entry_movimento_volume_calo_giu(df: pd.DataFrame) -> pd.Series:
+    """
+    Movimento forte con volume in calo, contro -> long: il movimento delle ultime 5 ore e'
+    negativo e in valore assoluto supera la deviazione standard dei movimenti a 5 ore delle
+    ultime 100 ore; il volume medio delle ultime 5 ore e' sotto quello delle 5 ore prima.
+    Traduzione oraria tutta nostra (la fonte e' giornaliera). M5-H1.
+
+    Fonte: A. K. Ghosh, «Quantitative Trading — Volume Reversal Strategy», Medium, 25/9/2023,
+    https://medium.com/@amit-ghosh/quantitative-trading-volume-reversal-strategy-8a15cf6b8461
+    (letto il 02/11/2026). Funzione: engine.indicatori.movimento_volume_calo.
+    """
+    return _evento(movimento_volume_calo(df, 1))
+
+
+def entry_area_rumore_sopra(df: pd.DataFrame) -> pd.Series:
+    """
+    Area di rumore -> long: a un controllo di mezz'ora (barra che finisce alle HH:00 o HH:30
+    UTC) il Close esce sopra apertura x (1 + sigma), sigma = media sui 14 giorni prima del
+    movimento assoluto dall'apertura alla stessa ora; al controllo prima della stessa giornata
+    non era sopra. Ogni uscita e' un evento. M5, M15, M30.
+
+    Fonte: C. Zarattini, A. Aziz, A. Barbon, «Beat the Market: An Effective Intraday Momentum
+    Strategy for S&P500 ETF (SPY)», SFI Research Paper 24-97, versione 3/2/2025, §3 (letto il
+    02/11/2026). Funzione: engine.indicatori.area_rumore_uscita.
+    """
+    return _evento(area_rumore_uscita(df, 1))
+
+
 # =========================================================================
 # Dizionario nome -> funzione. E' l'unica cosa da toccare per aggiungere
 # un trigger: scrivere la funzione qui sopra e aggiungere una riga qui.
@@ -699,6 +802,14 @@ TRIGGER_LONG = {
     "E40_JUMP_MOMENTUM_UP": entry_jump_momentum_up,
     "E41_DAILY_QUINTILE_UP": entry_daily_quintile_up,
     "E45_RENDIMENTO_4H_ENTRA_Q1": entry_r4h_enters_q1,   # 29/10/2026, scheda M07 della mappa (docs/77)
+    # 02/11/2026, trigger intraday (docs/78, docs/79)
+    "E46_CANALE_24H_IMPULSO_UP": entry_canale_24h_impulso_up,
+    "E47_COMPRESSIONE_ROTTURA_UP": entry_compressione_rottura_up,
+    "E48_MASSIMI_UGUALI_ROTTURA_UP": entry_massimi_uguali_rottura_up,
+    "E49_SWEEP_RECLAIM_MINIMO": entry_sweep_reclaim_minimo,
+    # "E50_SALTO_GIU_CONTRO": entry_salto_giu_contro,   # SPENTO 02/11/2026, doppione di E3 (88,6-91,7%, lift >= 4,1 sui 3 dataset crypto; docs/79 §5)
+    "E51_MOVIMENTO_VOLUME_CALO_GIU": entry_movimento_volume_calo_giu,
+    "E52_AREA_RUMORE_SOPRA": entry_area_rumore_sopra,
 }
 
 
