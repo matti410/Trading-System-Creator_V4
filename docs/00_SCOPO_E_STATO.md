@@ -7,6 +7,11 @@ storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
 manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10)
 stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede.
 
+**Incarico in corso (02/11/2026): `78`**, il catalogo dei trigger intraday più grande (7 idee, fino a 14 trigger,
+per il ML che legge i dizionari di V4). Proposta in `79`, solo testo: in attesa della revisione e del via di Mattia,
+idea per idea. Via il 02/11 (`79` §5); codice sul ramo `catalogo-trigger-intraday` (PR #97, in bozza): 12 trigger
+nuovi E46–E52 (E50 spento come doppione di E3), collaudo in `test_trigger_intraday.py`.
+
 ## Il progetto
 
 - **Uno strumento per scovare strategie di trading**: una base che cresce con
@@ -134,8 +139,10 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
   --tutte`, 47 suite, 3 alla volta, circa 20 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
-- **Catalogo:** 131 condizioni (73 entry, 38 filtri, 10 uscite, 10
-  entry-metro); dalle fonti testuali 53 prove, dalla mappa 2 (E45, scheda M07, 29/10), registro in `50` §10.
+- **Catalogo:** 143 condizioni (85 entry, 38 filtri, 10 uscite, 10
+  entry-metro); dalle fonti testuali 65 prove (+12 dei trigger intraday E46–E52, 02/11, `79`), dalla mappa 2 (E45,
+  scheda M07, 29/10), registro in `50` §10. Doppioni con `famiglie.py` sull'in-sample dello studio dei dataset crypto
+  (`50` §7 punto 5).
 
 ## Prossimi lavori, in ordine (Mattia, 21/10), un ramo ciascuno
 

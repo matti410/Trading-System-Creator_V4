@@ -2053,3 +2053,303 @@ def scarto_btc_1h(df: pd.DataFrame, df_btc: pd.DataFrame) -> pd.Series:
 
 # 29/10/2026 (docs/77, lavoro 1): tolte le variabili del funding delle schede M01 e M04
 # (barre_prima_del_pagamento, funding_segno_prima_pagamento, funding_rispetto_al_base).
+
+
+# ------------------------------------------------------------------------
+# Trigger intraday (02/11/2026, docs/78 e docs/79): le sette idee E46-E52.
+# FUORI da aggiungi_indicatori, come E45: le chiamano le entry, le colonne del
+# catalogo non cambiano e il collaudo le ricalcola a ogni taglio. Le finestre
+# sono DURATE in minuti (docs/78 §3, regola 3), convertite nelle barre del
+# timeframe; ogni idea vale solo sui timeframe dove la conversione ha senso
+# (docs/79 §1): fuori, la condizione e' tutta falsa e un avviso lo dice.
+# Le finestre si contano in barre consecutive (un buco nei dati non si salta).
+# Ogni valore della barra i usa solo dati fino al Close di i.
+# ------------------------------------------------------------------------
+
+CANALE_MINUTI = 24 * 60            # idea 1: canale delle 24 ore
+IMPULSO_MINUTI = 45                # idea 1: 3 barre da 15 minuti nella fonte
+IMPULSO_PERCENTILI = (0.60, 0.40)  # idea 1: long sopra il 60°, short sotto il 40°
+TF_CANALE_IMPULSO = (5, 15)
+ATR_COMPRESSIONE_MINUTI = 70       # idea 2: ATR 14 su barre da 5 minuti
+MEDIA_ATR_MINUTI = 60              # idea 2: media 12 su barre da 5 minuti
+CANALE_COMPRESSIONE_MINUTI = 180   # idea 2: canale 36 su barre da 5 minuti
+FATTORE_COMPRESSIONE = 0.8
+TF_COMPRESSIONE = (5, 15)
+PIVOT_LATO_MINUTI = 15             # idea 3: 3 barre da 5 minuti per lato
+FINESTRA_PIVOT_MINUTI = 500        # idea 3: 100 barre da 5 minuti
+PIVOT_UGUALI = 3
+BANDA_UGUALI = 0.002
+TF_MASSIMI_UGUALI = (5, 15)
+SWEEP_LATO_MINUTI = 180            # idea 4: 3 candele orarie per lato
+SWEEP_CANDELA_MINUTI = 60          # idea 4: la candela oraria
+TF_SWEEP = (5, 15, 30, 60)
+SALTO_FINESTRA_MINUTI = 900        # idea 5: 60 barre da 15 minuti
+SALTO_SOGLIA = 3.0
+TF_SALTO = (5, 15, 30, 60)
+MOVIMENTO_MINUTI = 300             # idea 6: 5 periodi orari
+DEVIAZIONE_MOVIMENTO_MINUTI = 6000  # idea 6: 100 periodi orari
+TF_MOVIMENTO_VOLUME = (5, 15, 30, 60)
+AREA_GIORNI = 14                   # idea 7: parametri base del paper
+AREA_MOLTIPLICATORE = 1.0
+AREA_CONTROLLO_MINUTI = 30
+TF_AREA_RUMORE = (5, 15, 30)
+
+
+def _minuti_ammessi(index, ammessi: tuple, nome: str) -> float | None:
+    """I minuti di una barra se il timeframe e' fra gli `ammessi`; altrimenti None e un avviso."""
+    import warnings
+    from engine.quarantena import passo_barre
+    minuti = passo_barre(pd.DatetimeIndex(index)) / pd.Timedelta(minutes=1)
+    if minuti not in ammessi:
+        warnings.warn(f"{nome}: barre da {minuti:g} minuti, fuori dai timeframe ammessi "
+                      f"({', '.join(f'{a}m' for a in ammessi)}): la condizione e' tutta falsa.", stacklevel=3)
+        return None
+    return minuti
+
+
+def _barre_di(minuti_finestra: float, minuti_barra: float) -> int:
+    """Una durata in barre del timeframe, arrotondata all'intero piu' vicino (almeno 1)."""
+    return max(1, int(round(minuti_finestra / minuti_barra)))
+
+
+def _falsa(df: pd.DataFrame) -> pd.Series:
+    return pd.Series(False, index=df.index)
+
+
+def _lato_valido(lato: int) -> int:
+    if lato not in (1, -1):
+        raise ValueError("lato deve essere 1 (long) o -1 (short).")
+    return lato
+
+
+def canale_24h_impulso(df: pd.DataFrame, lato: int) -> pd.Series:
+    """
+    Idea 1 (E46), lo STATO: long, il Close supera il massimo degli High delle 24 ore prima (barra
+    esclusa) e il rendimento degli ultimi 45 minuti e' sopra il suo 60° percentile sulle 24 ore (barra
+    compresa, come la fonte); short, sotto il minimo dei Low e sotto il 40° percentile. M5 e M15.
+    """
+    _lato_valido(lato)
+    m = _minuti_ammessi(df.index, TF_CANALE_IMPULSO, "canale_24h_impulso")
+    if m is None:
+        return _falsa(df)
+    w, r = _barre_di(CANALE_MINUTI, m), _barre_di(IMPULSO_MINUTI, m)
+    c = df["Close"].astype(float)
+    impulso = c / c.shift(r) - 1.0
+    if lato == 1:
+        livello = df["High"].rolling(w).max().shift(1)
+        soglia = impulso.rolling(w).quantile(IMPULSO_PERCENTILI[0])
+        return ((c > livello) & (impulso > soglia)).fillna(False).astype(bool)
+    livello = df["Low"].rolling(w).min().shift(1)
+    soglia = impulso.rolling(w).quantile(IMPULSO_PERCENTILI[1])
+    return ((c < livello) & (impulso < soglia)).fillna(False).astype(bool)
+
+
+def compressione_rottura(df: pd.DataFrame, lato: int) -> pd.Series:
+    """
+    Idea 2 (E47), lo STATO: sulla barra prima l'ATR (media semplice del true range su 70 minuti) era
+    sotto 0,8 volte la sua media dell'ultima ora, e il Close rompe il canale delle 3 ore fino alla barra
+    prima (massimo degli High per il long, minimo dei Low per lo short). Su M15 l'ATR e' di 5 barre
+    (75 minuti, arrotondato), la media di 4, il canale di 12. M5 e M15.
+    """
+    _lato_valido(lato)
+    m = _minuti_ammessi(df.index, TF_COMPRESSIONE, "compressione_rottura")
+    if m is None:
+        return _falsa(df)
+    n_atr, n_media, n_canale = (_barre_di(x, m) for x in (ATR_COMPRESSIONE_MINUTI, MEDIA_ATR_MINUTI,
+                                                         CANALE_COMPRESSIONE_MINUTI))
+    h, l, c = df["High"].astype(float), df["Low"].astype(float), df["Close"].astype(float)
+    tr = pd.concat([h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1).max(axis=1)
+    atr = tr.rolling(n_atr).mean()
+    compressa = (atr < FATTORE_COMPRESSIONE * atr.rolling(n_media).mean()).shift(1, fill_value=False).astype(bool)
+    if lato == 1:
+        return (compressa & (c > h.rolling(n_canale).max().shift(1))).fillna(False).astype(bool)
+    return (compressa & (c < l.rolling(n_canale).min().shift(1))).fillna(False).astype(bool)
+
+
+def pivot_chiusure(close: pd.Series, k: int, lato: int) -> np.ndarray:
+    """
+    I massimi (lato 1) o minimi (lato -1) locali delle chiusure: la chiusura e' strettamente sopra (sotto)
+    le k chiusure prima e le k dopo. Vale per la barra del pivot, ma si CONOSCE solo k barre dopo: chi lo
+    usa deve guardare solo i pivot di posizione <= i - k.
+    """
+    v = close.to_numpy(dtype=float)
+    out = np.ones(len(v), dtype=bool)
+    for j in range(1, int(k) + 1):
+        prima = np.r_[np.full(j, np.nan), v[:-j]]
+        dopo = np.r_[v[j:], np.full(j, np.nan)]
+        with np.errstate(invalid="ignore"):
+            out &= (v > prima) & (v > dopo) if lato == 1 else (v < prima) & (v < dopo)
+    return out
+
+
+def massimi_uguali_rottura(df: pd.DataFrame, lato: int) -> pd.Series:
+    """
+    Idea 3 (E48), lo STATO: gli ultimi 3 massimi locali delle chiusure gia' confermati (15 minuti per lato:
+    3 barre su M5, 1 su M15) dentro la finestra di 500 minuti (100 barre su M5, 33 su M15) stanno entro lo
+    0,2% (massimo / minimo - 1) e il Close e' >= la loro media x 1,001. Short: lo speculare sui minimi,
+    Close <= media x 0,999. M5 e M15.
+    """
+    _lato_valido(lato)
+    m = _minuti_ammessi(df.index, TF_MASSIMI_UGUALI, "massimi_uguali_rottura")
+    if m is None:
+        return _falsa(df)
+    k, w = _barre_di(PIVOT_LATO_MINUTI, m), _barre_di(FINESTRA_PIVOT_MINUTI, m)
+    v = df["Close"].to_numpy(dtype=float)
+    n = len(v)
+    pos = np.flatnonzero(pivot_chiusure(df["Close"], k, lato))
+    out = np.zeros(n, dtype=bool)
+    if len(pos) >= PIVOT_UGUALI:
+        t = np.arange(n)
+        quanti = np.searchsorted(pos, t - k, side="right")          # pivot confermati: posizione <= t - k
+        ok = (quanti >= PIVOT_UGUALI) & (t >= w)                      # come la fonte: dalla barra w in poi
+        q = np.clip(quanti, PIVOT_UGUALI, None)
+        ultimi = np.stack([pos[q - PIVOT_UGUALI + i] for i in range(PIVOT_UGUALI)], axis=1)
+        ok &= ultimi[:, 0] >= t - w + 1                              # tutti dentro la finestra
+        prezzi = v[ultimi]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ok &= prezzi.max(axis=1) / prezzi.min(axis=1) - 1.0 <= BANDA_UGUALI
+            media = prezzi.mean(axis=1)
+            rotta = v >= media * (1 + BANDA_UGUALI / 2) if lato == 1 else v <= media * (1 - BANDA_UGUALI / 2)
+        out = ok & rotta
+    return pd.Series(out, index=df.index)
+
+
+def livello_sweep(df: pd.DataFrame, lato: int) -> pd.Series:
+    """
+    Idea 4 (E49), il LIVELLO: l'ultimo minimo locale confermato dei Low (lato 1) o massimo degli High
+    (lato -1). Un minimo e' il Low piu' basso fra 3 ore prima e 3 ore dopo (uguaglianze comprese, come la
+    fonte) e si conferma 3 ore dopo; resta il livello finche' non se ne conferma uno nuovo, anche se e' gia'
+    stato spazzato (la fonte lo porta avanti con ffill). NaN prima del primo. M5, M15, M30, H1.
+    """
+    _lato_valido(lato)
+    m = _minuti_ammessi(df.index, TF_SWEEP, "livello_sweep")
+    if m is None:
+        return pd.Series(np.nan, index=df.index)
+    k = _barre_di(SWEEP_LATO_MINUTI, m)
+    x = (df["Low"] if lato == 1 else df["High"]).astype(float)
+    estremo = x.rolling(2 * k + 1).min() if lato == 1 else x.rolling(2 * k + 1).max()
+    confermato = (x.shift(k) == estremo).fillna(False).astype(bool)   # il pivot della barra i - k, noto alla barra i
+    return x.shift(k).where(confermato).ffill()
+
+
+def sweep_reclaim(df: pd.DataFrame, lato: int) -> pd.Series:
+    """
+    Idea 4 (E49), lo STATO: nell'ultima ora (candela oraria mobile, barra compresa) il Low e' andato sotto
+    il livello di livello_sweep e il Close della barra e' sopra (long); lo speculare sul massimo (short,
+    traduzione nostra: la fonte scrive solo il long). M5, M15, M30, H1.
+    """
+    _lato_valido(lato)
+    m = _minuti_ammessi(df.index, TF_SWEEP, "sweep_reclaim")
+    if m is None:
+        return _falsa(df)
+    h = _barre_di(SWEEP_CANDELA_MINUTI, m)
+    livello = livello_sweep(df, lato)
+    c = df["Close"].astype(float)
+    if lato == 1:
+        return ((df["Low"].rolling(h).min() < livello) & (c > livello)).fillna(False).astype(bool)
+    return ((df["High"].rolling(h).max() > livello) & (c < livello)).fillna(False).astype(bool)
+
+
+def salto_z(df: pd.DataFrame) -> pd.Series:
+    """
+    Idea 5 (E50): il rendimento logaritmico della barra diviso la deviazione standard dei rendimenti delle
+    barre delle 15 ore PRIMA (barra esclusa, nessuna media tolta). M5, M15, M30, H1; NaN altrove.
+    """
+    m = _minuti_ammessi(df.index, TF_SALTO, "salto_z")
+    if m is None:
+        return pd.Series(np.nan, index=df.index)
+    n = _barre_di(SALTO_FINESTRA_MINUTI, m)
+    r = np.log(df["Close"].astype(float)).diff()
+    return (r / r.rolling(n).std().shift(1)).rename("salto_z")
+
+
+def salto_contro(df: pd.DataFrame, lato: int) -> pd.Series:
+    """Idea 5 (E50), lo STATO: salto_z sotto -3 (long, contro la discesa) o sopra +3 (short)."""
+    _lato_valido(lato)
+    z = salto_z(df)
+    return ((z < -SALTO_SOGLIA) if lato == 1 else (z > SALTO_SOGLIA)).fillna(False).astype(bool)
+
+
+def movimento_volume_calo(df: pd.DataFrame, lato: int) -> pd.Series:
+    """
+    Idea 6 (E51), lo STATO (traduzione oraria tutta nostra): il movimento delle ultime 5 ore (Close meno
+    Close di 5 ore prima), in valore assoluto, supera la deviazione standard dei movimenti a 5 ore delle
+    ultime 100 ore, e il volume medio delle ultime 5 ore e' sotto quello delle 5 ore prima. Long se il
+    movimento e' negativo, short se positivo (contro il movimento). M5, M15, M30, H1.
+    """
+    _lato_valido(lato)
+    m = _minuti_ammessi(df.index, TF_MOVIMENTO_VOLUME, "movimento_volume_calo")
+    if m is None:
+        return _falsa(df)
+    a, lunga = _barre_di(MOVIMENTO_MINUTI, m), _barre_di(DEVIAZIONE_MOVIMENTO_MINUTI, m)
+    c = df["Close"].astype(float)
+    mossa = c - c.shift(a)
+    volume = df["Volume"].astype(float).rolling(a).mean()
+    forte_e_calo = (mossa.abs() > mossa.rolling(lunga).std()) & (volume < volume.shift(a))
+    verso = (mossa < 0) if lato == 1 else (mossa > 0)
+    return (forte_e_calo & verso).fillna(False).astype(bool)
+
+
+def area_rumore(df: pd.DataFrame, giorni: int = AREA_GIORNI,
+                moltiplicatore: float = AREA_MOLTIPLICATORE) -> pd.DataFrame:
+    """
+    Idea 7 (E52), l'area di rumore (Zarattini, Aziz, Barbon). Giornata da 00:00 a 00:00 UTC; l'apertura e'
+    l'Open della barra che inizia alle 00:00 (senza quella barra la giornata non ha area). I CONTROLLI sono
+    le barre che FINISCONO alle HH:00 o HH:30 della stessa giornata (dalle 00:30 alle 23:30): l'indice
+    delle barre e' l'INIZIO della barra, quindi su M15 il controllo delle 10:30 e' la barra con indice
+    10:15. A ogni controllo sigma e' la media, sui 14 giorni PRIMA (tutti presenti), del movimento
+    assoluto |Close / apertura - 1| allo stesso orario; i confini sono apertura x (1 +- sigma). La
+    correzione per il gap del paper sparisce: sulle crypto la chiusura di ieri e' l'apertura di oggi.
+    Colonne: controllo (bool), sigma, alto, basso (NaN fuori dai controlli). M5, M15, M30.
+    """
+    idx = pd.DatetimeIndex(df.index)
+    out = pd.DataFrame({"controllo": False, "sigma": np.nan, "alto": np.nan, "basso": np.nan}, index=idx)
+    m = _minuti_ammessi(idx, TF_AREA_RUMORE, "area_rumore")
+    if m is None:
+        return out
+    chiusura = idx + pd.Timedelta(minutes=m)
+    giorno = idx.floor("D")
+    prima_barra = pd.Series(idx, index=idx).groupby(giorno).transform("first")
+    apertura = df["Open"].astype(float).groupby(giorno).transform("first")
+    apertura = apertura.where(np.asarray(prima_barra == giorno))
+    minuto = np.asarray(chiusura.hour * 60 + chiusura.minute)
+    controllo = ((minuto % AREA_CONTROLLO_MINUTI == 0) & np.asarray(chiusura.floor("D") == giorno)
+                 & apertura.notna().to_numpy())
+    if not controllo.any():
+        return out
+    mossa = (df["Close"].astype(float) / apertura - 1.0).abs().to_numpy()
+    tab = pd.DataFrame({"giorno": giorno[controllo], "minuto": minuto[controllo], "mossa": mossa[controllo]}
+                       ).pivot_table(index="giorno", columns="minuto", values="mossa", aggfunc="first")
+    giorni_tutti = pd.date_range(tab.index.min(), tab.index.max(), freq="D", tz=tab.index.tz)
+    media = tab.reindex(giorni_tutti).shift(1).rolling(int(giorni), min_periods=int(giorni)).mean()
+    righe = media.index.get_indexer(giorno[controllo])
+    colonne = media.columns.get_indexer(minuto[controllo])
+    sigma = np.full(len(idx), np.nan)
+    sigma[controllo] = media.to_numpy(dtype=float)[righe, colonne]
+    ap = apertura.to_numpy()
+    out["controllo"] = controllo
+    out["sigma"] = sigma
+    out["alto"] = ap * (1 + moltiplicatore * sigma)
+    out["basso"] = ap * (1 - moltiplicatore * sigma)
+    return out
+
+
+def area_rumore_uscita(df: pd.DataFrame, lato: int) -> pd.Series:
+    """
+    Idea 7 (E52), l'EVENTO: a un controllo il Close e' sopra il confine alto (long) o sotto il basso
+    (short) e al controllo prima della stessa giornata non lo era (il primo controllo della giornata non ha
+    un «prima»: basta che sia fuori). Ogni uscita dall'area e' un evento, anche due nella stessa giornata.
+    """
+    _lato_valido(lato)
+    area = area_rumore(df)
+    valido = area["controllo"].to_numpy() & np.isfinite(area["sigma"].to_numpy())
+    out = _falsa(df)
+    if not valido.any():
+        return out
+    c = df["Close"].astype(float).to_numpy()
+    fuori = (c > area["alto"].to_numpy()) if lato == 1 else (c < area["basso"].to_numpy())
+    f = pd.Series(fuori[valido], index=df.index[valido])
+    giorno = pd.DatetimeIndex(df.index[valido]).floor("D")
+    prima = f.groupby(giorno).shift(1, fill_value=False).astype(bool)
+    out.iloc[np.flatnonzero(valido)] = (f & ~prima).to_numpy()
+    return out
