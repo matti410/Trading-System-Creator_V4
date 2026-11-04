@@ -19,15 +19,21 @@ matplotlib.use("Agg")
 import numpy as np
 import pandas as pd
 
+from engine import confidenza as modulo_confidenza
 from engine.collaudo_catalogo import mercato_sintetico
 from engine.confidenza import (ETICHETTE_CELLA, asse_volatilita, cella_contesto,
                                congela_filtro, congela_confidenza_nota,
                                confidenza_rolling, esiti_trade, gap_trend,
                                plot_oos_confidenza, registra_filtro_confidenza,
                                report_calibrazione)
+from engine.exchange import con_intervalli
 from engine.filter_search_bt import BASELINE, run_filter_search_bt
-from engine.livelli import giorno_fx, svuota_cache
-from engine.registry import (clear_registry, get_entry, list_entries, list_filters,
+from engine.indicatori import (barre_mediana, barre_per_durata, cella_vol_trend, id_periodo,
+                               periodo_ancora, regola_ancora)
+from engine.livelli import (GIORNATA_FX, GIORNATA_UTC, giorno_fx, imposta_giornata, svuota_cache)
+from engine.motore_veloce import comportamento_vecchio
+from engine.quarantena import ROLLOVER_DEFAULT, imposta_rollover
+from engine.registry import (clear_registry, get_entry, get_filter, list_entries, list_filters,
                              register_entry, register_filter)
 
 warnings.simplefilter("ignore")
@@ -60,6 +66,49 @@ def _esiti_finti(n_barre, n_trade, rng, durata=(2, 20)):
     lato = rng.choice([1, -1], n_trade)
     return pd.DataFrame({"barra_segnale": segnale, "barra_uscita": uscita,
                          "lato": lato, "pips_netti": 0.0, "vinto": 0})
+
+
+def _gap_vecchio(df):
+    """Il gap_trend di prima del 04/11/2026, congelato: sempre dalla giornata (giorno_fx)."""
+    giorno = giorno_fx(df)
+    close = df["Close"].astype(float)
+    tipico = (df["High"] + df["Low"] + df["Close"]) / 3
+    vol = df["Volume"].astype(float)
+    cum_tpv = (tipico * vol).groupby(giorno).cumsum()
+    cum_vol = vol.groupby(giorno).cumsum()
+    vwap = cum_tpv / cum_vol.where(cum_vol > 0)
+    i = close.groupby(giorno).cumcount().astype(float)
+    somma_y = close.groupby(giorno).cumsum()
+    somma_xy = (i * close).groupby(giorno).cumsum()
+    n = i + 1
+    somma_x = i * (i + 1) / 2
+    somma_x2 = i * (i + 1) * (2 * i + 1) / 6
+    denom = n * somma_x2 - somma_x ** 2
+    pendenza = (n * somma_xy - somma_x * somma_y) / denom.where(denom != 0)
+    intercetta = (somma_y - pendenza * somma_x) / n
+    fitted = (intercetta + pendenza * i).where(i > 0, close)
+    return (fitted - vwap).rename("aura_gap")
+
+
+def _cella_vecchia(df, direzione):
+    """La cella_contesto di prima del 04/11/2026, congelata: 20 e 500 barre, a qualunque timeframe."""
+    vol = asse_volatilita(df, finestra_vol=20, finestra=500)
+    allineato = _gap_vecchio(df) * direzione
+    mediana = allineato.rolling(500, min_periods=500).median()
+    trend = (allineato > mediana).astype(float).where(mediana.notna() & allineato.notna())
+    return (2 * vol + trend).rename("cella")
+
+
+def _serie_24_7(minuti, barre, seme=11, inizio="2021-03-03"):
+    """Un random walk 24/7 come sugli exchange, sul timeframe voluto."""
+    idx = pd.date_range(inizio, periods=barre, freq=f"{minuti}min", tz="UTC")
+    g = np.random.default_rng(seme)
+    sigma = 0.0004 * np.sqrt(minuti / 15)
+    close = 30000.0 * np.exp(np.cumsum(g.normal(0, sigma, barre)))
+    op = np.r_[30000.0, close[:-1]]
+    return pd.DataFrame({"Open": op, "High": np.maximum(op, close) * (1 + np.abs(g.normal(0, sigma, barre))),
+                         "Low": np.minimum(op, close) * (1 - np.abs(g.normal(0, sigma, barre))), "Close": close,
+                         "Volume": g.integers(20, 2000, barre).astype(float)}, index=idx)
 
 
 def esegui() -> int:
@@ -207,7 +256,7 @@ def esegui() -> int:
           or (len(g) < 5 and np.isnan(conf_corta["pips_medi"].iat[t])))
 
     # -------------------------------------------------- dentro al backtest --
-    print("\nC · Dentro al backtest (backtesting.py)")
+    print("\nC · Dentro al backtest (motore predefinito, «veloce»)")
     clear_registry()
     segnali = pd.Series(rng.random(n), index=df.index)
     register_entry("T_RANDOM_LONG", 1)(lambda d: (segnali.reindex(d.index) < 0.012))
@@ -584,6 +633,205 @@ def esegui() -> int:
           and np.isclose(tab_b["avg_trade_netto_bp"].iat[0], bp_oos.mean()),
           f"senza: {tab_b['avg_trade_netto_bp'].iat[0]:+.3f} bp per trade")
 
+    # ================================================= docs/80 e docs/81, 04/11/2026 ==
+    print("\nH · Le finestre in ore (docs/80, lavoro 1): prima sul broker, con la giornata FX")
+    check("47. M15 broker: cella_contesto = la formula di prima, bit per bit, sui due lati",
+          cella_contesto(df, 1).equals(_cella_vecchia(df, 1)) and cella_contesto(df, -1).equals(_cella_vecchia(df, -1))
+          and gap_trend(df).equals(_gap_vecchio(df)))
+
+    originale = modulo_confidenza.cella_contesto
+    conf_nuova = {u: confidenza_rolling(df, es_bp, 1, unita=u) for u in ("pips", "bp")}
+    nomi_nuovi = registra_filtro_confidenza([0.0, 0.5], conf_long=conf_nuova["pips"], prefisso="CONFN")
+    maschere_nuove = {n: get_filter(n)(df).to_numpy() for n in nomi_nuovi}
+    modulo_confidenza.cella_contesto = lambda d, direzione, **k: _cella_vecchia(d, direzione)
+    try:
+        conf_vecchia = {u: confidenza_rolling(df, es_bp, 1, unita=u) for u in ("pips", "bp")}
+    finally:
+        modulo_confidenza.cella_contesto = originale
+    registra_filtro_confidenza([0.0, 0.5], conf_long=conf_vecchia["pips"], prefisso="CONFV")
+    maschere_vecchie = {n: get_filter(n.replace("CONFN", "CONFV"))(df).to_numpy() for n in nomi_nuovi}
+    check("48. M15 broker: confidenza e filtri CONF_ = quelli di prima, bit per bit, in pips e in bp",
+          conf_nuova["pips"].equals(conf_vecchia["pips"]) and conf_nuova["bp"].equals(conf_vecchia["bp"])
+          and all(np.array_equal(maschere_nuove[n], maschere_vecchie[n]) for n in nomi_nuovi))
+
+    # il broker sospeso: H4 e D1 ricavate dalle M15, con i fine settimana vuoti; basta che non si rompa
+    agg = {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
+    br = {tf: df.resample(r).agg(agg).dropna(subset=["Close"]) for tf, r in (("H4", "4h"), ("D1", "1D"))}
+    celle_br = {tf: cella_contesto(d, 1) for tf, d in br.items()}
+    ny = br["H4"].index.tz_convert("America/New_York")
+    prime = np.r_[False, np.diff(periodo_ancora(br["H4"]).to_numpy()) == 1]
+    check("49. broker (sospeso): H4 e D1 non si rompono, con le quattro celle; su H4 la settimana riparte "
+          "la domenica sera o il lunedi' di New York",
+          all(set(c.dropna().unique()) == {0.0, 1.0, 2.0, 3.0} for c in celle_br.values())
+          and set(ny[prime].dayofweek) <= {6, 0}, f"giorni di ripartenza {sorted(set(ny[prime].dayofweek))}")
+
+    imposta_rollover(None)
+    imposta_giornata(GIORNATA_UTC)
+    svuota_cache()
+    TF = {"M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
+    BARRE = {"M5": 12000, "M15": 6000, "M30": 3000, "H1": 3000, "H4": 3000, "D1": 2000}
+    serie = {tf: _serie_24_7(m, BARRE[tf]) for tf, m in TF.items()}
+    attese = {"M5": (60, 1500), "M15": (20, 500), "M30": (20, 250), "H1": (20, 125), "H4": (20, 210), "D1": (20, 150)}
+    trovate = {tf: (barre_per_durata(d.index, 5), barre_mediana(d.index)) for tf, d in serie.items()}
+    check("50. deviazione e mediana in barre: la tabella di docs/81 §1", trovate == attese, str(trovate))
+    prima_cella = {tf: int(np.flatnonzero(cella_contesto(d, 1).notna().to_numpy())[0]) for tf, d in serie.items()}
+    check("51. prima cella calcolabile: deviazione + mediana - 1 barre, su ogni timeframe",
+          prima_cella == {tf: a + b - 1 for tf, (a, b) in attese.items()}, str(prima_cella))
+    ore_coperte = {tf: (attese[tf][0] * m / 60, attese[tf][1] * m / 60) for tf, m in TF.items()}
+    check("52. M5 copre le stesse ore di M15 (5 e 125); H1 la stessa mediana, ma la deviazione a 20 ore "
+          "per il minimo di 20 barre (docs/81 §1)",
+          ore_coperte["M5"] == ore_coperte["M15"] == (5.0, 125.0) and ore_coperte["H1"] == (20.0, 125.0))
+    d15 = serie["M15"]
+    check("53. M15 exchange: cella_contesto = la formula di prima, bit per bit, sui due lati",
+          cella_contesto(d15, 1).equals(_cella_vecchia(d15, 1)) and cella_contesto(d15, -1).equals(_cella_vecchia(d15, -1)))
+    d5 = serie["M5"]
+    check("54. su M5 la confidenza non usa piu' le 20 e 500 barre di M15: la cella e' quella in ore",
+          cella_contesto(d5, 1).equals(cella_vol_trend(d5, 1)) and not cella_contesto(d5, 1).equals(_cella_vecchia(d5, 1)))
+    e_d5 = _esiti_finti(len(d5), 400, np.random.default_rng(5))
+    check("55. confidenza_rolling legge la cella in ore: la colonna cella e' cella_vol_trend",
+          np.array_equal(confidenza_rolling(d5, e_d5, 1)["cella"].to_numpy(), cella_vol_trend(d5, 1).to_numpy(), equal_nan=True))
+    lunga = cella_contesto(d15, 1, ore_mediana=250)
+    check("56. i parametri ore e ore_mediana arrivano alle finestre (250 ore su M15: 1.000 barre)",
+          int(np.flatnonzero(lunga.notna().to_numpy())[0]) == 20 + 1000 - 1)
+    errori_vecchi = 0
+    for kw in ({"finestra": 500}, {"finestra_vol": 20}):
+        try:
+            confidenza_rolling(d15, e_d5, 1, **kw)
+        except TypeError:
+            errori_vecchi += 1
+    check("57. i parametri vecchi in barre non si accettano piu' in silenzio", errori_vecchi == 2)
+
+    print("\nI · L'ancora secondo il timeframe (docs/80, lavoro 2)")
+    regole = {tf: regola_ancora(d.index) for tf, d in serie.items()}
+    check("58. la regola: fino a H1 la giornata, H4 la settimana, D1 il mese",
+          regole == {"M5": "D", "M15": "D", "M30": "D", "H1": "D", "H4": "W", "D1": "M"}, str(regole))
+    idx_lunghi = {"H2": 120, "H8": 480, "H12": 720}
+    regole_altre = {k: regola_ancora(pd.date_range("2024-01-01", periods=9, freq=f"{m}min", tz="UTC"))
+                    for k, m in idx_lunghi.items()}
+    try:
+        regola_ancora(pd.date_range("2024-01-01", periods=9, freq="7D", tz="UTC"))
+        settimanale = False
+    except ValueError:
+        settimanale = True
+    check("59. la regola e' generale (H2, H8 settimana; H12 mese); una barra settimanale si ferma con un errore",
+          regole_altre == {"H2": "W", "H8": "W", "H12": "M"} and settimanale, str(regole_altre))
+    fino_h1 = all(gap_trend(serie[tf]).equals(_gap_vecchio(serie[tf])) for tf in ("M5", "M15", "M30", "H1"))
+    check("60. fino a H1 gap_trend e' identico al bit a quello di prima", fino_h1)
+    check("61. su H4 e D1 il gap cambia per costruzione",
+          not gap_trend(serie["H4"]).equals(_gap_vecchio(serie["H4"]))
+          and not gap_trend(serie["D1"]).equals(_gap_vecchio(serie["D1"])))
+    d4, d1 = serie["H4"], serie["D1"]
+    per4, per1 = periodo_ancora(d4).to_numpy(), periodo_ancora(d1).to_numpy()
+    nuove4 = d4.index[np.r_[False, np.diff(per4) == 1]]
+    nuove1 = d1.index[np.r_[False, np.diff(per1) == 1]]
+    check("62. su H4 si riparte al lunedi' alle 00:00 UTC, con 42 barre a settimana piena",
+          (nuove4.dayofweek == 0).all() and (nuove4.hour == 0).all()
+          and np.array_equal(per4, id_periodo(d4, "W")) and (np.bincount(per4)[1:-1] == 42).all(),
+          f"{len(nuove4)} ripartenze")
+    giorni_mese = np.bincount(per1)[1:-1]
+    check("63. su D1 si riparte il giorno 1 del mese, con 28-31 barre",
+          (nuove1.day == 1).all() and giorni_mese.min() >= 28 and giorni_mese.max() <= 31,
+          f"da {giorni_mese.min()} a {giorni_mese.max()} barre")
+    scarti = {}
+    for tf, d, per in (("H4", d4, per4), ("D1", d1, per1)):
+        tipico_p = ((d["High"] + d["Low"] + d["Close"]) / 3).to_numpy()
+        vol_p, close_p = d["Volume"].to_numpy(), d["Close"].to_numpy()
+        att = np.full(len(d), np.nan)
+        for g in np.unique(per):
+            ii = np.flatnonzero(per == g)
+            att[ii] = _regressione_ciclo(close_p[ii]) - np.cumsum(tipico_p[ii] * vol_p[ii]) / np.cumsum(vol_p[ii])
+        scarti[tf] = float(np.nanmax(np.abs(gap_trend(d).to_numpy() - att)))
+    check("64. gap vettoriale = regressione a ciclo del file originale, per settimana e per mese",
+          max(scarti.values()) < 1e-8, str({k: f"{v:.1e}" for k, v in scarti.items()}))
+    diversi = []
+    for tf in ("M5", "H4", "D1"):
+        d = serie[tf]
+        piena = {lato: cella_contesto(d, lato) for lato in (1, -1)}
+        for t in (len(d) // 3, len(d) // 2, len(d) - 11):
+            for lato in (1, -1):
+                if not np.array_equal(cella_contesto(d.iloc[:t], lato).to_numpy(), piena[lato].iloc[:t].to_numpy(),
+                                      equal_nan=True):
+                    diversi.append((tf, t, lato))
+    check("65. nessun lookahead: tagliato lo storico le celle non cambiano (M5, H4, D1; 3 tagli, due lati)",
+          not diversi, str(diversi))
+    corto = d4.iloc[:1]
+    check("66. una barra sola: gap_trend non si ferma (Close meno prezzo tipico)",
+          np.isclose(gap_trend(corto).iloc[0], corto["Close"].iloc[0] - (corto["High"] + corto["Low"] + corto["Close"]).iloc[0] / 3))
+
+    print("\nL · La confidenza dai trade del motore veloce (docs/81 §4, domanda 4)")
+    clear_registry()
+    dv = _serie_24_7(15, 12000, seme=21)
+    segnali_v = pd.Series(np.random.default_rng(22).random(len(dv)), index=dv.index)
+    register_entry("V_LONG", 1)(lambda d: (segnali_v.reindex(d.index) < 0.03))
+    register_entry("V_SHORT", -1)(lambda d: (segnali_v.reindex(d.index) > 0.97))
+    costi_v = {"spread": 0.0, "commission": 0.0005, "spread_passo_pips": 1.0}
+    param_v = dict(entry_long="V_LONG", entry_short="V_SHORT", n_barre=8, perc_sl=20.0, perc_tp=0.0,
+                   unita="bp", pip_size=1.0, cash=10_000_000, **costi_v, verbose=False)
+    fv = run_filter_search_bt(dv, filtri=[], motore="veloce", **param_v)
+    tv = fv.trades()
+    ev = esiti_trade(tv, dv, fv.pip_size, costi_v["commission"], unita="bp")
+    stessa_barra = ev[ev["barra_uscita"] == ev["barra_segnale"] + 1]
+    check("67. esiti dal veloce: segnale = ingresso - 1; ci sono trade usciti sulla barra d'ingresso",
+          (dv.index[ev["barra_segnale"] + 1] == pd.DatetimeIndex(tv["EntryTime"])).all() and len(stessa_barra) > 0,
+          f"{len(ev)} trade, {len(stessa_barra)} usciti sulla barra d'ingresso")
+    conf_v = confidenza_rolling(dv, ev, 1, min_obs=1, unita="bp")
+    celle_v = conf_v["cella"].to_numpy()
+    lato_l = ev[ev["lato"] == 1].sort_values("barra_uscita", kind="mergesort")
+    ok_bruta = True
+    for t in np.random.default_rng(23).integers(1000, len(dv) - 1, 200):
+        if np.isnan(celle_v[t]):
+            continue
+        usciti = lato_l[lato_l["barra_uscita"] <= t].tail(500)
+        attesi = int((celle_v[usciti["barra_segnale"].to_numpy()] == celle_v[t]).sum())
+        ok_bruta &= conf_v["n_storia"].iat[t] == attesi
+    # un trade uscito sulla barra d'ingresso, con la stessa cella al segnale e all'uscita
+    candidati = stessa_barra[(stessa_barra["lato"] == 1)
+                             & (celle_v[stessa_barra["barra_segnale"].to_numpy()]
+                                == celle_v[stessa_barra["barra_uscita"].to_numpy()])]
+    rx = int(candidati.iloc[-1]["barra_uscita"])
+    conf_cum = confidenza_rolling(dv, ev, 1, min_obs=1, finestra_trade=len(ev) + 1, unita="bp")
+    nella_cella = lato_l[lato_l["barra_segnale"].map(lambda p: celle_v[int(p)] == celle_v[rx])]
+    entro = int((nella_cella["barra_uscita"] <= rx).sum())
+    prima_di = int((nella_cella["barra_uscita"] <= rx - 1).sum())
+    check("68. un trade uscito sulla barra d'ingresso entra nella storia da quella barra, non prima "
+          "(storia contata a mano su 200 barre)",
+          ok_bruta and conf_cum["n_storia"].iat[rx] == entro and entro > prima_di)
+    ok_tagli = True
+    for t in (len(dv) // 2, len(dv) * 3 // 4):
+        svuota_cache()
+        dt = dv.iloc[:t]
+        fb = run_filter_search_bt(dt, filtri=[], motore="veloce", **param_v)
+        est = esiti_trade(fb.trades(), dt, fb.pip_size, costi_v["commission"], unita="bp")
+        ok_tagli &= np.allclose(np.nan_to_num(confidenza_rolling(dt, est, 1, unita="bp")["bp_medi"].to_numpy(), nan=-99),
+                                np.nan_to_num(confidenza_rolling(dv, ev, 1, unita="bp")["bp_medi"].iloc[:t].to_numpy(), nan=-99))
+    svuota_cache()
+    check("69. nessun lookahead nella catena con motore=\"veloce\" (backtest -> esiti -> confidenza), 2 tagli", ok_tagli)
+    param_c = dict(param_v)
+    param_c.update(spread=0.00001, spread_passo_pips=None, perc_sl=90.0)
+    with comportamento_vecchio():
+        fw = run_filter_search_bt(dv, filtri=[], motore="veloce", **param_c)
+        conf_w = confidenza_rolling(dv, esiti_trade(fw.trades(), dv, fw.pip_size, costi_v["commission"], unita="bp"), 1,
+                                    unita="bp")
+    fb_bt = run_filter_search_bt(dv, filtri=[], motore="bt", **param_c)
+    conf_bt = confidenza_rolling(dv, esiti_trade(fb_bt.trades(), dv, fb_bt.pip_size, costi_v["commission"], unita="bp"), 1,
+                                 unita="bp")
+    check("70. con comportamento_vecchio() la confidenza dal veloce e' identica al bit a quella da «bt»",
+          conf_w.equals(conf_bt), f"{int(conf_bt['bp_medi'].notna().sum())} barre a confidenza nota")
+    orari = pd.date_range(dv.index[0].floor("8h"), dv.index[-1].ceil("8h"), freq="8h", name="Date").as_unit("ns")
+    funding_v = con_intervalli(pd.DataFrame({"tasso": 0.0002}, index=orari))
+    fz = run_filter_search_bt(dv, filtri=[], motore="veloce", funding=funding_v, **param_v)
+    tz = fz.trades()
+    ez = esiti_trade(tz, dv, fz.pip_size, costi_v["commission"], unita="bp")
+    riga_z = fz.risultati.iloc[0]
+    check("71. CostoExtraPips e funding nei netti: pips e bp degli esiti = la tabella dei filtri; funding contato",
+          tz["CostoExtraPips"].abs().sum() > 0 and tz["FundingPips"].abs().sum() > 0
+          and np.isclose(ez["bp_netti"].mean(), riga_z["avg_trade_netto"])
+          and np.isclose(ez["pips_netti"].mean(), riga_z["avg_trade_netto_pips"]),
+          f"{ez['bp_netti'].mean():+.3f} bp, {ez['pips_netti'].mean():+.3f} pips per trade")
+
+    imposta_giornata(GIORNATA_FX)
+    imposta_rollover(ROLLOVER_DEFAULT)
+    svuota_cache()
     clear_registry()
     print("\n" + "=" * 70)
     ok, tot = sum(ESITI), len(ESITI)

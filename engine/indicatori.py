@@ -1912,6 +1912,12 @@ ORE_VOLATILITA = 5         # la deviazione dei rendimenti: 20 barre su M15
 ORE_MEDIANA = 125          # la mediana mobile: le 500 barre M15 di confidenza.py (~5,2 giorni)
 MINIMO_RENDIMENTI = 20
 SESSIONI_ATLANTE = ("ASIA_NOTTE", "EUROPA", "LONDRA_NY", "AMERICA")
+# 04/11/2026 (docs/80, docs/81 §2.3, regole fisse di Mattia, mai tarate sui dati): VWAP e regressione di
+# gap_trend ripartono dal periodo piu' corto con almeno MINIMO_RENDIMENTI barre, e la mediana dei due assi
+# copre il maggiore fra ORE_MEDIANA e PERIODI_MEDIANA periodi di ancora. Per la mediana il mese conta 30
+# giorni: la finestra e' un numero fisso di barre, il mese solare cambia durata.
+PERIODI_MEDIANA = 5
+ORE_PERIODO_ANCORA = {"D": 24, "W": 7 * 24, "M": 30 * 24}
 
 
 def barre_per_durata(index, ore: float, minimo: int = MINIMO_RENDIMENTI) -> int:
@@ -1921,18 +1927,59 @@ def barre_per_durata(index, ore: float, minimo: int = MINIMO_RENDIMENTI) -> int:
     return max(int(minimo), int(round(float(ore) * 60.0 / minuti)))
 
 
+def regola_ancora(index, minimo: int = MINIMO_RENDIMENTI) -> str:
+    """
+    Il periodo da cui ripartono VWAP e regressione di gap_trend (docs/80, lavoro 2): il piu' corto, fra
+    giornata ("D"), settimana ("W") e mese ("M", il piu' corto da 28 giorni), con almeno `minimo` barre.
+    Dalla durata della barra, a calendario: M5, M15, M30, H1 la giornata; H4 la settimana; D1 il mese.
+    Una barra piu' lunga non ha un periodo adatto: si ferma con un errore.
+    """
+    from engine.quarantena import passo_barre
+    al_giorno = 1440.0 / (passo_barre(pd.DatetimeIndex(index)) / pd.Timedelta(minutes=1))
+    for regola, giorni in (("D", 1), ("W", 7), ("M", 28)):
+        if al_giorno * giorni >= minimo:
+            return regola
+    raise ValueError(f"Barre troppo lunghe: nemmeno un mese contiene {minimo} barre (ne contiene "
+                     f"{al_giorno * 28:.1f}). VWAP e regressione non hanno un periodo da cui ripartire.")
+
+
+def periodo_ancora(df: pd.DataFrame, minimo: int = MINIMO_RENDIMENTI) -> pd.Series:
+    """
+    Numero progressivo del periodo di ancora di ogni barra (regola_ancora). Fino a H1 e' la giornata di
+    sempre, giorno_fx; su H4 la settimana e su D1 il mese di id_periodo: dal lunedi' e dal giorno 1 alle
+    00:00 UTC sugli exchange, dalla settimana e dal mese FX sul broker. Con meno di due barre la durata
+    della barra non si conosce: si resta alla giornata.
+    """
+    from engine.livelli import giorno_fx
+    regola = "D" if len(df) < 2 else regola_ancora(df.index, minimo)
+    if regola == "D":
+        return giorno_fx(df)
+    return pd.Series(id_periodo(df, regola), index=df.index)
+
+
+def barre_mediana(index, ore: float = ORE_MEDIANA, minimo: int = MINIMO_RENDIMENTI) -> int:
+    """
+    Le barre della mediana dei due assi (docs/81 §2.3): il maggiore fra `ore` ore e PERIODI_MEDIANA
+    periodi di ancora, almeno `minimo`. Fino a H1 restano le `ore` (125 ore e 5 giornate = 120 ore),
+    su H4 sono 5 settimane (210 barre), su D1 5 mesi da 30 giorni (150 barre).
+    """
+    ore_periodi = PERIODI_MEDIANA * ORE_PERIODO_ANCORA[regola_ancora(index, minimo)]
+    return barre_per_durata(index, max(float(ore), float(ore_periodi)), minimo)
+
+
 def volatilita_durata(df: pd.DataFrame, ore: float = ORE_VOLATILITA, ore_mediana: float = ORE_MEDIANA,
                       minimo: int = MINIMO_RENDIMENTI) -> pd.Series:
     """
     Volatilita' alta (1) o bassa (0) di ogni barra: la deviazione dei
     log-rendimenti Close su Close delle ultime `ore` ore, sopra o no la sua
-    mediana mobile delle ultime `ore_mediana` ore. NaN finche' le finestre
-    non sono piene. Stesse formule di confidenza.asse_volatilita (file di
-    Mattia volatility_features_engineering.py: std, quantile 0,5): su M15
-    con i valori di default e' identica, bit per bit, a asse_volatilita(df, 20, 500).
+    mediana mobile (barre_mediana: almeno `ore_mediana` ore e 5 periodi di
+    ancora). NaN finche' le finestre non sono piene. Stesse formule di
+    confidenza.asse_volatilita (file di Mattia volatility_features_engineering.py:
+    std, quantile 0,5): su M15 con i valori di default e' identica, bit per
+    bit, a asse_volatilita(df, 20, 500).
     """
     w = barre_per_durata(df.index, ore, minimo)
-    m = barre_per_durata(df.index, ore_mediana, minimo)
+    m = barre_mediana(df.index, ore_mediana, minimo)
     rendimenti = np.log(df["Close"] / df["Close"].shift(1)) * 100
     deviazione = rendimenti.rolling(window=w).std()
     mediana = deviazione.rolling(m, min_periods=m).quantile(0.5)
@@ -1944,15 +1991,16 @@ def trend_durata(df: pd.DataFrame, direzione: int, ore_mediana: float = ORE_MEDI
                  minimo: int = MINIMO_RENDIMENTI) -> pd.Series:
     """
     Trend «a favore» (1) o «contro» (0) del lato `direzione`: gap_trend
-    (confidenza.py, regressione della giornata meno il VWAP della giornata)
-    nel verso del trade, sopra o no la sua mediana mobile delle ultime
-    `ore_mediana` ore. «A favore» vuol dire «nella meta' alta degli ultimi
-    giorni», non «il prezzo sta salendo». NaN finche' non e' calcolabile.
+    (confidenza.py, regressione del periodo di ancora meno il VWAP dello
+    stesso periodo) nel verso del trade, sopra o no la sua mediana mobile
+    (barre_mediana: almeno `ore_mediana` ore e 5 periodi di ancora). «A
+    favore» vuol dire «nella meta' alta degli ultimi giorni», non «il prezzo
+    sta salendo». NaN finche' non e' calcolabile.
     """
     if direzione not in (1, -1):
         raise ValueError("direzione deve essere 1 (long) o -1 (short).")
     from engine.confidenza import gap_trend
-    m = barre_per_durata(df.index, ore_mediana, minimo)
+    m = barre_mediana(df.index, ore_mediana, minimo)
     allineato = gap_trend(df) * direzione
     mediana = allineato.rolling(m, min_periods=m).median()
     return ((allineato > mediana).astype(float)
