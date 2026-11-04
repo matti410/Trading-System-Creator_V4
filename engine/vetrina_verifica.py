@@ -86,6 +86,10 @@ def _filtri_del_lato(s, lato: str) -> list[str]:
         nome = ris.loc[etichetta, f"filtro_{lato}"]
         if nome not in ("—", None) and isinstance(nome, str):
             nomi.append(nome)
+    # 04/11/2026 (docs/81 §3.5): la soglia di confidenza scelta alla 6 non e' fra le righe della schermata 5
+    soglia = (getattr(s, "soglia_scelta", None) or {}).get(lato)
+    if soglia not in ("—", None) and isinstance(soglia, str):
+        nomi.append(soglia)
     return nomi
 
 

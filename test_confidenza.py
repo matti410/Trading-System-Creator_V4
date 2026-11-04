@@ -11,8 +11,14 @@ engine/volatility_features_engineering.py. Dura circa un minuto.
 """
 from __future__ import annotations
 
+import contextlib
+import io
+import json
+import os
 import sys
+import tempfile
 import warnings
+from types import SimpleNamespace
 
 import matplotlib
 matplotlib.use("Agg")
@@ -20,13 +26,16 @@ import numpy as np
 import pandas as pd
 
 from engine import confidenza as modulo_confidenza
+from engine import registro_dataset as rd
+from engine import vetrina as vt
+from engine import vetrina_verifica as vt_verifica
 from engine.collaudo_catalogo import mercato_sintetico
 from engine.confidenza import (ETICHETTE_CELLA, asse_volatilita, cella_contesto,
                                congela_filtro, congela_confidenza_nota,
                                confidenza_rolling, esiti_trade, gap_trend,
                                plot_oos_confidenza, registra_filtro_confidenza,
                                report_calibrazione)
-from engine.exchange import con_intervalli
+from engine.exchange import con_intervalli, file_funding, salva_csv, salva_funding
 from engine.filter_search_bt import BASELINE, run_filter_search_bt
 from engine.indicatori import (barre_mediana, barre_per_durata, cella_vol_trend, id_periodo,
                                periodo_ancora, regola_ancora)
@@ -35,6 +44,8 @@ from engine.motore_veloce import comportamento_vecchio
 from engine.quarantena import ROLLOVER_DEFAULT, imposta_rollover
 from engine.registry import (clear_registry, get_entry, get_filter, list_entries, list_filters,
                              register_entry, register_filter)
+
+from test_atlante import Mercato, _deriva_dopo, _indice, _registra_entry
 
 warnings.simplefilter("ignore")
 
@@ -828,6 +839,253 @@ def esegui() -> int:
           and np.isclose(ez["bp_netti"].mean(), riga_z["avg_trade_netto"])
           and np.isclose(ez["pips_netti"].mean(), riga_z["avg_trade_netto_pips"]),
           f"{ez['bp_netti'].mean():+.3f} bp, {ez['pips_netti'].mean():+.3f} pips per trade")
+
+    # ======================================================== la 5b del Lab (docs/81 §3) ==
+    print("\nM · La cella 5b del Lab e la 6 con una soglia")
+    clear_registry()
+    rd.azzera()
+    M_ = Mercato(_indice(giorni=300), seme=31)
+    n_m = len(M_.idx)
+    g_m = np.random.default_rng(32)
+    # long nei giorni pari, short nei dispari, con un movimento dopo il segnale che paga i costi: la confidenza
+    # sopra lo zero deve esistere, per provare la 6 con una soglia. Come test_riordino_lab
+    giorno_m = (np.arange(n_m) // 96) % 2
+    adatte = np.arange(600, n_m - 50, 4)
+    pos_l = np.sort(g_m.choice(adatte[giorno_m[adatte] == 0], size=1800, replace=False))
+    pos_s = np.sort(g_m.choice(adatte[giorno_m[adatte] == 1], size=1800, replace=False))
+    d_m = M_.df(_deriva_dopo(n_m, pos_l, np.full(pos_l.size, 0.0002))
+                + _deriva_dopo(n_m, pos_s, np.full(pos_s.size, -0.0002)))
+    d_m[["Open", "High", "Low", "Close"]] *= 300.0
+    _registra_entry("T_L", 1, M_.idx[pos_l])
+    _registra_entry("T_S", -1, M_.idx[pos_s])
+    register_filter("F_MATTINA", direction=0)(lambda d: pd.Series(d.index.hour < 12, index=d.index))
+    register_filter("F_SERA", direction=0)(lambda d: pd.Series(d.index.hour >= 12, index=d.index))
+    register_filter("F_PARI", direction=0)(lambda d: pd.Series(d.index.day % 2 == 0, index=d.index))
+    SYM = "BINANCE_PERP_BTCUSDT"
+    orari_m = pd.date_range(d_m.index[0].floor("8h"), d_m.index[-1].ceil("8h"), freq="8h")
+    fund_m = con_intervalli(pd.DataFrame({"tasso": 0.0001}, index=orari_m))
+
+    def muto(f, *a, **k):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return f(*a, **k)
+
+    def parlato(f, *a, **k):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            r_ = f(*a, **k)
+        return r_, buf.getvalue()
+
+    def rifiuta(f, testo):
+        try:
+            muto(f)
+        except ValueError as e:
+            return testo in str(e)
+        return False
+
+    def conto(s_):
+        return {k_: (dict(v_) if isinstance(v_, dict) else v_) for k_, v_ in s_.prove.items()}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        salva_csv(d_m, os.path.join(tmp, f"{SYM}_M15.csv"))
+        salva_funding(fund_m, file_funding(SYM, tmp))
+        s = muto(vt.prepara, SYM, H=8, cartella=tmp)
+        muto(vt.esplora, s)
+        muto(vt.scegli_trigger, s, long="T_L", short="T_S")
+        muto(vt.imposta_uscite, s, 8, 8, 90, 0)
+        muto(vt.trova_strategia, s)
+        n_is = int(s.df.index.searchsorted(s.df_oos.index[0]))
+
+        # la 6 senza la 5b, il riferimento delle prove d'identita' dentro la sessione
+        tab_senza = muto(vt.scheda, s, None)
+        tr_senza = (s.trades_is.copy(), s.trades_oos.copy())
+        s.filtro = s.oos = s.trades_is = s.trades_oos = None
+
+        chiamate = []
+        vero_motore = vt.run_filter_search_bt
+        vt.run_filter_search_bt = lambda *a, **k: (chiamate.append(1), vero_motore(*a, **k))[1]
+        prima = conto(s)
+        diario_0 = len(s.storia.diario)
+        try:
+            r0, t0 = parlato(vt.confidenza_strategia, s)
+        finally:
+            vt.run_filter_search_bt = vero_motore
+        check("72. 5b spenta (il default): nessun backtest, nessuna prova, una riga che lo dice",
+              r0 is None and not chiamate and conto(s) == prima and s.conf is None and "Confidenza spenta" in t0)
+
+        tab, t1 = parlato(vt.confidenza_strategia, s, usa=True)
+        chiave_lab = vt.chiave_confidenza(vt._chiave_filtri(s), (0.0, 0.5, 0.8), None)
+        nomi_soglie = list(tab["Soglia"])[1:]
+        check("73. 5b accesa: baseline e 3 soglie fisse, i nomi in multipli del costo, in bp",
+              nomi_soglie == ["CONF_BP_MEDI_0C", "CONF_BP_MEDI_0.5C", "CONF_BP_MEDI_0.8C"]
+              and modulo_confidenza.SOGLIE_CONFIDENZA == (0.0, 0.5, 0.8) and tab["Vale (bp)"].iloc[1] == 0.0
+              and tab["Vale (bp)"].iloc[2] > 0 and tab["Vale (bp)"].iloc[3] > tab["Vale (bp)"].iloc[2], str(nomi_soglie))
+        check("74. il conto: la voce della 3.3 con 3 prove, scritta una volta; la riga delle prove lo dice",
+              s.prove["filtri"].get(chiave_lab) == 3 and "questa schermata: 3 soglie della confidenza" in t1
+              and {k_: v_ for k_, v_ in conto(s)["filtri"].items() if k_ != chiave_lab} == prima["filtri"])
+        chiave_ricerca = vt.chiave_confidenza(
+            vt.chiave_filtri(("T_L",), ("T_S",), vt.impostazioni_uscite(8, 8, 90.0, 0.0, None), "Long + Short"),
+            [0.0, 0.5, 0.8], None)
+        storia_finta = SimpleNamespace(prove={"filtri": {}})
+        ricerca_finta = SimpleNamespace(risultati=pd.DataFrame({"filtro": [BASELINE, "a", "b", "c"]}))
+        vt.conta_filtri(storia_finta, ricerca_finta, ["T_L"], ["T_S"], 8, 90.0, 0.0, None, "Long + Short",
+                        confidenza=([0.0, 0.5, 0.8], None))
+        check("75. stesso setup nel Lab e nella ricerca: la stessa chiave, quindi conta una volta",
+              chiave_ricerca == chiave_lab and list(storia_finta.prove["filtri"]) == [chiave_lab])
+        tab_prima = tab.copy()
+        cal_prima = s.tabelle["confidenza_calibrazione"].copy()
+        conto_1 = conto(s)
+        tab2 = muto(vt.confidenza_strategia, s, usa=True)
+        check("76. rifatta uguale: +0 prove, la stessa tabella", conto(s) == conto_1 and tab2.equals(tab_prima))
+        tab_mattina = muto(vt.confidenza_strategia, s, usa=True, filtro="F_MATTINA")
+        chiave_m = vt.chiave_confidenza(vt._chiave_filtri(s), (0.0, 0.5, 0.8), "F_MATTINA")
+        check("77. con un altro filtro: +3 prove, con la sua chiave; altri numeri",
+              s.prove["filtri"].get(chiave_m) == 3 and not tab_mattina.equals(tab_prima)
+              and tab_mattina["Trade"].iloc[0] < tab_prima["Trade"].iloc[0])
+        muto(vt.confidenza_strategia, s, usa=True, filtro="F_MATTINA, F_PARI")
+        chiave_due = vt.chiave_confidenza(vt._chiave_filtri(s), (0.0, 0.5, 0.8), "F_MATTINA + F_PARI")
+        n_filtri_5 = int((s.fs.risultati["filtro"] != BASELINE).sum())
+        check("77b. con due filtri in catena: la chiave li nomina tutti e due, e c'e' la voce delle combinazioni della 6",
+              s.prove["filtri"].get(chiave_due) == 3 and s.conf.filtri == ["F_MATTINA", "F_PARI"]
+              and s.prove["combinazioni"].get((vt._chiave_filtri(s), 2)) == n_filtri_5 * (n_filtri_5 - 1) // 2,
+              f"{n_filtri_5} filtri alla 5; {s.prove['filtri'].get(chiave_due)}; {dict(s.prove['combinazioni'])}")
+        tab3 = muto(vt.confidenza_strategia, s, usa=True)
+        check("78. di nuovo senza filtro: la tabella e la calibrazione di prima (la cache non tiene maschere vecchie)",
+              tab3.equals(tab_prima) and s.tabelle["confidenza_calibrazione"].equals(cal_prima))
+        check("79. la 5b resta nell'in-sample: out-of-sample non aperto, diario invariato, niente dati dopo il confine",
+              s.oos is None and s.trades_oos is None and len(s.storia.diario) == diario_0
+              and s.conf.fs.trades()["ExitTime"].max() < s.df_oos.index[0])
+        e_c = s.conf.esiti[(s.conf.esiti["barra_segnale"] < n_is) & (s.conf.esiti["barra_uscita"] < n_is)]
+        cal_mano = modulo_confidenza.report_calibrazione(e_c, s.df, s.df_oos.index[0], conf_long=s.conf.conf_long,
+                                                         conf_short=s.conf.conf_short, unita="bp")
+        check("80. la calibrazione conta solo i trade chiusi nell'in-sample",
+              set(cal_mano["parte"]) == {"IS"} and s.tabelle["confidenza_calibrazione"]["Trade"].sum() == cal_mano["trade"].sum()
+              and s.tabelle["confidenza_calibrazione"]["Trade"].sum() <= len(e_c))
+        risc = s.tabelle["confidenza_riscaldamento"]
+        check("81. la riga del riscaldamento: quanti trade hanno una confidenza nota, e da quando",
+              "Confidenza nota:" in t1 and "dal" in risc["testo"] and 0 < risc["note"] <= risc["tot"], risc["testo"])
+        n_f = 2000
+        idx_f = pd.date_range("2024-01-01", periods=n_f, freq="15min", tz="UTC")
+        d_f = pd.DataFrame({"Close": 1.0}, index=idx_f)
+        s_f = SimpleNamespace(df=d_f, df_is=d_f.iloc[:1500], df_oos=d_f.iloc[1500:], unita="bp")
+        e_f = pd.DataFrame({"barra_segnale": [100, 900, 1000], "barra_uscita": [110, 910, 1010], "lato": [1, 1, 1]})
+        c_f = pd.DataFrame({"bp_medi": np.r_[np.full(950, np.nan), np.ones(n_f - 950)]}, index=idx_f)
+        r_tardi = vt._riscaldamento_confidenza(s_f, e_f, c_f, None)
+        c_f2 = pd.DataFrame({"bp_medi": np.ones(n_f)}, index=idx_f)
+        r_presto = vt._riscaldamento_confidenza(s_f, e_f, c_f2, None)
+        check("82. riscaldamento a mano: nota oltre la meta' dell'in-sample = avviso; meno di 100 trade noti = avviso",
+              r_tardi["tardi"] and r_tardi["pochi"] and r_tardi["note"] == 1 and r_tardi["tot"] == 3
+              and not r_presto["tardi"] and r_presto["note"] == 3)
+        prima_nulla = conto(s)
+        vera_conf = vt.confidenza_rolling
+
+        def conf_ignota(*a, **k):
+            c_ = vera_conf(*a, **k)
+            return c_.assign(pips_medi=np.nan, bp_medi=np.nan, win_rate=np.nan)
+        vt.confidenza_rolling = conf_ignota
+        try:
+            r_n, t_n = parlato(vt.confidenza_strategia, s, usa=True, filtro="F_SERA")
+        finally:
+            vt.confidenza_rolling = vera_conf
+        check("83. nessun segnale a confidenza nota: lo dice e si ferma, senza errori e senza prove",
+              r_n is None and s.conf is None and conto(s) == prima_nulla and "Nessun segnale con una confidenza nota" in t_n)
+
+        tab_id = muto(vt.scheda, s, None)
+        check("84. la 6 senza soglia dopo la 5b: identica alla 6 senza 5b",
+              s.trades_is.equals(tr_senza[0]) and s.trades_oos.equals(tr_senza[1])
+              and tab_id[["", "In-sample", "Out-of-sample"]].equals(tab_senza[["", "In-sample", "Out-of-sample"]])
+              and s.soglia_scelta is None and "confidenza" not in s.storia.diario[-1]
+              and "oos_confidenza" not in s.tabelle)
+
+        muto(vt.confidenza_strategia, s, usa=True)
+        soglia_ok = "CONF_BP_MEDI_0C"
+        s.conf.sopravvissute = []
+        check("85. una soglia che non ha superato le due prove si rifiuta",
+              rifiuta(lambda: vt.scheda(s, None, soglia_ok), "non ha superato le due prove"))
+        s.conf.sopravvissute = [soglia_ok]     # per la prova: i numeri del mercato finto non contano qui
+        check("86. un filtro diverso dalla 5b si rifiuta; un nome sconosciuto si rifiuta",
+              rifiuta(lambda: vt.scheda(s, "F_SERA", soglia_ok), "non è quello della 5b")
+              and rifiuta(lambda: vt.scheda(s, None, "CONF_NON_ESISTE"), "Soglia non trovata"))
+        diario_1 = len(s.storia.diario)
+        tab_c, t_c = parlato(vt.scheda, s, None, soglia_ok)
+        tenuti = s.trades_oos
+        pos_ing = s.df.index.get_indexer(pd.DatetimeIndex(tenuti["EntryTime"])) - 1
+        lati = np.sign(tenuti["Size"].to_numpy())
+        valori = np.where(lati > 0, s.conf.conf_long["bp_medi"].to_numpy()[pos_ing],
+                          s.conf.conf_short["bp_medi"].to_numpy()[pos_ing])
+        check("87. la 6 con la soglia: trade dell'in-sample dalla ricerca delle soglie, ogni trade OOS con confidenza "
+              "sopra la soglia al segnale (ricontrollato a mano)",
+              s.trades_is.equals(s.conf.fs.trades(soglia_ok)) and len(tenuti) > 0 and (valori > 0).all(),
+              f"{len(tenuti)} trade out-of-sample")
+        tab_cf = s.tabelle["oos_confidenza"]
+        check("88. con e senza confidenza sullo stesso grafico; calibrazione solo dell'out-of-sample; il nome nella scheda",
+              list(tab_cf["curva"]) == ["senza confidenza", soglia_ok] and tab_cf["trade"].iloc[1] == len(tenuti)
+              and s.filtro == soglia_ok and soglia_ok in t_c and len(s.tabelle["confidenza_calibrazione_oos"]) > 0)
+        check("89. una sola apertura del diario, con la voce della confidenza; lo dice se la soglia cambia",
+              len(s.storia.diario) == diario_1 + 1 and s.storia.diario[-1]["confidenza"] == soglia_ok
+              and "soglia di confidenza" in t_c)
+        _, t_senza = parlato(vt.scheda, s, None)
+        check("90. tornare senza soglia: i trade di prima, e il diario segnala la differenza dalla prima volta solo "
+              "se c'era", s.trades_oos.equals(tr_senza[1]) and "confidenza" not in s.storia.diario[-1]
+              and "oos_confidenza" not in s.tabelle)
+        muto(vt.scheda, s, None, soglia_ok)
+        ver = muto(vt.verifica_trade, s)
+        regole = ver["regole"].set_index("Regola")
+        check("91. schermate 8a e 8b con la soglia: nessun errore, la soglia e' fra i filtri ricontrollati, nessun "
+              "trade da guardare sulle regole dei filtri",
+              "CONF_BP_MEDI_0C_L" in vt_verifica._filtri_del_lato(s, "long")
+              and "CONF_BP_MEDI_0C_S" in vt_verifica._filtri_del_lato(s, "short")
+              and all(regole["Esito"] == "OK") and muto(vt.lente, s, "out-of-sample", 1) is not None,
+              str(list(regole["Esito"])))
+        mm_t = s.trades_oos.copy()
+        check("92. le schermate 7, 8 e 9 ricevono i trade con la confidenza",
+              mm_t.equals(s.oos.trades(soglia_ok)) and "CONF_BP_MEDI_0C" in vt._frase_scheda_usata(s))
+        filtri_prima = list(s.fs.risultati["filtro"])
+        asticella = float(s.fs.soglia_rumore)
+        conto_f = dict(s.prove["filtri"])
+        muto(vt.trova_strategia, s)
+        check("93. rifare la 5 dopo la 5b: gli stessi filtri e la stessa asticella, nessun CONF_ provato, conto uguale",
+              list(s.fs.risultati["filtro"]) == filtri_prima and float(s.fs.soglia_rumore) == asticella
+              and not any(str(f).startswith("CONF_") for f in filtri_prima)
+              and not any(n.startswith("CONF_") for n in vt._tutti_i_filtri()) and dict(s.prove["filtri"]) == conto_f)
+        check("94. dopo la 5 rifatta la 5b non vale piu': la soglia si rifiuta",
+              rifiuta(lambda: vt.scheda(s, None, soglia_ok), "esegui prima la 5b"))
+        s.cella_long = "UNA_CELLA"
+        prima_b = conto(s)
+        r_b, t_b = parlato(vt.confidenza_strategia, s, usa=True)
+        rifiuto_b = rifiuta(lambda: vt._soglia_della_5b(s, [], soglia_ok), "la confidenza si salta")
+        s.cella_long = None
+        check("95. strada B: la confidenza si salta anche accesa, +0 prove; alla 6 la soglia si rifiuta",
+              r_b is None and conto(s) == prima_b and "la confidenza si salta" in t_b and rifiuto_b)
+        s.sistema = "Solo long"
+        muto(vt.trova_strategia, s)
+        tab_l = muto(vt.confidenza_strategia, s, usa=True)
+        s.conf.sopravvissute = ["CONF_BP_MEDI_0C_L"]
+        muto(vt.scheda, s, None, "CONF_BP_MEDI_0C_L")
+        check("96. un lato solo: nomi con _L, entry short spenta, 6 e controllo delle condizioni senza errori",
+              list(tab_l["Soglia"])[1:] == ["CONF_BP_MEDI_0C_L", "CONF_BP_MEDI_0.5C_L", "CONF_BP_MEDI_0.8C_L"]
+              and s.conf.entry_short is None and (np.sign(s.trades_oos["Size"]) > 0).all()
+              and not vt_verifica._filtri_del_lato(s, "short") and muto(vt.verifica_trade, s) is not None)
+        s.sistema = None
+
+    def celle_nb(nome):
+        return [("".join(c_["source"]), c_["cell_type"]) for c_ in json.load(open(nome, encoding="utf-8"))["cells"]]
+
+    lab = celle_nb("Trading_System_Lab_Crypto.ipynb")
+    testi = [t_ for t_, _ in lab]
+    i5 = next(i_ for i_, t_ in enumerate(testi) if t_.startswith("#@title 5 · Trova la strategia"))
+    i5b = next(i_ for i_, t_ in enumerate(testi) if t_.startswith("#@title 5b · La confidenza"))
+    i6 = next(i_ for i_, t_ in enumerate(testi) if t_.startswith("#@title 6 · Scheda strategia"))
+    ricerca = [t_ for t_, _ in celle_nb("Trading_Grid_Search_v4_backtesting.ipynb")]
+    check("97. Lab: la 5b fra la 5 e la 6, spenta di default, chiama solo la funzione; la 6 passa la soglia",
+          i5 < i5b < i6 and lab[i5b - 1][1] == "markdown" and testi[i5b - 1].startswith("## 5b")
+          and "usa_confidenza = False" in testi[i5b]
+          and "confidenza_strategia(s, usa=usa_confidenza, filtro=filtro);" in testi[i5b]
+          and 'soglia_confidenza = ""' in testi[i6] and "scheda(s, filtro=filtro, soglia_confidenza=soglia_confidenza);" in testi[i6]
+          and any("confidenza_strategia" in t_ and "from engine.vetrina import" in t_ for t_ in testi))
+    check("98. ricerca: la 3.3 legge le stesse soglie, e la 3.1 rifatta non prova i CONF_",
+          any("SOGLIE_CONF = SOGLIE_CONFIDENZA" in t_ for t_ in ricerca)
+          and any('startswith(("CELLA_", "CONF_"))' in t_ and "filtri_da_provare" in t_ for t_ in ricerca))
+    rd.azzera()
 
     imposta_giornata(GIORNATA_FX)
     imposta_rollover(ROLLOVER_DEFAULT)
