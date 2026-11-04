@@ -589,7 +589,7 @@ Una sola regola per tutto il conto: `A_US_DST (NY+7h)` (`10_DATI_FUSO_BROKER.md`
 - USTEC ha 2 cifre in MT5 (punto 0,01) ma nei dati quota sempre a passi di 0,1: la colonna `spread` si converte col punto della tabella, non col passo dei prezzi (prima usciva 10 volte troppo alta).
 ### I due notebook: sempre allineati (regola di Mattia, 11/10/2026)
  
-`Trading_Grid_Search_v4_backtesting.ipynb` (la ricerca) e `Trading_System_Lab.ipynb` (il laboratorio guidato) **si aggiornano sempre insieme, nello stesso ramo**: ogni modifica a dati, symbol, costi, pip, fuso, capitale o lotti fatta in uno va portata anche nell'altro.
+`Trading_Grid_Search_v4_backtesting.ipynb` (la ricerca) e `archivio/Trading_System_Lab.ipynb` (il laboratorio guidato) **si aggiornano sempre insieme, nello stesso ramo**: ogni modifica a dati, symbol, costi, pip, fuso, capitale o lotti fatta in uno va portata anche nell'altro.
  
 - Il Lab non ha codice nelle celle: chiama le funzioni di `engine/vetrina.py` (`prepara`, `stress_test`, …). Allineare il Lab vuol dire di solito modificare `vetrina.py`, più le celle di avvio e del passo 1.
 - **Prova per entrambi:** identità su EURUSD a parità di barre (stesso CSV tagliato all'ultima barra del vecchio, notebook eseguito prima e dopo, uscite e variabili confrontate) e un giro completo su un symbol non forex (DE40), che esercita listino, verifica del fuso su EURUSD e cambio nei lotti.

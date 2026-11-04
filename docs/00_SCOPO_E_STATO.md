@@ -5,7 +5,8 @@ dei trigger intraday, `79`, PR #97, e con la confidenza in ore e la 5b del Lab, 
 Questo file è solo lo **stato attuale**, in 1–2 pagine. Riferimenti completi e
 storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
 manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10)
-stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede.
+stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede. Le proposte delle fasi chiuse `71`, `73`, `79`,
+`81` stanno in `docs/archivio/`; ogni rimando a quei numeri vale per quella cartella.
 
 **Incarico in corso (04/11/2026): `80`**, la confidenza in ore, l'ancora per timeframe e la cella 5b del Lab. Proposta,
 decisioni di Mattia e resoconto in `81`; codice sul ramo `confidenza-ore-e-lab`. Il catalogo dei trigger intraday (`78`,
@@ -27,7 +28,7 @@ decisioni di Mattia e resoconto in `81`; codice sul ramo `confidenza-ore-e-lab`.
   `Trading_Grid_Search_v4_backtesting.ipynb` (ricerca). Il collaudo del
   catalogo è in `Collaudo_Catalogo.ipynb`. La mappa delle anomalie ha il suo notebook,
   `Mappa_Anomalie_Crypto.ipynb` (chiama `engine/vetrina_mappa.py`; il Lab ne mostra gli
-  esiti alla 2b). `Trading_System_Lab.ipynb` (broker) è sospeso. Girano in locale e su Colab (Drive); in locale i dati stanno nella cartella
+  esiti alla 2b). `archivio/Trading_System_Lab.ipynb` (broker) è sospeso. Girano in locale e su Colab (Drive); in locale i dati stanno nella cartella
   di Google Drive per desktop se c'è (streaming, offline solo la cartella del progetto),
   altrimenti in `dati/`.
 - **Repo (pubblico):** `github.com/matti410/Trading-System-Creator_V4`.

@@ -7,7 +7,7 @@
 
 ## 1. Obiettivo
 
-Aggiungere una sezione di **money management (MM)** al notebook `Trading_System_Lab.ipynb`, subito dopo la
+Aggiungere una sezione di **money management (MM)** al notebook `archivio/Trading_System_Lab.ipynb`, subito dopo la
 sezione **"6 · Scheda strategia"** (quella che esegue la strategia sui dati out-of-sample), e portare la stessa sezione
 anche in `Trading_Grid_Search_v4_backtesting.ipynb`.
 
@@ -74,7 +74,7 @@ Se esistono alternative ragionevoli, presentale con pro e contro e indica quale 
 
 - Il libro (PDF): `dati/libri/The Successful Traders Guide to Money Management 2021.pdf` (cartella ignorata da Git, non va pubblicata).
 - `CLAUDE.md`, `docs/00_SCOPO_E_STATO.md`, `docs/02_KPI_E_GIUDIZIO.md`, `docs/50_IDEE_DA_ARTICOLI.md`.
-- `Trading_System_Lab.ipynb`, `engine/vetrina.py`, `engine/montecarlo.py`, `engine/metriche.py`, `engine/simboli.py`.
+- `archivio/Trading_System_Lab.ipynb`, `engine/vetrina.py`, `engine/montecarlo.py`, `engine/metriche.py`, `engine/simboli.py`.
 - Facoltativi, se Mattia li mette in `dati/libri/`: la trascrizione "Lesson 9 – Improve, Validate & Size Your Strategy" e il notebook `EV_MC_Analysis_Strategy_IP_final.ipynb`, da cui è nato il Monte Carlo del tool.
 
 ## 7. Domande aperte da portare nella proposta (nessuna risposta già data)

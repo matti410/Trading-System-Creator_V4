@@ -26,7 +26,7 @@ Convenzioni di lavoro.
 - `Trading_Grid_Search_v4_backtesting.ipynb` — la ricerca completa, usata sui
   symbol da exchange;
 - `Collaudo_Catalogo.ipynb` — il collaudo del catalogo delle condizioni;
-- `Trading_System_Lab.ipynb` — il laboratorio sul broker CFD: **sospeso dal
+- `archivio/Trading_System_Lab.ipynb` — il laboratorio sul broker CFD: **sospeso dal
   20/10/2026, non mantenuto** (resta nel repo, non si aggiorna e non si collauda).
 
 Girano in locale (dati da `dati/`) e su Colab (dati da Google Drive,

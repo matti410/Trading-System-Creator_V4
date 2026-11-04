@@ -601,7 +601,7 @@ Rilettura della proposta con Claude (chat del Project, 20/10). Prima la decision
 
 **MT5 e il lato broker (CFD) si sospendono, per ora.** Il tool si concentra solo sui symbol da exchange (Binance, Bybit; spot e perpetual).
 - **Niente si cancella:** codice, test, notebook e dati del broker restano nel repo e si possono riaprire.
-- **Congelati:** `Trading_System_Lab.ipynb` (broker) e i download da MT5 (`scarica_dati.py`). Non si aggiornano più insieme agli altri due notebook. In testa al Lab broker va una riga: «sospeso dal 20/10/2026, non mantenuto».
+- **Congelati:** `archivio/Trading_System_Lab.ipynb` (broker) e i download da MT5 (`scarica_dati.py`). Non si aggiornano più insieme agli altri due notebook. In testa al Lab broker va una riga: «sospeso dal 20/10/2026, non mantenuto».
 - **Restano vivi e allineati:** `Trading_System_Lab_Crypto.ipynb` e il notebook di ricerca, usato sui dati da exchange.
 - **Dataset di sviluppo e prova di identità:** non più EURUSD. Il riferimento diventa **BINANCE_PERP_BTCUSDT** (storico più lungo, dal 2/1/2020, long e short). Il giro completo «su un symbol diverso» diventa **BYBIT_SPOT_ETHUSDT**: altro exchange, spot (solo long), altra moneta, quindi copre i casi che il primo non copre.
 - **Le suite `test_*.py` si lanciano tutte, come prima.** Quelle sui symbol del broker non chiedono MT5 e devono continuare a passare: se una modifica le rompe, è un segnale che si è toccato codice condiviso.

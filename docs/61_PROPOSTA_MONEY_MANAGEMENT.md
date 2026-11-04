@@ -4,7 +4,7 @@
 **Stato:** APPROVATA da Mattia il 16/10/2026 (decisioni in §10). Fase 0 chiusa (§11). Fase 1 consegnata sul ramo `studio-money-management` (§12), in attesa del controllo di Mattia. Fasi 2 e 3 da decidere.
 **Incarico:** `docs/60_MONEY_MANAGEMENT.md`, punto 2.
 **Fonte:** Andrea Unger, *The Successful Trader's Guide to Money Management*, Wiley 2021 (PDF in `dati/libri/`, 313 pagine, letto per intero: 12 capitoli, 4 appendici, indice). Le pagine citate sono quelle del libro stampato.
-**Letti nel repo:** `CLAUDE.md`, `docs/00`, `docs/02`, `docs/50`, `docs/60`, `Trading_System_Lab.ipynb`, `Trading_Grid_Search_v4_backtesting.ipynb` (sessioni 4 e 5), `engine/vetrina.py`, `engine/montecarlo.py`, `engine/metriche.py`, `engine/simboli.py`, `engine/exit_search_bt.py` (stop adattivo), `engine/giudizio.py` (R multipli), `engine/splitting.py`.
+**Letti nel repo:** `CLAUDE.md`, `docs/00`, `docs/02`, `docs/50`, `docs/60`, `archivio/Trading_System_Lab.ipynb`, `Trading_Grid_Search_v4_backtesting.ipynb` (sessioni 4 e 5), `engine/vetrina.py`, `engine/montecarlo.py`, `engine/metriche.py`, `engine/simboli.py`, `engine/exit_search_bt.py` (stop adattivo), `engine/giudizio.py` (R multipli), `engine/splitting.py`.
 **Non disponibili:** la trascrizione della Lezione 9 e il notebook `EV_MC_Analysis_Strategy_IP_final.ipynb` non sono in `dati/libri/`. Non servono per decidere: il Monte Carlo del tool che ne deriva l'ho letto in `engine/montecarlo.py`.
 
 ---
@@ -352,7 +352,7 @@ Lettura in sola lettura (`account_info`, `symbol_info`), terminale già aperto, 
 **File modificati**
 - `engine/vetrina.py`: aggiunte `money_management(s, ...)` (schermata 7 del Lab) e `money_management_trade(...)` (stessa funzione con gli argomenti espliciti, usata dal notebook di ricerca). Rinumerati i testi: verifica dei trade 8, stress test 9. Nella sessione c'è `s.mm`.
 - `engine/vetrina_verifica.py`, `engine/vetrina_trigger.py`: solo i numeri delle schermate nei testi (7 → 8, 8 → 9).
-- `Trading_System_Lab.ipynb`: sezione "7 · Money management" (capitale, drawdown accettato, anni); 8 · Verifica i trade, 9 · Stress test; sottotitolo "in nove passi".
+- `archivio/Trading_System_Lab.ipynb`: sezione "7 · Money management" (capitale, drawdown accettato, anni); 8 · Verifica i trade, 9 · Stress test; sottotitolo "in nove passi".
 - `Trading_Grid_Search_v4_backtesting.ipynb`: "Sessione 5 · Money management" sui trade del sistema finale (`fs_conf` / `oos_conf`); il Monte Carlo passa a Sessione 6.
 - `test_vetrina.py`: 4 controlli nuovi (il money management non cambia i trade, rispetta la regola del drawdown, lo stress test resta identico, la schermata saltata dà il messaggio giusto): 59 test.
 

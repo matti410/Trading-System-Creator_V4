@@ -16,7 +16,7 @@ scritta a mano, e viaggia nel dizionario dei costi fino ai motori.
   H  valore di 1 pip per 1 lotto su oro e indici (correzione 4)
   I  spread di listino per il notebook: riga mancante -> messaggio con la riga
      esatta e il rollover proposto dai dati (10/10/2026)
-  J  vetrina (Trading_System_Lab) allineata al notebook principale: symbol
+  J  vetrina (archivio/Trading_System_Lab.ipynb) allineata al notebook principale: symbol
      della tabella, cartella dei dati, fuso dei non forex su EURUSD, cambio
      di DE40 (11/10/2026)
   E  identita' su EURUSD e BTCUSD: parametri_backtest, event study,
@@ -403,7 +403,7 @@ def esegui() -> int:
         saltato("I5", "dati/ non c'e' (es. Colab)")
 
     # ------------------------------------------- vetrina multi-symbol --
-    print("\nJ · La vetrina (Trading_System_Lab) allineata al notebook principale")
+    print("\nJ · La vetrina (archivio/Trading_System_Lab.ipynb) allineata al notebook principale")
     try:
         _muto(_vetrina.prepara, "GBPAUD", cartella=str(QUI / "dati"))
         fermo = False

@@ -2,7 +2,7 @@
 
 **Data:** 26 ottobre 2026
 **Stato:** INCARICO DI STUDIO. **Nessun codice** prima dell'OK di Mattia.
-**Consegna attesa:** `docs/73_PROPOSTA_LAB_CHIARO_E_MAPPA.md`, in due parti:
+**Consegna attesa:** `docs/archivio/73_PROPOSTA_LAB_CHIARO_E_MAPPA.md`, in due parti:
 A (le modifiche al Lab, testi in bozza compresi) e B (il notebook della mappa).
 Le risposte alle domande del §6. Il codice va in due Pull request, prima A poi B.
 **Da leggere prima:** `CLAUDE.md`, `docs/00`; `docs/68` (riordino, casistiche,
