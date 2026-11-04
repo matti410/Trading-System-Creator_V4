@@ -146,6 +146,8 @@ def sezione_b():
                     confidenza=([0.0, 0.5, 0.8], "F22"))
     kc = (*vt._chiave_filtri(lab), ("confidenza", (0.0, 0.5, 0.8), "F22"))
     check("B6. la 3.3 (confidenza, D2): una chiave a parte", p["filtri"].get(kc) == 3 and len(p["filtri"]) == 3)
+    check("B6b. la 5b del Lab (04/11/2026, docs/81 §3.4): con lo stesso setup e lo stesso filtro, la chiave della 3.3",
+          vt.chiave_confidenza(vt._chiave_filtri(lab), vt.SOGLIE_CONFIDENZA, "F22") == kc)
     prima = json.dumps(RD.normale(p), sort_keys=True)
     rim = ricerca(1)
     rim.rimisura = True

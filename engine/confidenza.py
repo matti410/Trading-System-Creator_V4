@@ -14,24 +14,29 @@ IL CONTESTO: UNA GRIGLIA 2x2
 Due assi, ciascuno diviso in due alla mediana rolling (calcolata solo sul
 passato, barra corrente compresa):
 
-    volatilita'   std dei rendimenti logaritmici su `finestra_vol` barre,
-                  classe da `build_labels` (volatility_features_engineering.py
-                  di Mattia, chiamata con q_low = q_high = 0.5)
-    trend         `aura_gap` (regressione intraday - VWAP intraday),
+    volatilita'   std dei rendimenti logaritmici delle ultime 5 ore
+    trend         `aura_gap` (regressione - VWAP dello stesso periodo),
                   moltiplicato per la direzione del trade: alto = trend a
                   favore del trade, basso = contro
+
+Dal 04/11/2026 (docs/80, docs/81) le finestre sono DURATE, come nell'atlante:
+la griglia e' indicatori.cella_vol_trend (5 ore la deviazione, il maggiore fra
+125 ore e 5 periodi di ancora la mediana, almeno 20 barre). Su M15 sono le 20 e
+500 barre di prima, identiche al bit: `asse_volatilita` (build_labels del file
+di Mattia, con q_low = q_high = 0.5) resta come riferimento dei test.
 
     cella = 2 x volatilita' + trend
 
         0  VOL_BASSA·TREND_CONTRO      1  VOL_BASSA·TREND_FAVORE
         2  VOL_ALTA·TREND_CONTRO       3  VOL_ALTA·TREND_FAVORE
 
-La giornata di VWAP e regressione e' la giornata FX (`giorno_fx`, dal
-rollover delle 17:00 di New York; sui symbol da exchange dalle 00:00 UTC,
-livelli.GIORNATA_UTC, 20/10/2026), non la mezzanotte dell'indice. Per questo
-il gap e' ricalcolato qui e non preso da `engine/vwap_ops.py`, che raggruppa
-per `df.index.date`: le formule sono le stesse, cambia solo dove si taglia
-la giornata.
+VWAP e regressione ripartono dal periodo piu' corto con almeno 20 barre
+(indicatori.periodo_ancora, 04/11/2026): fino a H1 la giornata FX (`giorno_fx`,
+dal rollover delle 17:00 di New York; sui symbol da exchange dalle 00:00 UTC,
+livelli.GIORNATA_UTC, 20/10/2026), su H4 la settimana, su D1 il mese. Non la
+mezzanotte dell'indice: per questo il gap e' ricalcolato qui e non preso da
+`engine/vwap_ops.py`, che raggruppa per `df.index.date`. Le formule sono le
+stesse, cambia solo dove si taglia il periodo.
 
 LA CAUSALITA'
 -------------
@@ -78,7 +83,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .livelli import giorno_fx
+from .indicatori import ORE_MEDIANA, ORE_VOLATILITA, cella_vol_trend, periodo_ancora
 from .metriche import UNITA_CHE_DECIDONO, bp_per_trade, pips_per_trade
 from .registry import (get_entry, get_entry_direction, get_filter, list_entries,
                        list_filters, register_entry, register_filter)
@@ -94,6 +99,9 @@ ETICHETTE_CELLA = {
 
 _FINESTRE_VOL = (5, 20, 50, 200)   # quelle che feat_historical_volatility produce
 _METRICHE = ("pips_medi", "bp_medi", "win_rate")
+# 04/11/2026 (docs/81 §3.1): le soglie della confidenza in multipli del costo, fissate a priori dal listino
+# (docs/02, circa meta' e quasi tutto il costo di un trade); le stesse nel Lab (5b) e nella ricerca (3.3)
+SOGLIE_CONFIDENZA = (0.0, 0.5, 0.8)
 
 
 def _controlla_unita(unita: str) -> None:
@@ -259,13 +267,14 @@ def asse_volatilita(df: pd.DataFrame, finestra_vol: int = 20,
 def gap_trend(df: pd.DataFrame) -> pd.Series:
     """
     `aura_gap` = regressione lineare cumulata del Close - VWAP cumulato, tutti
-    e due ripartiti da zero a ogni giornata FX.
+    e due ripartiti da zero a ogni periodo di ancora (indicatori.periodo_ancora:
+    fino a H1 la giornata FX, su H4 la settimana, su D1 il mese).
 
     Stesse formule di `vwap_indicator_features.py` (VWAP col prezzo tipico,
     regressione incrementale a formule chiuse), scritte in forma vettoriale.
-    NaN dove il volume cumulato della giornata e' ancora zero.
+    NaN dove il volume cumulato del periodo e' ancora zero.
     """
-    giorno = giorno_fx(df)
+    giorno = periodo_ancora(df)
     close = df["Close"].astype(float)
 
     tipico = (df["High"] + df["Low"] + df["Close"]) / 3
@@ -288,23 +297,19 @@ def gap_trend(df: pd.DataFrame) -> pd.Series:
     return (fitted - vwap).rename("aura_gap")
 
 
-def cella_contesto(df: pd.DataFrame, direzione: int, finestra: int = 500,
-                   finestra_vol: int = 20) -> pd.Series:
+def cella_contesto(df: pd.DataFrame, direzione: int, ore: float = ORE_VOLATILITA,
+                   ore_mediana: float = ORE_MEDIANA) -> pd.Series:
     """
-    Cella 0-3 della griglia per il lato indicato (+1 long, -1 short).
-    NaN finche' una delle due mediane rolling non e' calcolabile.
+    Cella 0-3 della griglia per il lato indicato (+1 long, -1 short), con le
+    finestre in ore (indicatori.cella_vol_trend, 04/11/2026): su M15 le stesse
+    barre di prima, identica al bit. NaN finche' una delle due mediane rolling
+    non e' calcolabile.
 
     Il trend e' allineato alla direzione: gap x direzione. Sopra la mediana
     rolling = 1 (a favore), sotto o uguale = 0 (contro). Stessa regola del
     lato volatilita'.
     """
-    if direzione not in (1, -1):
-        raise ValueError("direzione deve essere 1 (long) o -1 (short).")
-    vol = asse_volatilita(df, finestra_vol=finestra_vol, finestra=finestra)
-    allineato = gap_trend(df) * direzione
-    mediana = allineato.rolling(int(finestra), min_periods=int(finestra)).median()
-    trend = (allineato > mediana).astype(float).where(mediana.notna() & allineato.notna())
-    return (2 * vol + trend).rename("cella")
+    return cella_vol_trend(df, direzione, ore=ore, ore_mediana=ore_mediana)
 
 
 # ========================================================================
@@ -364,7 +369,7 @@ def esiti_trade(trades: pd.DataFrame, df: pd.DataFrame, pip_size: float,
 
 def confidenza_rolling(df: pd.DataFrame, esiti: pd.DataFrame, direzione: int,
                        finestra_trade: int = 500, min_obs: int = 30,
-                       finestra: int = 500, finestra_vol: int = 20,
+                       ore: float = ORE_VOLATILITA, ore_mediana: float = ORE_MEDIANA,
                        unita: str = "pips") -> pd.DataFrame:
     """
     La confidenza di ogni barra per un lato, come se su quella barra
@@ -391,7 +396,7 @@ def confidenza_rolling(df: pd.DataFrame, esiti: pd.DataFrame, direzione: int,
     if unita == "bp" and "bp_netti" not in esiti.columns:
         raise ValueError("Con unita='bp' gli esiti devono avere la colonna bp_netti: "
                          "calcolali con esiti_trade(..., unita='bp').")
-    cella = cella_contesto(df, direzione, finestra=finestra, finestra_vol=finestra_vol)
+    cella = cella_contesto(df, direzione, ore=ore, ore_mediana=ore_mediana)
     celle = cella.to_numpy()
     n_barre = len(df)
 

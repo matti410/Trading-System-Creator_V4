@@ -88,7 +88,9 @@ from .simboli import da_exchange, in_tabella, info_symbol, pip_symbol
 from .exit_search_bt import barre_per_lato, per_lato, run_exit_search_bt
 from .filter_search_bt import BASELINE, run_filter_search_bt
 from .motore_veloce import scegli_motore
-from .confidenza import congela_filtro
+from .confidenza import (SOGLIE_CONFIDENZA, confidenza_rolling, congela_confidenza_nota, congela_filtro,
+                         costo_andata_ritorno_bp, esiti_trade, plot_oos_confidenza, registra_filtro_confidenza,
+                         report_calibrazione, soglie_confidenza)
 from .giudizio import (CAMPIONE_CORTO, DA_VALUTARE, prove_trigger_orizzonti, scheda_strategia,
                        soglia_rumore)
 from . import registro_dataset as _rd
@@ -372,6 +374,9 @@ class Sessione:
         self.griglia = None
         self.h_scelto = None
         self.rose = {}                # le rose dei trigger della sessione, una per H
+        # 04/11/2026 (docs/81 §3): la 5b, valida finche' s.fs resta la ricerca da cui e' nata, e la soglia scelta alla 6
+        self.conf = None
+        self.soglia_scelta = None
 
     def __repr__(self):
         return f"<Sessione {self.symbol} {self.timeframe} · H={self.H}>"
@@ -552,8 +557,9 @@ def _trigger_candidati(direzione: int | None = None) -> list[str]:
 
 def _tutti_i_filtri() -> list[str]:
     # 22/10/2026: senza le celle dell'atlante, registrate su richiesta (strada B, docs/66 §5)
+    # 04/11/2026 (docs/81 §3.5): nemmeno le soglie della confidenza, registrate dalla 5b: rifare la 5 non le prova
     return [n for n in reg.list_filters(0) + reg.list_filters(1) + reg.list_filters(-1)
-            if not n.startswith("CELLA_")]
+            if not n.startswith(("CELLA_", "CONF_"))]
 
 
 TIMEFRAMES = ("M5", "M15", "M30", "H1", "H4")    # 19/10/2026: quelli che il Lab accetta
@@ -3497,13 +3503,9 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
     verdetti = {}
     s.dm = None
     if promossi:
-        solo_costi = {k: kw[k] for k in ("perc_sl", "perc_tp", "finestra", "lag", "spread",
-                                         "commission", "cash", "spread_rollover_pips", "funding",
-                                         "spread_passo_pips")     # 25/10/2026 (docs/71)
-                      if k in kw}
         with _zitto():
             s.dm = due_meta(s.df_is, s.fs, [None, *promossi], verbose=False,
-                            cache_maschere=_cache_maschere(s, "due_meta"), **solo_costi)
+                            cache_maschere=_cache_maschere(s, "due_meta"), **_kw_due_meta(kw))
         verdetti = s.dm.tabella.set_index("filtro")["verdetto"].to_dict()
     s.sopravvissuti = [f for f in promossi if verdetti.get(f) == "regge"]
     s.filtro = s.oos = s.trades_is = s.trades_oos = None
@@ -3631,6 +3633,198 @@ def trova_strategia(s: Sessione, quanti: int = 8) -> pd.DataFrame:
             "questo.",
             adesso)
     _riga_prove(s, "nessuna (la situazione è già contata alla 3c)" if strada_b else f"{len(prove)} filtri")
+    return tabella
+
+
+# ========================================================================
+# 5b · La confidenza (04/11/2026, docs/80 lavoro 3, docs/81 §3)
+# ========================================================================
+
+_CONTESTI_IN_CHIARO = {"VOL_BASSA·TREND_CONTRO": "volatilità bassa, trend contro",
+                       "VOL_BASSA·TREND_FAVORE": "volatilità bassa, trend a favore",
+                       "VOL_ALTA·TREND_CONTRO": "volatilità alta, trend contro",
+                       "VOL_ALTA·TREND_FAVORE": "volatilità alta, trend a favore"}
+
+
+def _kw_due_meta(kw: dict) -> dict:
+    """Dei parametri del motore, quelli che due_meta riceve a parte."""
+    return {k: kw[k] for k in ("perc_sl", "perc_tp", "finestra", "lag", "spread",
+                               "commission", "cash", "spread_rollover_pips", "funding",
+                               "spread_passo_pips")     # 25/10/2026 (docs/71)
+            if k in kw}
+
+
+def _calibrazione_in_chiaro(s: Sessione, cal: pd.DataFrame) -> pd.DataFrame:
+    """La tabella di confidenza.report_calibrazione in parole del Lab: previsto e reale nell'unita' che decide."""
+    u = s.unita
+    tab = pd.DataFrame({"Lato": cal["lato"], "Contesto": cal["cella"].map(_CONTESTI_IN_CHIARO), "Trade": cal["trade"],
+                        f"Previsto per trade ({u})": cal[f"{u}_previsti"], f"Reale per trade ({u})": cal[f"{u}_reali"],
+                        "Vincenti previsti (%)": cal["win_rate_previsto"] * 100,
+                        "Vincenti reali (%)": cal["win_rate_reale"] * 100})
+    return tab.reset_index(drop=True)
+
+
+def _riscaldamento_confidenza(s: Sessione, esiti: pd.DataFrame, conf_long, conf_short) -> dict:
+    """
+    Quanti trade della storia nell'in-sample hanno una confidenza nota, e da quando, per lato (docs/81 §4,
+    domanda 3). min_obs resta 30: la riga avvisa se la data cade oltre la meta' dell'in-sample o se i trade
+    noti sono meno di MIN_TRADE_GIUDIZIO, senza bloccare.
+    """
+    n_is = int(s.df.index.searchsorted(s.df_oos.index[0]))
+    meta = s.df_is.index[len(s.df_is) // 2]
+    colonna = f"{s.unita}_medi"
+    tot, note, parti, tardi = 0, 0, [], False
+    for conf, lato, nome in ((conf_long, 1, "long"), (conf_short, -1, "short")):
+        if conf is None:
+            continue
+        pos = esiti.loc[(esiti["lato"] == lato) & (esiti["barra_segnale"] < n_is), "barra_segnale"].to_numpy(dtype=int)
+        noti = pos[~np.isnan(conf[colonna].to_numpy()[pos])]
+        tot += len(pos)
+        note += len(noti)
+        if len(noti):
+            primo = s.df.index[int(noti.min())]
+            parti.append(f"{nome} dal {primo.strftime('%d/%m/%Y')}")
+            tardi |= bool(primo > meta)
+        else:
+            parti.append(f"{nome} mai")
+            tardi = True
+    testo = f"Confidenza nota: {_fmt(note)} trade su {_fmt(tot)} dell'in-sample ({', '.join(parti)})."
+    return {"testo": testo, "note": note, "tot": tot, "tardi": tardi, "pochi": note < MIN_TRADE_GIUDIZIO}
+
+
+def _membri_soglia(riga: pd.Series) -> list[str]:
+    """I nomi registrati di una riga delle soglie: uno per lato attivo."""
+    return [n for n in (riga["filtro_long"], riga["filtro_short"]) if n not in ("—", None)]
+
+
+def confidenza_strategia(s: Sessione, usa: bool = False, filtro="") -> pd.DataFrame | None:
+    """
+    Schermata 5b, facoltativa: la confidenza dei segnali come ultimo filtro prima dell'out-of-sample, come
+    la 3.3 della ricerca. Prima di entrare si guarda come sono andati gli ultimi trade gia' chiusi nello
+    stesso contesto (volatilita' x trend); le soglie sono fisse, confidenza.SOGLIE_CONFIDENZA, in multipli
+    del costo.
+
+    usa      False (default): una riga e basta, nessun backtest e nessuna prova.
+    filtro   lo stesso che si portera' alla 6; vuoto = sistema base.
+
+    La storia viene dalla baseline del setup su tutta la serie, ma si mostra solo l'in-sample: l'out-of-sample
+    non si apre e il diario non cambia. Nella strada B si salta sempre (docs/66 §13). Ritorna la tabella
+    delle soglie, oppure None se non si e' misurato niente.
+    """
+    s._serve("fs", "5 · Trova la strategia")
+    s.conf = None
+    if _strada_b(s):
+        _nota("Hai scelto una situazione alla 3d: la confidenza si salta. La situazione è già una scelta di contesto "
+              "fatta guardando i dati, e la confidenza sarebbe una seconda scelta di contesto sopra la prima. "
+              "Nessuna prova in più: vai alla schermata 6.")
+        return None
+    if not usa:
+        _nota("Confidenza spenta: nessun calcolo e nessuna prova in più. Per accenderla spunta «usa_confidenza»; "
+              "altrimenti vai alla schermata 6.")
+        return None
+    _avviso_risalita(s, "rifare la confidenza")
+    scelti = _lista_filtri(s, filtro)
+    etichetta_filtro = " + ".join(scelti) if scelti else None
+    kw = _kw_motore(s)
+    commissione = s.fs.commission or 0.0
+    metrica = f"{s.unita}_medi"
+    with _zitto():
+        _, _, fs_ultimo, _ = _catena_filtri(s, scelti)
+        entry_long, entry_short = congela_filtro(fs_ultimo, scelti[-1] if scelti else None)
+        base = run_filter_search_bt(s.df, entry_long=entry_long, entry_short=entry_short,
+                                    exit_rule_pair=s.fs.exit_rule_pair, filtri=[], verbose=False, **kw)
+        esiti = esiti_trade(base.trades(), s.df, s.fs.pip_size, commissione, unita=s.unita)
+        conf_long = confidenza_rolling(s.df, esiti, 1, unita=s.unita) if entry_long else None
+        conf_short = confidenza_rolling(s.df, esiti, -1, unita=s.unita) if entry_short else None
+        costo = costo_andata_ritorno_bp(s.costi, s.df["Close"]) if s.unita == "bp" else None
+        filtri_conf = registra_filtro_confidenza(list(SOGLIE_CONFIDENZA), conf_long=conf_long, conf_short=conf_short,
+                                                 metrica=metrica, costo_bp=costo)
+        entry_long_nota, entry_short_nota = congela_confidenza_nota(entry_long, entry_short, conf_long, conf_short)
+    segnali = sum(int(reg.get_entry(n)(s.df_is).astype(bool).sum()) for n in (entry_long_nota, entry_short_nota) if n)
+    if not segnali:
+        _avviso("Nessun segnale con una confidenza nota nell'in-sample: servono almeno 30 trade già chiusi nello stesso "
+                "contesto. Non si è misurato niente: vai alla schermata 6 senza confidenza.")
+        return None
+    # senza cache delle maschere: la cache ricorda i filtri per nome, e queste soglie cambiano con il setup
+    with _zitto():
+        fs_conf = run_filter_search_bt(s.df_is, entry_long=entry_long_nota, entry_short=entry_short_nota,
+                                       filtri=filtri_conf, **_kw_filtri(s))
+    r = fs_conf.risultati
+    prove = r[r["filtro"] != BASELINE]
+    _rd.metti_prova(s.prove, "filtri", chiave_confidenza(_chiave_filtri(s), SOGLIE_CONFIDENZA, etichetta_filtro),
+                    len(prove))
+    if len(scelti) > 1:                 # la stessa voce che scrive la 6
+        n_prove = int((s.fs.risultati["filtro"] != BASELINE).sum())
+        _rd.metti_prova(s.prove, "combinazioni", (_chiave_filtri(s), len(scelti)), math.comb(n_prove, len(scelti)))
+    promossi = prove.loc[prove["esito"].isin([DA_VALUTARE, CAMPIONE_CORTO]), "filtro"].to_list()
+    verdetti, dm = {}, None
+    if promossi:
+        with _zitto():
+            dm = due_meta(s.df_is, fs_conf, [None, *promossi], verbose=False, **_kw_due_meta(kw))
+        verdetti = dm.tabella.set_index("filtro")["verdetto"].to_dict()
+    sopravvissute = [f for f in promossi if verdetti.get(f) == "regge"]
+    s.conf = SimpleNamespace(fs=fs_conf, dm=dm, fs_base=s.fs, filtri=list(scelti), entry_long=entry_long_nota,
+                             entry_short=entry_short_nota, esiti=esiti, conf_long=conf_long, conf_short=conf_short,
+                             sopravvissute=sopravvissute)
+
+    # --- la riga del riscaldamento ---------------------------------------
+    risc = _riscaldamento_confidenza(s, esiti, conf_long, conf_short)
+    s.tabelle["confidenza_riscaldamento"] = risc
+    _nota(risc["testo"])
+    if risc["tardi"] or risc["pochi"]:
+        _avviso("La confidenza ha bisogno di almeno 30 trade già chiusi in ogni contesto, per lato: "
+                + ("arriva oltre la metà dell'in-sample, e la prova delle due metà ha poco su cui lavorare. "
+                   if risc["tardi"] else "")
+                + (f"i trade con una confidenza nota sono meno di {MIN_TRADE_GIUDIZIO}. " if risc["pochi"] else "")
+                + "Con questo sistema i numeri qui sotto valgono poco.")
+
+    # --- le soglie --------------------------------------------------------
+    valori = soglie_confidenza(filtri_conf).set_index("filtro")["soglia"].to_dict()
+    base_r = r[r["filtro"] == BASELINE].iloc[0]
+    righe = [{"Soglia": "Il sistema con confidenza nota (nessuna soglia)", f"Vale ({s.unita})": np.nan,
+              "Trade": int(base_r["trades"]),
+              **_in_unita(s, "Guadagno medio netto per trade", base_r["avg_trade_netto"],
+                          base_r.get("avg_trade_netto_pips")),
+              f"Miglioramento ({s.unita})": np.nan, "Solidità del miglioramento": np.nan,
+              "Prima prova": "—", "Seconda prova (due metà)": "—"}]
+    ordine = sorted(prove.index, key=lambda i: filtri_conf.index(_membri_soglia(prove.loc[i])[0]))   # dalla piu' bassa
+    for _, x in prove.loc[ordine].iterrows():
+        nome = str(x["filtro"])
+        righe.append({"Soglia": nome, f"Vale ({s.unita})": valori[nome[:-2] if nome[-2:] in ("_L", "_S") else nome],
+                      "Trade": int(x["trades"]),
+                      **_in_unita(s, "Guadagno medio netto per trade", x["avg_trade_netto"],
+                                  x.get("avg_trade_netto_pips")),
+                      f"Miglioramento ({s.unita})": x["guadagno_pips"], "Solidità del miglioramento": x["t_guadagno"],
+                      "Prima prova": _prima_prova(x["esito"], x.get("motivo")),
+                      "Seconda prova (due metà)": _VERDETTO.get(verdetti.get(x["filtro"]), "—")})
+    tabella = pd.DataFrame(righe)
+    s.tabelle["confidenza"] = tabella
+    _mostra(("Le soglie di confidenza (in-sample, al netto dei costi)", tabella))
+    _nota(f"Asticella della prima prova, con {len(prove)} soglie: solidità del miglioramento di almeno "
+          f"{_fmt(float(fs_conf.soglia_rumore))}. Le soglie sono fisse: non si cambiano guardando questa tabella.")
+
+    # --- la calibrazione, solo in-sample ----------------------------------
+    # il trade a cavallo del confine ha il segnale nell'in-sample ma l'esito dipende dall'out-of-sample: fuori
+    n_is = int(s.df.index.searchsorted(s.df_oos.index[0]))
+    cal = report_calibrazione(esiti[esiti["barra_uscita"] < n_is], s.df, split=s.df_oos.index[0],
+                              conf_long=conf_long, conf_short=conf_short, unita=s.unita)
+    tab_cal = _calibrazione_in_chiaro(s, cal)
+    s.tabelle["confidenza_calibrazione"] = tab_cal
+    _mostra(("Quanto la confidenza prevedeva e quanto i trade hanno reso (in-sample)", tab_cal))
+
+    adesso = ("Scrivi una soglia che supera le due prove nel campo «soglia_confidenza» della schermata 6, con lo stesso "
+              "filtro di qui. Puoi anche lasciarlo vuoto: la confidenza è facoltativa." if sopravvissute else
+              "Nessuna soglia ha superato le due prove: alla schermata 6 lascia vuoto «soglia_confidenza», e si va "
+              "all'out-of-sample senza confidenza.")
+    _riquadro(
+        "Prima di entrare il sistema guarda com'è andato negli ultimi trade già chiusi nello stesso contesto di mercato: "
+        "volatilità alta o bassa, trend a favore o contro. Ogni riga è una soglia: si entra solo se in quel contesto "
+        "i trade passati hanno reso più di tanto.",
+        "Una soglia vale solo se supera le stesse due prove dei filtri: il miglioramento è più grande del caso e c'è in "
+        "entrambe le metà dello storico. Nella seconda tabella previsto e reale dovrebbero muoversi insieme: se vanno "
+        "ognuno per conto suo, la confidenza non sta distinguendo i contesti.",
+        adesso)
+    _riga_prove(s, f"{len(prove)} soglie della confidenza")
     return tabella
 
 
@@ -3843,6 +4037,12 @@ def chiave_filtri(trigger_long, trigger_short, uscite: dict, sistema=None) -> tu
     """La chiave di una ricerca dei filtri: casistiche, uscite e sistema."""
     return (tuple(trigger_long or ()), tuple(trigger_short or ()),
             tuple(sorted((k, str(v)) for k, v in uscite.items())), sistema or "Long + Short")
+
+
+def chiave_confidenza(chiave_base: tuple, soglie, filtro) -> tuple:
+    """La chiave delle soglie di confidenza (docs/76, D2): quella dei filtri, le soglie e il filtro congelato.
+    La stessa per la 3.3 della ricerca e la 5b del Lab (04/11/2026, docs/81 §3.4)."""
+    return (*chiave_base, ("confidenza", tuple(float(x) for x in soglie), filtro))
 
 
 def _soglia_da_conti(trigger: int, uscite: list, filtri: list, combinazioni: list, t: float,
@@ -4088,7 +4288,7 @@ def conta_filtri(storia, fs, casistiche_long, casistiche_short, H: int, sl, tp, 
     chiave = chiave_filtri(casistiche_long, casistiche_short, impostazioni_uscite(H, H, sl, tp, regola), sistema)
     if confidenza is not None:
         soglie, filtro = confidenza
-        chiave = (*chiave, ("confidenza", tuple(float(x) for x in soglie), filtro))
+        chiave = chiave_confidenza(chiave, soglie, filtro)
     _conta(storia, "filtri", chiave, int((fs.risultati["filtro"] != BASELINE).sum()))
 
 
@@ -4151,10 +4351,11 @@ def _chiave_uscite(s: Sessione) -> tuple:
 
 
 _NOMI_SCELTE = {"H": "orizzonte H", "trigger_long": "casistiche long", "trigger_short": "casistiche short",
-                "cella": "cella", "uscite": "uscite", "sistema": "sistema", "filtri": "filtri"}
+                "cella": "cella", "uscite": "uscite", "sistema": "sistema", "filtri": "filtri",
+                "confidenza": "soglia di confidenza"}
 
 
-def _diario_oos(s: Sessione, scelti: list) -> None:
+def _diario_oos(s: Sessione, scelti: list, soglia: str | None = None) -> None:
     """
     Scrive nel diario del dataset un'apertura dell'out-of-sample con le scelte di quel
     momento (25/10/2026, docs/68 §9). Dalla seconda apertura dice quante sono e quali
@@ -4167,6 +4368,8 @@ def _diario_oos(s: Sessione, scelti: list) -> None:
               "cella": (getattr(s, "cella_long", None), getattr(s, "cella_short", None)),
               "uscite": _chiave_uscite(s), "sistema": getattr(s, "sistema", None) or "Long + Short",
               "filtri": tuple(scelti)}
+    if soglia:          # 04/11/2026 (docs/81 §3.3): solo se c'e', i diari di prima restano validi
+        scelte["confidenza"] = soglia
     # 25/10/2026 (docs/70 §3.2): nello studio anche l'ultima barra out-of-sample di adesso, per il reset
     n = _rd.annota_oos(storia, scelte, oos_fino_al=s.df_oos.index[-1] if _nel_studio(storia) else None)
     _salva_studio(storia)
@@ -4178,7 +4381,8 @@ def _diario_oos(s: Sessione, scelti: list) -> None:
     if n > 1:
         prima = storia.diario[0]
         # 25/10/2026: confronto nella forma del JSON (un diario riletto dal giornale ha liste, non tuple)
-        cambiate = [_NOMI_SCELTE[k] for k in scelte if _rd.normale(prima.get(k)) != _rd.normale(scelte[k])]
+        cambiate = [_NOMI_SCELTE[k] for k in _NOMI_SCELTE if k in scelte or k in prima
+                    if _rd.normale(prima.get(k)) != _rd.normale(scelte.get(k))]
         _avviso(f"Out-of-sample già guardato {n} volte. "
                 + (f"Scelte cambiate dopo la prima volta: {', '.join(cambiate)}." if cambiate
                    else "Stesse scelte della prima volta.")
@@ -4186,7 +4390,32 @@ def _diario_oos(s: Sessione, scelti: list) -> None:
     s.tabelle["diario_oos"] = list(storia.diario)
 
 
-def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
+def _soglia_della_5b(s: Sessione, scelti: list, soglia) -> str | None:
+    """
+    La soglia scritta alla 6, controllata contro la 5b (docs/81 §3.3 e decisione 5): stessa ricerca dei filtri,
+    stesso filtro, e solo una soglia che ha superato le due prove. Vuoto = None, senza confidenza.
+    """
+    soglia = str(soglia).strip() if soglia is not None else ""
+    if not soglia:
+        return None
+    if _strada_b(s):
+        raise ValueError("Con una situazione scelta alla 3d la confidenza si salta: lascia vuoto «soglia_confidenza».")
+    c = getattr(s, "conf", None)
+    if c is None or c.fs_base is not s.fs:
+        raise ValueError("Manca la confidenza di questa strategia: esegui prima la 5b, dopo l'ultima schermata 5.")
+    if list(c.filtri) != list(scelti):
+        raise ValueError(f"Il filtro della 6 ({' + '.join(scelti) or 'nessuno'}) non è quello della 5b "
+                         f"({' + '.join(c.filtri) or 'nessuno'}): la confidenza è costruita su quel setup. "
+                         "Scrivi lo stesso filtro, oppure rifai la 5b.")
+    if soglia not in set(c.fs.risultati["filtro"]) or soglia == BASELINE:
+        raise ValueError(f"Soglia non trovata: {soglia}. Copia il nome dalla tabella della 5b.")
+    if soglia not in c.sopravvissute:
+        raise ValueError(f"La soglia {soglia} non ha superato le due prove della 5b: non va all'out-of-sample. "
+                         "Lascia vuoto «soglia_confidenza» per andare avanti senza confidenza.")
+    return soglia
+
+
+def scheda(s: Sessione, filtro=None, soglia_confidenza=None) -> pd.DataFrame:
     """
     Schermata 6. La scheda della strategia scelta: in-sample accanto alla
     prova out-of-sample (stesso setup, rieseguito sui dati mai visti), e
@@ -4196,12 +4425,15 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
              da virgola (o una lista): si entra solo dove sono veri TUTTI.
              None o vuoto = sistema base; con una situazione scelta alla 3d
              (strada B) = il segnale dentro la situazione (28/10/2026, docs/76, B1).
+    soglia_confidenza  il nome di una soglia della 5b che ha superato le due prove
+             (docs/81 §3.3), con lo stesso filtro della 5b. Vuoto = senza confidenza.
 
     Con piu' filtri mostra anche la tabella dei passi (base, + primo filtro,
     + secondo ...). Ritorna la tabella della scheda.
     """
     s._serve("fs", "5 · Trova la strategia")
     scelti = _lista_filtri(s, filtro)
+    soglia = _soglia_della_5b(s, scelti, soglia_confidenza)
     if not scelti and _strada_b(s):
         # 28/10/2026 (docs/76, B1): con una situazione scelta il predefinito e' il segnale dentro la situazione,
         # coerente con le uscite della 4 (costruite cosi'); prima era il segnale da solo
@@ -4213,13 +4445,24 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
     kw["margin"] = 1.0
     with _zitto():
         entry_long, entry_short, fs_ultimo, passi = _catena_filtri(s, scelti)
-        s.oos = run_filter_search_bt(
-            s.df_oos, entry_long=entry_long, entry_short=entry_short,
-            exit_rule_pair=s.fs.exit_rule_pair,
-            filtri=_membri_filtro(s, ultimo) if ultimo else [],
-            min_trades=s.fs.min_trades, verbose=False,
-            cache_maschere=_cache_maschere(s, "oos"), **kw)
-        tr_is, tr_oos = fs_ultimo.trades(ultimo), s.oos.trades(ultimo)
+        if soglia:
+            # 04/11/2026 (docs/81 §3.3): la soglia sulle entry a confidenza nota, come la 4.2 della ricerca.
+            # Senza cache delle maschere: la cache ricorda i filtri per nome, le soglie cambiano con il setup
+            riga_soglia = s.conf.fs.risultati.set_index("filtro").loc[soglia]
+            membri_soglia = _membri_soglia(riga_soglia)
+            s.oos = run_filter_search_bt(
+                s.df_oos, entry_long=s.conf.entry_long, entry_short=s.conf.entry_short,
+                exit_rule_pair=s.fs.exit_rule_pair, filtri=membri_soglia,
+                min_trades=s.fs.min_trades, verbose=False, **kw)
+            tr_is, tr_oos = s.conf.fs.trades(soglia), s.oos.trades(soglia)
+        else:
+            s.oos = run_filter_search_bt(
+                s.df_oos, entry_long=entry_long, entry_short=entry_short,
+                exit_rule_pair=s.fs.exit_rule_pair,
+                filtri=_membri_filtro(s, ultimo) if ultimo else [],
+                min_trades=s.fs.min_trades, verbose=False,
+                cache_maschere=_cache_maschere(s, "oos"), **kw)
+            tr_is, tr_oos = fs_ultimo.trades(ultimo), s.oos.trades(ultimo)
         k_is = scheda_strategia(tr_is, s.fs.pip_size, s.fs.commission or 0.0,
                                 montecarlo=False, verbose=False, atr=s.atr, unita=s.unita)
         k_oos = scheda_strategia(tr_oos, s.fs.pip_size, s.fs.commission or 0.0,
@@ -4231,10 +4474,12 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
                                  atr=s.atr, unita=s.unita)
                 if tr_fr is not None and len(tr_fr) and len(fresco["barre"]) else None)
     s.filtri_scelti = scelti
-    s.filtro = " + ".join(scelti) if scelti else None
+    s.filtro = " + ".join([*scelti, *([soglia] if soglia else [])]) or None
+    # 04/11/2026 (docs/81 §3.5): la soglia per lato, per il ricalcolo delle condizioni delle schermate 8a e 8b
+    s.soglia_scelta = ({"long": riga_soglia["filtro_long"], "short": riga_soglia["filtro_short"]} if soglia else None)
     s.trades_is, s.trades_oos = tr_is, tr_oos
     s.mm = None                     # 16/10/2026: la schermata 7 va rifatta sulla scheda nuova
-    _diario_oos(s, scelti)          # 25/10/2026 (docs/68 §9): ogni apertura dell'out-of-sample
+    _diario_oos(s, scelti, soglia)  # 25/10/2026 (docs/68 §9): ogni apertura dell'out-of-sample
 
     if len(scelti) > 1:
         tab_passi = pd.DataFrame(passi)
@@ -4288,6 +4533,24 @@ def scheda(s: Sessione, filtro=None) -> pd.DataFrame:
         plt.show()
     else:
         _nota("Nessun trade nel periodo out-of-sample: non c'è un'equity da disegnare.")
+
+    s.tabelle.pop("oos_confidenza", None)
+    s.tabelle.pop("confidenza_calibrazione_oos", None)
+    if soglia:
+        # 04/11/2026 (docs/81 §3.3): la curva con e senza confidenza e la calibrazione dell'out-of-sample,
+        # dentro questa stessa apertura del diario
+        c = s.conf
+        import matplotlib.pyplot as plt
+        _, tab_conf = plot_oos_confidenza(s.oos.trades(), tr_oos, s.fs.pip_size, s.fs.commission or 0.0,
+                                          etichetta_con=soglia, unita=s.unita)
+        plt.show()
+        cal_oos = report_calibrazione(c.esiti, s.df, split=s.df_oos.index[0], conf_long=c.conf_long,
+                                      conf_short=c.conf_short, mostra_oos=True, unita=s.unita)
+        tab_cal_oos = _calibrazione_in_chiaro(s, cal_oos[cal_oos["parte"] == "OOS"])
+        s.tabelle["oos_confidenza"] = tab_conf
+        s.tabelle["confidenza_calibrazione_oos"] = tab_cal_oos
+        _mostra(("Out-of-sample con e senza la confidenza (senza = i segnali a confidenza nota, senza soglia)", tab_conf),
+                ("Quanto la confidenza prevedeva e quanto i trade hanno reso (out-of-sample)", tab_cal_oos))
 
     _riquadro(
         "La stessa strategia su due periodi: a sinistra i dati su cui l'hai costruita, a destra quelli che non "

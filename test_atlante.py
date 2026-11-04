@@ -31,8 +31,8 @@ import numpy as np
 import pandas as pd
 
 from engine import registry as reg
-from engine.confidenza import asse_volatilita, cella_contesto
-from engine.indicatori import (SESSIONI_ATLANTE, barre_per_durata,
+from engine.confidenza import asse_volatilita, cella_contesto, gap_trend
+from engine.indicatori import (SESSIONI_ATLANTE, barre_mediana, barre_per_durata,
                                cella_vol_trend, sessione_ingresso, trend_durata,
                                volatilita_durata)
 from engine.livelli import GIORNATA_UTC, imposta_giornata, svuota_cache
@@ -109,25 +109,38 @@ def esegui() -> int:
 
     check("1. su M15 volatilita_durata = confidenza.asse_volatilita(20, 500), bit per bit",
           volatilita_durata(df).equals(asse_volatilita(df, 20, 500)))
-    check("2. su M15 cella_vol_trend = confidenza.cella_contesto, bit per bit, sui due lati",
-          cella_vol_trend(df, 1).equals(cella_contesto(df, 1))
-          and cella_vol_trend(df, -1).equals(cella_contesto(df, -1)))
+    # 04/11/2026 (docs/81 §1): cella_contesto ora E' cella_vol_trend, quindi il riferimento e' la formula
+    # di prima, congelata qui: asse_volatilita(20, 500) piu' il trend con la mediana a 500 barre
+    def _cella_vecchia(d, direzione):
+        al = gap_trend(d) * direzione
+        med = al.rolling(500, min_periods=500).median()
+        tr = (al > med).astype(float).where(med.notna() & al.notna())
+        return (2 * asse_volatilita(d, 20, 500) + tr).rename("cella")
+
+    check("2. su M15 cella_vol_trend = la formula di prima di confidenza.py, bit per bit, sui due lati",
+          cella_vol_trend(df, 1).equals(_cella_vecchia(df, 1))
+          and cella_vol_trend(df, -1).equals(_cella_vecchia(df, -1))
+          and cella_contesto(df, 1).equals(cella_vol_trend(df, 1)))
 
     attese = {5: (60, 1500), 15: (20, 500), 30: (20, 250), 60: (20, 125), 240: (20, 31)}
     trovate = {m: (barre_per_durata(_indice(giorni=3, minuti=m), 5),
                    barre_per_durata(_indice(giorni=3, minuti=m), 125)) for m in attese}
     check("3. durate in barre con almeno 20 rendimenti: M5 60/1500, M15 20/500, M30 20/250, "
           "H1 20/125, H4 20/31", trovate == attese, str(trovate))
+    attese_med = {5: 1500, 15: 500, 30: 250, 60: 125, 240: 210, 1440: 150}
+    trovate_med = {m: barre_mediana(_indice(giorni=30, minuti=m)) for m in attese_med}
+    check("3b. mediana dei due assi, il maggiore fra 125 ore e 5 periodi di ancora (docs/81 §2.3): "
+          "uguale fino a H1, H4 5 settimane, D1 5 mesi da 30 giorni", trovate_med == attese_med, str(trovate_med))
 
     idx_h4 = _indice(giorni=400, minuti=240)
     d4 = Mercato(idx_h4, seme=2).df()
     r = np.log(d4["Close"] / d4["Close"].shift(1)) * 100
     dev = r.rolling(20).std()
-    med = dev.rolling(31, min_periods=31).quantile(0.5)
+    med = dev.rolling(210, min_periods=210).quantile(0.5)
     atteso = pd.Series(np.where(dev > med, 1.0, 0.0), index=d4.index).where(med.notna())
     v4 = volatilita_durata(d4)
-    check("4. su H4 la deviazione usa 20 rendimenti (non 1,25) e la mediana 31 barre",
-          v4.equals(atteso.rename("vol")) and int(v4.isna().sum()) == 20 + 31 - 1,
+    check("4. su H4 la deviazione usa 20 rendimenti (non 1,25) e la mediana 210 barre (5 settimane)",
+          v4.equals(atteso.rename("vol")) and int(v4.isna().sum()) == 20 + 210 - 1,
           f"NaN iniziali {int(v4.isna().sum())}")
 
     ds = M.df(spot=True)

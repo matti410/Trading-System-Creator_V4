@@ -1,16 +1,15 @@
 # 00 · Scopo del progetto e stato attuale
 
-**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 28 ottobre 2026 (dopo il Lab più
-chiaro e la mappa delle anomalie, `73`, PR #77–#78, #82 e la successiva).
+**Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 4 novembre 2026 (dopo il catalogo
+dei trigger intraday, `79`, PR #97, e con la confidenza in ore e la 5b del Lab, `81`).
 Questo file è solo lo **stato attuale**, in 1–2 pagine. Riferimenti completi e
 storia (regole del metodo passo per passo, moduli e firme, catalogo, «Cosa
 manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10)
 stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede.
 
-**Incarico in corso (02/11/2026): `78`**, il catalogo dei trigger intraday più grande (7 idee, fino a 14 trigger,
-per il ML che legge i dizionari di V4). Proposta in `79`, solo testo: in attesa della revisione e del via di Mattia,
-idea per idea. Via il 02/11 (`79` §5); codice sul ramo `catalogo-trigger-intraday` (PR #97, in bozza): 12 trigger
-nuovi E46–E52 (E50 spento come doppione di E3), collaudo in `test_trigger_intraday.py`.
+**Incarico in corso (04/11/2026): `80`**, la confidenza in ore, l'ancora per timeframe e la cella 5b del Lab. Proposta,
+decisioni di Mattia e resoconto in `81`; codice sul ramo `confidenza-ore-e-lab`. Il catalogo dei trigger intraday (`78`,
+`79`) è unito (PR #97): 12 trigger nuovi E46–E52, E50 spento come doppione di E3.
 
 ## Il progetto
 
@@ -55,7 +54,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 | 2 | ingressi (la rosa li suggerisce) | event study, `rosa_entry` · Lab 3a–3b |
 | 3 | uscite; stop e target adattivi, mai ottimizzati | `exit_search_bt`, `rosa_sistemi` · Lab 4–4b |
 | 4 | giudizio: il tool automatizza solo la bocciatura | `giudizio.py` |
-| 5 | filtri, un'idea alla volta, tenuti contro scartati, due metà | `filter_search_bt`, `due_meta`, `confidenza` · Lab 5 |
+| 5 | filtri, un'idea alla volta, tenuti contro scartati, due metà | `filter_search_bt`, `due_meta`, `confidenza` · Lab 5 e 5b |
 | 6 | out-of-sample, aperto una volta sola | Sessione 4 · Lab 6 |
 | 7 | Monte Carlo, money management (calibrato sull'in-sample) | `montecarlo`, `money_management` · Lab 7 e 9 |
 
@@ -134,10 +133,19 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
   Le prove d'identità che mostrano risultati con chiavi nuove (un trigger nuovo, un H mai provato sul dataset,
   un atlante con trigger in più) si fanno sullo **studio vero**, mai su una copia. Su una copia solo i giri che
   mostrano chiavi già contate.
+- **La griglia volatilità × trend** (`81`, 04/11/2026), una sola per la confidenza e per l'atlante
+  (`indicatori.cella_vol_trend`). Finestre in ore: 5 ore la deviazione, almeno 20 barre; la mediana dei due assi copre il
+  maggiore fra 125 ore e 5 periodi di ancora. VWAP e regressione di `gap_trend` ripartono dal periodo più corto con almeno
+  20 barre: fino a H1 la giornata, su H4 la settimana (lunedì 00:00 UTC), su D1 il mese. Su M15 tutto come prima, al bit;
+  su M5, M30 e H1 cambia la confidenza; su H4 la confidenza e l'atlante. D1 non si apre nel Lab.
+- **La confidenza nel Lab, schermata 5b** (`81`): facoltativa, spenta di default (nessun calcolo, nessuna prova), saltata
+  nella strada B. Soglie fisse `SOGLIE_CONFIDENZA` (0, 0,5 e 0,8 volte il costo), le stesse della 3.3 con la stessa chiave
+  del conto. Solo in-sample; alla 6 si scrive una soglia che supera le due prove, con lo stesso filtro della 5b, e la scheda
+  mostra anche la curva out-of-sample con e senza confidenza. Le schermate 7, 8 e 9 ricevono i trade con la confidenza.
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 47 suite, 3 alla volta, circa 20 minuti; alla fine deve stampare
+  --tutte`, 50 suite, 3 alla volta, circa 23 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 143 condizioni (85 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 65 prove (+12 dei trigger intraday E46–E52, 02/11, `79`), dalla mappa 2 (E45,
