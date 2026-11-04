@@ -6,7 +6,7 @@ BINANCE_PERP_BTCUSDT (02/01/2020–15/06/2025, H1, H4 e D1 ricavate dalle M15): 
 Nessun segnale, nessun rendimento guardato, niente scritto nello studio: nessuna prova in più.
 
 **Indice:** §0 In breve · §1 Lavoro 1 · §2 Lavoro 2 · §3 Lavoro 3 · §4 Le domande dell'incarico · §5 Collaudo e prove
-d'identità · §6 Commit · §7 Decisioni di Mattia
+d'identità · §6 Commit · §7 Decisioni di Mattia · §8 Resoconto (*resoconto*)
 
 ## §0 · In breve
 
@@ -271,3 +271,79 @@ Esiti del 04/11/2026.
 | 7 | Primo giro vero con la 5b accesa | lo lancia Mattia, io solo i test sintetici | ok |
 | 8 | La cella 5b spenta di default | sì: non conta prove se non la vuoi | ok |
 | 9 | Domande 1–4 dell'incarico | come al §4 | ok |
+
+## §8 · Resoconto (*resoconto*, 04/11/2026)
+
+**File:** `engine/indicatori.py` (`regola_ancora`, `periodo_ancora`, `barre_mediana`), `engine/confidenza.py`
+(`SOGLIE_CONFIDENZA`, griglia in ore), `engine/vetrina.py` (`confidenza_strategia`, `soglia_confidenza` alla 6,
+`chiave_confidenza`), `engine/vetrina_verifica.py`, Lab (celle 5b e 6), ricerca (celle 9, 59, 72), test.
+
+**La tabella del §2.3 con la regola nuova.** Quota di «trend a favore» del long per terzo del periodo, in-sample dello
+studio di BINANCE_PERP_BTCUSDT, H1, H4 e D1 ricavate dalle M15. Collaudo, nessun segnale e nessun rendimento.
+
+| timeframe, ancora, mediana | primo terzo | secondo | ultimo | prima: primo / secondo / ultimo |
+|---|---|---|---|---|
+| M15, giornata, 500 barre | 48,3% | 49,7% | 51,0% | identico |
+| H1, giornata, 125 barre | 47,7% | 49,3% | 50,9% | non misurato; le finestre sono le stesse |
+| H4, settimana, 210 barre | 46,6% | 52,7% | 51,5% | 45,4 / 51,2 / 50,1 |
+| D1, mese, 150 barre | 48,0% | 54,2% | 53,5% | 47,1 / 55,8 / 53,2 |
+
+Stessa avvertenza di prima: gli stati sono lunghi e il dataset è uno solo, quindi i casi indipendenti sono pochi. La
+tabella dice com'è fatto l'asse, non misura un effetto.
+
+| timeframe | durata media dello stato (vol / trend) | prima cella | quota dell'in-sample |
+|---|---|---|---|
+| M15 | 6,1 / 6,9 ore | barra 519, 5,4 giorni | 0,3% |
+| H1 | 18,6 / 9,4 ore | barra 144, 6,0 giorni | 0,3% |
+| H4 | 84 / 66 ore | barra 229, 38 giorni | 1,9% |
+| D1 | 17 / 13 giorni | barra 169, 169 giorni | 8,5% |
+
+**Cosa cambia, per chi legge i numeri:**
+
+- **M15:** niente, identico al bit.
+- **M5, M30, H1:** la confidenza, che prima usava 20 e 500 barre a qualunque timeframe. L'atlante no: era già in ore.
+- **H4:** la confidenza e l'asse volatilità × trend dell'atlante, per l'ancora e per la mediana. L'asse sessione no.
+- **D1:** lo stesso di H4, ma solo nelle funzioni: il Lab non lo apre.
+- **Lo studio:** nessuna voce cambia significato. Non ci sono dataset H4 o D1, e la confidenza è contata solo su dataset M15.
+
+**Collaudo:** `test_confidenza.py` 99/99, `test_atlante.py` 43/43, `test_conto_ricerca.py` 32/32, `test_giornata_utc.py`
+25/25; `python suite_rapida.py --tutte` «SUITE COMPLETA: 50/50». Due limiti delle prove della 6 con una soglia: sul mercato
+finto si dichiara a mano che la soglia ha superato le due prove, perché qui conta il percorso e non i numeri; e la 5b accesa
+ha girato solo su dati sintetici (decisione 7).
+
+**Prove d'identità, main (`fed5645`) contro il ramo, 5b spenta, a parità di barre:**
+
+| giro | oggetti identici | testi delle celle identici | giornali identici |
+|---|---|---|---|
+| Lab, BINANCE_PERP_BTCUSDT M15, H 41 | 1.134 su 1.134 | 16 su 17 | 11 su 11 |
+| ricerca, BINANCE_PERP_BTCUSDT M15, H 25 | 1.365 su 1.365 | 53 su 54 | 11 su 11 |
+| Lab, BYBIT_SPOT_ETHUSDT M15, H 41 | 575 su 575 | 16 su 17 | 11 su 11 |
+| ricerca, BYBIT_SPOT_ETHUSDT M15, H 25 | 715 su 715 | 53 su 54 | 11 su 11 |
+
+- **Le differenze:** il testo diverso è quello della cella di avvio, che segnala un file più recente in `dati/`: c'è nella
+  cartella del ramo e non nell'albero temporaneo di main. In più, solo nel ramo: `s.conf`, `s.soglia_scelta`, i due campi
+  nuovi del Lab e il testo della 5b spenta. Nella ricerca `SOGLIE_CONF` cambia solo tipo (da lista a tupla), con gli stessi valori.
+- **Tolti dal confronto:** le date delle voci dei giornali, il trade a caso della lente (fissato al numero 1), e il traceback
+  dell'8b. L'8b si ferma sulle due versioni perché nell'ambiente di prova manca `nbformat`, alla fine, dopo aver riempito la
+  sua tabella: il disegno interattivo della lente, quindi, non è stato eseguito.
+- **Differenza dal §5, da decidere:** il §5 diceva «sullo studio vero» per le chiavi non ancora contate, e un giro completo
+  tocca E46–E52, che nel conto non ci sono. I giri sono stati fatti su una **copia** dello studio e scrivono solo impronte
+  (hash): nessun numero è stato stampato o letto, quindi nessun risultato visto e nessuna prova da contare (`00`, «una prova
+  conta da quando se ne vede il risultato»). Lo studio vero è rimasto intatto (controllato prima e dopo, file per file).
+  La scelta è stata mia, per non scrivere prove irreversibili nello studio senza che nessuno le guardasse.
+
+**Come si lancia la 5b.** Apri `Trading_System_Lab_Crypto.ipynb` ed esegui le celle in ordine fino alla 5.
+
+1. **Alla 5b, spenta:** premi ▶. Devi vedere una riga sola, «Confidenza spenta: nessun calcolo e nessuna prova in più».
+2. **Alla 5b, accesa:** spunta `usa_confidenza`, scrivi in `filtro` il filtro che porterai alla 6 (vuoto = sistema base) e
+   premi ▶. Devi vedere, in ordine:
+   - la riga «Confidenza nota: n trade su m dell'in-sample», più un riquadro arancione se la confidenza arriva tardi o se i
+     trade noti sono meno di 100;
+   - la tabella con una prima riga senza soglia e le tre soglie 0C, 0.5C e 0.8C;
+   - la tabella «Quanto la confidenza prevedeva e quanto i trade hanno reso (in-sample)»;
+   - la riga delle prove, «questa schermata: 3 soglie della confidenza». Rifatta uguale, il conto non sale.
+3. **Alla 6:** se una soglia ha «regge» nella seconda prova, copiane il nome in `soglia_confidenza`, con lo stesso `filtro`.
+   Oltre alla scheda, devi vedere il grafico con le due curve e le tabelle con e senza confidenza. Se nessuna regge, lascia
+   vuoto: una soglia bocciata viene rifiutata con un messaggio.
+
+Con la 5b accesa il conto dello studio sale fino a 3 prove; con la 6 si scrive un'apertura del diario.

@@ -347,7 +347,7 @@ del mercato. Le celle, per lato, con assi non incrociati fra loro:
 
 | asse | celle | stato |
 |---|---|---|
-| volatilità × trend | 4: volatilità alta/bassa × trend a favore/contro | la griglia di `confidenza.py`, con finestre in ore (5 e 125, almeno 20 rendimenti; su M15 = 20 e 500 barre) |
+| volatilità × trend | 4: volatilità alta/bassa × trend a favore/contro | la griglia di `confidenza.py`, con finestre in ore (5 la deviazione, la mediana il maggiore fra 125 ore e 5 periodi di ancora, almeno 20 rendimenti; su M15 = 20 e 500 barre, su H4 = 20 e 210; `81` §2.3). VWAP e regressione ripartono dal periodo più corto con almeno 20 barre: fino a H1 la giornata, su H4 la settimana, su D1 il mese |
 | sessione | 4: ASIA_NOTTE (e fine settimana), EUROPA, LONDRA_NY, AMERICA | la barra d'ingresso (i+1), ora locale di Londra e New York con l'ora legale |
 
 L'asse **basis** (2 celle sui perpetual con lo spot) è stato tolto il 29/10/2026 (`77`, lavoro 1):
