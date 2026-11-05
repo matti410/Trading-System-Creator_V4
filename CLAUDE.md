@@ -27,6 +27,8 @@ di cambiare asset se non richiesti.
   - riferimenti e storia (metodo passo per passo, moduli, «Cosa manca») →
     docs/00_ARCHIVIO.md.
 - I resoconti delle fasi chiuse (segnati *resoconto* negli indici) non si rileggono.
+- Le proposte delle fasi chiuse 71, 73, 79, 81 stanno in docs/archivio/: un rimando come
+  «docs/81», anche nel codice, vale per quella cartella.
 - Se un incarico elenca cosa leggere, si legge solo quello.
 
 ## Lavori piccoli e grandi
@@ -101,7 +103,7 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   guidato, dati da exchange) e Trading_Grid_Search_v4_backtesting.ipynb (ricerca, usato sui
   symbol da exchange). Ogni modifica a dati, symbol, costi, pip, fuso, capitale, lotti o leva
   fatta in uno va portata nell'altro.
-- Sospeso dal 20/10/2026: Trading_System_Lab.ipynb (broker CFD). Non si aggiorna e non si
+- Sospeso dal 20/10/2026: archivio/Trading_System_Lab.ipynb (broker CFD). Non si aggiorna e non si
   collauda; in testa ha la riga «sospeso dal 20/10/2026, non mantenuto». Non va cancellato.
 - I Lab non hanno codice nelle celle: chiamano le funzioni di engine/vetrina.py. Allineare
   vuol dire di solito modificare vetrina.py. Dati e costi si leggono con carica_storico e

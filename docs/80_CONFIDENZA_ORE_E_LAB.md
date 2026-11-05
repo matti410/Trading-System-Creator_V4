@@ -1,7 +1,7 @@
 # 80 · Confidenza in ore, ancora per timeframe, cella nel Lab
 
 **Repo:** Trading-System-Creator_V4 (`main · fed5645`). **Tipo:** lavoro grande → prima la proposta in
-`docs/81_PROPOSTA_CONFIDENZA_ORE_E_LAB.md`, nessun codice prima del via di Mattia.
+`docs/archivio/81_PROPOSTA_CONFIDENZA_ORE_E_LAB.md`, nessun codice prima del via di Mattia.
 **Da leggere:** `CLAUDE.md`, `docs/00`; `engine/confidenza.py`; `engine/indicatori.py` (blocco «DURATE in ore»,
 `barre_per_durata`, `cella_vol_trend`); `engine/livelli.py` (`giorno_fx`); `engine/vetrina.py` (righe che usano
 `congela_filtro` e la chiave `confidenza`, D2 di `docs/76`); cella 70 di `Trading_Grid_Search_v4_backtesting.ipynb`

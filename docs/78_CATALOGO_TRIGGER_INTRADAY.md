@@ -5,7 +5,7 @@ corta che viene dalla ricerca del revisore.
 
 **Flusso:**
 1. il revisore fa la scoperta delle fonti e la lista corta (§5);
-2. tu scrivi la proposta in testo in `docs/79_PROPOSTA_CATALOGO_TRIGGER.md`, senza codice;
+2. tu scrivi la proposta in testo in `docs/archivio/79_PROPOSTA_CATALOGO_TRIGGER.md`, senza codice;
 3. revisione;
 4. via di Mattia, idea per idea;
 5. codice su un ramo, con il collaudo di `50` §7, poi PR;
