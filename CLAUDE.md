@@ -43,6 +43,7 @@ poi il codice. La proposta in docs (studio, domande, decisioni) resta per i lavo
 5. Aggiorna il registro (docs/50 §10) con le "prove" aggiunte.
 Parametri fissati a priori, mai ottimizzati sui dati. Provare più symbol serve a VERIFICARE
 la condizione, non a ritoccare i parametri per ogni symbol.
+Eccezione: in engine/fabbrica/ i parametri si ottimizzano (docs/81_FABBRICA).
 Se scegli quale condizione tenere in base ai risultati per symbol, conta come prova in più.
 In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 (docs/50 §9.2) vale solo per le consegne in chat.
