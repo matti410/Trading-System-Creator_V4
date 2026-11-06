@@ -16,7 +16,7 @@ La fabbrica prende uno spazio di ricerca deciso prima di guardare i dati, prova 
 - **Che cosa decide:** il **test individuale**, cioè il t netto della strategia contro la soglia per una prova sola (1,96), in selezione e in cassaforte.
 - **Il conto delle prove** della fabbrica e la soglia che gli corrisponde stanno sulla scheda, solo da leggere.
 - **La fabbrica è separata dal Lab:** non legge e non scrive il conto del Lab né il diario dello studio. Ha solo il suo registro.
-- **La cassaforte:** le strategie si congelano e si scrivono nel registro prima di leggere una barra. Ogni strategia entra una volta sola; strategie nuove possono entrare, e il registro tiene quante sono entrate.
+- **La cassaforte:** le strategie si congelano e si scrivono nel registro prima di leggere una barra. Ogni strategia entra una volta per tratto di cassaforte; strategie nuove possono entrare, e il registro tiene quante sono entrate in ogni tratto.
 
 BINANCE_PERP_BTCUSDT M15 serve a costruire e collaudare la pipeline: i suoi risultati sono collaudo, non verdetto.
 
@@ -64,7 +64,7 @@ Nessun pacchetto nuovo da installare: numpy, pandas, numba e TA-Lib ci sono già
 
 ### P1 · I dati in tre pezzi
 
-**Come si fa.** Una ricerca lavora su un solo asset, symbol e timeframe scelti nella config. I confini sono date fisse nella config, le stesse su ogni asset:
+**Come si fa.** Una ricerca lavora su un solo asset, symbol e timeframe scelti nella config. I confini stanno nella config come una data di inizio e tre durate (§6), le stesse su ogni asset. La prima finestra è:
 
 | pezzo | da | a | barre BTC perp M15 (circa) | quota |
 |---|---|---|---|---|
@@ -72,7 +72,7 @@ Nessun pacchetto nuovo da installare: numpy, pandas, numba e TA-Lib ci sono già
 | selezione | 01/07/2023 | 15/06/2025 17:30 | 68.700 | 29% |
 | cassaforte | dopo il 15/06/2025 17:30 | 19/10/2026 13:00 (ultima barra comune a tutti i symbol) | 47.200 | 20% |
 
-- Il 15/06/2025 17:30 coincide con il confine dello studio, ma è scritto nella config: la fabbrica non legge i file dello studio.
+- Il 15/06/2025 17:30 coincide con il confine dello studio, ma nasce dalla config: la fabbrica non legge i file dello studio.
 - La scelta del 30/06/2023 è solo una proporzione circa 64/36 fra ricerca e selezione, decisa senza guardare i risultati.
 - Le barre dopo la data finale restano fuori dalla ricerca.
 - **Finestra scorrevole** (decisione di Mattia, 06/11; il codice è di L3): ricerca, selezione e cassaforte hanno durata fissa (nella config) e si spostano in avanti insieme. Uno spostamento è ammesso solo se la nuova cassaforte è fatta di barre mai usate come cassaforte per quell'asset (spostamento ≥ durata della cassaforte); altrimenti la config si ferma con un errore. Ogni tratto di cassaforte ha il suo conto delle strategie entrate.
@@ -124,7 +124,7 @@ per i blocchi parametrici è dichiarata nel blocco e controllata sui valori cent
 Scelti **per meccanismo diverso, senza guardare i risultati**. Tenuti fuori di proposito i trigger che `74` §2 segna come già visti in cima alla rosa (E21, E39) e quello nato da una scheda della mappa (E45).
 Il meccanismo qui sotto l'ho **dedotto dai nomi** (non ho letto le condizioni): si conferma in L2, insieme al controllo con `famiglie.py` che non siano doppioni, che guarda solo i segnali e non conta prove.
 
-Intervalli in **ore**, convertiti in barre secondo il timeframe: niente costanti da M15. Un valore che su quel timeframe non fa un numero intero di barre si scarta prima del lancio. Solo prezzo e volume, niente funding né basis come segnale (`77`).
+Intervalli in **ore**, convertiti in barre secondo il timeframe: niente costanti da M15. Un valore che su quel timeframe non fa un numero intero di barre si ferma con un errore. Solo prezzo e volume, niente funding né basis come segnale (`77`).
 
 | tipo | blocco | meccanismo | parametri (valori del passo 1) |
 |---|---|---|---|
@@ -144,7 +144,7 @@ Intervalli in **ore**, convertiti in barre secondo il timeframe: niente costanti
 | filtro, nuovo | ATR breve / ATR lungo sopra soglia | volatilità relativa | breve 2, 4 ore; lungo 24, 48, 96 ore; soglia 0,8, 1, 1,2, 1,5 |
 | uscita, catalogo | X0 (nessuna regola), MACD_CROSS (X3), CYCLE_TURN (X1) | — | i tre parametri qui sotto |
 
-**Parametri di ogni uscita:** dopo quante ore si esce (1, 2, 4, 8, come `77`); percentile dello stop adattivo (70, 80, 90, 95); target spento o al 90.
+**Parametri di ogni uscita:** dopo quante ore si esce (1, 2, 4, 8, come `77`); percentile dello stop adattivo (70, 80, 90, 95); target spento o al 90. La finestra delle soglie adattive è di **125 ore** (le 500 barre su M15).
 
 **Si riusa.** I dizionari del catalogo tramite `registry`; `aggiungi_indicatori`; `exit_search_bt.soglie_adattive` con `lag` ≥ 1 (`motore_veloce.controlla_lag`); `collaudo_catalogo.verifica_lookahead` e `verifica_degenerazione`.
 
@@ -255,9 +255,9 @@ Il conto **non decide**: nessun esito dipende da k.
 **Come si fa.**
 - Si scelgono le strategie che entrano, fra quelle rimaste dopo la selezione. L'elenco si congela e si scrive nel registro **prima** di leggere una sola barra.
 - Si valutano sulla cassaforte con il motore completo. **Decide il test individuale:** t netto sulla cassaforte ≥ **1,96**. L'esito si aggiunge al registro; si tiene la scheda di tutte.
-- **Ogni strategia entra una volta sola.** Una strategia già entrata su quell'asset non rientra: si ferma con un errore. L'identità di una strategia è un'impronta di symbol, timeframe, lato, blocchi e valori in barre, quindi **un parametro cambiato è una strategia nuova**.
-- **Strategie nuove possono entrare**, anche da ricerche successive. Il registro tiene quante strategie sono entrate in quella cassaforte: è un numero da leggere, sulla schermata 5 e sulla scheda, e non decide.
-- Il registro dice data, id della ricerca, impronta della config, strategie, esito, strategie entrate fino a quel momento. Non si modifica a mano: ogni riga contiene l'impronta della riga prima, e se la catena è rotta tutto si ferma con un errore.
+- **Una strategia entra una volta per tratto di cassaforte.** Nello stesso tratto non rientra mai: si ferma con un errore. In un tratto nuovo (finestra scorsa, P1) può entrare. Il tratto è identificato da symbol, timeframe, inizio e fine della cassaforte. L'identità di una strategia è un'impronta di symbol, timeframe, lato, blocchi e valori in barre, quindi **un parametro cambiato è una strategia nuova**.
+- **Strategie nuove possono entrare**, anche da ricerche successive. Il registro tiene quante strategie sono entrate in ogni tratto: è un numero da leggere, sulla schermata 5 e sulla scheda, e non decide.
+- Il registro dice data, id della ricerca, impronta della config, tratto, strategie, esito, strategie entrate in quel tratto fino a quel momento. Non si modifica a mano: ogni riga contiene l'impronta della riga prima, e se la catena è rotta tutto si ferma con un errore.
 - I controlli leggono i registri di tutte le macchine.
 
 **Limiti dichiarati.** Il file sta sul disco di Mattia: togliere le ultime righe non rompe la catena. Se PC e Colab fanno entrare la stessa strategia nello stesso momento, prima che Drive sincronizzi, i due non si vedono.
@@ -266,15 +266,18 @@ Il conto **non decide**: nessun esito dipende da k.
 
 **Nuovo** (`cassaforte.py`).
 - `id_strategia(strategia, symbol, timeframe) -> str`.
+- `tratto(symbol, timeframe, confini) -> str`: l'identità del tratto di cassaforte.
+- `gia_entrata(cartella, tratto, id_strategia) -> bool`: guarda solo quel tratto.
 - `entra(id_ricerca, strategie, conferma) -> dict`: `conferma` deve essere la frase scritta a mano nel notebook.
-- `strategie_entrate(cartella, symbol, timeframe) -> int`.
+- `strategie_entrate(cartella, tratto) -> int`: il conto di quel tratto.
 - `verifica_registro(cartella) -> None`: si ferma se la catena delle impronte è rotta.
 
 **Collaudo: «la cassaforte non si legge prima del passo 8».**
 - **Il test del veleno:** stessa ricerca due volte, passi 1–7, la seconda con le barre della cassaforte alterate o riempite di valori assurdi: **risultati e registro identici, bit per bit**. Se un solo calcolo legge la cassaforte, il test fallisce.
-- **Stessa strategia di nuovo:** errore.
+- **Stessa strategia di nuovo nello stesso tratto:** errore.
+- **Stessa strategia in un tratto nuovo:** entra; il conto del tratto nuovo parte da 1 e quello del tratto vecchio non cambia.
 - **Registro modificato a mano:** errore.
-- Stessa strategia con un parametro cambiato: entra, e il numero delle strategie entrate sale di uno.
+- Stessa strategia con un parametro cambiato, stesso tratto: entra, e il numero delle strategie entrate sale di uno.
 - `Pezzi` senza permesso: errore.
 - Elenco delle strategie scritto prima della lettura: controllato con un dataset che si rompe alla prima lettura.
 
@@ -387,8 +390,7 @@ Il primo giro di L3 misura il tempo vero; se manca l'obiettivo di oltre il doppi
   "versione": 1,
   "symbol": "BINANCE_PERP_BTCUSDT",
   "timeframe": "M15",
-  "confini": {"ricerca_fine": "2023-06-30 23:45", "selezione_fine": "2025-06-15 17:30",
-              "cassaforte_fine": "2026-10-19 13:00"},
+  "confini": {"inizio": "2020-01-02 00:00", "ricerca_ore": 30624, "selezione_ore": 17177.75, "cassaforte_ore": 11779.5},
   "lati": ["long", "short"],
   "blocchi": {"E47": {}, "RSI_RIENTRO": {"periodo_ore": [2, 4, 6, 9, 12], "soglia": [15, 20, 25, 30, 35]}},
   "modelli": [{"trigger": 1, "filtri": [0, 2], "uscite": 1}],
@@ -403,7 +405,9 @@ Il primo giro di L3 misura il tempo vero; se manca l'obiettivo di oltre il doppi
 }
 ```
 
-**Scheda `.json`**: `id_strategia`, `id_ricerca`, `impronta_config`, `impronte_dati`, `symbol`, `timeframe`, `lato`, `blocchi` (nome e valori), `uscita`, `regole` (testo), `esiti` (per ogni passo: pezzo, trade, EV in bp, t, drawdown, condizione, esito, motivo), `altopiano`, `test_individuale` (t e soglia in selezione e in cassaforte), `prove` (di questa ricerca, totale della fabbrica sull'asset, soglia corrispondente), `cassaforte` (data, esito, strategie entrate), `mm`, `stress`, `software` (commit del repo).
+I confini sono **durate**, in ore, così non dipendono dal timeframe. Sopra c'è la prima finestra (P1). Una finestra scorsa ha le stesse tre durate e un `inizio` più avanti di almeno `cassaforte_ore`; altrimenti la config si ferma con un errore.
+
+**Scheda `.json`**: `id_strategia`, `id_ricerca`, `impronta_config`, `impronte_dati`, `symbol`, `timeframe`, `lato`, `blocchi` (nome e valori), `uscita`, `regole` (testo), `esiti` (per ogni passo: pezzo, trade, EV in bp, t, drawdown, condizione, esito, motivo), `altopiano`, `test_individuale` (t e soglia in selezione e in cassaforte), `prove` (di questa ricerca, totale della fabbrica sull'asset, soglia corrispondente), `cassaforte` (data, tratto, esito, strategie entrate in quel tratto), `mm`, `stress`, `software` (commit del repo).
 
 **Scheda `.md`**, la stessa cosa in parole: **Regole** (per esempio «long quando…, solo se…, stop…, esce dopo…») · **Da dove viene** (ricerca, dati) · **Il cammino** (una riga per passo, con il test individuale) · **Da leggere** (prove contate e soglia corrispondente, strategie entrate in cassaforte) · **Money management e stress test**. In fondo sempre la frase: «Questo è il risultato di un collaudo dello strumento; la decisione è tua.»
 
@@ -427,7 +431,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - **Modello:** lo schema, per esempio «1 trigger + 1 filtro + 1 uscita». **Teoria:** un modello con i blocchi scelti, senza numeri. **Strategia:** una teoria con tutti i numeri.
 - **Giro:** una passata di ricerca su una teoria. **Prova:** ogni strategia provata, anche se scartata subito. **Budget:** quante prove al massimo.
 - **Condizione di qualità:** regole sì/no che una strategia deve passare.
-- **Cassaforte:** l'ultimo pezzo di dati. Ogni strategia ci entra una volta sola.
+- **Cassaforte:** l'ultimo pezzo di dati. In ogni tratto di cassaforte una strategia entra una volta sola.
 
 **Avvio.** *Cosa fa:* prepara il notebook e trova i dati. *Come leggere:* deve dire da quale cartella legge e che cosa ha trovato, per esempio «16 symbol, ultima barra 19/10/2026». *Poi:* vai alla 1.
 
@@ -440,7 +444,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 **4 · Le strategie rimaste.** *Cosa fa:* una riga per strategia, con regole in parole e numeri sui due pezzi aperti. *Come leggere:* EV è il guadagno medio per trade: EV 8 bp vuol dire 0,08% a trade, già al netto dei costi. Decide il t contro 1,96, per esempio t 2,4 passa. Accanto, solo da leggere, il conto delle prove e la soglia corrispondente, per esempio 98.000 prove e 5,02. *Poi:* decidi quali strategie far entrare in cassaforte. Puoi anche non farne entrare nessuna.
 
 **5 · La cassaforte.** *Cosa fa:* scrive nel registro le strategie scelte, poi le prova sull'ultimo pezzo di dati. *Come leggere:* per ogni strategia il risultato accanto a quello della selezione; per esempio EV 8 bp in selezione e 2 bp in cassaforte vuol dire che il guadagno medio per trade è un quarto. Decide il t contro 1,96. Da leggere: quante strategie sono entrate finora in questa cassaforte, per esempio 6. *Poi:* passa alla 6.
-**ATTENZIONE: una strategia entra in cassaforte UNA VOLTA SOLA. Non si annulla. Un parametro cambiato è una strategia nuova. Per procedere scrivi la frase richiesta nel campo.**
+**ATTENZIONE: in questo tratto di cassaforte una strategia entra UNA VOLTA SOLA. Non si annulla. Un parametro cambiato è una strategia nuova. Per procedere scrivi la frase richiesta nel campo.**
 
 **6 · MM e stress test.** *Cosa fa:* dice quanto rischiare a ogni trade e quanto può andare male. *Come leggere:* per esempio «rischio 0,5% a trade: nel 95% delle storie simulate il calo resta sotto il 20%». *Poi:* vai alla 7.
 
@@ -457,6 +461,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Lati separati.
 - Nomi dei file invariati; si cita sempre `81_FABBRICA`.
 - Confini (06/11): finestra scorrevole di durata fissa, spostamento ≥ durata della cassaforte, un conto delle strategie entrate per ogni tratto (P1).
+- Cassaforte (06/11): una strategia entra una volta per tratto di cassaforte; nello stesso tratto non rientra mai; in un tratto nuovo (finestra scorsa) può entrare (P8).
 
 ---
 
