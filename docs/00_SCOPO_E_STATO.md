@@ -8,9 +8,10 @@ manca AL TOOL» punti 1–8, scoperte, il resoconto «Dove siamo» fino al 21/10
 stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede. Le proposte delle fasi chiuse `71`, `73`, `79`,
 `81` stanno in `docs/archivio/`; ogni rimando a quei numeri vale per quella cartella.
 
-**Incarico in corso (04/11/2026): `80`**, la confidenza in ore, l'ancora per timeframe e la cella 5b del Lab. Proposta,
-decisioni di Mattia e resoconto in `81`; codice sul ramo `confidenza-ore-e-lab`. Il catalogo dei trigger intraday (`78`,
-`79`) è unito (PR #97): 12 trigger nuovi E46–E52, E50 spento come doppione di E3.
+**Incarico in corso (05/11/2026): `81_FABBRICA`** (`81_FABBRICA_STRATEGIE.md`), la fabbrica di strategie. Proposta in
+`82_PROPOSTA_FABBRICA_STRATEGIE.md`, ramo `fabbrica-strategie`. **Eccezione: in `engine/fabbrica/` i parametri si
+ottimizzano (`docs/81_FABBRICA`).** Il catalogo dei trigger intraday (`78`, `79`) è unito (PR #97): 12 trigger nuovi
+E46–E52, E50 spento come doppione di E3.
 
 ## Il progetto
 
