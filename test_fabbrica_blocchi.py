@@ -11,6 +11,7 @@ Stampa una riga per collaudo e alla fine «RISULTATO: n/n test superati».
 from __future__ import annotations
 
 import contextlib
+import inspect
 import io
 import itertools
 import sys
@@ -29,11 +30,11 @@ import filter_conditions
 from engine import registry as reg
 from engine.collaudo_catalogo import verifica_degenerazione, verifica_lookahead
 from engine.exit_search_bt import soglie_adattive
-from engine.fabbrica.blocchi import (FILTRI_CATALOGO, GRIGLIE_NUOVI, TRIGGER_CATALOGO, USCITE_CATALOGO, Blocco,
-                                     blocchi_da_config)
+from engine.fabbrica.blocchi import (FILTRI_CATALOGO, GRIGLIE_NUOVI, MINUTI_TIMEFRAME, TRIGGER_CATALOGO, USCITE_CATALOGO,
+                                     Blocco, blocchi_da_config)
 from engine.fabbrica.cache import ORE_FINESTRA_SOGLIE, Cache, barre_da_ore
 from engine.fabbrica.ottimizzatore import Categoria, Intero, Reale
-from engine.indicatori import aggiungi_indicatori, atr_relativo, donchian_massimo, donchian_minimo
+from engine.indicatori import aggiungi_indicatori, atr_relativo, donchian_massimo, donchian_minimo, indice_choppiness
 from helpers import _cross_down, _cross_up, _evento
 
 warnings.simplefilter("ignore")
@@ -151,17 +152,17 @@ def esegui() -> int:
     check("1. M15: 1 ora = 4 barre, 9 ore = 36", barre_da_ore(1, 15) == 4 and barre_da_ore(9, 15) == 36)
     check("2. H1: 1 ora = 1 barra, 9 ore = 9", barre_da_ore(1, 60) == 1 and barre_da_ore(9, 60) == 9)
     check("3. M5 e M30: 1 ora = 12 e 2 barre", barre_da_ore(1, 5) == 12 and barre_da_ore(1, 30) == 2)
-    check("4. ore che non fanno barre intere: errore", errore(lambda: barre_da_ore(0.1, 15)) and errore(lambda: barre_da_ore(1.5, 60))
-          and errore(lambda: barre_da_ore(2, 240)) and errore(lambda: barre_da_ore(0, 15)) and errore(lambda: barre_da_ore(-1, 15)))
+    check("4. ore zero o negative non sono una durata: errore", errore(lambda: barre_da_ore(0, 15)) and errore(lambda: barre_da_ore(-1, 15))
+          and errore(lambda: barre_da_ore(float("nan"), 15)))
     rsi_m15, rsi_h1 = _uno("RSI_RIENTRO"), _uno("RSI_RIENTRO", "H1")
     check("5. stesso blocco, M15 e H1: griglia convertita", rsi_m15.griglia["periodo_barre"] == (8, 16, 24, 36, 48)
           and rsi_h1.griglia["periodo_barre"] == (2, 4, 6, 9, 12))
-    check("6. griglia con ore non intere sul timeframe: la config si ferma", errore(lambda: _uno("RSI_RIENTRO", "H4"))
-          and errore(lambda: _uno("DONCHIAN", "H1", canale_ore=(1.5,))) and errore(lambda: _uno("X0", "H4")))
-    check("7. ore frazionarie che fanno barre intere: ammesse", _uno("DONCHIAN", canale_ore=(1.25, 3.5)).griglia["canale_barre"] == (5, 14))
-    check("8. la finestra delle soglie è di 125 ore: 500 barre su M15, 125 su H1, 1500 su M5", ORE_FINESTRA_SOGLIE == 125
-          and barre_da_ore(ORE_FINESTRA_SOGLIE, 15) == 500 and barre_da_ore(ORE_FINESTRA_SOGLIE, 60) == 125
-          and barre_da_ore(ORE_FINESTRA_SOGLIE, 5) == 1500)
+    check("6. arrotonda alla barra più vicina, a metà verso l'alto, minimo 1", barre_da_ore(9, 240) == 2 and barre_da_ore(6, 240) == 2
+          and barre_da_ore(10, 240) == 3 and barre_da_ore(11, 240) == 3 and barre_da_ore(2, 240) == 1 and barre_da_ore(0.1, 15) == 1
+          and barre_da_ore(1, 1440) == 1 and barre_da_ore(96, 1440) == 4)
+    check("7. ore frazionarie: stesse barre di prima dove erano intere", _uno("DONCHIAN", canale_ore=(1.25, 3.5)).griglia["canale_barre"] == (5, 14))
+    check("8. la finestra delle soglie è di 125 ore: 500 barre su M15, 125 su H1, 1500 su M5, 7500 su M1, 31 su H4, 5 su D1", ORE_FINESTRA_SOGLIE == 125
+          and [barre_da_ore(ORE_FINESTRA_SOGLIE, m) for m in (15, 60, 5, 1, 240, 1440)] == [500, 125, 1500, 7500, 31, 5])
 
     # ------------------------------------------------------------------ la forma dei blocchi
     print("\nLa forma dei blocchi")
@@ -182,12 +183,13 @@ def esegui() -> int:
     check("15. blocco sconosciuto, parametro sconosciuto, parametri al catalogo: errore", errore(lambda: _uno("E99"))
           and errore(lambda: _uno("ADX", finto_ore=(1,))) and errore(lambda: _uno("E47", periodo_ore=(1,))))
     check("16. catalogo su un timeframe dove non scatta: errore", errore(lambda: _uno("E47", "H1"))
-          and errore(lambda: _uno("E36", "H1")) and _uno("E49", "H1").nome == "E49")
+          and errore(lambda: _uno("E36", "H1")) and errore(lambda: _uno("E49", "D1")) and _uno("E49", "H1").nome == "E49")
     df = _mercato(3000)
     c = Cache(df, 50)
     b = _uno("ADX")
     check("17. valori sbagliati, lato sbagliato: errore", errore(lambda: b.maschera(c, 1, {"soglia": 20}))
-          and errore(lambda: b.maschera(c, 0, b.centrali())) and errore(lambda: b.maschera(c, 1, {"periodo_barre": 2.5, "soglia": 20})))
+          and errore(lambda: b.maschera(c, 0, b.centrali())) and errore(lambda: b.maschera(c, 1, {"periodo_barre": 2.5, "soglia": 20}))
+          and errore(lambda: b.maschera(c, 1, {"periodo_barre": 1, "soglia": 20})))
 
     # ------------------------------------------------------------------ i conti a mano
     print("\nI conti a mano, su sei barre (M15)")
@@ -424,7 +426,8 @@ def esegui() -> int:
     check("59. i valori della cache sono in sola lettura", errore(scrivi))
     check("60. indicatore sconosciuto, limite negativo: errore", errore(lambda: ricalcoli.indicatore("finto", barre=2)) and errore(lambda: Cache(df, -1)))
     check("61. la cache legge il timeframe dall'indice", Cache(_mercato(100, minuti=60), 1).barre(9) == 9
-          and Cache(_mercato(100, minuti=15), 1).barre(9) == 36 and errore(lambda: Cache(_mercato(100, minuti=60), 1).barre(0.5)))
+          and Cache(_mercato(100, minuti=15), 1).barre(9) == 36 and Cache(_mercato(100, minuti=1440), 1).barre(96) == 4
+          and Cache(_mercato(100, minuti=1), 1).barre(2) == 120)
 
     # ------------------------------------------------------------------ le soglie
     print("\nLe soglie delle uscite")
@@ -488,6 +491,132 @@ def esegui() -> int:
     check("75. gli indicatori nuovi non cambiano le colonne del catalogo", "donchian_massimo" not in aggiungi_indicatori(_mercato(1500)).columns)
     check("76. funzioni in indicatori: Donchian esclude la barra corrente", np.isnan(donchian_massimo(corta, 2).iloc[1]) and donchian_minimo(corta, 2).iloc[2] == 9.0
           and abs(atr_relativo(corta, 2, 3).iloc[5] - 1.01657) < 1e-4 and talib.RSI(corta["Close"].to_numpy(float), 2)[2] == 100.0)
+
+    # ------------------------------------------------------------------ lo zoom a passo fine
+    print("\nLo zoom a passo fine (decisione del 06/11)")
+    errati, fuori, estremi = [], [], []
+    for tf in MINUTI_TIMEFRAME:
+        for nome in (*NUOVI, *USCITE_CATALOGO):
+            b = _uno(nome, tf)
+            for p in b.parametri:
+                if isinstance(p, Categoria):
+                    continue
+                atteso = 0.1 if (nome, p.nome) == ("ATR_RELATIVO", "soglia") else 1
+                if p.passo != atteso or isinstance(p, Reale) != (atteso == 0.1):
+                    errati.append((tf, nome, p.nome, p.passo))
+                griglia = b.griglia[p.nome]
+                if p.minimo != griglia[0] or p.massimo != griglia[-1]:
+                    estremi.append((tf, nome, p.nome))
+                spazio = {p.valore(i) for i in range(p.n)}
+                if not set(griglia) <= spazio:
+                    fuori.append((tf, nome, p.nome))
+    check("77. passo dello spazio: 1 barra, 1 per le soglie intere, 0,1 per la soglia di ATR relativo, su ogni timeframe", not errati, str(errati[:4]))
+    check("78. minimo e massimo dello spazio = quelli della griglia", not estremi, str(estremi[:4]))
+    check("79. i valori della griglia stanno tutti nello spazio, esatti", not fuori, str(fuori[:4]))
+    r = _uno("RSI_RIENTRO")
+    a = _uno("ATR_RELATIVO")
+    x = _uno("X3")
+    spazi = {p.nome: p.n for b_ in (r, a, x) for p in b_.parametri}
+    check("80. su M15 lo zoom passa da ogni barra e da ogni soglia", r.parametri[0].n == 41 and r.parametri[1].n == 21
+          and a.parametri[0].n == 9 and a.parametri[1].n == 289 and a.parametri[2].n == 8 and x.parametri[0].n == 29 and x.parametri[1].n == 26, str(spazi))
+    check("81. la griglia resta quella larga del passo 1", r.griglia == {"periodo_barre": (8, 16, 24, 36, 48), "soglia": (15, 20, 25, 30, 35)}
+          and a.griglia == {"breve_barre": (8, 16), "lungo_barre": (96, 192, 384), "soglia": (0.8, 1.0, 1.2, 1.5)})
+    check("82. la soglia di ATR relativo resta a 0,1 anche con soli interi in config", isinstance(_uno("ATR_RELATIVO", soglia=(1, 2)).parametri[2], Reale)
+          and _uno("ATR_RELATIVO", soglia=(1, 2)).parametri[2].n == 11)
+    check("83. soglia con la virgola dove è intera, ATR relativo non multiplo di 0,1: errore", errore(lambda: _uno("RSI_RIENTRO", soglia=(17.5, 20)))
+          and errore(lambda: _uno("X3", perc_stop=(72.5, 90))) and errore(lambda: _uno("ATR_RELATIVO", soglia=(0.85, 1.0))))
+
+    # ------------------------------------------------------------------ da M1 a D1
+    print("\nTimeframe da M1 a D1 (decisione del 06/11)")
+    check("84. i timeframe sono M1, M5, M15, M30, H1, H4, D1; gli altri si fermano", MINUTI_TIMEFRAME == {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
+          and errore(lambda: _uno("X0", "M2")))
+    griglia = lambda nome, tf, p: _uno(nome, tf).griglia[p]
+    check("85. M1: conversione", griglia("RSI_RIENTRO", "M1", "periodo_barre") == (120, 240, 360, 540, 720) and griglia("X0", "M1", "durata_barre") == (60, 120, 240, 480))
+    check("86. H4: arrotondamento e doppi tolti", griglia("X0", "H4", "durata_barre") == (1, 2) and griglia("DONCHIAN", "H4", "canale_barre") == (1, 2, 3, 6, 12, 24)
+          and griglia("ATR_RELATIVO", "H4", "breve_barre") == (1,) and griglia("ATR_RELATIVO", "H4", "lungo_barre") == (6, 12, 24))
+    d1 = _uno("X3", "D1")
+    check("87. D1: le uscite a 1, 2, 4 e 8 ore diventano una sola, 1 barra", d1.griglia["durata_barre"] == (1,) and d1.parametri[0].n == 1
+          and (d1.parametri[0].minimo, d1.parametri[0].massimo) == (1, 1))
+    check("88. D1: anche il canale di Donchian toglie i doppi", griglia("DONCHIAN", "D1", "canale_barre") == (1, 2, 4))
+    check("89. RSI e ADX non scendono sotto 2 barre, l'ATR lungo nemmeno", griglia("RSI_RIENTRO", "H4", "periodo_barre") == (2, 3) and griglia("RSI_RIENTRO", "D1", "periodo_barre") == (2,)
+          and griglia("ADX", "H4", "periodo_barre") == (2,) and griglia("ADX", "D1", "periodo_barre") == (2,) and griglia("ATR_RELATIVO", "D1", "lungo_barre") == (2, 4))
+    def scoppia(f, *a_, **k_):
+        try:
+            f(*a_, **k_)
+        except Exception:
+            return True
+        return False
+    check("90. il minimo di 2 barre serve: TA-Lib rifiuta RSI e ADX a 1 barra", scoppia(talib.RSI, _mercato(100)["Close"].to_numpy(float), 1)
+          and scoppia(talib.ADX, *(_mercato(100)[k].to_numpy(float) for k in ("High", "Low", "Close")), 1))
+    check("91. ore effettive: 2 barre H4 = 8 ore; 1 barra D1 = 24 ore; 8 barre M15 = 2 ore", _uno("X0", "H4").ore_effettive({"durata_barre": 2, "perc_stop": 90, "target": None}) == {"durata_barre": 8.0}
+          and d1.griglia_ore() == {"durata_barre": (24.0,)} and _uno("RSI_RIENTRO").ore_effettive({"periodo_barre": 8, "soglia": 25}) == {"periodo_barre": 2.0})
+    check("92. finestra delle soglie, sul blocco e in ore effettive: 31 barre H4 = 124 ore, 5 barre D1 = 120 ore", _uno("X0", "H4").finestre_barre == {"soglie_adattive": 31}
+          and _uno("X0", "H4").finestre_ore() == {"soglie_adattive": 124.0} and d1.finestre_barre == {"soglie_adattive": 5} and d1.finestre_ore() == {"soglie_adattive": 120.0})
+    f2_m15, f2_d1 = _uno("F2_MID_VOLATILITY"), _uno("F2_MID_VOLATILITY", "D1")
+    check("93. i filtri del catalogo espongono le finestre in ore: F2 su M15 125 ore, su D1 12.000", f2_m15.finestre_ore() == {"atr": 3.5, "percentile": 125.0}
+          and f2_d1.finestre_ore() == {"atr": 336.0, "percentile": 12000.0} and _uno("F3_VOLUME_ABOVE_AVG", "H1").finestre_ore() == {"media": 20.0}
+          and _uno("TREND_CONTEXT", "M1").finestre_barre == {"ema": 50} and _uno("F20_SESSION_OVERLAP").finestre_ore() == {})
+    predefinito = lambda f, p: inspect.signature(f).parameters[p].default
+    check("94. e sono quelle vere delle condizioni", predefinito(filter_conditions.filter_mid_volatility, "window") == FILTRI_CATALOGO["F2_MID_VOLATILITY"][3]["percentile"]
+          and predefinito(filter_conditions.filter_volume_above_avg, "window") == FILTRI_CATALOGO["F3_VOLUME_ABOVE_AVG"][3]["media"]
+          and predefinito(filter_conditions.filter_chop_trend, "rank_window") == FILTRI_CATALOGO["F25_CHOP_TREND"][3]["percentile"]
+          and predefinito(indice_choppiness, "barre") == FILTRI_CATALOGO["F25_CHOP_TREND"][3]["choppiness"])
+    # su ogni timeframe: dove la config è ammessa il blocco scatta, dove si ferma non scatterebbe mai
+    reg.clear_registry()
+    sbagliati, per_tf = [], {}
+    for tf, minuti in MINUTI_TIMEFRAME.items():
+        # su M1 più barre: E36 scatta una volta al giorno, e 9.000 barre M1 sono solo 6 giorni
+        per_tf[tf] = dfi = aggiungi_indicatori(_mercato(30_000 if tf == "M1" else 9000, seme=2, minuti=minuti))
+        cache_tf = Cache(dfi, 100)
+        if cache_tf.minuti_barra != minuti:
+            sbagliati.append((tf, "minuti", cache_tf.minuti_barra))
+        for nome in (*TRIGGER_CATALOGO, *FILTRI_CATALOGO):
+            ammesso = not errore(lambda: _uno(nome, tf))
+            ((lungo, corto), tipo) = (TRIGGER_CATALOGO[nome][:2], "trigger") if nome in TRIGGER_CATALOGO else (FILTRI_CATALOGO[nome][:2], "filtro")
+            fonte = {**entry_long.TRIGGER_LONG, **entry_short.TRIGGER_SHORT} if tipo == "trigger" else {k: v_[0] for k, v_ in filter_conditions.FILTRI.items()}
+            scatta = all(pulito(fonte[n](dfi)).any() for n in (lungo, corto))
+            if ammesso != scatta:
+                sbagliati.append((tf, nome, f"ammesso {ammesso}, scatta {scatta}"))
+    check("95. ogni trigger e filtro del catalogo è ammesso solo dove scatta davvero, da M1 a D1", not sbagliati, str(sbagliati[:6]))
+    check("96. F20 su D1 si ferma: la barra è sempre quella delle 00:00; su H4 resta", errore(lambda: _uno("F20_SESSION_OVERLAP", "D1")) and _uno("F20_SESSION_OVERLAP", "H4").neutro)
+    sbagliati = []
+    for tf in ("M1", "H4", "D1"):
+        dfi, cache_tf = per_tf[tf], Cache(per_tf[tf], 100)
+        for b in blocchi_da_config(_config(*NUOVI, timeframe=tf)):
+            for valori in _combinazioni(b):
+                for lato in (1, -1):
+                    m = b.maschera(cache_tf, lato, valori)
+                    if m.shape != (len(dfi),) or m.dtype != bool:
+                        sbagliati.append((tf, b.nome, valori))
+    check("97. i blocchi nuovi girano su M1, H4 e D1, agli estremi e al centro", not sbagliati, str(sbagliati[:3]))
+    sbagliati = []
+    for tf, (ore, barre_attese, finestra) in {"M1": (2, 120, 7500), "H4": (8, 2, 31), "D1": (8, 1, 5)}.items():
+        dfi = per_tf[tf]
+        mie = Cache(dfi, 100).soglie_uscita(ore, 90, 90)
+        diretta = soglie_adattive(dfi, barre_attese, finestra=finestra, perc_sl=90, perc_tp=90, lag=1)
+        if not all(np.array_equal(mie[k], diretta[k].to_numpy(), equal_nan=True) for k in diretta):
+            sbagliati.append(tf)
+    check("98. soglie su M1, H4 e D1: stessa funzione, finestra e durata arrotondate alla barra", not sbagliati, str(sbagliati))
+    u_d1 = _uno("X0", "D1")
+    s = u_d1.soglie(Cache(per_tf["D1"], 100), 1, {"durata_barre": 1, "perc_stop": 90, "target": None})
+    validi = int(np.isfinite(s["sl"]).sum())
+    check("99. su D1 il blocco dà durata 1 barra e soglie vere", s["barre"] == 1 and validi > len(per_tf["D1"]) - 20, f"{validi} barre con soglia su {len(per_tf['D1'])}")
+    reg.clear_registry()
+
+    # ------------------------------------------------------------------ etichette e famiglie
+    print("\nEtichette e famiglie (decisioni del 06/11)")
+    check("100. E5 è «rottura dopo inside bar», X3 è «MACD sotto la signal (stato)»", _uno("E5").famiglia == "rottura dopo inside bar"
+          and _uno("X3").famiglia == "MACD sotto la signal (stato)")
+    check("101. le liste non cambiano", tuple(TRIGGER_CATALOGO) == ("E5", "E36", "E47", "E49", "E51") and tuple(USCITE_CATALOGO) == ("X0", "X3", "X1")
+          and tuple(FILTRI_CATALOGO) == ("F2_MID_VOLATILITY", "F3_VOLUME_ABOVE_AVG", "TREND_CONTEXT", "F25_CHOP_TREND", "F20_SESSION_OVERLAP")
+          and TRIGGER_CATALOGO["E5"][:2] == ("E5_QUICK_PULLBACK", "E5_SHORT_QUICK_PULLBACK") and USCITE_CATALOGO["X3"][:2] == ("X3_MACD_BEARISH", "X3_SHORT_MACD_BULLISH"))
+    filtri = [b for b in blocchi_da_config(_config(*FILTRI_CATALOGO, *NUOVI)) if b.tipo == "filtro"]
+    coppie = [(x_, y_) for x_, y_ in itertools.combinations(filtri, 2) if x_.famiglia != y_.famiglia]
+    trigger = [b for b in blocchi_da_config(_config(*TRIGGER_CATALOGO, *NUOVI)) if b.tipo == "trigger"]
+    check("102. ADX e ATR relativo stanno nella stessa famiglia; nessun'altra coppia di filtri", _uno("ADX").famiglia == _uno("ATR_RELATIVO").famiglia
+          and len({b.famiglia for b in filtri}) == 6 and len(filtri) == 7)
+    check("103. le teorie sono 1.176: 7 trigger × (1 + 7 + 20 scelte di filtri) × 3 uscite × 2 lati", len(coppie) == 20 and len(trigger) == 7
+          and len(trigger) * (1 + len(filtri) + len(coppie)) * len(USCITE_CATALOGO) * 2 == 1176)
 
     print("\n" + "=" * 70)
     print(f"Durata: {time.perf_counter() - t0:.0f} s")

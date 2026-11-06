@@ -3,24 +3,28 @@ I blocchi della fabbrica (docs/82 P-L2, lavoro L2): i mattoncini con cui il gene
 
     blocchi = blocchi_da_config({"timeframe": "M15", "blocchi": {"E47": {}, "RSI_RIENTRO": {}, "X3": {}}})
     b = blocchi[1]
-    b.parametri                                     # Intero, Reale, Categoria dell'ottimizzatore, in barre
-    b.griglia                                       # i valori del passo 1 (P-L2), in barre
+    b.parametri                                     # gli spazi dello zoom, al passo più fine (Intero, Reale, Categoria)
+    b.griglia                                       # i valori larghi del passo 1 (P-L2), in barre
     b.maschera(cache, 1, {"periodo_barre": 24, "soglia": 25})
+    b.ore_effettive({"periodo_barre": 24, "soglia": 25})    # {"periodo_barre": 6.0}: barre × durata della barra
+    b.finestre_ore()                                # le finestre fisse del blocco, in ore, per la scheda
 
 - Trigger: eventi, la prima barra vera. Filtri: stati. Uscite: una regola più durata, stop e target.
-- I parametri si scrivono in ORE nella config e diventano barre secondo il timeframe; un valore che non fa barre intere
-  si ferma con un errore. Solo prezzo e volume.
+- I parametri si scrivono in ORE nella config e diventano barre secondo il timeframe, da M1 a D1: la barra più vicina,
+  minimo 1 (2 dove il calcolo la chiede). Nella griglia i valori doppi dopo l'arrotondamento si tolgono. Solo prezzo
+  e volume.
+- Spazio di un parametro: stesso minimo e massimo della griglia, passo più fine (1 barra, 1 per le soglie intere, 0,1 per
+  la soglia di ATR relativo).
 - I blocchi del catalogo prendono la condizione dal registro (engine.registry): i dizionari non cambiano. Il loro
   df deve avere le colonne di aggiungi_indicatori. Il catalogo non ha parametri: hanno finestre sue, in barre o in minuti.
-- `famiglia` è quella dichiarata in P-L2; il generatore (L3) la controlla con famiglie.py.
+  Su un timeframe dove non scatterebbe mai, la config si ferma con un errore.
+- `famiglia` è quella di P-L2 e P3; il generatore (L3) la controlla con famiglie.py.
 """
 from __future__ import annotations
 
 import contextlib
 import io
-import math
 from dataclasses import dataclass, field
-from functools import reduce
 from typing import Callable
 
 import numpy as np
@@ -28,33 +32,36 @@ import pandas as pd
 
 from engine import registry as reg
 
-from .cache import barre_da_ore
+from .cache import ORE_FINESTRA_SOGLIE, barre_da_ore
 from .ottimizzatore import Categoria, Intero, Reale
 
-MINUTI_TIMEFRAME = {"M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240}
+MINUTI_TIMEFRAME = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
 TIPI = ("trigger", "filtro", "uscita")
 
 # nome del blocco -> (entry long, entry short, famiglia, timeframe su cui il catalogo scatta)
 TRIGGER_CATALOGO = {
-    "E5": ("E5_QUICK_PULLBACK", "E5_SHORT_QUICK_PULLBACK", "ritracciamento", ("M5", "M15", "M30", "H1", "H4")),
-    "E36": ("E36_INTRADAY_MOMENTUM_UP", "E36_SHORT_INTRADAY_MOMENTUM_DOWN", "momentum di sessione", ("M5", "M15", "M30")),
+    "E5": ("E5_QUICK_PULLBACK", "E5_SHORT_QUICK_PULLBACK", "rottura dopo inside bar", tuple(MINUTI_TIMEFRAME)),
+    "E36": ("E36_INTRADAY_MOMENTUM_UP", "E36_SHORT_INTRADAY_MOMENTUM_DOWN", "momentum di sessione", ("M1", "M5", "M15", "M30")),
     "E47": ("E47_COMPRESSIONE_ROTTURA_UP", "E47_SHORT_COMPRESSIONE_ROTTURA_DOWN", "rottura dopo compressione", ("M5", "M15")),
     "E49": ("E49_SWEEP_RECLAIM_MINIMO", "E49_SHORT_SWEEP_RECLAIM_MASSIMO", "spazzata e rientro", ("M5", "M15", "M30", "H1")),
     "E51": ("E51_MOVIMENTO_VOLUME_CALO_GIU", "E51_SHORT_MOVIMENTO_VOLUME_CALO_SU", "esaurimento su volume", ("M5", "M15", "M30", "H1")),
 }
-# nome del blocco -> (filtro long, filtro short, famiglia). Lo stesso nome due volte = neutro rispetto al lato.
+# nome del blocco -> (filtro long, filtro short, famiglia, finestre in barre del catalogo).
+# Lo stesso nome due volte = neutro rispetto al lato.
 FILTRI_CATALOGO = {
-    "F2_MID_VOLATILITY": ("F2_MID_VOLATILITY", "F2_MID_VOLATILITY", "volatilita"),
-    "F3_VOLUME_ABOVE_AVG": ("F3_VOLUME_ABOVE_AVG", "F3_VOLUME_ABOVE_AVG", "volume"),
-    "TREND_CONTEXT": ("F8_UPTREND_CONTEXT", "F9_DOWNTREND_CONTEXT", "trend"),
-    "F25_CHOP_TREND": ("F25_CHOP_TREND", "F25_CHOP_TREND", "regime"),
-    "F20_SESSION_OVERLAP": ("F20_SESSION_OVERLAP", "F20_SESSION_OVERLAP", "orario"),
+    "F2_MID_VOLATILITY": ("F2_MID_VOLATILITY", "F2_MID_VOLATILITY", "volatilita", {"atr": 14, "percentile": 500}),
+    "F3_VOLUME_ABOVE_AVG": ("F3_VOLUME_ABOVE_AVG", "F3_VOLUME_ABOVE_AVG", "volume", {"media": 20}),
+    "TREND_CONTEXT": ("F8_UPTREND_CONTEXT", "F9_DOWNTREND_CONTEXT", "trend", {"ema": 50}),
+    "F25_CHOP_TREND": ("F25_CHOP_TREND", "F25_CHOP_TREND", "regime", {"choppiness": 14, "percentile": 500}),
+    "F20_SESSION_OVERLAP": ("F20_SESSION_OVERLAP", "F20_SESSION_OVERLAP", "orario", {}),
 }
-# nome del blocco -> (uscita long, uscita short)
+# I filtri che su un timeframe non sono mai veri: F20 guarda l'ora della barra e su D1 la barra è sempre quella delle 00:00.
+FILTRI_MAI_VERI = {"F20_SESSION_OVERLAP": ("D1",)}
+# nome del blocco -> (uscita long, uscita short, famiglia)
 USCITE_CATALOGO = {
-    "X0": ("X0_NO_EXIT", "X0_SHORT_NO_EXIT"),
-    "X3": ("X3_MACD_BEARISH", "X3_SHORT_MACD_BULLISH"),
-    "X1": ("X1_CYCLE_TURN_DOWN", "X1_SHORT_CYCLE_TURN_UP"),
+    "X0": ("X0_NO_EXIT", "X0_SHORT_NO_EXIT", "nessuna regola"),
+    "X3": ("X3_MACD_BEARISH", "X3_SHORT_MACD_BULLISH", "MACD sotto la signal (stato)"),
+    "X1": ("X1_CYCLE_TURN_DOWN", "X1_SHORT_CYCLE_TURN_UP", "svolta del ciclo"),
 }
 # I valori del passo 1 (docs/82 P-L2). Le chiavi che finiscono in _ore si convertono in barre.
 GRIGLIE_USCITA = {"durata_ore": (1, 2, 4, 8), "perc_stop": (70, 80, 90, 95), "target": (None, 90)}
@@ -64,7 +71,11 @@ GRIGLIE_NUOVI = {
     "ADX": {"periodo_ore": (4, 6, 9), "soglia": (15, 20, 25, 30)},
     "ATR_RELATIVO": {"breve_ore": (2, 4), "lungo_ore": (24, 48, 96), "soglia": (0.8, 1.0, 1.2, 1.5)},
 }
-PASSO_SOGLIA_ATR = 0.1
+# Il passo delle soglie non intere; tutte le altre soglie sono intere, a passo 1.
+PASSI_REALI = {("ATR_RELATIVO", "soglia"): 0.1}
+# Il minimo in barre dove 1 barra non si può calcolare: TA-Lib non accetta RSI e ADX a 1 barra; un ATR lungo di 1 barra
+# sarebbe uguale all'ATR breve e il rapporto varrebbe sempre 1. Altrove il minimo è 1 barra.
+BARRE_MINIME = {"periodo_barre": 2, "lungo_barre": 2}
 
 
 # ------------------------------------------------------------------ il catalogo, dal registro
@@ -135,11 +146,13 @@ def _atr_relativo(cache, lato: int, v: dict) -> np.ndarray:
     return cache.indicatore("atr_relativo", breve=v["breve_barre"], lungo=v["lungo_barre"]) > v["soglia"]
 
 
+# ADX e ATR relativo hanno la stessa famiglia: decisa dalla misura di famiglie.py (docs/82 P3, decisione del 06/11).
+FAMIGLIA_ADX_ATR = "forza del trend e volatilita relativa"
 CALCOLI_NUOVI = {
     "RSI_RIENTRO": ("trigger", "inversione", _rsi_rientro),
     "DONCHIAN": ("trigger", "rottura", _donchian),
-    "ADX": ("filtro", "forza del trend", _adx),
-    "ATR_RELATIVO": ("filtro", "volatilita relativa", _atr_relativo),
+    "ADX": ("filtro", FAMIGLIA_ADX_ATR, _adx),
+    "ATR_RELATIVO": ("filtro", FAMIGLIA_ADX_ATR, _atr_relativo),
 }
 
 
@@ -148,23 +161,42 @@ CALCOLI_NUOVI = {
 class Blocco:
     """
     nome, tipo (trigger, filtro, uscita), famiglia.
-    parametri   Intero, Reale, Categoria dell'ottimizzatore: i periodi in barre.
-    griglia     nome del parametro -> i valori del passo 1, in barre.
-    neutro      un filtro che non dipende dal lato.
+    minuti_barra    la durata di una barra del timeframe della config.
+    parametri       Intero, Reale, Categoria dell'ottimizzatore: lo spazio dello zoom, al passo più fine, periodi in barre.
+    griglia         nome del parametro -> i valori larghi del passo 1, in barre.
+    neutro          un filtro che non dipende dal lato.
+    finestre_barre  le finestre fisse del blocco: quelle del catalogo per i filtri, quella delle soglie per le uscite.
     Le uscite hanno anche `soglie`: durata, stop e target.
     """
     nome: str
     tipo: str
     famiglia: str
+    minuti_barra: int
     parametri: tuple = ()
     griglia: dict = field(default_factory=dict)
     neutro: bool = False
+    finestre_barre: dict = field(default_factory=dict)
     _calcola: Callable | None = None      # (cache, lato, valori) -> array, per i blocchi nuovi
     _catalogo: tuple | None = None        # (condizione long, condizione short)
 
     def centrali(self) -> dict:
         """I valori centrali della griglia: l'elemento di mezzo, o quello subito sopra se sono pari."""
         return {nome: valori[len(valori) // 2] for nome, valori in self.griglia.items()}
+
+    def _in_ore(self, barre: int) -> float:
+        return int(barre) * self.minuti_barra / 60.0
+
+    def ore_effettive(self, valori: dict) -> dict:
+        """Per la scheda: i parametri in barre di `valori`, in ore effettive (barre × durata della barra)."""
+        return {nome: self._in_ore(v) for nome, v in valori.items() if nome.endswith("_barre")}
+
+    def griglia_ore(self) -> dict:
+        """Per la scheda: i valori del passo 1 dei parametri in barre, in ore effettive."""
+        return {nome: tuple(self._in_ore(v) for v in valori) for nome, valori in self.griglia.items() if nome.endswith("_barre")}
+
+    def finestre_ore(self) -> dict:
+        """Per la scheda: le finestre fisse del blocco, in ore effettive."""
+        return {nome: self._in_ore(barre) for nome, barre in self.finestre_barre.items()}
 
     def _controlla(self, lato: int, valori: dict | None) -> dict:
         if lato not in (1, -1):
@@ -174,8 +206,9 @@ class Blocco:
         if set(valori) != attesi:
             raise ValueError(f"{self.nome}: servono i valori di {sorted(attesi)}, non {sorted(valori)}")
         for nome, v in valori.items():
-            if nome.endswith("_barre") and (int(v) != v or v < 1):
-                raise ValueError(f"{self.nome}: {nome} deve essere un numero intero di barre, non {v!r}")
+            if nome.endswith("_barre") and (int(v) != v or v < BARRE_MINIME.get(nome, 1)):
+                raise ValueError(f"{self.nome}: {nome} deve essere un numero intero di barre, almeno "
+                                 f"{BARRE_MINIME.get(nome, 1)}, non {v!r}")
         return valori
 
     def maschera(self, cache, lato: int, valori: dict | None = None) -> np.ndarray:
@@ -199,13 +232,11 @@ class Blocco:
 
 
 # ------------------------------------------------------------------ dalla config ai blocchi
-def _passo(valori) -> int:
-    differenze = [b - a for a, b in zip(valori, valori[1:])]
-    return reduce(math.gcd, differenze) if differenze else 1
-
-
 def _parametro(blocco: str, chiave: str, valori, minuti: int):
-    """Da una riga di griglia al tipo dell'ottimizzatore e ai valori del passo 1."""
+    """
+    Da una riga di griglia allo spazio dello zoom e ai valori del passo 1. Lo spazio ha minimo e massimo della griglia e
+    il passo più fine: 1 barra, 1 per le soglie intere, PASSI_REALI per le altre. I valori doppi si tolgono.
+    """
     valori = list(valori)
     if not valori:
         raise ValueError(f"{blocco}: {chiave} non ha valori")
@@ -213,13 +244,18 @@ def _parametro(blocco: str, chiave: str, valori, minuti: int):
         return Categoria("target", tuple(valori)), tuple(valori)
     if chiave.endswith("_ore"):
         nome = chiave[: -len("_ore")] + "_barre"
-        barre = sorted(barre_da_ore(o, minuti) for o in valori)
-        return Intero(nome, barre[0], barre[-1], _passo(barre)), tuple(barre)
-    valori = sorted(valori)
-    if all(float(v).is_integer() for v in valori):
-        interi = [int(v) for v in valori]
-        return Intero(chiave, interi[0], interi[-1], _passo(interi)), tuple(interi)
-    return Reale(chiave, float(valori[0]), float(valori[-1]), PASSO_SOGLIA_ATR), tuple(float(v) for v in valori)
+        barre = sorted({barre_da_ore(o, minuti, BARRE_MINIME.get(nome, 1)) for o in valori})
+        return Intero(nome, barre[0], barre[-1], 1), tuple(barre)
+    passo = PASSI_REALI.get((blocco, chiave))
+    if passo is None:
+        if not all(float(v).is_integer() for v in valori):
+            raise ValueError(f"{blocco}: {chiave} vuole valori interi, non {valori}")
+        interi = sorted({int(v) for v in valori})
+        return Intero(chiave, interi[0], interi[-1], 1), tuple(interi)
+    if any(abs(float(v) / passo - round(float(v) / passo)) > 1e-9 for v in valori):
+        raise ValueError(f"{blocco}: {chiave} vuole multipli di {passo}, non {valori}")
+    reali = sorted({round(float(v), 10) for v in valori})
+    return Reale(chiave, reali[0], reali[-1], passo), tuple(reali)
 
 
 def _parametri(nome: str, griglie: dict, config_blocco: dict, minuti: int) -> tuple[tuple, dict]:
@@ -243,17 +279,21 @@ def _blocco(nome: str, config_blocco: dict, timeframe: str) -> Blocco:
         lungo, corto, famiglia, ammessi = TRIGGER_CATALOGO[nome]
         if timeframe not in ammessi:
             raise ValueError(f"{nome} sul catalogo scatta solo su {ammessi}, non su {timeframe}.")
-        return Blocco(nome, "trigger", famiglia, _catalogo=(lungo, corto))
+        return Blocco(nome, "trigger", famiglia, minuti, _catalogo=(lungo, corto))
     if nome in FILTRI_CATALOGO:
-        lungo, corto, famiglia = FILTRI_CATALOGO[nome]
-        return Blocco(nome, "filtro", famiglia, neutro=lungo == corto, _catalogo=(lungo, corto))
+        if timeframe in FILTRI_MAI_VERI.get(nome, ()):
+            raise ValueError(f"{nome} sul catalogo non è mai vero su {timeframe}.")
+        lungo, corto, famiglia, finestre = FILTRI_CATALOGO[nome]
+        return Blocco(nome, "filtro", famiglia, minuti, neutro=lungo == corto, finestre_barre=dict(finestre), _catalogo=(lungo, corto))
     if nome in USCITE_CATALOGO:
+        lungo, corto, famiglia = USCITE_CATALOGO[nome]
         parametri, griglia = _parametri(nome, GRIGLIE_USCITA, config_blocco, minuti)
-        return Blocco(nome, "uscita", "uscita", parametri, griglia, _catalogo=USCITE_CATALOGO[nome])
+        finestre = {"soglie_adattive": barre_da_ore(ORE_FINESTRA_SOGLIE, minuti)}
+        return Blocco(nome, "uscita", famiglia, minuti, parametri, griglia, finestre_barre=finestre, _catalogo=(lungo, corto))
     if nome in CALCOLI_NUOVI:
         tipo, famiglia, calcola = CALCOLI_NUOVI[nome]
         parametri, griglia = _parametri(nome, GRIGLIE_NUOVI[nome], config_blocco, minuti)
-        return Blocco(nome, tipo, famiglia, parametri, griglia, neutro=tipo == "filtro", _calcola=calcola)
+        return Blocco(nome, tipo, famiglia, minuti, parametri, griglia, neutro=tipo == "filtro", _calcola=calcola)
     noti = sorted([*TRIGGER_CATALOGO, *FILTRI_CATALOGO, *USCITE_CATALOGO, *CALCOLI_NUOVI])
     raise ValueError(f"blocco {nome!r} sconosciuto: {noti}")
 

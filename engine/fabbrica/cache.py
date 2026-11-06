@@ -9,10 +9,12 @@ Il limite di memoria si rispetta sempre: quando si supera, si buttano i valori u
 nuovo, si ricalcolano. Il risultato non cambia. Gli array restituiti sono in sola lettura: una modifica per sbaglio
 sporcherebbe tutte le strategie dopo.
 
-La durata di una barra si legge dall'indice del df, quindi qui non c'è nessuna costante da M15.
+La durata di una barra si legge dall'indice del df, quindi qui non c'è nessuna costante da M15. Le ore diventano barre
+arrotondando alla barra più vicina, da M1 a D1: anche la finestra delle soglie (125 ore: 31 barre su H4, 5 su D1).
 """
 from __future__ import annotations
 
+import math
 from collections import OrderedDict
 from typing import Callable
 
@@ -28,13 +30,14 @@ ORE_FINESTRA_SOGLIE = 125      # la finestra di soglie_adattive: le 500 barre su
 LAG_SOGLIE = 1                 # lo stop del motore veloce vale dall'Open della barra d'ingresso: serve lag >= 1
 
 
-def barre_da_ore(ore: float, minuti_barra: float) -> int:
-    """Le barre di `ore` ore. Se non fanno un numero intero di barre (almeno una) si ferma con un errore."""
-    barre = float(ore) * 60.0 / float(minuti_barra)
-    vicine = round(barre)
-    if vicine < 1 or abs(barre - vicine) > 1e-9:
-        raise ValueError(f"{ore} ore non fanno un numero intero di barre da {minuti_barra:g} minuti ({barre:g} barre).")
-    return int(vicine)
+def barre_da_ore(ore: float, minuti_barra: float, minimo: int = 1) -> int:
+    """
+    Le barre di `ore` ore: la barra più vicina (a metà strada verso l'alto, così il risultato non dipende dal pari o
+    dispari), mai sotto `minimo`. Ore zero o negative non sono una durata: si ferma con un errore.
+    """
+    if not ore > 0:
+        raise ValueError(f"{ore} ore non sono una durata: servono più di zero ore.")
+    return max(int(minimo), math.floor(float(ore) * 60.0 / float(minuti_barra) + 0.5 + 1e-9))
 
 
 def _rsi(df: pd.DataFrame, barre: int) -> np.ndarray:
@@ -81,6 +84,7 @@ class Cache:
         return barre_da_ore(ore, self.minuti_barra)
 
     def ore(self, barre: int) -> float:
+        """Le ore effettive di `barre` barre."""
         return int(barre) * self.minuti_barra / 60.0
 
     def _metti(self, chiave: tuple, valore) -> np.ndarray:

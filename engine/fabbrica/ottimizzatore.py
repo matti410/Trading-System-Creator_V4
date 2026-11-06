@@ -110,7 +110,8 @@ class Reale:
         return True
 
     def valore(self, i: int) -> float:
-        return min(float(self.massimo), float(self.minimo) + i * float(self.passo))
+        # arrotondato: 0,8 + 4 × 0,1 è 1,2 e non 1,2000000000000002, così lo stesso valore ha sempre la stessa impronta
+        return min(float(self.massimo), round(float(self.minimo) + i * float(self.passo), 10))
 
     def descrizione(self) -> list:
         return ["reale", self.nome, float(self.minimo), float(self.massimo), float(self.passo)]
