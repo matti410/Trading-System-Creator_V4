@@ -75,6 +75,7 @@ Nessun pacchetto nuovo da installare: numpy, pandas, numba e TA-Lib ci sono già
 - Il 15/06/2025 17:30 coincide con il confine dello studio, ma è scritto nella config: la fabbrica non legge i file dello studio.
 - La scelta del 30/06/2023 è solo una proporzione circa 64/36 fra ricerca e selezione, decisa senza guardare i risultati.
 - Le barre dopo la data finale restano fuori dalla ricerca.
+- **Finestra scorrevole** (decisione di Mattia, 06/11; il codice è di L3): ricerca, selezione e cassaforte hanno durata fissa (nella config) e si spostano in avanti insieme. Uno spostamento è ammesso solo se la nuova cassaforte è fatta di barre mai usate come cassaforte per quell'asset (spostamento ≥ durata della cassaforte); altrimenti la config si ferma con un errore. Ogni tratto di cassaforte ha il suo conto delle strategie entrate.
 
 **Si riusa.** `vetrina.carica_storico`, `vetrina.costi_storico`, `exchange.leggi_funding`, `exchange.controlla_storico`, `exchange.copertura_funding`,
 `exchange.solo_long`, `vetrina.cartella_dati_avvio`. I costi si calcolano sul pezzo tagliato, non sul file intero
@@ -455,6 +456,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Budget: 100.000 prove.
 - Lati separati.
 - Nomi dei file invariati; si cita sempre `81_FABBRICA`.
+- Confini (06/11): finestra scorrevole di durata fissa, spostamento ≥ durata della cassaforte, un conto delle strategie entrate per ogni tratto (P1).
 
 ---
 
