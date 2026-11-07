@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
-**Data:** 5 novembre 2026, aggiornata il 6 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1 e L2 scritti; il resto è testo. Revisione chiusa con Mattia il 05/11 e il 06/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
+**Data:** 5 novembre 2026, aggiornata il 7 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
+**Stato:** L1 e L2 scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11 e il 07/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -113,6 +113,8 @@ per i blocchi parametrici è dichiarata nel blocco e controllata sui valori cent
 
 **Quante teorie**, con la lista di P-L2 qui sotto e i modelli T+U, T+F+U, T+F+F+U: 7 trigger × (1 + 7 + 20 coppie di filtri ammesse) × 3 uscite = **588 per lato, 1.176 sui perpetual**.
 
+**I valori degeneri (07/11).** All'avvio di ogni ricerca, per ogni blocco con parametri e per ogni combinazione della griglia del passo 1, si misura `verifica_degenerazione` sul solo pezzo di ricerca (solo segnali, non è una prova e non entra nel conto). Le combinazioni degeneri escono dalla griglia, e i minimi e massimi dello spazio dello zoom seguono la griglia rimasta. Se un blocco resta senza valori, esce dalla config. L'elenco dei valori tolti, con la quota di barre vere, va nel registro della ricerca e su ogni scheda.
+
 **Si riusa.** `famiglie.famiglie` e, per registrare i blocchi per il tempo della misura, `registry.register_entry`, `remove_entries`, `remove_filters`.
 
 **Nuovo** (`generatore.py`).
@@ -128,12 +130,27 @@ Il meccanismo qui sotto è stato **confermato in L2 leggendo le condizioni**: E5
 
 **Timeframe da M1 a D1.** Intervalli in **ore**, convertiti in barre secondo il timeframe: niente costanti da M15.
 - Un valore diventa la **barra più vicina**, a metà strada verso l'alto, **minimo 1 barra**. Ore zero o negative si fermano con un errore.
-- **Eccezioni al minimo, dove 1 barra non si può calcolare:** periodo di RSI e ADX e ATR lungo non scendono sotto 2 barre (TA-Lib non accetta RSI e ADX a 1 barra; un ATR lungo di 1 barra sarebbe uguale all'ATR breve e il rapporto varrebbe sempre 1).
+- **Minimo di 5 barre (07/11)** per periodo di RSI, periodo di ADX e ATR lungo: i valori sotto salgono a 5. L'ATR breve resta con minimo 1 barra, come durate e canale di Donchian.
 - Nella griglia i **valori doppi dopo l'arrotondamento si tolgono**: su D1 le uscite a 1, 2, 4 e 8 ore diventano una sola, 1 barra.
 - Le **ore effettive** (barre × durata della barra) si leggono dal blocco, per la scheda: `ore_effettive`, `griglia_ore`, `finestre_ore`.
-- I blocchi del catalogo restano come sono: un blocco su un timeframe dove non scatterebbe mai ferma la config con un errore (E5 da M1 a D1; E36 da M1 a M30; E47 M5 e M15; E49 ed E51 da M5 a H1; F20 fino a H4). I filtri con finestre in barre (F2, F3, trend, F25) restano così, e il blocco espone le loro finestre in ore.
+- I blocchi del catalogo restano come sono: un blocco su un timeframe dove non scatterebbe mai ferma la config con un errore (E5 da M1 a D1; E36 da M1 a M30; E47 M5 e M15; E49 ed E51 da M5 a H1; F20 fino a H4, su D1 ferma la config perché la barra è sempre quella delle 00:00). I filtri con finestre in barre (F2, F3, trend, F25) restano così, e il blocco espone le loro finestre in ore.
 
 **Griglia e spazio.** La **griglia** contiene i valori larghi del passo 1. Lo **spazio** di ogni parametro ha lo stesso minimo e massimo della griglia e il **passo più fine**: 1 barra per i parametri in ore, 1 per le soglie intere (RSI, ADX, percentile dello stop), 0,1 per la soglia di ATR relativo. Lo zoom (P5) si muove nello spazio.
+
+**Le griglie in barre su H1, H4 e D1.** Su M1, M5 e M15 il minimo di 5 barre non cambia nulla; su M30 solo le 2 ore di RSI, da 4 barre a 5.
+
+| parametro | valori in ore | H1 | H4 | D1 |
+|---|---|---|---|---|
+| durata dell'uscita | 1, 2, 4, 8 | 1, 2, 4, 8 | 1, 2 | 1 |
+| periodo RSI | 2, 4, 6, 9, 12 | 5, 6, 9, 12 | 5 | 5 |
+| periodo ADX | 4, 6, 9 | 5, 6, 9 | 5 | 5 |
+| canale di Donchian | 4, 8, 12, 24, 48, 96 | 4, 8, 12, 24, 48, 96 | 1, 2, 3, 6, 12, 24 | 1, 2, 4 |
+| ATR breve | 2, 4 | 2, 4 | 1 | 1 |
+| ATR lungo | 24, 48, 96 | 24, 48, 96 | 6, 12, 24 | 5 |
+
+Dove il minimo solleva il valore, le ore effettive escono dall'intervallo in ore: 5 barre di RSI o ADX sono 20 ore su H4 e 120 su D1; 5 barre di ATR lungo su D1 sono 120 ore. La scheda riporta le ore effettive.
+
+**I valori degeneri (07/11).** All'avvio di ogni ricerca, per ogni blocco con parametri e per ogni combinazione della griglia del passo 1, si misura `verifica_degenerazione` sul solo pezzo di ricerca (solo segnali, non è una prova e non entra nel conto). Le combinazioni degeneri escono dalla griglia, e i minimi e massimi dello spazio dello zoom seguono la griglia rimasta. Se un blocco resta senza valori, esce dalla config. L'elenco dei valori tolti, con la quota di barre vere, va nel registro della ricerca e su ogni scheda. Il codice è di L3; in L2 il collaudo dichiara le combinazioni degeneri sulla griglia di D1 con barre sintetiche, e ogni altro esito deve essere OK.
 
 Solo prezzo e volume, niente funding né basis come segnale (`77`).
 
@@ -166,7 +183,7 @@ ADX e ATR relativo hanno meccanismi diversi ma stanno nella stessa famiglia, dec
 - `blocchi_da_config(config) -> list[Blocco]`.
 - `Cache(df, limite_mb)`: `indicatore(nome, **valori)`, `soglie_uscita(ore, perc_sl, perc_tp)`, con memoria limitata (i meno usati si buttano).
 
-**Collaudo.** Ogni blocco nuovo passa `verifica_lookahead` e `verifica_degenerazione` ai valori estremi e centrali di ogni parametro. Blocco del catalogo = stessa maschera della condizione. Lo short specchio del long su una serie specchiata. Con la cache o senza, stesso risultato. Valori noti calcolati a mano per RSI, ADX, Donchian su una serie corta; per Donchian, una barra che chiude sopra il massimo delle N ore precedenti deve dare segnale anche quando il massimo più alto è il suo: se la barra corrente entrasse nel canale, il segnale non ci sarebbe. Su M1, H4 e D1: conversione, arrotondamento, doppi tolti. Su ogni timeframe, un blocco del catalogo è ammesso solo dove scatta davvero. Per ogni parametro il passo dello spazio è quello fine, e i valori della griglia stanno tutti nello spazio.
+**Collaudo.** Ogni blocco nuovo passa `verifica_lookahead` e `verifica_degenerazione` ai valori estremi e centrali di ogni parametro. Blocco del catalogo = stessa maschera della condizione. Lo short specchio del long su una serie specchiata. Con la cache o senza, stesso risultato. Valori noti calcolati a mano per RSI, ADX, Donchian su una serie corta; per Donchian, una barra che chiude sopra il massimo delle N ore precedenti deve dare segnale anche quando il massimo più alto è il suo: se la barra corrente entrasse nel canale, il segnale non ci sarebbe. Su M1, H4 e D1: conversione, arrotondamento, doppi tolti. Minimo di 5 barre: su M15 le griglie non cambiano; su H1, H4 e D1 i valori sotto salgono a 5 e i doppi si tolgono; `verifica_lookahead` e `verifica_degenerazione` anche su tutta la griglia di D1, perché su M15 il periodo 5 non c'è: lookahead OK su tutto, degenerazione OK tranne le combinazioni dichiarate nel collaudo. Su ogni timeframe, un blocco del catalogo è ammesso solo dove scatta davvero. Per ogni parametro il passo dello spazio è quello fine, e i valori della griglia stanno tutti nello spazio.
 
 ### P4 · Passo 1, la scrematura
 
@@ -199,7 +216,7 @@ Costi come nel Lab: commissione taker, spread di un passo per trade, funding sui
 **Altopiano, la misura.** Per la strategia scelta si prova ogni parametro numerico, uno alla volta, con i suoi vicini.
 
 *I vicini:*
-- **Parametri in ore:** valore ±15%, arrotondato alla barra più vicina, con spostamento minimo di 1 barra. Sotto il minimo del parametro (1 barra; 2 per il periodo di RSI e ADX e per l'ATR lungo) il vicino non esiste e resta l'altro. Esempi:
+- **Parametri in ore:** valore ±15%, arrotondato alla barra più vicina, con spostamento minimo di 1 barra. Sotto il minimo del parametro (1 barra; 5 per il periodo di RSI e ADX e per l'ATR lungo) il vicino non esiste e resta l'altro. Esempi:
 
 | valore | M15, in barre | vicini in barre | H1, in barre | vicini in barre |
 |---|---|---|---|---|
@@ -482,6 +499,9 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Timeframe (06/11): da M1 a D1, parametri arrotondati alla barra più vicina, minimo 1 barra, valori doppi tolti; vale anche per la finestra delle soglie (P-L2).
 - Etichette (06/11): E5 è «rottura dopo inside bar», X3 è «MACD sotto la signal (stato)»; le liste non cambiano (P-L2).
 - Famiglie (06/11): ADX e ATR relativo nella stessa famiglia, decisa dalla misura; le teorie sono 1.176 (P3).
+- Minimo di barre (07/11): almeno 5 barre per periodo di RSI, periodo di ADX e ATR lungo; ATR breve con minimo 1. Su M15 le griglie non cambiano; dove un valore sale a 5, i doppi si tolgono (P-L2, P5).
+- F20 su D1 (07/11): ferma la config, come i trigger (P-L2).
+- Valori degeneri (07/11): all'avvio di ogni ricerca le combinazioni della griglia di ogni blocco con parametri passano da `verifica_degenerazione` sul solo pezzo di ricerca (solo segnali, non è una prova); le degeneri escono dalla griglia, lo spazio dello zoom segue la griglia rimasta, un blocco senza valori esce dalla config; l'elenco va nel registro e su ogni scheda (P3, P-L2).
 
 ---
 

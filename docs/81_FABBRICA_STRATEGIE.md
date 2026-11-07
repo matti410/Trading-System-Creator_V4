@@ -1,6 +1,6 @@
 # 81 · Fabbrica di strategie (ricerca automatica)
 
-**Incarico del 04/11/2026, aggiornato il 05/11/2026** (Mattia e il revisore), per Claude Code. Lavoro grande: prima la
+**Incarico del 04/11/2026, aggiornato il 06/11/2026** (Mattia e il revisore), per Claude Code. Lavoro grande: prima la
 proposta in testo.
 
 **Flusso:**
@@ -55,8 +55,8 @@ e indicatore TradingView sono fuori da questo incarico.
 
 ## §3 · La pipeline
 
-1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte (date fisse nella config). Proporre i
-   confini.
+1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte, con durate fisse nella config. La finestra scorre in avanti; la
+   nuova cassaforte è fatta solo di barre mai usate come cassaforte.
 2. **Config scritta e salvata prima del lancio**, con impronta (hash): blocchi ammessi, intervalli, modelli,
    condizioni di qualità, budget, seed. Un rilancio con config diversa è una ricerca nuova: le prove si sommano nel
    conto.
