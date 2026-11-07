@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata il 7 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1 e L2 scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11 e il 07/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
+**Stato:** L1, L2 e L3a scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11 e il 07/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -42,12 +42,13 @@ Tutti additivi. **Il motore non si modifica**, quindi niente prove d'identità: 
 | `engine/fabbrica/funzioni_prova.py` | Rastrigin, Sphere, Rosenbrock, Ackley | L1 |
 | `engine/fabbrica/blocchi.py` | i blocchi con parametri e intervalli | L2 |
 | `engine/fabbrica/cache.py` | indicatori e maschere già calcolati | L2 |
-| `engine/fabbrica/dati.py` | i tre pezzi di dati e il sigillo sulla cassaforte | L3 |
-| `engine/fabbrica/config.py` | lettura, controllo e impronta della config | L3 |
-| `engine/fabbrica/generatore.py` | teorie da modelli × blocchi | L3 |
-| `engine/fabbrica/valutatore.py` | da una strategia ai bp netti e alle misure | L3 |
-| `engine/fabbrica/ricerca.py` | passi 1 e 2, altopiano, ripresa | L3 |
-| `engine/fabbrica/registro.py` | registro delle ricerche e conto delle prove | L3 |
+| `engine/fabbrica/dati.py` | i tre pezzi di dati e il sigillo sulla cassaforte | L3a |
+| `engine/fabbrica/config.py` | lettura, controllo e impronta della config | L3a |
+| `engine/fabbrica/generatore.py` | teorie da modelli × blocchi, famiglie, valori degeneri | L3a |
+| `engine/fabbrica/valutatore.py` | da una strategia ai bp netti e alle misure | L3a |
+| `engine/fabbrica/sintetici.py` | barre e funding inventati per i collaudi, come `funzioni_prova.py` (aggiunto in L3a) | L3a |
+| `engine/fabbrica/ricerca.py` | passi 1 e 2, altopiano, ripresa | L3b |
+| `engine/fabbrica/registro.py` | registro delle ricerche e conto delle prove | L3b |
 | `engine/fabbrica/selezione.py` | condizione 2, test individuale, famiglie | L4 |
 | `engine/fabbrica/cassaforte.py` | strategie congelate, ingresso, registro della cassaforte | L4 |
 | `engine/fabbrica/schede.py` | scheda `.md` e `.json` | L5 |
@@ -55,7 +56,7 @@ Tutti additivi. **Il motore non si modifica**, quindi niente prove d'identità: 
 | `Fabbrica_Strategie_Crypto.ipynb` | il notebook | L5 |
 | `test_fabbrica_*.py` | una suite per lavoro, ultima riga «RISULTATO: n/n» | L1–L5 |
 
-**Modifiche additive a file esistenti, dichiarate:** `engine/indicatori.py` (L2, indicatori nuovi); `suite_rapida.py` (L1, solo se serve per legare le suite nuove al codice); `CLAUDE.md` e `docs/00` (L5, terzo notebook).
+**Modifiche additive a file esistenti, dichiarate:** `engine/indicatori.py` (L2, indicatori nuovi); `suite_rapida.py` (L1, solo se serve per legare le suite nuove al codice; in L2 e L3a le durate delle suite nuove); `CLAUDE.md` e `docs/00` (L5, terzo notebook).
 Nessun pacchetto nuovo da installare: numpy, pandas, numba e TA-Lib ci sono già.
 
 ---
@@ -77,7 +78,7 @@ Nessun pacchetto nuovo da installare: numpy, pandas, numba e TA-Lib ci sono già
 - Le barre dopo la data finale restano fuori dalla ricerca.
 - **Finestra scorrevole** (decisione di Mattia, 06/11; il codice è di L3): ricerca, selezione e cassaforte hanno durata fissa (nella config) e si spostano in avanti insieme. Uno spostamento è ammesso solo se la nuova cassaforte è fatta di barre mai usate come cassaforte per quell'asset (spostamento ≥ durata della cassaforte); altrimenti la config si ferma con un errore. Ogni tratto di cassaforte ha il suo conto delle strategie entrate.
 
-**Si riusa.** `vetrina.carica_storico`, `vetrina.costi_storico`, `exchange.leggi_funding`, `exchange.controlla_storico`, `exchange.copertura_funding`,
+**Si riusa.** `exchange.leggi_csv` con gli stessi controlli di `vetrina.carica_storico` (che accetta solo da M5 a H4: la fabbrica va da M1 a D1; 07/11, §8), `vetrina.costi_storico`, `vetrina.carica_funding`, `exchange.leggi_funding`, `exchange.controlla_storico`, `exchange.copertura_funding`,
 `exchange.solo_long`, `vetrina.cartella_dati_avvio`. I costi si calcolano sul pezzo tagliato, non sul file intero
 (`costi_exchange` usa il prezzo mediano del `df` che riceve).
 
@@ -114,6 +115,11 @@ per i blocchi parametrici è dichiarata nel blocco e controllata sui valori cent
 **Quante teorie**, con la lista di P-L2 qui sotto e i modelli T+U, T+F+U, T+F+F+U: 7 trigger × (1 + 7 + 20 coppie di filtri ammesse) × 3 uscite = **588 per lato, 1.176 sui perpetual**.
 
 **I valori degeneri (07/11).** All'avvio di ogni ricerca, per ogni blocco con parametri e per ogni combinazione della griglia del passo 1, si misura `verifica_degenerazione` sul solo pezzo di ricerca (solo segnali, non è una prova e non entra nel conto). Le combinazioni degeneri escono dalla griglia, e i minimi e massimi dello spazio dello zoom seguono la griglia rimasta. Se un blocco resta senza valori, esce dalla config. L'elenco dei valori tolti, con la quota di barre vere, va nel registro della ricerca e su ogni scheda.
+
+**Scelte del 07/11 (§8).**
+- **Le uscite non passano dal controllo di degenerazione:** durata, stop e target non cambiano la loro maschera (X0 è mai vera per costruzione), quindi il controllo darebbe lo stesso esito per tutte le combinazioni.
+- **I valori degeneri si tolgono per lato:** una combinazione degenere sul long e non sullo short esce solo dal long. Un filtro neutro ha la stessa maschera sui due lati ed esce da tutti e due.
+- **Famiglie, misura o dichiarazione:** due blocchi stanno nella stessa famiglia se li unisce `famiglie.py` sul pezzo di ricerca, ai valori centrali, oppure se sono dichiarati insieme (ADX e ATR relativo). Le teorie della lista di P-L2 sono quindi al massimo 1.176; il registro dice quante sono e perché.
 
 **Si riusa.** `famiglie.famiglie` e, per registrare i blocchi per il tempo della misura, `registry.register_entry`, `remove_entries`, `remove_filters`.
 
@@ -192,6 +198,7 @@ ADX e ATR relativo hanno meccanismi diversi ma stanno nella stessa famiglia, dec
 - Tetto di **40 prove per teoria**, sui valori larghi della griglia (P-L2). Se fanno fino a 40 punti, griglia completa; se no, algoritmo genetico tarato in ampiezza (molta mutazione, poca eredità).
 - **Condizione di qualità 1:** almeno 100 trade; EV netto > 0; il trade migliore pesa al massimo il 10% del totale dei guadagni; totale / drawdown ≥ 1.
 - Teoria tenuta se almeno una sua strategia passa. Passano al passo 2 le 150 teorie con il t più alto.
+- **L'obiettivo dell'algoritmo (07/11, come nel libro, cap. 3):** il genetico massimizza il t di ogni strategia calcolabile; la condizione di qualità non entra nell'obiettivo e decide solo alla fine (la teoria è tenuta se almeno una strategia passa; si sceglie la migliore fra quelle che passano). NaN solo quando il t non si può calcolare. La riga nel conto resta per tutte. Un punto degenere (P3) o già visto non consuma una delle 40 prove.
 
 Costi come nel Lab: commissione taker, spread di un passo per trade, funding sui perpetual. Leva dentro il tetto solo nel money management: qui si lavora in bp per trade.
 
@@ -211,7 +218,11 @@ Costi come nel Lab: commissione taker, spread di un passo per trade, funding sui
 
 **Come si fa.** Per ogni teoria tenuta, **3 giri da 90 prove**: ogni giro riparte attorno alle 5 strategie migliori del giro prima, con intervalli più stretti e passo più piccolo, fino al passo più fine dello spazio (P-L2): 1 barra, 1 per le soglie intere, 0,1 per la soglia di ATR relativo. Per esempio il periodo da 8-16-24 barre a 12-14-16 barre, poi a 13-14-15. Se lo spazio ristretto ha meno punti del budget del giro: forza bruta.
 
+**L'intervallo di un giro (07/11).** Per ogni parametro, l'intervallo va dal minimo al massimo delle 5 migliori, allargato del passo del giro prima da ogni lato (al primo giro: il buco più largo della griglia), dentro i confini dello spazio. Quell'intervallo si prova con il passo nuovo: al primo giro metà del buco più largo della griglia, al secondo un intermedio (la media geometrica fra quella metà e il passo fine, arrotondata al passo fine), al terzo il passo fine (1 barra, 1, 0,1). Per esempio un buco di 8 barre dà i passi 4, 2, 1; uno di 96 barre 48, 7, 1. **Collaudo:** ogni intero fra due punti della griglia larga è raggiungibile in 3 giri.
+
 **La stessa strategia in due giri.** Si riconosce dall'impronta (id_strategia, P8): non si rivaluta e si conta una volta sola nel conto delle prove (P7).
+
+**Le combinazioni nuove (07/11).** Ogni combinazione nuova proposta dallo zoom o dall'altopiano passa da `verifica_degenerazione` (solo segnali, sul pezzo di ricerca) prima di essere valutata: se è degenere si scarta, si annota e non conta come prova.
 
 **Altopiano, la misura.** Per la strategia scelta si prova ogni parametro numerico, uno alla volta, con i suoi vicini.
 
@@ -502,6 +513,10 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Minimo di barre (07/11): almeno 5 barre per periodo di RSI, periodo di ADX e ATR lungo; ATR breve con minimo 1. Su M15 le griglie non cambiano; dove un valore sale a 5, i doppi si tolgono (P-L2, P5).
 - F20 su D1 (07/11): ferma la config, come i trigger (P-L2).
 - Valori degeneri (07/11): all'avvio di ogni ricerca le combinazioni della griglia di ogni blocco con parametri passano da `verifica_degenerazione` sul solo pezzo di ricerca (solo segnali, non è una prova); le degeneri escono dalla griglia, lo spazio dello zoom segue la griglia rimasta, un blocco senza valori esce dalla config; l'elenco va nel registro e su ogni scheda (P3, P-L2).
+- Combinazioni nuove (07/11): ogni combinazione nuova proposta dallo zoom o dall'altopiano passa da `verifica_degenerazione` (solo segnali, sul pezzo di ricerca) prima di essere valutata: se è degenere si scarta, si annota e non conta come prova (P5).
+- Divisione di L3 (07/11): L3a dati, config, generatore con le combinazioni degeneri, valutatore; poi L3b passi 1–2, altopiano, registro, tempo vero (§9).
+- Scelte di L3 (07/11): le uscite non passano dal controllo di degenerazione; i valori degeneri si tolgono per lato; famiglie per misura o per dichiarazione, il registro dice quante teorie e perché (P3); il genetico massimizza il t di ogni strategia calcolabile e la condizione di qualità decide solo alla fine; un punto degenere o già visto non consuma una prova (P4); intervallo e passo di ogni giro dello zoom come in P5.
+- Dati (07/11): letti con `exchange.leggi_csv` e gli stessi controlli di `vetrina.carica_storico`, che accetta solo da M5 a H4; la cassaforte si rilegge dal disco solo con il permesso (P1).
 
 ---
 

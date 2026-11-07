@@ -65,7 +65,8 @@ DURATE = {
     "test_riordino_motore": 44, "test_riordino_lab": 60, "test_dati_confine": 85, "test_conto_ricerca": 5, "test_orizzonti": 20, "test_trigger_m07": 25,
     "test_trigger_intraday": 16,
     "test_spread_per_trade": 40, "test_mappa": 265,
-    "test_incertezza_lab": 900, "test_fabbrica_ottimizzatore": 52, "test_fabbrica_blocchi": 30
+    "test_incertezza_lab": 900, "test_fabbrica_ottimizzatore": 52, "test_fabbrica_blocchi": 30,
+    "test_fabbrica_dati": 5, "test_fabbrica_generatore": 8, "test_fabbrica_valutatore": 25
 }
 INSIEME = 3          # suite che girano insieme, nella rapida e nella completa
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")
