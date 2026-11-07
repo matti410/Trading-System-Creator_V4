@@ -30,8 +30,8 @@ import filter_conditions
 from engine import registry as reg
 from engine.collaudo_catalogo import verifica_degenerazione, verifica_lookahead
 from engine.exit_search_bt import soglie_adattive
-from engine.fabbrica.blocchi import (FILTRI_CATALOGO, GRIGLIE_NUOVI, MINUTI_TIMEFRAME, TRIGGER_CATALOGO, USCITE_CATALOGO,
-                                     Blocco, blocchi_da_config)
+from engine.fabbrica.blocchi import (BARRE_MINIME, FILTRI_CATALOGO, GRIGLIE_NUOVI, MINUTI_TIMEFRAME, TRIGGER_CATALOGO,
+                                     USCITE_CATALOGO, Blocco, blocchi_da_config)
 from engine.fabbrica.cache import ORE_FINESTRA_SOGLIE, Cache, barre_da_ore
 from engine.fabbrica.ottimizzatore import Categoria, Intero, Reale
 from engine.indicatori import aggiungi_indicatori, atr_relativo, donchian_massimo, donchian_minimo, indice_choppiness
@@ -99,11 +99,12 @@ def _uno(nome: str, timeframe="M15", **griglie) -> Blocco:
     return blocchi_da_config({"timeframe": timeframe, "blocchi": {nome: griglie}})[0]
 
 
-def _combinazioni(b: Blocco) -> list[dict]:
-    """Estremi e centro di ogni parametro, tutte le combinazioni."""
+def _combinazioni(b: Blocco, tutte: bool = False) -> list[dict]:
+    """Estremi e centro di ogni parametro, tutte le combinazioni; con tutte=True, l'intera griglia."""
     assi = []
     for nome, valori in b.griglia.items():
-        assi.append([(nome, v) for v in dict.fromkeys((valori[0], valori[len(valori) // 2], valori[-1]))])
+        scelti = valori if tutte else dict.fromkeys((valori[0], valori[len(valori) // 2], valori[-1]))
+        assi.append([(nome, v) for v in scelti])
     return [dict(c) for c in itertools.product(*assi)]
 
 
@@ -112,12 +113,12 @@ def _etichetta(b: Blocco, valori: dict, lato=None) -> str:
     return f"{PREFISSO}{b.nome}_{resto}" + ("" if lato is None else ("_L" if lato == 1 else "_S"))
 
 
-def _registra_nuovi() -> list[str]:
-    """I blocchi nuovi come condizioni del registro, agli estremi e al centro: così passano dai collaudi del catalogo."""
+def _registra_nuovi(timeframe: str = "M15", tutte: bool = False) -> list[str]:
+    """I blocchi nuovi come condizioni del registro, agli estremi e al centro (o tutta la griglia): così passano dai collaudi del catalogo."""
     reg.clear_registry()
     nomi = []
-    for b in blocchi_da_config(_config(*NUOVI)):
-        for valori in _combinazioni(b):
+    for b in blocchi_da_config(_config(*NUOVI, timeframe=timeframe)):
+        for valori in _combinazioni(b, tutte):
             if b.tipo == "trigger":
                 for lato in (1, -1):
                     nome = _etichetta(b, valori, lato)
@@ -156,7 +157,7 @@ def esegui() -> int:
           and errore(lambda: barre_da_ore(float("nan"), 15)))
     rsi_m15, rsi_h1 = _uno("RSI_RIENTRO"), _uno("RSI_RIENTRO", "H1")
     check("5. stesso blocco, M15 e H1: griglia convertita", rsi_m15.griglia["periodo_barre"] == (8, 16, 24, 36, 48)
-          and rsi_h1.griglia["periodo_barre"] == (2, 4, 6, 9, 12))
+          and rsi_h1.griglia["periodo_barre"] == (5, 6, 9, 12))
     check("6. arrotonda alla barra più vicina, a metà verso l'alto, minimo 1", barre_da_ore(9, 240) == 2 and barre_da_ore(6, 240) == 2
           and barre_da_ore(10, 240) == 3 and barre_da_ore(11, 240) == 3 and barre_da_ore(2, 240) == 1 and barre_da_ore(0.1, 15) == 1
           and barre_da_ore(1, 1440) == 1 and barre_da_ore(96, 1440) == 4)
@@ -188,41 +189,11 @@ def esegui() -> int:
     c = Cache(df, 50)
     b = _uno("ADX")
     check("17. valori sbagliati, lato sbagliato: errore", errore(lambda: b.maschera(c, 1, {"soglia": 20}))
-          and errore(lambda: b.maschera(c, 0, b.centrali())) and errore(lambda: b.maschera(c, 1, {"periodo_barre": 2.5, "soglia": 20}))
+          and errore(lambda: b.maschera(c, 0, b.centrali())) and errore(lambda: b.maschera(c, 1, {"periodo_barre": 5.5, "soglia": 20}))
           and errore(lambda: b.maschera(c, 1, {"periodo_barre": 1, "soglia": 20})))
 
     # ------------------------------------------------------------------ i conti a mano
-    print("\nI conti a mano, su sei barre (M15)")
-    corta = _corta()
-    c = Cache(corta, 5)
-    def vicini(a, attesi):
-        return all((np.isnan(x) and np.isnan(y)) or abs(x - y) < 1e-3 for x, y in zip(a, attesi)) and len(a) == len(attesi)
     nan = float("nan")
-    check("18. RSI a 2 barre", vicini(c.indicatore("rsi", barre=2), [nan, nan, 100.0, 66.667, 88.889, 47.059]))
-    check("19. ATR a 2 barre", vicini(c.indicatore("atr", barre=2), [nan, nan, 1.5, 1.25, 1.625, 1.5625]))
-    check("20. ADX a 2 barre", vicini(c.indicatore("adx", barre=2), [nan, nan, nan, 100.0, 100.0, 65.217]))
-    check("21. ATR relativo 2 su 3", vicini(c.indicatore("atr_relativo", breve=2, lungo=3), [nan, nan, nan, 0.9375, 1.04464, 1.01657]))
-    check("22. Donchian a 2 barre: massimi e minimi precedenti", vicini(c.indicatore("donchian_massimo", barre=2), [nan, nan, 11.0, 12.0, 12.0, 13.0])
-          and vicini(c.indicatore("donchian_minimo", barre=2), [nan, nan, 9.0, 10.0, 10.5, 10.5]))
-    d = _uno("DONCHIAN", canale_ore=(0.5,))
-    m = d.maschera(c, 1, {"canale_barre": 2})
-    check("23. Donchian long: segnali alle barre attese", m.tolist() == [False, False, True, False, True, False])
-    check("24. la barra corrente fa il massimo e dà segnale: High 13, Close 12,5, massimo prima 12",
-          bool(m[4]) and corta["High"].iloc[4] == corta["High"].max() and corta["Close"].iloc[4] < corta["High"].iloc[4])
-    check("25. Donchian short: chiusura sotto il minimo precedente", d.maschera(c, -1, {"canale_barre": 2}).tolist()
-          == [False] * 6)
-    r = _uno("RSI_RIENTRO", periodo_ore=(0.5,))
-    check("26. RSI rientro short: scende sotto 100 - 50 da sopra, alla barra 5", r.maschera(c, -1, {"periodo_barre": 2, "soglia": 50}).tolist()
-          == [False] * 5 + [True])
-    check("27. RSI rientro long: risale sopra 70 da sotto, alla barra 4", r.maschera(c, 1, {"periodo_barre": 2, "soglia": 70}).tolist()
-          == [False] * 4 + [True, False])
-    a = _uno("ADX", periodo_ore=(0.5,))
-    check("28. filtro ADX: stato, non evento", a.maschera(c, 1, {"periodo_barre": 2, "soglia": 50}).tolist() == [False] * 3 + [True] * 3
-          and a.maschera(c, 1, {"periodo_barre": 2, "soglia": 70}).tolist() == [False] * 3 + [True, True, False])
-    t = _uno("ATR_RELATIVO", breve_ore=(0.5,), lungo_ore=(0.75,))
-    check("29. filtro ATR relativo: stato, NaN = falso", t.maschera(c, 1, {"breve_barre": 2, "lungo_barre": 3, "soglia": 1.0}).tolist()
-          == [False] * 4 + [True, True])
-
     # controprove con cicli semplici, barra per barra, su una serie più lunga
     lungo = _mercato(800, seme=3)
     h, l, cl = (lungo[k].to_numpy(float) for k in ("High", "Low", "Close"))
@@ -280,6 +251,45 @@ def esegui() -> int:
 
     def donchian_a_mano(n):
         return np.array([nan if i < n else h[i - n: i].max() for i in range(len(h))]), np.array([nan if i < n else l[i - n: i].min() for i in range(len(l))])
+
+    print("\nI conti a mano (M15)")
+    corta = _corta()
+    c = Cache(corta, 5)
+    def vicini(a, attesi):
+        return all((np.isnan(x) and np.isnan(y)) or abs(x - y) < 1e-3 for x, y in zip(a, attesi)) and len(a) == len(attesi)
+    check("18. RSI a 2 barre", vicini(c.indicatore("rsi", barre=2), [nan, nan, 100.0, 66.667, 88.889, 47.059]))
+    check("19. ATR a 2 barre", vicini(c.indicatore("atr", barre=2), [nan, nan, 1.5, 1.25, 1.625, 1.5625]))
+    check("20. ADX a 2 barre", vicini(c.indicatore("adx", barre=2), [nan, nan, nan, 100.0, 100.0, 65.217]))
+    check("21. ATR relativo 2 su 3", vicini(c.indicatore("atr_relativo", breve=2, lungo=3), [nan, nan, nan, 0.9375, 1.04464, 1.01657]))
+    check("22. Donchian a 2 barre: massimi e minimi precedenti", vicini(c.indicatore("donchian_massimo", barre=2), [nan, nan, 11.0, 12.0, 12.0, 13.0])
+          and vicini(c.indicatore("donchian_minimo", barre=2), [nan, nan, 9.0, 10.0, 10.5, 10.5]))
+    d = _uno("DONCHIAN", canale_ore=(0.5,))
+    m = d.maschera(c, 1, {"canale_barre": 2})
+    check("23. Donchian long: segnali alle barre attese", m.tolist() == [False, False, True, False, True, False])
+    check("24. la barra corrente fa il massimo e dà segnale: High 13, Close 12,5, massimo prima 12",
+          bool(m[4]) and corta["High"].iloc[4] == corta["High"].max() and corta["Close"].iloc[4] < corta["High"].iloc[4])
+    check("25. Donchian short: chiusura sotto il minimo precedente", d.maschera(c, -1, {"canale_barre": 2}).tolist()
+          == [False] * 6)
+    # RSI a 5 barre, a mano. Cinque salite di 1: guadagno medio 1, perdita media 0, RSI 100 alla barra 5. Poi, con la media
+    # di Wilder: discesa 0,8/0,2 = 80; discesa 0,64/0,36 = 64; discesa 0,512/0,488 = 51,2; salita 0,6096/0,3904 = 60,96.
+    chiusure = np.array([10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 14.0, 13.0, 12.0, 13.0])
+    c_rsi = Cache(pd.DataFrame({"Open": chiusure, "High": chiusure + 0.5, "Low": chiusure - 0.5, "Close": chiusure, "Volume": 1.0}, index=_indice(10)), 5)
+    r = _uno("RSI_RIENTRO")
+    check("26. RSI rientro short a 5 barre: scende sotto 100 - 30 da sopra, alla barra 7 (80, poi 64)", r.maschera(c_rsi, -1, {"periodo_barre": 5, "soglia": 30}).tolist()
+          == [False] * 7 + [True, False, False] and vicini(c_rsi.indicatore("rsi", barre=5), [nan] * 5 + [100.0, 80.0, 64.0, 51.2, 60.96]))
+    check("27. RSI rientro long a 5 barre: risale sopra 55 da sotto, alla barra 9 (51,2, poi 60,96)", r.maschera(c_rsi, 1, {"periodo_barre": 5, "soglia": 55}).tolist()
+          == [False] * 9 + [True])
+    c_lungo = Cache(lungo, 20)
+    a = _uno("ADX")
+    atteso = adx_a_mano(5) > 40
+    m = a.maschera(c_lungo, 1, {"periodo_barre": 5, "soglia": 40})
+    check("28. filtro ADX a 5 barre = ciclo a mano: stato, non evento; NaN = falso", (m == atteso).all() and 0 < m.sum() < len(m)
+          and (m[:-1] & m[1:]).any() and not m[:9].any())
+    t = _uno("ATR_RELATIVO")
+    atteso = atr_a_mano(2) / atr_a_mano(5) > 1.0
+    m = t.maschera(c_lungo, 1, {"breve_barre": 2, "lungo_barre": 5, "soglia": 1.0})
+    check("29. filtro ATR relativo 2 su 5 = ciclo a mano: stato; NaN = falso", (m == atteso).all() and 0 < m.sum() < len(m)
+          and (m[:-1] & m[1:]).any() and not m[:5].any())
 
     c = Cache(lungo, 20)
     uguali = lambda a, b_: np.allclose(a, b_, rtol=1e-8, atol=1e-8, equal_nan=True)
@@ -538,15 +548,15 @@ def esegui() -> int:
     check("87. D1: le uscite a 1, 2, 4 e 8 ore diventano una sola, 1 barra", d1.griglia["durata_barre"] == (1,) and d1.parametri[0].n == 1
           and (d1.parametri[0].minimo, d1.parametri[0].massimo) == (1, 1))
     check("88. D1: anche il canale di Donchian toglie i doppi", griglia("DONCHIAN", "D1", "canale_barre") == (1, 2, 4))
-    check("89. RSI e ADX non scendono sotto 2 barre, l'ATR lungo nemmeno", griglia("RSI_RIENTRO", "H4", "periodo_barre") == (2, 3) and griglia("RSI_RIENTRO", "D1", "periodo_barre") == (2,)
-          and griglia("ADX", "H4", "periodo_barre") == (2,) and griglia("ADX", "D1", "periodo_barre") == (2,) and griglia("ATR_RELATIVO", "D1", "lungo_barre") == (2, 4))
+    check("89. RSI e ADX non scendono sotto 5 barre, l'ATR lungo nemmeno", griglia("RSI_RIENTRO", "H4", "periodo_barre") == (5,) and griglia("RSI_RIENTRO", "D1", "periodo_barre") == (5,)
+          and griglia("ADX", "H4", "periodo_barre") == (5,) and griglia("ADX", "D1", "periodo_barre") == (5,) and griglia("ATR_RELATIVO", "D1", "lungo_barre") == (5,))
     def scoppia(f, *a_, **k_):
         try:
             f(*a_, **k_)
         except Exception:
             return True
         return False
-    check("90. il minimo di 2 barre serve: TA-Lib rifiuta RSI e ADX a 1 barra", scoppia(talib.RSI, _mercato(100)["Close"].to_numpy(float), 1)
+    check("90. TA-Lib rifiuta RSI e ADX a 1 barra: il minimo di 5 copre anche questo", scoppia(talib.RSI, _mercato(100)["Close"].to_numpy(float), 1)
           and scoppia(talib.ADX, *(_mercato(100)[k].to_numpy(float) for k in ("High", "Low", "Close")), 1))
     check("91. ore effettive: 2 barre H4 = 8 ore; 1 barra D1 = 24 ore; 8 barre M15 = 2 ore", _uno("X0", "H4").ore_effettive({"durata_barre": 2, "perc_stop": 90, "target": None}) == {"durata_barre": 8.0}
           and d1.griglia_ore() == {"durata_barre": (24.0,)} and _uno("RSI_RIENTRO").ore_effettive({"periodo_barre": 8, "soglia": 25}) == {"periodo_barre": 2.0})
@@ -580,7 +590,7 @@ def esegui() -> int:
     check("95. ogni trigger e filtro del catalogo è ammesso solo dove scatta davvero, da M1 a D1", not sbagliati, str(sbagliati[:6]))
     check("96. F20 su D1 si ferma: la barra è sempre quella delle 00:00; su H4 resta", errore(lambda: _uno("F20_SESSION_OVERLAP", "D1")) and _uno("F20_SESSION_OVERLAP", "H4").neutro)
     sbagliati = []
-    for tf in ("M1", "H4", "D1"):
+    for tf in ("M1", "H1", "H4", "D1"):
         dfi, cache_tf = per_tf[tf], Cache(per_tf[tf], 100)
         for b in blocchi_da_config(_config(*NUOVI, timeframe=tf)):
             for valori in _combinazioni(b):
@@ -588,7 +598,7 @@ def esegui() -> int:
                     m = b.maschera(cache_tf, lato, valori)
                     if m.shape != (len(dfi),) or m.dtype != bool:
                         sbagliati.append((tf, b.nome, valori))
-    check("97. i blocchi nuovi girano su M1, H4 e D1, agli estremi e al centro", not sbagliati, str(sbagliati[:3]))
+    check("97. i blocchi nuovi girano su M1, H1, H4 e D1, agli estremi e al centro", not sbagliati, str(sbagliati[:3]))
     sbagliati = []
     for tf, (ore, barre_attese, finestra) in {"M1": (2, 120, 7500), "H4": (8, 2, 31), "D1": (8, 1, 5)}.items():
         dfi = per_tf[tf]
@@ -617,6 +627,46 @@ def esegui() -> int:
           and len({b.famiglia for b in filtri}) == 6 and len(filtri) == 7)
     check("103. le teorie sono 1.176: 7 trigger × (1 + 7 + 20 scelte di filtri) × 3 uscite × 2 lati", len(coppie) == 20 and len(trigger) == 7
           and len(trigger) * (1 + len(filtri) + len(coppie)) * len(USCITE_CATALOGO) * 2 == 1176)
+
+    # ------------------------------------------------------------------ il minimo di 5 barre
+    print("\nMinimo di 5 barre per periodo di RSI e ADX e ATR lungo (decisione del 07/11)")
+    griglie = lambda tf: (griglia("RSI_RIENTRO", tf, "periodo_barre"), griglia("ADX", tf, "periodo_barre"),
+                          griglia("ATR_RELATIVO", tf, "breve_barre"), griglia("ATR_RELATIVO", tf, "lungo_barre"))
+    check("104. il minimo è 5 per periodo e ATR lungo; niente minimo per l'ATR breve", BARRE_MINIME == {"periodo_barre": 5, "lungo_barre": 5})
+    check("105. su M15 le griglie non cambiano", griglie("M15") == ((8, 16, 24, 36, 48), (16, 24, 36), (8, 16), (96, 192, 384))
+          and griglia("X0", "M15", "durata_barre") == (4, 8, 16, 32) and griglia("DONCHIAN", "M15", "canale_barre") == (16, 32, 48, 96, 192, 384))
+    check("106. H1: 2 e 4 ore di RSI e 4 ore di ADX salgono a 5, i doppi si tolgono", griglie("H1") == ((5, 6, 9, 12), (5, 6, 9), (2, 4), (24, 48, 96)))
+    check("107. H4: RSI e ADX restano a 5; ATR breve 1; ATR lungo già sopra", griglie("H4") == ((5,), (5,), (1,), (6, 12, 24)))
+    check("108. D1: RSI, ADX e ATR lungo restano a 5; ATR breve 1", griglie("D1") == ((5,), (5,), (1,), (5,)))
+    check("109. M1 e M5 non cambiano; su M30 solo le 2 ore di RSI, da 4 barre a 5", griglie("M1") == ((120, 240, 360, 540, 720), (240, 360, 540), (120, 240), (1440, 2880, 5760))
+          and griglie("M5") == ((24, 48, 72, 108, 144), (48, 72, 108), (24, 48), (288, 576, 1152)) and griglie("M30") == ((5, 8, 12, 18, 24), (8, 12, 18), (4, 8), (48, 96, 192)))
+    spazio_h1, spazio_d1 = _uno("RSI_RIENTRO", "H1").parametri[0], _uno("RSI_RIENTRO", "D1").parametri[0]
+    check("110. lo spazio parte dal minimo: H1 da 5 a 12 a passo 1; D1 solo 5", (spazio_h1.minimo, spazio_h1.massimo, spazio_h1.passo, spazio_h1.n) == (5, 12, 1, 8)
+          and (spazio_d1.minimo, spazio_d1.massimo, spazio_d1.n) == (5, 5, 1))
+    c_d1 = Cache(per_tf["D1"], 100)
+    rsi_d1, adx_d1, atr_d1 = _uno("RSI_RIENTRO", "D1"), _uno("ADX", "D1"), _uno("ATR_RELATIVO", "D1")
+    check("111. sotto il minimo la maschera si ferma: periodo o ATR lungo a 4 barre", errore(lambda: rsi_d1.maschera(c_d1, 1, {"periodo_barre": 4, "soglia": 25}))
+          and errore(lambda: adx_d1.maschera(c_d1, 1, {"periodo_barre": 4, "soglia": 25})) and errore(lambda: atr_d1.maschera(c_d1, 1, {"breve_barre": 1, "lungo_barre": 4, "soglia": 1.0})))
+    check("112. a 5 barre gira; ATR breve, durata e canale di Donchian possono stare a 1 barra", atr_d1.maschera(c_d1, 1, {"breve_barre": 1, "lungo_barre": 5, "soglia": 1.0}).any()
+          and rsi_d1.maschera(c_d1, 1, {"periodo_barre": 5, "soglia": 25}).any() and adx_d1.maschera(c_d1, 1, {"periodo_barre": 5, "soglia": 25}).any()
+          and griglia("X0", "D1", "durata_barre") == (1,) and griglia("DONCHIAN", "D1", "canale_barre")[0] == 1)
+    # su M15 il periodo 5 non è in griglia: lookahead e degenerazione si rifanno su tutta la griglia di D1.
+    # Le combinazioni degeneri sono ammesse solo se dichiarate qui: all'avvio di ogni ricerca escono dalla griglia (docs/82 P-L2, §8).
+    nomi = _registra_nuovi("D1", tutte=True)
+    df = _mercato(12_000, minuti=1440)
+    with contextlib.redirect_stdout(silenzio):
+        deg = verifica_degenerazione(df, verbose=False)
+        look = verifica_lookahead(df, prepara=lambda x: x.copy(), riscaldamento=3000, tagli_per_condizione=3, verbose=False)
+    deg, look = deg[deg["nome"].isin(nomi)], look[look["nome"].isin(nomi)]
+    degeneri_dichiarati = {f"{PREFISSO}ADX_periodo_barre5_soglia{s}" for s in (15, 20, 25)}
+    non_ok = deg.loc[deg["esito"] != "OK"]
+    elenco = "; ".join(f"{r.nome[len(PREFISSO):]} {r.esito} {r.copertura:.1%}" for r in non_ok.itertuples())
+    check("113. verifica_degenerazione su tutta la griglia di D1: degeneri solo le combinazioni dichiarate, ogni altra OK", len(deg) == len(nomi)
+          and set(non_ok["nome"]) == degeneri_dichiarati and (non_ok["esito"] == "QUASI_SEMPRE_VERA").all(), f"{len(nomi)} condizioni; degeneri: {elenco}")
+    non_ok = look.loc[look["esito"] != "OK", ["nome", "esito"]]
+    check("114. verifica_lookahead sulla griglia di D1: OK su tutti i blocchi nuovi", len(look) == len(nomi) and non_ok.empty,
+          f"{len(nomi)} condizioni" if non_ok.empty else non_ok.to_string(index=False)[:600])
+    reg.clear_registry()
 
     print("\n" + "=" * 70)
     print(f"Durata: {time.perf_counter() - t0:.0f} s")

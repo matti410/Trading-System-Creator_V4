@@ -73,9 +73,9 @@ GRIGLIE_NUOVI = {
 }
 # Il passo delle soglie non intere; tutte le altre soglie sono intere, a passo 1.
 PASSI_REALI = {("ATR_RELATIVO", "soglia"): 0.1}
-# Il minimo in barre dove 1 barra non si può calcolare: TA-Lib non accetta RSI e ADX a 1 barra; un ATR lungo di 1 barra
-# sarebbe uguale all'ATR breve e il rapporto varrebbe sempre 1. Altrove il minimo è 1 barra.
-BARRE_MINIME = {"periodo_barre": 2, "lungo_barre": 2}
+# Il minimo in barre di periodo di RSI e ADX e di ATR lungo, deciso da Mattia il 07/11 (docs/82 §8): i valori sotto salgono
+# a 5 e i doppi si tolgono. Altrove il minimo è 1 barra, ATR breve compreso.
+BARRE_MINIME = {"periodo_barre": 5, "lungo_barre": 5}
 
 
 # ------------------------------------------------------------------ il catalogo, dal registro
