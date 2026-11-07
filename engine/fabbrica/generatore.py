@@ -27,6 +27,7 @@ import contextlib
 import hashlib
 import io
 import itertools
+import math
 from dataclasses import dataclass
 
 import pandas as pd
@@ -318,6 +319,21 @@ class SpazioTeoria:
                 else:
                     parametri.append(Intero(chiave, 0, len(valori) - 1, 1))
         self.spazio = Spazio(parametri)
+
+    @property
+    def griglie(self) -> dict:
+        """«BLOCCO.parametro» -> i valori larghi rimasti dopo i valori degeneri, in ordine (i confini dello zoom)."""
+        return dict(self._valori)
+
+    def quanti_ammessi(self) -> int:
+        """I punti ammessi, senza elencarli: le combinazioni rimaste dei blocchi misurati per gli altri valori."""
+        n = 1
+        for nome in self.teoria.blocchi:
+            if nome in self._ammesse:
+                n *= len(self._ammesse[nome])
+            else:
+                n *= math.prod(len(v) for k, v in self._valori.items() if k.split(".", 1)[0] == nome)
+        return n
 
     def valori(self, punto: dict) -> dict:
         """Da un punto dell'ottimizzatore a {blocco: {parametro: valore}}, per tutti i blocchi della teoria."""

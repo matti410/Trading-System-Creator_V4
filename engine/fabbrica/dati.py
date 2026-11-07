@@ -110,6 +110,13 @@ def _taglia(df: pd.DataFrame, da: pd.Timestamp, a: pd.Timestamp) -> pd.DataFrame
     return df.iloc[idx.searchsorted(da, side="left"): idx.searchsorted(a, side="left")].copy()
 
 
+def imposta_mercato_crypto() -> None:
+    """Mercato 24/7, prezzi degli scambi: nessun rollover e giornata delle 00:00 UTC. Sono impostazioni globali del
+    motore: ogni processo della ricerca le rifà da sé, se no quarantena e livelli cambierebbero con i processi."""
+    imposta_rollover(None)
+    imposta_giornata(GIORNATA_UTC)
+
+
 def percorso_storico(symbol: str, timeframe: str, cartella) -> str:
     return os.path.join(str(cartella), f"{symbol}_{timeframe}.csv")
 
@@ -126,8 +133,7 @@ def _leggi(symbol: str, timeframe: str, cartella) -> pd.DataFrame:
     if not os.path.exists(percorso):
         raise FileNotFoundError(f"Non trovo {percorso}: serve il CSV dello storico {timeframe} di {symbol} "
                                 "(scaricalo con scarica_dati_crypto.py).")
-    imposta_rollover(None)            # mercato 24/7, prezzi degli scambi: nessun rollover
-    imposta_giornata(GIORNATA_UTC)    # la giornata delle crypto, 00:00 UTC
+    imposta_mercato_crypto()
     df = leggi_csv(percorso)
     attesa = pd.Timedelta(minutes=MINUTI_TIMEFRAME[timeframe])
     if len(df) < 2 or passo_barre(df.index) != attesa:
