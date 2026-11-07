@@ -1,6 +1,6 @@
 # 81 · Fabbrica di strategie (ricerca automatica)
 
-**Incarico del 04/11/2026, aggiornato il 05/11/2026** (Mattia e il revisore), per Claude Code. Lavoro grande: prima la
+**Incarico del 04/11/2026, aggiornato il 06/11/2026** (Mattia e il revisore), per Claude Code. Lavoro grande: prima la
 proposta in testo.
 
 **Flusso:**
@@ -31,8 +31,9 @@ costi reali.
 La fabbrica è un **progetto separato dal Lab**: usa gli stessi file dei dati e le stesse funzioni del motore, in sola
 lettura, ma ha regole, registro e conto delle prove suoi.
 
-Si lavora **su un asset alla volta** (symbol e timeframe scelti nella config). BINANCE_PERP_BTCUSDT M15 serve a
-costruire e collaudare la pipeline: i suoi risultati sono collaudo, non verdetto.
+Si lavora **su un asset alla volta** (symbol e timeframe scelti nella config), su qualsiasi timeframe da M1 a D1:
+nulla nel codice è legato a M15. BINANCE_PERP_BTCUSDT M15 serve a costruire e collaudare la pipeline: i suoi
+risultati sono collaudo, non verdetto.
 
 Uscita dell'incarico: per ogni strategia sopravvissuta, la scheda con regole esatte e valori dei parametri. Articoli
 e indicatore TradingView sono fuori da questo incarico.
@@ -48,14 +49,14 @@ e indicatore TradingView sono fuori da questo incarico.
 - **Condizione di qualità:** regole sì/no che una strategia deve passare (trade minimi, drawdown, peso massimo di un
   singolo trade, costi inclusi).
 - **Budget:** il numero massimo di strategie provate. Ogni strategia provata è una **prova**.
-- **Cassaforte:** l'ultimo pezzo di dati dell'asset. Ogni strategia ci entra **una volta sola**; strategie nuove
-  possono entrarci, e ognuna è registrata.
+- **Cassaforte:** l'ultimo pezzo di dati dell'asset. Ogni strategia ci entra **una volta per tratto**; strategie
+  nuove possono entrarci, e ognuna è registrata.
 - **Test individuale:** il t netto della strategia contro la soglia per una prova sola. È il test che decide.
 
 ## §3 · La pipeline
 
-1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte (date fisse nella config). Proporre i
-   confini.
+1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte, con durate fisse nella config. La finestra scorre in avanti; la
+   nuova cassaforte è fatta solo di barre mai usate come cassaforte.
 2. **Config scritta e salvata prima del lancio**, con impronta (hash): blocchi ammessi, intervalli, modelli,
    condizioni di qualità, budget, seed. Un rilancio con config diversa è una ricerca nuova: le prove si sommano nel
    conto.
@@ -87,6 +88,8 @@ e indicatore TradingView sono fuori da questo incarico.
   (es. Rastrigin) prima che sul mercato.
 - Nessun lookahead: ogni blocco nuovo passa `verifica_lookahead` e `verifica_degenerazione`. Nessuna statistica
   (percentili, normalizzazioni) calcolata su tutto il periodo.
+- Nessun valore legato a un timeframe: i parametri si scrivono in ore e diventano barre, arrotondate alla barra più
+  vicina (minimo 1); il calcolo è tutto in barre, al passo di 1 barra.
 - Ogni strategia valutata è una prova, anche se scartata subito.
 - La cassaforte non si legge prima del passo 8: un test lo garantisce.
 - Seed fisso → stessi risultati. Una ricerca interrotta deve poter riprendere.
@@ -106,7 +109,7 @@ e indicatore TradingView sono fuori da questo incarico.
   - ogni cella di codice è preceduta da una cella di massimo 6 righe: **Cosa fa** (una frase), **Come leggere**
     (cosa guardare, con un esempio numerico), **Poi** (cosa fare);
   - nessuna sigla senza spiegarla la prima volta;
-  - avvisi evidenti solo per ciò che non si può annullare (es. «una strategia entra in cassaforte una volta sola»).
+  - avvisi evidenti solo per ciò che non si può annullare (es. «una strategia entra in un tratto di cassaforte una volta sola»).
 
 ## §6 · Cosa contiene la proposta (`docs/82`)
 

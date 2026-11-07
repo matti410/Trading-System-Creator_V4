@@ -2401,3 +2401,24 @@ def area_rumore_uscita(df: pd.DataFrame, lato: int) -> pd.Series:
     prima = f.groupby(giorno).shift(1, fill_value=False).astype(bool)
     out.iloc[np.flatnonzero(valido)] = (f & ~prima).to_numpy()
     return out
+
+
+# ------------------------------------------------------------------------
+# Fabbrica di strategie (06/11/2026, docs/82 P-L2): gli indicatori che mancavano, con i periodi come
+# parametri. FUORI da aggiungi_indicatori: le colonne del catalogo non cambiano.
+# ------------------------------------------------------------------------
+
+def donchian_massimo(df: pd.DataFrame, barre: int) -> pd.Series:
+    """Il massimo degli High delle `barre` barre precedenti, barra corrente esclusa."""
+    return df["High"].astype(float).rolling(int(barre)).max().shift(1)
+
+
+def donchian_minimo(df: pd.DataFrame, barre: int) -> pd.Series:
+    """Il minimo dei Low delle `barre` barre precedenti, barra corrente esclusa."""
+    return df["Low"].astype(float).rolling(int(barre)).min().shift(1)
+
+
+def atr_relativo(df: pd.DataFrame, breve: int, lungo: int) -> pd.Series:
+    """ATR di `breve` barre diviso ATR di `lungo` barre: sopra 1 la volatilita' recente e' piu' alta del solito."""
+    h, l, c = (df[k].astype(float) for k in ("High", "Low", "Close"))
+    return ta.ATR(h, l, c, timeperiod=int(breve)) / ta.ATR(h, l, c, timeperiod=int(lungo))
