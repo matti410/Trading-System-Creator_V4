@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata il 7 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1, L2 e L3a scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11 e il 07/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
+**Stato:** L1, L2, L3a e L3b scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11 e il 07/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -46,9 +46,9 @@ Tutti additivi. **Il motore non si modifica**, quindi niente prove d'identità: 
 | `engine/fabbrica/config.py` | lettura, controllo e impronta della config | L3a |
 | `engine/fabbrica/generatore.py` | teorie da modelli × blocchi, famiglie, valori degeneri | L3a |
 | `engine/fabbrica/valutatore.py` | da una strategia ai bp netti e alle misure | L3a |
-| `engine/fabbrica/sintetici.py` | barre e funding inventati per i collaudi, come `funzioni_prova.py` (aggiunto in L3a) | L3a |
+| `engine/fabbrica/sintetici.py` | barre e funding inventati per i collaudi, come `funzioni_prova.py` (aggiunto in L3a); in L3b il mercato con il vantaggio piantato | L3a, L3b |
 | `engine/fabbrica/ricerca.py` | passi 1 e 2, altopiano, ripresa | L3b |
-| `engine/fabbrica/registro.py` | registro delle ricerche e conto delle prove | L3b |
+| `engine/fabbrica/registro.py` | registro delle ricerche (a catena di impronte, come P8) e conto delle prove: una prova = (ricerca, pezzo, strategia), contata una volta | L3b |
 | `engine/fabbrica/selezione.py` | condizione 2, test individuale, famiglie | L4 |
 | `engine/fabbrica/cassaforte.py` | strategie congelate, ingresso, registro della cassaforte | L4 |
 | `engine/fabbrica/schede.py` | scheda `.md` e `.json` | L5 |
@@ -218,7 +218,17 @@ Costi come nel Lab: commissione taker, spread di un passo per trade, funding sui
 
 **Come si fa.** Per ogni teoria tenuta, **3 giri da 90 prove**: ogni giro riparte attorno alle 5 strategie migliori del giro prima, con intervalli più stretti e passo più piccolo, fino al passo più fine dello spazio (P-L2): 1 barra, 1 per le soglie intere, 0,1 per la soglia di ATR relativo. Per esempio il periodo da 8-16-24 barre a 12-14-16 barre, poi a 13-14-15. Se lo spazio ristretto ha meno punti del budget del giro: forza bruta.
 
+**Le 5 da cui riparte un giro (07/11, risposta di Mattia).** Si scelgono per t fra tutte le strategie calcolabili della teoria provate fino a quel giro, passo 1 compreso, che passino o no la condizione di qualità. La condizione di qualità decide solo alla fine: si tiene la migliore fra quelle che passano; se nessuna passa, la teoria esce.
+
 **L'intervallo di un giro (07/11).** Per ogni parametro, l'intervallo va dal minimo al massimo delle 5 migliori, allargato del passo del giro prima da ogni lato (al primo giro: il buco più largo della griglia), dentro i confini dello spazio. Quell'intervallo si prova con il passo nuovo: al primo giro metà del buco più largo della griglia, al secondo un intermedio (la media geometrica fra quella metà e il passo fine, arrotondata al passo fine), al terzo il passo fine (1 barra, 1, 0,1). Per esempio un buco di 8 barre dà i passi 4, 2, 1; uno di 96 barre 48, 7, 1. **Collaudo:** ogni intero fra due punti della griglia larga è raggiungibile in 3 giri.
+*Come è scritto in L3b (dettagli che la regola non fissava):*
+- passi arrotondati a metà strada verso l'alto, mai sotto il passo fine; con un numero di giri diverso da 3, una scala geometrica dalla metà del buco al passo fine;
+- il reticolo del giro parte dal minimo delle 5, così le 5 ci stanno;
+- il buco più largo e i confini sono quelli della griglia rimasta dopo i valori degeneri;
+- il target è un interruttore: nel giro restano i valori che hanno le 5;
+- spazio del giro con al massimo `prove_per_giro` punti: si prova tutto; se no, il genetico di L1 con le opzioni predefinite, con un seme che nasce da seme della ricerca + id della teoria + giro.
+
+**Altopiano, dettagli di L3b.** Un vicino degenere si scarta e si annota, come nello zoom: non è un vicino e non conta. Un vicino già visto non si rivaluta. Se le prove dell'altopiano finiscono (`prove_max`) prima del giudizio, la teoria esce con quel motivo.
 
 **La stessa strategia in due giri.** Si riconosce dall'impronta (id_strategia, P8): non si rivaluta e si conta una volta sola nel conto delle prove (P7).
 
@@ -417,7 +427,8 @@ Il budget si divide così (massimi, fissati per teoria, così il risultato non d
 | cassaforte | al massimo | 150 |
 | **totale** | sotto il tetto di 100.000 | **96.840** |
 
-Il primo giro di L3 misura il tempo vero; se manca l'obiettivo di oltre il doppio, si torna da Mattia prima di andare avanti. M5 costa circa 3 volte M15, a parità di prove.
+Il primo giro di L3 misura il tempo vero; se manca l'obiettivo di oltre il doppio, si torna da Mattia prima di andare avanti.
+**Misurato in L3b (07/11),** su barre sintetiche lunghe come lo storico di BTC perp M15 (122.496 barre nel pezzo di ricerca), config standard, 3 processi: passi 1–2 con l'altopiano in **222 secondi (3,7 minuti)**, con 82.343 prove (passo 1 43.200, zoom 38.179, altopiano 964). Preparazione 8 s, passo 1 61 s, passo 2 e altopiano 151 s. M5 costa circa 3 volte M15, a parità di prove.
 
 ---
 
@@ -516,6 +527,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Combinazioni nuove (07/11): ogni combinazione nuova proposta dallo zoom o dall'altopiano passa da `verifica_degenerazione` (solo segnali, sul pezzo di ricerca) prima di essere valutata: se è degenere si scarta, si annota e non conta come prova (P5).
 - Divisione di L3 (07/11): L3a dati, config, generatore con le combinazioni degeneri, valutatore; poi L3b passi 1–2, altopiano, registro, tempo vero (§9).
 - Scelte di L3 (07/11): le uscite non passano dal controllo di degenerazione; i valori degeneri si tolgono per lato; famiglie per misura o per dichiarazione, il registro dice quante teorie e perché (P3); il genetico massimizza il t di ogni strategia calcolabile e la condizione di qualità decide solo alla fine; un punto degenere o già visto non consuma una prova (P4); intervallo e passo di ogni giro dello zoom come in P5.
+- Zoom (07/11, via a L3b): le 5 da cui riparte un giro si scelgono per t fra tutte le strategie calcolabili; la condizione di qualità decide solo alla fine, si tiene la migliore fra quelle che passano e, se nessuna passa, la teoria esce (P5).
 - Dati (07/11): letti con `exchange.leggi_csv` e gli stessi controlli di `vetrina.carica_storico`, che accetta solo da M5 a H4; la cassaforte si rilegge dal disco solo con il permesso (P1).
 
 ---
