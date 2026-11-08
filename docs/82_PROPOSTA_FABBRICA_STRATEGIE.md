@@ -140,7 +140,7 @@ Il meccanismo qui sotto è stato **confermato in L2 leggendo le condizioni**: E5
 - **Minimo di 5 barre (07/11)** per periodo di RSI, periodo di ADX e ATR lungo: i valori sotto salgono a 5. L'ATR breve resta con minimo 1 barra, come durate e canale di Donchian.
 - Nella griglia i **valori doppi dopo l'arrotondamento si tolgono**: su D1 le uscite a 1, 2, 4 e 8 ore diventano una sola, 1 barra.
 - Le **ore effettive** (barre × durata della barra) si leggono dal blocco, per la scheda: `ore_effettive`, `griglia_ore`, `finestre_ore`.
-- I blocchi del catalogo restano come sono: un blocco su un timeframe dove non scatterebbe mai ferma la config con un errore (E5 da M1 a D1; E36 da M1 a M30; E47 M5 e M15; E49 ed E51 da M5 a H1; F20 fino a H4, su D1 ferma la config perché la barra è sempre quella delle 00:00). I filtri con finestre in barre (F2, F3, trend, F25) restano così, e il blocco espone le loro finestre in ore.
+- I blocchi del catalogo restano come sono: un blocco su un timeframe dove non scatterebbe mai esce dalla config con il suo motivo (limite logico, approssimazione esclusa, escluso solo dall'elenco) e la ricerca prosegue (08/11) (E5 da M1 a D1; E36 da M1 a M30; E47 M5 e M15; E49 ed E51 da M5 a H1; F20 fino a H4: su D1 esce dalla config con il suo motivo, limite logico, perché la barra è sempre quella delle 00:00, e la ricerca prosegue (08/11)). I filtri con finestre in barre (F2, F3, trend, F25) restano così, e il blocco espone le loro finestre in ore.
 
 **Griglia e spazio.** La **griglia** contiene i valori larghi del passo 1. Lo **spazio** di ogni parametro ha lo stesso minimo e massimo della griglia e il **passo più fine**: 1 barra per i parametri in ore, 1 per le soglie intere (RSI, ADX, percentile dello stop), 0,1 per la soglia di ATR relativo. Lo zoom (P5) si muove nello spazio.
 
@@ -550,6 +550,7 @@ Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un tr
 Vuoto = non entra niente. Frase sbagliata = si ferma, il registro non cambia. Rieseguita: le strategie già entrate non rientrano, la cella ne mostra l'esito; i numeri nuovi entrano come un ingresso nuovo, con la frase.
 
 **6 · MM, stress test e verifica dei trade** (`mm_e_stress(r, numero, capitale, drawdown_max_pct, anni, modello, leva, trade_da_vedere)`). Campi: il numero della 4 (solo fra le entrate) e quelli delle schermate 7 e 9 del Lab; «trade da vedere», vuoto per default.
+*Nota per L5b (Mattia, 08/11):* i riquadri del Lab non devono rimandare a schermate che nella fabbrica non esistono (per esempio «poi vai alla schermata 9»), e la lente mostra il nome del blocco (per esempio «Donchian 12 ore»), non `FAB_SES_…`; senza cambiare il Lab.
 *Cosa fa:* dice quanto rischiare a ogni trade e quanto può andare male, e controlla ogni trade contro le regole. *Come leggere:* per esempio «rischio 0,5% a trade: nel 95% delle storie simulate il calo resta sotto il 20%»; ogni regola della verifica deve dire OK. Con un numero in «trade da vedere» quel trade sul grafico. *Poi:* vai alla 7.
 
 **7 · Le schede** (`schede(r)`).
@@ -572,7 +573,7 @@ Vuoto = non entra niente. Frase sbagliata = si ferma, il registro non cambia. Ri
 - Etichette (06/11): E5 è «rottura dopo inside bar», X3 è «MACD sotto la signal (stato)»; le liste non cambiano (P-L2).
 - Famiglie (06/11): ADX e ATR relativo nella stessa famiglia, decisa dalla misura; le teorie sono 1.176 (P3).
 - Minimo di barre (07/11): almeno 5 barre per periodo di RSI, periodo di ADX e ATR lungo; ATR breve con minimo 1. Su M15 le griglie non cambiano; dove un valore sale a 5, i doppi si tolgono (P-L2, P5).
-- F20 su D1 (07/11): ferma la config, come i trigger (P-L2).
+- F20 su D1 (07/11): ferma la config, come i trigger (P-L2). Superata l'08/11: vedi Timeframe nella cella 1.
 - Valori degeneri (07/11): all'avvio di ogni ricerca le combinazioni della griglia di ogni blocco con parametri passano da `verifica_degenerazione` sul solo pezzo di ricerca (solo segnali, non è una prova); le degeneri escono dalla griglia, lo spazio dello zoom segue la griglia rimasta, un blocco senza valori esce dalla config; l'elenco va nel registro e su ogni scheda (P3, P-L2).
 - Combinazioni nuove (07/11): ogni combinazione nuova proposta dallo zoom o dall'altopiano passa da `verifica_degenerazione` (solo segnali, sul pezzo di ricerca) prima di essere valutata: se è degenere si scarta, si annota e non conta come prova (P5).
 - Divisione di L3 (07/11): L3a dati, config, generatore con le combinazioni degeneri, valutatore; poi L3b passi 1–2, altopiano, registro, tempo vero (§9).
