@@ -1,6 +1,6 @@
 # 81 · Fabbrica di strategie (ricerca automatica)
 
-**Incarico del 04/11/2026, aggiornato il 06/11/2026** (Mattia e il revisore), per Claude Code. Lavoro grande: prima la
+**Incarico del 04/11/2026, aggiornato l'08/11/2026** (Mattia e il revisore), per Claude Code. Lavoro grande: prima la
 proposta in testo.
 
 **Flusso:**
@@ -72,7 +72,7 @@ e indicatore TradingView sono fuori da questo incarico.
    corrisponderebbe a quel totale, accanto al test individuale. Il conto **non decide**.
 8. **Cassaforte:** le strategie scelte si congelano e si scrivono nel registro **prima** di leggere una barra; poi si
    valutano sulla cassaforte con il test individuale. Il registro (data, strategie, esito) non si modifica a mano e
-   tiene il numero di strategie entrate in quella cassaforte (da leggere). Una strategia già entrata non rientra; un
+   tiene il numero di strategie entrate in quella cassaforte (da leggere). Nello stesso tratto una strategia già entrata non rientra; un
    parametro cambiato è una strategia nuova.
 9. **MM, stress test, verifica dei trade:** riuso di quanto fa il Lab alle schermate 7, 9 e 8.
 10. **Scheda:** un `.md` e un `.json` per strategia: blocchi, regole in parole, valori, dati usati, prove contate,
@@ -89,7 +89,7 @@ e indicatore TradingView sono fuori da questo incarico.
 - Nessun lookahead: ogni blocco nuovo passa `verifica_lookahead` e `verifica_degenerazione`. Nessuna statistica
   (percentili, normalizzazioni) calcolata su tutto il periodo.
 - Nessun valore legato a un timeframe: i parametri si scrivono in ore e diventano barre, arrotondate alla barra più
-  vicina (minimo 1); il calcolo è tutto in barre, al passo di 1 barra.
+  vicina (minimo 1; minimo 5 per periodo di RSI, periodo di ADX e ATR lungo); il calcolo è tutto in barre, al passo di 1 barra.
 - Ogni strategia valutata è una prova, anche se scartata subito.
 - La cassaforte non si legge prima del passo 8: un test lo garantisce.
 - Seed fisso → stessi risultati. Una ricerca interrotta deve poter riprendere.
@@ -124,7 +124,8 @@ con i tempi stimati.
 - **L2** blocchi parametrici e cache degli indicatori, per una lista corta da proporre (es. 5 trigger, 5 filtri,
   3 uscite del catalogo, più RSI, ATR, ADX, Donchian).
 - **L3** generatore, passi 1–2, config e registro delle ricerche.
-- **L4** selezione, famiglie, conto delle prove, cassaforte.
+- **L4a** selezione, famiglie, conto delle prove.
+- **L4b** cassaforte e adattatore della Sessione.
 - **L5** notebook e schede.
 - **Dopo, incarico a parte:** price action come blocchi (BOS e CHoCH autonomi, FVG, massimo/minimo del giorno
   prima, order block).

@@ -295,6 +295,14 @@ def esegui() -> int:
         check("40. una cartella con la stessa impronta ma un config.json cambiato: errore, nessuna sovrascrittura",
               errore(lambda: salva_config(cfg, dati)) and json.load(open(percorso, encoding="utf-8"))["seme"] == 9)
         check("41. una config sbagliata non si salva", errore(lambda: salva_config({**cfg, "lati": []}, dati)))
+        p3 = os.path.join(cartella_asset(dati, PERP, "M15"), id3, "config.json")
+        with open(p3, "rb") as f:
+            byte_3 = f.read()
+        id4 = salva_config({**cfg, "seme": 5, "processi": 1}, dati, data="20261108")
+        with open(p3, "rb") as f:
+            check("42. processi diversi: stessa impronta, stessa ricerca, config.json intatto (08/11)",
+                  impronta_config({**cfg, "processi": 1}) == impronta_config(cfg) and id4 == id3
+                  and f.read() == byte_3 and len(os.listdir(cartella_asset(dati, PERP, "M15"))) == 2)
     finally:
         shutil.rmtree(base, ignore_errors=True)
 

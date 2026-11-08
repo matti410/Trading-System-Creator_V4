@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
-**Data:** 5 novembre 2026, aggiornata il 7 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1, L2, L3a e L3b scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11 e il 07/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
+**Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
+**Stato:** L1, L2, L3a, L3b e L4a scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -49,10 +49,10 @@ Tutti additivi. **Il motore non si modifica**, quindi niente prove d'identità: 
 | `engine/fabbrica/sintetici.py` | barre e funding inventati per i collaudi, come `funzioni_prova.py` (aggiunto in L3a); in L3b il mercato con il vantaggio piantato | L3a, L3b |
 | `engine/fabbrica/ricerca.py` | passi 1 e 2, altopiano, ripresa | L3b |
 | `engine/fabbrica/registro.py` | registro delle ricerche (a catena di impronte, come P8) e conto delle prove: una prova = (ricerca, pezzo, strategia), contata una volta | L3b |
-| `engine/fabbrica/selezione.py` | condizione 2, test individuale, famiglie | L4 |
-| `engine/fabbrica/cassaforte.py` | strategie congelate, ingresso, registro della cassaforte | L4 |
+| `engine/fabbrica/selezione.py` | condizione 2, test individuale, famiglie | L4a |
+| `engine/fabbrica/cassaforte.py` | strategie congelate, ingresso, registro della cassaforte | L4b |
 | `engine/fabbrica/schede.py` | scheda `.md` e `.json` | L5 |
-| `engine/vetrina_fabbrica.py` | le funzioni chiamate dalle celle | L5 |
+| `engine/vetrina_fabbrica.py` | le funzioni chiamate dalle celle | L4b (`sessione_da_strategia`), L5 (le altre) |
 | `Fabbrica_Strategie_Crypto.ipynb` | il notebook | L5 |
 | `test_fabbrica_*.py` | una suite per lavoro, ultima riga «RISULTATO: n/n» | L1–L5 |
 
@@ -287,6 +287,15 @@ Le soglie stanno nella config; anche i vicini sono prove, al massimo 60 per teor
 
 **Vantaggio piantato, il collaudo di tutta la pipeline:** su un mercato finto con un vantaggio inserito a parametri noti, una ricerca piccola trova quel blocco con valori vicini a quelli giusti e lo porta oltre la selezione. Sta nella suite.
 
+*Come è scritto in L4a (08/11, scelte di Mattia in §8 e dettagli che la regola non fissava):*
+- **Il pezzo:** ricerca e selezione attaccate, con gli indicatori; finisce all'ultima barra della selezione, nessuna barra della cassaforte. `aggiungi_indicatori` toglie le barre di riscaldamento in testa, quindi la prima barra della selezione si trova per data, e se una barra della selezione manca tutto si ferma. I segnali prima di quella barra si spengono: ogni trade nasce nella selezione.
+- **Il trade ancora aperto all'ultima barra resta fuori**, come in tutto il motore (`motore_veloce`, U7) e come al passo 1 sul pezzo di ricerca: non si chiude con un prezzo inventato e non legge barre della cassaforte.
+- **I costi** sono quelli del pezzo di selezione (`Pezzi.costi("selezione")`), con il funding dei due pezzi attaccato.
+- **P(EV<0):** `giudizio.p_ev_negativo` (10.000 ricampionamenti, seme 0) sui bp di selezione; il verdetto è `giudizio.verdetto` con EV e P(EV<0) in bp. La scheda completa (`scheda_strategia`) resta per L5.
+- **Ordine dei giudizi:** prima la condizione 2, poi il test individuale; il motivo dice la prima regola che non passa.
+- **Famiglie:** sui segnali finali (trigger, filtri, quarantena) di ricerca + selezione, lato per lato. Due strategie stanno insieme se `famiglie.famiglie` le unisce (famiglia 60%, lift 1,3) **o** se `famiglie.sovrapposizioni` le dà doppioni (quota 70%, lift 1,3): le regole sono passate per esteso, anche dove sono già quelle predefinite. Resta la strategia con il t di selezione più alto, a parità l'id più piccolo. Esiti: «scelta», «stessa famiglia», «scartata». Solo le «scelte» possono andare oltre (`controlla_ammessa` si ferma con le altre).
+- **Su disco:** `selezione.json` nella cartella della ricerca, scritto una volta e riletto alla ripresa; la fine della ricerca nel registro porta l'esito di ogni strategia. Accanto al test individuale, `prove_asset` e `soglia_da_leggere` (P7).
+
 ### P7 · Il conto delle prove, da leggere
 
 **Come si fa.** Ogni strategia valutata è una riga nel file delle prove, anche se scartata subito: passo 1, zoom, vicini dell'altopiano, selezione, cassaforte. La stessa strategia uscita in due giri dello zoom si riconosce dall'impronta, non si rivaluta e si conta una volta sola. Il conto **k** è il totale di quelle righe per l'asset (symbol + timeframe), sommando tutte le ricerche della fabbrica e tutte le macchine. La scheda mostra k e la soglia corrispondente, `giudizio.soglia_rumore(k)`, accanto al test individuale. Con 100.000 prove la soglia è **5,02** (10.000: 4,56; 1.000.000: 5,45).
@@ -460,6 +469,8 @@ Il primo giro di L3 misura il tempo vero; se manca l'obiettivo di oltre il doppi
 }
 ```
 
+**`processi` non entra nell'impronta (08/11):** non cambia i risultati (collaudato: 1 processo = 3 processi), quindi la stessa ricerca si riprende anche con un numero di processi diverso; il `config.json` resta quello del primo salvataggio.
+
 I confini sono **durate**, in ore, così non dipendono dal timeframe. Sopra c'è la prima finestra (P1). Una finestra scorsa ha le stesse tre durate e un `inizio` più avanti di almeno `cassaforte_ore`; altrimenti la config si ferma con un errore.
 
 **Scheda `.json`**: `id_strategia`, `id_ricerca`, `impronta_config`, `impronte_dati`, `symbol`, `timeframe`, `lato`, `blocchi` (nome e valori), `uscita`, `regole` (testo), `esiti` (per ogni passo: pezzo, trade, EV in bp, t, drawdown, condizione, esito, motivo), `altopiano`, `test_individuale` (t e soglia in selezione e in cassaforte), `prove` (di questa ricerca, totale della fabbrica sull'asset, soglia corrispondente), `cassaforte` (data, tratto, esito, strategie entrate in quel tratto), `mm`, `stress`, `software` (commit del repo).
@@ -529,6 +540,9 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Scelte di L3 (07/11): le uscite non passano dal controllo di degenerazione; i valori degeneri si tolgono per lato; famiglie per misura o per dichiarazione, il registro dice quante teorie e perché (P3); il genetico massimizza il t di ogni strategia calcolabile e la condizione di qualità decide solo alla fine; un punto degenere o già visto non consuma una prova (P4); intervallo e passo di ogni giro dello zoom come in P5.
 - Zoom (07/11, via a L3b): le 5 da cui riparte un giro si scelgono per t fra tutte le strategie calcolabili; la condizione di qualità decide solo alla fine, si tiene la migliore fra quelle che passano e, se nessuna passa, la teoria esce (P5).
 - Dati (07/11): letti con `exchange.leggi_csv` e gli stessi controlli di `vetrina.carica_storico`, che accetta solo da M5 a H4; la cassaforte si rilegge dal disco solo con il permesso (P1).
+- Impronta della config (08/11): `processi` esce dall'impronta, perché non cambia i risultati; stessa ricerca con 1 o 3 processi (§6).
+- Divisione di L4 (08/11): L4a selezione e conto delle prove (P6, P7); L4b cassaforte e Sessione (P8, P9) (§9).
+- Selezione (08/11, scelte di L4a): famiglie misurate sui segnali finali di ricerca + selezione, lato per lato; P(EV<0) con il bootstrap di `p_ev_negativo` (10.000 ricampionamenti, seme 0) sui bp di selezione; il pezzo passato alla selezione finisce all'ultima barra della selezione, senza barre della cassaforte (P6).
 
 ---
 
@@ -541,7 +555,8 @@ Un ramo e una PR per ciascuno, in quest'ordine. Il via è di Mattia, lavoro per 
 | **L1** | ottimizzatore, funzioni di prova, suite | — | 1 | l'ultima riga della suite |
 | **L2** | blocchi, cache, indicatori nuovi; controllo dei doppioni | — | 1–2 | tabella dei doppioni (solo segnali) |
 | **L3** | dati, config, generatore, valutatore, passi 1–2 con l'altopiano, registro; **primo tempo vero** | L1, L2 | 2–3 | tempo misurato su dati sintetici |
-| **L4** | selezione, famiglie, conto delle prove, cassaforte, test del veleno, adattatore della Sessione | L3 | 2–3 | i collaudi del veleno e del vantaggio piantato |
+| **L4a** | selezione, famiglie, conto delle prove, vantaggio piantato fino alla selezione | L3 | 1 | il vantaggio piantato oltre la selezione |
+| **L4b** | cassaforte, registro a catena, test del veleno, adattatore della Sessione | L4a | 1–2 | il collaudo del veleno |
 | **L5** | notebook, vetrina, schede, allineamento di `docs/00` e `CLAUDE.md` | L4 | 2 | il notebook su dati veri, se e quando dici tu |
 
 **Fino a L5 tutti i collaudi girano su dati sintetici.** Nessun lancio sui dati veri senza il tuo via: il primo lancio vero conta le prove della fabbrica e non si torna indietro.

@@ -280,10 +280,12 @@ def esegui() -> int:
                                ("config.json", "passo_1.jsonl", "passo_2.jsonl", "stato.json"))
               and json.load(open(os.path.join(e.cartella, "stato.json"), encoding="utf-8"))["fase"] == "finita",
               f"imbuto {e.imbuto}, {e.prove} prove, {e.durata_s:.0f} s")
-        somma = sum(len(r["prove"]) for r in r1 + r2)
-        check("15. conteggio esatto: righe del file = prove dei passi = conto dell'asset",
+        somma = sum(len(r["prove"]) for r in r1 + r2) + len(e.selezione.tabella)
+        check("15. conteggio esatto: righe del file = prove dei passi e della selezione = conto dell'asset",
               len(csv_f) == somma == e.prove == registro.conto_prove(F, PERP, "M15"), f"{len(csv_f)}, {somma}, {e.prove}")
-        check("16. ogni strategia una riga sola (passo 1, giri e altopiano insieme)", csv_f["id_strategia"].is_unique)
+        check("16. ogni strategia una riga sola per pezzo (passo 1, giri e altopiano insieme; poi la selezione)",
+              csv_f["id_strategia"][csv_f["pezzo"] == "ricerca"].is_unique
+              and sorted(csv_f.loc[csv_f["pezzo"] == "selezione", "id_strategia"]) == sorted(e.sopravvissute["id_strategia"]))
         check("17. passo 1: al massimo 40 prove per teoria, esattamente min(40, punti ammessi)",
               all(len(r["prove"]) == min(40, r["punti_ammessi"]) for r in r1))
         giri_ok = all(g["prove"] <= 30 for r in r2 for g in r["giri"]) and all(r["prove_altopiano"] <= 60 for r in r2)
@@ -310,8 +312,11 @@ def esegui() -> int:
         check("22. altopiano: la prima candidata è la migliore che passa la condizione 1 dopo lo zoom; la scelta passa "
               "la condizione 1",
               bene and prima_cand)
+        t_sel = e.selezione.tabella
         check("23. imbuto e tabelle coerenti", e.imbuto == {"teorie": 24, "passo_1_tenute": len(tenute), "passo_2": 4,
-                                                            "altopiano": int((e.passo_2["esito"] == "regge").sum())}
+                                                            "altopiano": int((e.passo_2["esito"] == "regge").sum()),
+                                                            "selezione": int((t_sel["esito"] != "scartata").sum()),
+                                                            "scelte": int((t_sel["esito"] == "scelta").sum())}
               and len(e.sopravvissute) == e.imbuto["altopiano"], str(e.imbuto))
         eventi = registro.leggi_registro(cartella_asset(F, PERP, "M15"))
         avvio = [x for x in eventi if x["tipo"] == "avvio_ricerca"]
@@ -358,9 +363,9 @@ def esegui() -> int:
         tre = lancia(cfg3, P, verbose=False, data=DATA)
         f3, f1 = _file(tre), _file(e)
         stesse = f3["passo_1.jsonl"] == f1["passo_1.jsonl"] and f3["passo_2.jsonl"] == f1["passo_2.jsonl"]
-        csv_3 = f3["prove"].decode("utf-8").replace(tre.id_ricerca, e.id_ricerca).encode("utf-8")
-        check("31. 3 processi = 1 processo: passo 1, passo 2 e prove identici (cambia solo l'id, perché i processi "
-              "stanno nella config)", stesse and csv_3 == f1["prove"] and tre.passo_2.equals(e.passo_2))
+        check("31. 3 processi = 1 processo: passo 1, passo 2 e prove identici, stesso id (i processi non stanno "
+              "nell'impronta)", stesse and tre.id_ricerca == e.id_ricerca and f3["prove"] == f1["prove"]
+              and tre.passo_2.equals(e.passo_2))
         check("32. con il conto alterato (5 prove di un'altra ricerca) gli esiti non cambiano: cambia solo il numero",
               stesse and registro.conto_prove(P, PERP, "M15") == tre.prove + 5)
 

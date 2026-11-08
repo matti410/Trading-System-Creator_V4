@@ -1,9 +1,11 @@
 """
-La ricerca della fabbrica (docs/82 P4, P5, P7, lavoro L3b): passo 1, zoom, altopiano, ripresa.
+La ricerca della fabbrica (docs/82 P4, P5, P6, P7, lavori L3b e L4a): passo 1, zoom, altopiano, selezione, ripresa.
 
     esito = lancia(config, cartella_dati)     # salva la config, legge i pezzi, prova, scrive; se interrotta riprende
-    esito.imbuto                              # teorie → passo 1 → passo 2 → altopiano
+    esito.imbuto                              # teorie → passo 1 → passo 2 → altopiano → selezione → scelte
     esito.sopravvissute                       # una riga per teoria che regge l'altopiano
+    esito.selezione.tabella                   # una riga per sopravvissuta sul pezzo di selezione (selezione.py)
+    esito.conto                               # le prove di questa ricerca, dell'asset e la soglia, solo da leggere
 
 Passo 1 (P4). Sul solo pezzo di ricerca, una teoria alla volta, al massimo `per_teoria_passo_1` prove sui valori larghi:
 griglia completa se i punti ammessi ci stanno, altrimenti il genetico tarato in ampiezza (AMPIEZZA). L'obiettivo è il t
@@ -26,6 +28,10 @@ Le prove (P7). Ogni strategia valutata è una riga nel file delle prove. Una str
 (stessa impronta, id_strategia) non si rivaluta e non si conta. Una combinazione proposta dallo zoom o dall'altopiano
 passa prima da verifica_degenerazione: se è degenere si scarta, si annota e non conta. Né l'una né l'altra consumano
 una prova del budget, che non si supera mai.
+
+La selezione (P6, L4a). Finito il passo 2, le sopravvissute vanno sul pezzo di selezione (selezione.seleziona) e
+l'esito si scrive in selezione.json; alla ripresa si rilegge. Il conto delle prove dell'asset e la soglia che gli
+corrisponde stanno accanto al test individuale, solo da leggere (P7).
 
 Ripresa e processi. Il seme di una teoria nasce da seme della ricerca + id della teoria (e del giro): il risultato non
 dipende dall'ordine né dal numero di processi. Ogni teoria finita si scrive su disco, nell'ordine delle teorie; alla
@@ -50,6 +56,7 @@ from engine.giudizio import soglia_rumore
 from engine.indicatori import aggiungi_indicatori
 
 from . import registro
+from . import selezione as sel_mod
 from .blocchi import BARRE_MINIME, blocchi_da_config
 from .cache import Cache
 from .config import cartella_asset, controlla_budget, controlla_config, impronta_config, salva_config
@@ -63,6 +70,7 @@ LIMITE_CACHE_MB = 1500          # per processo: indicatori, maschere e soglie gi
 MIGLIORI_ZOOM = 5               # le strategie da cui riparte ogni giro (P5)
 PEZZO = "ricerca"
 FILE_PASSO_1, FILE_PASSO_2, FILE_STATO = "passo_1.jsonl", "passo_2.jsonl", "stato.json"
+FILE_SELEZIONE = "selezione.json"
 
 
 def _arrotonda(x: float) -> int:
@@ -632,6 +640,8 @@ class EsitoRicerca:
     resoconto: dict
     durata_s: float
     tempi: dict = field(default_factory=dict)
+    selezione: "sel_mod.Selezione | None" = None
+    conto: dict = field(default_factory=dict)
 
 
 def _tabelle(ris_1: list[dict], ris_2: list[dict], al_passo_2: list[str]):
@@ -748,25 +758,58 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
         return _esito(id_ricerca, cartella, False, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi)
 
     pezzi.verifica_impronte()
-    esito = _esito(id_ricerca, cartella, True, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi)
+    # ---------------------------------------------------------- selezione (P6)
+    t0 = time.perf_counter()
+    _, _, vive = _tabelle(ris_1, ris_2, al_passo_2)
+    selezione = _selezione(cartella, vive, pezzi, config, id_ricerca, prove)
+    pezzi.verifica_impronte()
+    tempi["selezione_s"] = time.perf_counter() - t0
+    k = registro.conto_prove(cartella_dati, symbol, timeframe)
+    conto = {"questa_ricerca": sum(1 for c in prove.chiavi if c[0] == id_ricerca), "asset": k,
+             "soglia_da_leggere": soglia_rumore(k, config["test_individuale"]["alfa"]) if k else None}
+    selezione = sel_mod.con_conto(selezione, conto)
+    esito = _esito(id_ricerca, cartella, True, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi, selezione,
+                   conto)
     if not any(e.get("tipo") == "fine_ricerca" and e.get("id_ricerca") == id_ricerca
                and e.get("macchina") == registro.macchina() for e in registro.leggi_registro(base)):
-        k = registro.conto_prove(cartella_dati, symbol, timeframe)
         registro.scrivi_evento(base, {
             "tipo": "fine_ricerca", "id_ricerca": id_ricerca, "impronta_config": impronta_config(config),
-            "imbuto": esito.imbuto, "degeneri_zoom": esito.degeneri_zoom,
-            "prove": {"questa_ricerca": esito.prove, "asset": k,
-                      "soglia_da_leggere": soglia_rumore(k, config["test_individuale"]["alfa"]) if k else None},
-            "sopravvissute": esito.sopravvissute[["teoria", "id_strategia", "t"]].to_dict("records")})
+            "imbuto": esito.imbuto, "degeneri_zoom": esito.degeneri_zoom, "prove": conto,
+            "sopravvissute": esito.sopravvissute[["teoria", "id_strategia", "t"]].to_dict("records"),
+            "selezione": selezione.tabella[["teoria", "id_strategia", "t", "esito", "motivo"]].to_dict("records")})
     stato("finita", fatte_passo_1=len(ris_1), al_passo_2=len(al_passo_2), fatte_passo_2=len(ris_2),
           prove=esito.prove)
     return esito
 
 
-def _esito(id_ricerca, cartella, finita, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi) -> EsitoRicerca:
+def _selezione(cartella, vive, pezzi, config, id_ricerca, prove) -> "sel_mod.Selezione":
+    """La selezione delle sopravvissute; scritta una volta in selezione.json e da lì riletta (ripresa)."""
+    percorso = os.path.join(cartella, FILE_SELEZIONE)
+    if not os.path.exists(percorso):
+        s = sel_mod.seleziona(vive, pezzi, config, id_ricerca, prove)
+        testo = registro.json_riga({k: getattr(s, k).to_dict("records") for k in ("tabella", "famiglie",
+                                                                                  "sovrapposizioni")})
+        with open(percorso + ".tmp", "w", encoding="utf-8") as f:
+            f.write(testo + "\n")
+        os.replace(percorso + ".tmp", percorso)
+    with open(percorso, encoding="utf-8") as f:
+        dati = json.loads(f.read())
+    tabella = pd.DataFrame(dati["tabella"], columns=sel_mod.COLONNE)
+    if list(tabella["id_strategia"]) != list(dict.fromkeys(vive["id_strategia"])):
+        raise ValueError(f"{percorso}: le strategie non sono le sopravvissute di questa ricerca: la ripresa si ferma.")
+    return sel_mod.Selezione(tabella, pd.DataFrame(dati["famiglie"]), pd.DataFrame(dati["sovrapposizioni"]))
+
+
+def _esito(id_ricerca, cartella, finita, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi, selezione=None,
+           conto=None) -> EsitoRicerca:
     p1, p2, vive = _tabelle(ris_1, ris_2, al_passo_2)
     imbuto = {"teorie": len(prep.teorie), "passo_1_tenute": int(p1["tenuta"].sum()) if len(p1) else 0,
               "passo_2": len(ris_2), "altopiano": len(vive)}
+    if selezione is not None:
+        t = selezione.tabella
+        imbuto["selezione"] = int((t["esito"] != "scartata").sum())
+        imbuto["scelte"] = int((t["esito"] == "scelta").sum())
     return EsitoRicerca(id_ricerca, cartella, finita, imbuto, p1, p2, vive,
                         sum(1 for k in prove.chiavi if k[0] == id_ricerca), prep.budget_massimo, prep.tolte,
-                        _degeneri_zoom(ris_2, prep.tolte), prep.resoconto, time.perf_counter() - t_inizio, tempi)
+                        _degeneri_zoom(ris_2, prep.tolte), prep.resoconto, time.perf_counter() - t_inizio, tempi,
+                        selezione, dict(conto or {}))
