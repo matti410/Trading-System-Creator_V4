@@ -13,7 +13,8 @@ Il registro della fabbrica (docs/82 P7 e §6, lavoro L3b).
   due ricerche diverse si sommano (P2). Il conto non decide nulla: si legge, con giudizio.soglia_rumore(k) accanto.
 - Il registro dell'asset ha una riga JSON per evento. Ogni riga contiene l'impronta (sha256) della riga prima: se la
   catena è rotta, la lettura si ferma con un errore (P8).
-- Il nome della macchina è quello del Lab: vetrina.macchina_predefinita, «pc» o «colab».
+- Il nome della macchina è quello del Lab: vetrina.macchina_predefinita, «pc» o «colab»; dal notebook (L5a) quello
+  scritto nell'Avvio, con imposta_macchina (un secondo PC: «pc2»), così due PC con Drive non scrivono lo stesso file.
 - Una riga rimasta a metà (il PC si è spento mentre scriveva) nel file delle prove si toglie alla lettura dopo: la
   teoria si rifà e le sue prove si riscrivono, una volta sola.
 """
@@ -32,9 +33,29 @@ COLONNE_PROVE = ("id_ricerca", "pezzo", "fase", "teoria", "id_strategia", "trade
 CHIAVE_PROVA = ("id_ricerca", "pezzo", "id_strategia")
 
 
+_MACCHINA: str | None = None          # il nome scelto nell'Avvio del notebook (L5a); None = quello predefinito
+
+
+def imposta_macchina(nome: str | None) -> str:
+    """
+    Il nome di questa macchina nei file della fabbrica (L5a, 08/11), come il campo dell'Avvio del Lab: «pc», «pc2»...
+    Su Colab è sempre «colab». Vuoto o None = quello predefinito. Solo lettere minuscole, cifre, «_» e «-».
+    """
+    global _MACCHINA
+    from engine.vetrina import macchina_predefinita
+    nome = (nome or "").strip().lower()
+    if macchina_predefinita() == "colab" or not nome:
+        _MACCHINA = None
+        return macchina()
+    if not all(c.isascii() and (c.isalnum() or c in "_-") for c in nome):
+        raise ValueError(f"nome della macchina {nome!r}: usa solo lettere, cifre, «_» e «-» (per esempio pc2).")
+    _MACCHINA = nome
+    return nome
+
+
 def macchina() -> str:
     from engine.vetrina import macchina_predefinita
-    return macchina_predefinita()
+    return _MACCHINA or macchina_predefinita()
 
 
 def nativo(o):

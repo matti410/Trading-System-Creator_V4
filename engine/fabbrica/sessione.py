@@ -80,6 +80,26 @@ def chiudi(s) -> None:
         reg.remove_filters(prefisso)
 
 
+def in_sample(config: dict, pezzi, strategia, blocchi: dict | None = None) -> SimpleNamespace:
+    """
+    L'in-sample di una strategia: ricerca + selezione attaccate, con i loro indicatori e i loro costi; i trade del
+    motore completo finiscono all'ultima barra della selezione. Ritorna df, cache, costi, trades. La usano la Sessione
+    e la scheda (schede.trade_da_scheda), così i trade sono gli stessi al bit.
+    """
+    from engine.vetrina import costi_storico
+    symbol = config["symbol"]
+    blocchi = blocchi or {b.nome: b for b in blocchi_da_config(config)}
+    imposta_mercato_crypto()
+    grezzo_is = pd.concat([pezzi.ricerca, pezzi.selezione])
+    funding_is = [f for f in (pezzi.funding["ricerca"], pezzi.funding["selezione"]) if f is not None]
+    costi_is = dict(costi_storico(symbol, grezzo_is, funding=pd.concat(funding_is) if funding_is else None,
+                                  df_prezzo=grezzo_is)[0])
+    df_is = aggiungi_indicatori(grezzo_is)
+    cache_is = Cache(df_is, LIMITE_CACHE_MB)
+    v_is = ValutatoreSelezione(list(blocchi.values()), cache_is, Costi(df_is, costi_is), 0)
+    return SimpleNamespace(df=df_is, cache=cache_is, costi=costi_is, trades=trade_completi(strategia, v_is, costi_is))
+
+
 def apri_sessione(esito, id_strategia: str):
     """
     Una vetrina.Sessione per una strategia entrata in cassaforte (`esito` di cassaforte.entra o esito_cassaforte).
@@ -87,7 +107,7 @@ def apri_sessione(esito, id_strategia: str):
     uscite, fs (pip_size, commission, risultati), filtro, filtri_scelti, trigger_long/short, entry_long/short,
     da_exchange, solo_long, unita, oos, H. In più `s.fabbrica`: prefisso, finestra, lag, strategia, id_ricerca.
     """
-    from engine.vetrina import Sessione, costi_storico, impostazioni_uscite
+    from engine.vetrina import Sessione, impostazioni_uscite
 
     if id_strategia not in esito.trade:
         raise ValueError(f"la strategia {id_strategia} non è entrata in cassaforte in questo tratto: niente Sessione.")
@@ -96,17 +116,10 @@ def apri_sessione(esito, id_strategia: str):
     symbol, timeframe = config["symbol"], config["timeframe"]
     st = strategia_da_riga(riga, symbol, timeframe)
     blocchi = {b.nome: b for b in blocchi_da_config(config)}
-    imposta_mercato_crypto()
 
     # l'in-sample: ricerca + selezione, i trade finiscono all'ultima barra della selezione
-    grezzo_is = pd.concat([pezzi.ricerca, pezzi.selezione])
-    funding_is = [f for f in (pezzi.funding["ricerca"], pezzi.funding["selezione"]) if f is not None]
-    costi_is = dict(costi_storico(symbol, grezzo_is, funding=pd.concat(funding_is) if funding_is else None,
-                                  df_prezzo=grezzo_is)[0])
-    df_is = aggiungi_indicatori(grezzo_is)
-    cache_is = Cache(df_is, LIMITE_CACHE_MB)
-    v_is = ValutatoreSelezione(list(blocchi.values()), cache_is, Costi(df_is, costi_is), 0)
-    trades_is = trade_completi(st, v_is, costi_is)
+    ins = in_sample(config, pezzi, st, blocchi)
+    df_is, cache_is, trades_is = ins.df, ins.cache, ins.trades
 
     # l'out-of-sample: la cassaforte, con i suoi trade riportati alle barre del suo pezzo
     df_oos = pezzo.df.iloc[pezzo.inizio:]

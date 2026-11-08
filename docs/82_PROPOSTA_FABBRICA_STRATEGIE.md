@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1, L2, L3a, L3b, L4a e L4b scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
+**Stato:** L1, L2, L3a, L3b, L4a, L4b e L5a scritti; il resto (L5b, il notebook) è testo. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -52,12 +52,12 @@ Tutti additivi. **Il motore non si modifica**, quindi niente prove d'identità: 
 | `engine/fabbrica/selezione.py` | condizione 2, test individuale, famiglie | L4a |
 | `engine/fabbrica/cassaforte.py` | strategie congelate, ingresso, registro della cassaforte | L4b |
 | `engine/fabbrica/sessione.py` | l'adattatore della Sessione: nomi temporanei nel catalogo, chiusura, schermate 7 e 8 con la finestra in ore | L4b |
-| `engine/fabbrica/schede.py` | scheda `.md` e `.json` | L5 |
-| `engine/vetrina_fabbrica.py` | le funzioni chiamate dalle celle | L4b (`sessione_da_strategia`), L5 (le altre) |
-| `Fabbrica_Strategie_Crypto.ipynb` | il notebook | L5 |
+| `engine/fabbrica/schede.py` | scheda `.md` e `.json`, regole in parole, trade rifatti dalla sola scheda | L5a |
+| `engine/vetrina_fabbrica.py` | le funzioni chiamate dalle celle | L4b (`sessione_da_strategia`), L5a (le altre) |
+| `Fabbrica_Strategie_Crypto.ipynb` | il notebook | L5b |
 | `test_fabbrica_*.py` | una suite per lavoro, ultima riga «RISULTATO: n/n» | L1–L5 |
 
-**Modifiche additive a file esistenti, dichiarate:** `engine/indicatori.py` (L2, indicatori nuovi); `suite_rapida.py` (L1, solo se serve per legare le suite nuove al codice; in L2 e L3a le durate delle suite nuove); `CLAUDE.md` e `docs/00` (L5, terzo notebook); `engine/vetrina_verifica.py` (L4b, 08/11: parametro facoltativo `finestra` di `verifica_trade`, `controlla_periodo`, `registro_trade`, `_ricalcola`, predefinito la `FINESTRA` del Lab, 500: il Lab non cambia); `engine/fabbrica/registro.py` (L4b: l'ora degli eventi da `adesso()`, che i collaudi fissano).
+**Modifiche additive a file esistenti, dichiarate:** `engine/indicatori.py` (L2, indicatori nuovi); `suite_rapida.py` (L1, solo se serve per legare le suite nuove al codice; in L2 e L3a le durate delle suite nuove); `CLAUDE.md` e `docs/00` (L5, terzo notebook); `engine/vetrina_verifica.py` (L4b, 08/11: parametro facoltativo `finestra` di `verifica_trade`, `controlla_periodo`, `registro_trade`, `_ricalcola`, predefinito la `FINESTRA` del Lab, 500: il Lab non cambia); `engine/fabbrica/registro.py` (L4b: l'ora degli eventi da `adesso()`, che i collaudi fissano; L5a: `imposta_macchina`, il nome della macchina scritto nell'Avvio). L5a, 08/11, tutte additive: `engine/fabbrica/ricerca.py` (parametro facoltativo `avanzamento` di `lancia`, che non cambia la ricerca); `engine/fabbrica/blocchi.py` (`MOTIVI_ESCLUSIONE`); `engine/fabbrica/config.py` (`blocchi_esclusi`, `controlla_tipi_rimasti`); `engine/fabbrica/cassaforte.py` (`trade_entrata`); `engine/fabbrica/sessione.py` (`in_sample`, il calcolo dell'in-sample tolto da `apri_sessione` senza cambiarlo, usato anche dalla scheda); `suite_rapida.py` (le durate delle due suite nuove).
 Nessun pacchetto nuovo da installare: numpy, pandas, numba e TA-Lib ci sono già.
 
 ---
@@ -382,6 +382,14 @@ Il conto **non decide**: nessun esito dipende da k.
 
 **Collaudo.** Dalla sola scheda `.json` si ricostruisce la strategia e si riottengono gli stessi trade, bit per bit. Questa è la prova che la scheda basta da sola.
 
+*Come è scritto in L5a (08/11, versione approvata da Mattia):*
+- **Per quali strategie:** una scheda per ogni strategia entrata in cassaforte (`schede(r)`, cella 7), in `<ricerca>/schede/<id_strategia>.md` e `.json`. Rieseguita, la cella le riscrive: vengono dai calcoli, il registro non cambia.
+- **Le regole in parole** (`regole_in_parole`): ogni blocco ha un testo per il long e uno per lo short (`TESTI_TRIGGER`, `TESTI_FILTRI`, `TESTI_USCITE`), scritto leggendo il codice del blocco; i valori entrano in ore e in barre del timeframe, per esempio «il Close supera il massimo degli High delle 12 ore (48 barre) precedenti». L'uscita dice durata, regola, stop e target («la distanza che contiene il 90% delle escursioni contrarie dei trade di 4 ore delle ultime 125 ore»).
+- **La verifica dei trade** (schermata 8 del Lab) gira sempre nella cella 6; l'esito delle sue regole (le sei sui trade e quella sui segnali non tradati) va nella scheda, `.md` e `.json`, con money management e stress test. Il riassunto della 6 sta in `<ricerca>/mm/<id_strategia>.json`; senza la 6 la scheda dice «non calcolati: esegui la 6».
+- **I blocchi tolti** su quel timeframe, con il motivo, sono nella scheda e in `riepilogo.json` della ricerca (§8, 08/11).
+- **In fondo al `.md`** la frase «La scheda descrive cosa è successo sui dati; la decisione è tua.» (Mattia, 08/11).
+- **Il collaudo P10** (`test_fabbrica_schede.py`): dalla sola scheda `.json` (`trade_da_scheda`) gli stessi trade al bit, in-sample (quelli della Sessione) e in cassaforte (quelli di `entra`), su BYBIT_SPOT_ETHUSDT M15 e su BINANCE_PERP_BTCUSDT H1 con il funding. Un valore cambiato nella scheda non torna con l'id; impronte dei dati diverse fermano; una strategia mai entrata non riapre la cassaforte (`cassaforte.trade_entrata`).
+
 ---
 
 ## §4 · L'ottimizzatore (L1)
@@ -489,15 +497,15 @@ Il primo giro di L3 misura il tempo vero; se manca l'obiettivo di oltre il doppi
 
 I confini sono **durate**, in ore, così non dipendono dal timeframe. Sopra c'è la prima finestra (P1). Una finestra scorsa ha le stesse tre durate e un `inizio` più avanti di almeno `cassaforte_ore`; altrimenti la config si ferma con un errore.
 
-**Scheda `.json`**: `id_strategia`, `id_ricerca`, `impronta_config`, `impronte_dati`, `symbol`, `timeframe`, `lato`, `blocchi` (nome e valori), `uscita`, `regole` (testo), `esiti` (per ogni passo: pezzo, trade, EV in bp, t, drawdown, condizione, esito, motivo), `altopiano`, `test_individuale` (t e soglia in selezione e in cassaforte), `prove` (di questa ricerca, totale della fabbrica sull'asset, soglia corrispondente), `cassaforte` (data, tratto, esito, strategie entrate in quel tratto), `mm`, `stress`, `software` (commit del repo).
+**Scheda `.json`**: `id_strategia`, `id_ricerca`, `impronta_config`, `impronte_dati`, `symbol`, `timeframe`, `lato`, `blocchi` (nome e valori), `uscita`, `regole` (testo), `esiti` (per ogni passo: pezzo, trade, EV in bp, t, drawdown, condizione, esito, motivo), `altopiano`, `test_individuale` (t e soglia in selezione e in cassaforte), `prove` (di questa ricerca, totale della fabbrica sull'asset, soglia corrispondente), `cassaforte` (data, tratto, esito, strategie entrate in quel tratto), `mm`, `stress`, `software` (commit del repo). In L5a (08/11) anche: `verifica` (le regole della verifica dei trade), `parametri_mm`, `blocchi_esclusi` (con il motivo), `strategia` e `config_strategia` (quello che serve a rifare i trade dalla sola scheda), `versione_scheda`.
 
-**Scheda `.md`**, la stessa cosa in parole: **Regole** (per esempio «long quando…, solo se…, stop…, esce dopo…») · **Da dove viene** (ricerca, dati) · **Il cammino** (una riga per passo, con il test individuale) · **Da leggere** (prove contate e soglia corrispondente, strategie entrate in cassaforte) · **Money management e stress test**. In fondo sempre la frase: «Questo è il risultato di un collaudo dello strumento; la decisione è tua.»
+**Scheda `.md`**, la stessa cosa in parole: **Regole** (per esempio «long quando…, solo se…, stop…, esce dopo…») · **Da dove viene** (ricerca, dati) · **Il cammino** (una riga per passo, con il test individuale) · **Da leggere** (prove contate e soglia corrispondente, strategie entrate in cassaforte) · **Money management e stress test**. In fondo sempre la frase: «La scheda descrive cosa è successo sui dati; la decisione è tua.» (Mattia, 08/11).
 
 ---
 
 ## §7 · Il notebook `Fabbrica_Strategie_Crypto.ipynb`
 
-Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabbrica.py`. Numeri qui sotto: **esempi inventati**, solo per il testo.
+Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabbrica.py` (scritte in L5a; il notebook è L5b). Ogni cella di codice ha sopra una cella di testo di al massimo 6 righe, nel formato di `docs/81` §5: **Cosa fa** · **Come leggere**, con un esempio numerico · **Poi**; nessuna sigla senza spiegarla. Numeri qui sotto: **esempi inventati**, solo per il testo. Versione approvata da Mattia l'08/11; i testi li rivede in L5b.
 
 **Glossario in testa.**
 
@@ -505,6 +513,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - **bp (punto base):** un centesimo dell'1%. Un trade che guadagna l'1% fa 100 bp.
 - **Costo:** quello che paghi all'exchange per ogni trade (commissione, spread, funding). Tutti i numeri sono già al netto.
 - **Funding:** il pagamento periodico fra chi è long e chi è short sui perpetual. Può essere un costo o un incasso.
+- **EV:** il guadagno medio per trade, al netto dei costi.
 - **Drawdown:** il calo massimo dal punto più alto del conto.
 - **t:** quanto il guadagno medio per trade si distingue dal caso. Più è alto, meno è probabile che sia fortuna.
 - **Test individuale:** il t della strategia contro la soglia per una prova sola (1,96). È il test che decide.
@@ -513,24 +522,38 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - **Modello:** lo schema, per esempio «1 trigger + 1 filtro + 1 uscita». **Teoria:** un modello con i blocchi scelti, senza numeri. **Strategia:** una teoria con tutti i numeri.
 - **Giro:** una passata di ricerca su una teoria. **Prova:** ogni strategia provata, anche se scartata subito. **Budget:** quante prove al massimo.
 - **Condizione di qualità:** regole sì/no che una strategia deve passare.
+- **Altopiano:** la strategia regge anche con i parametri un po' spostati.
+- **Selezione:** il secondo pezzo di dati, dove decide il test individuale.
+- **Famiglia:** strategie che entrano quasi negli stessi momenti; se ne tiene una sola.
+- **Imbuto:** quante strategie restano a ogni passo.
 - **Cassaforte:** l'ultimo pezzo di dati. In ogni tratto di cassaforte una strategia entra una volta sola.
 
-**Avvio.** *Cosa fa:* prepara il notebook e trova i dati. *Come leggere:* deve dire da quale cartella legge e che cosa ha trovato, per esempio «16 symbol, ultima barra 19/10/2026». *Poi:* vai alla 1.
+**Avvio** (`avvio(cartella_dati, macchina)`). Campo: il nome di questa macchina (`pc`, un secondo PC `pc2`; su Colab è sempre `colab`), così due PC con Drive non scrivono lo stesso file. Non scarica dati: si aggiornano dal Lab o con `scarica_dati_crypto.py`.
+*Cosa fa:* prepara il notebook e trova i dati. *Come leggere:* la cartella, i symbol con l'ultima barra (per esempio «16 file, ultima barra 19/10/2026»); per ogni symbol e timeframe con ricerche, le barre dopo l'ultima cassaforte usata e quante ne servono per un tratto nuovo (per esempio «3.100 barre dopo, ne servono 47.118»). *Poi:* vai alla 1.
 
-**1 · Configura.** *Cosa fa:* scrive le regole della ricerca, sul symbol e sul timeframe che scegli, e le blocca con un'impronta. *Come leggere:* conta teorie e prove previste, per esempio «1.176 teorie, 97.000 prove, circa 15 minuti». *Poi:* se ti va bene, passa alla 2. **Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.**
+**1 · Configura** (`configura(cartella_dati, exchange, mercato, moneta, timeframe, processi)`). Campi: exchange, mercato, moneta, timeframe da M1 a D1, processi (3 sul PC, 2 su Colab). Il resto è la config standard di §6; il seme non è un campo.
+*Cosa fa:* scrive le regole della ricerca e le blocca con un'impronta. *Come leggere:* le date dei tre pezzi (la cassaforte «chiusa»), teorie e prove previste, una stima grezza del tempo (per esempio «1.176 teorie, 96.840 prove, circa 15 minuti»); i blocchi tolti su quel timeframe, ognuno con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo dall'elenco). *Poi:* passa alla 2. **Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.**
+Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un trigger o un'uscita. Rieseguita con gli stessi campi dà la stessa ricerca.
 
-**2 · La ricerca.** *Cosa fa:* prova le strategie (lancio, avanzamento, ripresa). *Come leggere:* la barra dice a che punto è, per esempio «teoria 590 di 1.176, 47.000 prove, mancano 8 minuti». *Poi:* se si interrompe, rilancia la stessa cella: riparte da dove era. Quando finisce, alla 3.
+**2 · La ricerca** (`ricerca(conf)`).
+*Cosa fa:* prova le strategie; se si interrompe, riparte da dove era. *Come leggere:* la riga dice a che punto è, per esempio «passo 1: teoria 590 di 1.176 · 47.000 prove · mancano al massimo circa 8 minuti». Alla fine prove, durata, valori degeneri tolti e gli stessi blocchi tolti della 1 (anche in `riepilogo.json`). *Poi:* se si interrompe, rilancia la stessa cella. Quando finisce, alla 3.
 
-**3 · L'imbuto.** *Cosa fa:* mostra quante strategie sopravvivono a ogni passo, la figura principale. *Come leggere:* per esempio «teorie 1.176 → passo 1: 150 → passo 2: 40 → selezione: 6 → cassaforte: da aprire». Un imbuto che resta vuoto non è un errore: è una risposta. *Poi:* guarda le strategie alla 4.
+**3 · L'imbuto** (`imbuto(r)`).
+*Cosa fa:* mostra quante strategie restano a ogni passo, la figura principale. *Come leggere:* per esempio «teorie 1.176 → passo 1: 900 → zoom: 150 → altopiano: 40 → selezione: 6 → scelte: 4 → cassaforte: da aprire». Un imbuto che resta vuoto non è un errore: è una risposta. I motivi di scarto in una sezione chiusa. *Poi:* guarda le strategie alla 4.
 
-**4 · Le strategie rimaste.** *Cosa fa:* una riga per strategia, con regole in parole e numeri sui due pezzi aperti. *Come leggere:* EV è il guadagno medio per trade: EV 8 bp vuol dire 0,08% a trade, già al netto dei costi. Decide il t contro 1,96, per esempio t 2,4 passa. Accanto, solo da leggere, il conto delle prove e la soglia corrispondente, per esempio 97.000 prove e 5,02. *Poi:* decidi quali strategie far entrare in cassaforte. Puoi anche non farne entrare nessuna.
+**4 · Le strategie rimaste** (`strategie_rimaste(r)`).
+*Cosa fa:* una riga per strategia, numerata, prima le «scelte», con le regole in parole e i numeri di ricerca e selezione. *Come leggere:* EV 8 bp vuol dire 0,08% a trade, già al netto dei costi. Decide il t di selezione contro 1,96: t 2,4 passa. Accanto, da leggere, le prove sull'asset e la soglia corrispondente (per esempio 97.000 e 5,02). *Poi:* decidi quali far entrare in cassaforte; anche nessuna.
 
-**5 · La cassaforte.** *Cosa fa:* scrive nel registro le strategie scelte, poi le prova sull'ultimo pezzo di dati. *Come leggere:* per ogni strategia il risultato accanto a quello della selezione; per esempio EV 8 bp in selezione e 2 bp in cassaforte vuol dire che il guadagno medio per trade è un quarto. Decide il t contro 1,96. Da leggere: quante strategie sono entrate finora in questa cassaforte, per esempio 6. *Poi:* passa alla 6.
+**5 · La cassaforte** (`cassaforte(r, strategie, frase)`). Campi: i numeri della 4 («1, 3») oppure «tutte le scelte»; la frase di conferma.
+*Cosa fa:* scrive nel registro le strategie scelte, poi le prova sull'ultimo pezzo di dati. *Come leggere:* selezione e cassaforte affiancate; per esempio EV 8 bp in selezione e 2 bp in cassaforte vuol dire un quarto del guadagno medio. Decide il t contro 1,96. Da leggere: quante strategie sono entrate in questo tratto (per esempio 6). *Poi:* passa alla 6.
 **ATTENZIONE: in questo tratto di cassaforte una strategia entra UNA VOLTA SOLA. Non si annulla. Un parametro cambiato è una strategia nuova. Per procedere scrivi la frase richiesta nel campo.**
+Vuoto = non entra niente. Frase sbagliata = si ferma, il registro non cambia. Rieseguita: le strategie già entrate non rientrano, la cella ne mostra l'esito; i numeri nuovi entrano come un ingresso nuovo, con la frase.
 
-**6 · MM e stress test.** *Cosa fa:* dice quanto rischiare a ogni trade e quanto può andare male. *Come leggere:* per esempio «rischio 0,5% a trade: nel 95% delle storie simulate il calo resta sotto il 20%». *Poi:* vai alla 7.
+**6 · MM, stress test e verifica dei trade** (`mm_e_stress(r, numero, capitale, drawdown_max_pct, anni, modello, leva, trade_da_vedere)`). Campi: il numero della 4 (solo fra le entrate) e quelli delle schermate 7 e 9 del Lab; «trade da vedere», vuoto per default.
+*Cosa fa:* dice quanto rischiare a ogni trade e quanto può andare male, e controlla ogni trade contro le regole. *Come leggere:* per esempio «rischio 0,5% a trade: nel 95% delle storie simulate il calo resta sotto il 20%»; ogni regola della verifica deve dire OK. Con un numero in «trade da vedere» quel trade sul grafico. *Poi:* vai alla 7.
 
-**7 · Le schede.** *Cosa fa:* scrive un file `.md` e uno `.json` per ogni strategia. *Come leggere:* il `.md` si legge, il `.json` serve a rifare la strategia. La scheda dice anche quante prove ci sono volute. *Poi:* la decisione è tua: la scheda è un collaudo, non un verdetto.
+**7 · Le schede** (`schede(r)`).
+*Cosa fa:* scrive un file `.md` e uno `.json` per ogni strategia entrata in cassaforte. *Come leggere:* il `.md` si legge (regole, cammino, prove, verifica, MM, blocchi tolti), il `.json` serve a rifare la strategia. *Poi:* la scheda descrive cosa è successo sui dati; la decisione è tua.
 
 ---
 
@@ -559,6 +582,8 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Impronta della config (08/11): `processi` esce dall'impronta, perché non cambia i risultati; stessa ricerca con 1 o 3 processi (§6).
 - Divisione di L4 (08/11): L4a selezione e conto delle prove (P6, P7); L4b cassaforte e Sessione (P8, P9) (§9).
 - Verifica dei trade nella fabbrica (08/11, P9): strada 1, le funzioni del Lab con trigger e filtri della strategia registrati con nomi temporanei; la finestra di 500 barre della voce «stop non ancora calcolabile» diventa un parametro della funzione del Lab, con 500 come predefinito; la fabbrica passa le sue 125 ore in barre.
+- L5 (08/11): diviso in L5a (schede, funzioni delle celle, collaudi) e L5b (il notebook, il collaudo del notebook intero, `CLAUDE.md` e `docs/00`). Schede solo per le strategie entrate in cassaforte; la 5 rieseguita mostra l'esito, i numeri nuovi entrano come ingresso nuovo; il nome della macchina nell'Avvio, come nel Lab; l'Avvio non scarica dati e mostra le barre dopo l'ultima cassaforte usata; la verifica dei trade gira sempre nella 6 (`docs/81` §3 passo 9), la lente è facoltativa; frase finale della scheda «La scheda descrive cosa è successo sui dati; la decisione è tua.»; testi delle celle nel formato di `docs/81` §5, rivisti in L5b (§7).
+- Timeframe nella cella 1 (08/11, dopo la diagnosi di E36, E47, E49, E51): da M1 a D1. La cella mostra i blocchi tolti con il motivo e prosegue; si ferma solo se mancano i dati o se non resta un trigger o un'uscita. Gli elenchi del catalogo non cambiano: i limiti logici restano (E36 da H1 in su, E47 da H1 in su, E49 su H4 e D1, E51 su D1, F20 su D1); E47 su M30 ed E51 su H4 restano esclusi, perché sarebbero approssimazioni, cioè varianti della regola; E47, E49 ed E51 su M1 sono esclusi solo dall'elenco (lavoro futuro, §9). L'elenco va anche nel riepilogo della ricerca e nelle schede (`blocchi.MOTIVI_ESCLUSIONE`).
 - Selezione (08/11, scelte di L4a): famiglie misurate sui segnali finali di ricerca + selezione, lato per lato; P(EV<0) con il bootstrap di `p_ev_negativo` (10.000 ricampionamenti, seme 0) sui bp di selezione; il pezzo passato alla selezione finisce all'ultima barra della selezione, senza barre della cassaforte (P6).
 
 ---
@@ -574,11 +599,13 @@ Un ramo e una PR per ciascuno, in quest'ordine. Il via è di Mattia, lavoro per 
 | **L3** | dati, config, generatore, valutatore, passi 1–2 con l'altopiano, registro; **primo tempo vero** | L1, L2 | 2–3 | tempo misurato su dati sintetici |
 | **L4a** | selezione, famiglie, conto delle prove, vantaggio piantato fino alla selezione | L3 | 1 | il vantaggio piantato oltre la selezione |
 | **L4b** | cassaforte, registro a catena, test del veleno, adattatore della Sessione | L4a | 1–2 | il collaudo del veleno |
-| **L5** | notebook, vetrina, schede, allineamento di `docs/00` e `CLAUDE.md` | L4 | 2 | il notebook su dati veri, se e quando dici tu |
+| **L5a** | schede, funzioni delle celle (`vetrina_fabbrica.py`), blocchi tolti per timeframe, collaudi | L4 | 1 | le due suite e una scheda su dati sintetici |
+| **L5b** | il notebook, il suo collaudo intero, allineamento di `docs/00` e `CLAUDE.md` | L5a | 1 | il notebook su dati veri, se e quando dici tu |
 
 **Fino a L5 tutti i collaudi girano su dati sintetici.** Nessun lancio sui dati veri senza il tuo via: il primo lancio vero conta le prove della fabbrica e non si torna indietro.
 
 **Dopo, incarico a parte:** price action come blocchi (BOS, CHoCH, FVG, massimo e minimo del giorno prima, order block).
+**Possibile lavoro futuro, separato (08/11):** aprire M1 per E47, E49 ed E51 (oggi esclusi solo dall'elenco dei timeframe del catalogo: la regola in minuti sarebbe la stessa).
 
 ---
 

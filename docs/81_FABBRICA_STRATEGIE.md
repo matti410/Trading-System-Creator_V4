@@ -100,10 +100,12 @@ e indicatore TradingView sono fuori da questo incarico.
 ## §5 · Il notebook `Fabbrica_Strategie_Crypto.ipynb`
 
 - Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabbrica.py`.
-- Schermate proposte: Avvio · 1 Configura · 2 La ricerca (lancio, avanzamento, ripresa) · 3 L'imbuto · 4 Le
-  strategie rimaste · 5 La cassaforte · 6 MM e stress test · 7 Le schede.
-- **L'imbuto è la figura principale:** teorie generate → passo 1 → passo 2 → selezione → cassaforte, con il numero a
-  ogni passo.
+- Schermate: Avvio · 1 Configura · 2 La ricerca (lancio, avanzamento, ripresa) · 3 L'imbuto · 4 Le strategie
+  rimaste · 5 La cassaforte · 6 MM, stress test e verifica dei trade · 7 Le schede (versione approvata in `docs/82` §7).
+- **1 Configura:** timeframe da M1 a D1; i blocchi tolti su quel timeframe si mostrano con il motivo e la cella
+  prosegue; si ferma solo se mancano i dati o se non resta un trigger o un'uscita.
+- **L'imbuto è la figura principale:** teorie generate → passo 1 → passo 2 → altopiano → selezione → scelte →
+  cassaforte, con il numero a ogni passo.
 - **Testi per un novizio del trading:**
   - in testa un glossario di circa 10 righe (§2, più long/short, bp, costo, funding, drawdown, t, MM);
   - ogni cella di codice è preceduta da una cella di massimo 6 righe: **Cosa fa** (una frase), **Come leggere**
@@ -126,7 +128,7 @@ con i tempi stimati.
 - **L3** generatore, passi 1–2, config e registro delle ricerche.
 - **L4a** selezione, famiglie, conto delle prove.
 - **L4b** cassaforte e adattatore della Sessione.
-- **L5** notebook e schede.
+- **L5a** schede e funzioni delle celle; **L5b** il notebook.
 - **Dopo, incarico a parte:** price action come blocchi (BOS e CHoCH autonomi, FVG, massimo/minimo del giorno
   prima, order block).
 
