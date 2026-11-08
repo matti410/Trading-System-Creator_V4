@@ -124,7 +124,8 @@ con i tempi stimati.
 - **L2** blocchi parametrici e cache degli indicatori, per una lista corta da proporre (es. 5 trigger, 5 filtri,
   3 uscite del catalogo, più RSI, ATR, ADX, Donchian).
 - **L3** generatore, passi 1–2, config e registro delle ricerche.
-- **L4** selezione, famiglie, conto delle prove, cassaforte.
+- **L4a** selezione, famiglie, conto delle prove.
+- **L4b** cassaforte e adattatore della Sessione.
 - **L5** notebook e schede.
 - **Dopo, incarico a parte:** price action come blocchi (BOS e CHoCH autonomi, FVG, massimo/minimo del giorno
   prima, order block).

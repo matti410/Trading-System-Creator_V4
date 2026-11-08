@@ -27,8 +27,9 @@ di cambiare asset se non richiesti.
   - riferimenti e storia (metodo passo per passo, moduli, «Cosa manca») →
     docs/00_ARCHIVIO.md.
 - I resoconti delle fasi chiuse (segnati *resoconto* negli indici) non si rileggono.
-- Le proposte delle fasi chiuse 71, 73, 79, 81 stanno in docs/archivio/: un rimando come
-  «docs/81», anche nel codice, vale per quella cartella.
+- Le proposte delle fasi chiuse 71, 73, 79, 81 stanno in docs/archivio/: «docs/81» da solo, anche
+  nel codice, indica la proposta sulla confidenza in docs/archivio/; la fabbrica si cita sempre per
+  nome intero, docs/81_FABBRICA_STRATEGIE.md.
 - Se un incarico elenca cosa leggere, si legge solo quello.
 
 ## Lavori piccoli e grandi
@@ -58,12 +59,12 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   valuta di quotazione, cifre, letti da MT5); un symbol fuori tabella deve fermarsi con errore.
   I symbol da exchange crypto stanno in SIMBOLI_EXCHANGE, LOTTI_EXCHANGE, LEVA_EXCHANGE
   (valori letti dall'exchange con ccxt, nome EXCHANGE_MERCATO_COPPIA, es. BINANCE_PERP_BTCUSDT).
-- Prima di ogni commit lancia TUTTI i test_*.py (su Windows con PYTHONIOENCODING=utf-8):
+- Prima di ogni commit lancia la suite rapida (su Windows con PYTHONIOENCODING=utf-8):
   l'ultima riga di ognuno deve essere "RISULTATO: n/n test superati" con n = totale.
   Se un test fallisce, fermati e spiega.
 - Dal 21/10/2026: durante il lavoro basta la suite rapida, `python suite_rapida.py`
   (le suite legate al codice cambiato, 2-3 minuti). La completa,
-  `python suite_rapida.py --tutte` (3 suite alla volta, circa 11 minuti; alla fine
+  `python suite_rapida.py --tutte` (3 suite alla volta, circa 25 minuti; alla fine
   «SUITE COMPLETA: n/n»), e' obbligatoria prima di ogni Pull request.
 
 ## Dati e MT5
@@ -120,7 +121,7 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 1. Parti da main aggiornato: `git switch main`, `git fetch origin --prune`,
    `git merge --ff-only origin/main`.
 2. Un ramo per argomento (es. articolo-NN-nome): `git switch -c <ramo>`. Mai lavorare su main.
-3. Fai le modifiche, lancia TUTTI i test (vedi sopra); se uno fallisce, fermati.
+3. Fai le modifiche, lancia la suite rapida (vedi sopra); se un test fallisce, fermati.
 4. Commit con messaggio chiaro in italiano, uno per gruppo di modifiche; mai --force;
    mai cancellare file senza chiedere.
 5. Invio: o Mattia clicca Publish Branch in VS Code, o lo fai tu con

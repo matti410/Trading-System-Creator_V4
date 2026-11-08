@@ -52,7 +52,7 @@ Tutti additivi. **Il motore non si modifica**, quindi niente prove d'identità: 
 | `engine/fabbrica/selezione.py` | condizione 2, test individuale, famiglie | L4a |
 | `engine/fabbrica/cassaforte.py` | strategie congelate, ingresso, registro della cassaforte | L4b |
 | `engine/fabbrica/schede.py` | scheda `.md` e `.json` | L5 |
-| `engine/vetrina_fabbrica.py` | le funzioni chiamate dalle celle | L5 |
+| `engine/vetrina_fabbrica.py` | le funzioni chiamate dalle celle | L4b (`sessione_da_strategia`), L5 (le altre) |
 | `Fabbrica_Strategie_Crypto.ipynb` | il notebook | L5 |
 | `test_fabbrica_*.py` | una suite per lavoro, ultima riga «RISULTATO: n/n» | L1–L5 |
 
