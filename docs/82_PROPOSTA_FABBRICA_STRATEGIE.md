@@ -460,6 +460,8 @@ Il primo giro di L3 misura il tempo vero; se manca l'obiettivo di oltre il doppi
 }
 ```
 
+**`processi` non entra nell'impronta (08/11):** non cambia i risultati (collaudato: 1 processo = 3 processi), quindi la stessa ricerca si riprende anche con un numero di processi diverso; il `config.json` resta quello del primo salvataggio.
+
 I confini sono **durate**, in ore, così non dipendono dal timeframe. Sopra c'è la prima finestra (P1). Una finestra scorsa ha le stesse tre durate e un `inizio` più avanti di almeno `cassaforte_ore`; altrimenti la config si ferma con un errore.
 
 **Scheda `.json`**: `id_strategia`, `id_ricerca`, `impronta_config`, `impronte_dati`, `symbol`, `timeframe`, `lato`, `blocchi` (nome e valori), `uscita`, `regole` (testo), `esiti` (per ogni passo: pezzo, trade, EV in bp, t, drawdown, condizione, esito, motivo), `altopiano`, `test_individuale` (t e soglia in selezione e in cassaforte), `prove` (di questa ricerca, totale della fabbrica sull'asset, soglia corrispondente), `cassaforte` (data, tratto, esito, strategie entrate in quel tratto), `mm`, `stress`, `software` (commit del repo).
@@ -529,6 +531,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Scelte di L3 (07/11): le uscite non passano dal controllo di degenerazione; i valori degeneri si tolgono per lato; famiglie per misura o per dichiarazione, il registro dice quante teorie e perché (P3); il genetico massimizza il t di ogni strategia calcolabile e la condizione di qualità decide solo alla fine; un punto degenere o già visto non consuma una prova (P4); intervallo e passo di ogni giro dello zoom come in P5.
 - Zoom (07/11, via a L3b): le 5 da cui riparte un giro si scelgono per t fra tutte le strategie calcolabili; la condizione di qualità decide solo alla fine, si tiene la migliore fra quelle che passano e, se nessuna passa, la teoria esce (P5).
 - Dati (07/11): letti con `exchange.leggi_csv` e gli stessi controlli di `vetrina.carica_storico`, che accetta solo da M5 a H4; la cassaforte si rilegge dal disco solo con il permesso (P1).
+- Impronta della config (08/11): `processi` esce dall'impronta, perché non cambia i risultati; stessa ricerca con 1 o 3 processi (§6).
 
 ---
 

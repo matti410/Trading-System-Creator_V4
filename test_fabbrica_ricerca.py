@@ -358,9 +358,9 @@ def esegui() -> int:
         tre = lancia(cfg3, P, verbose=False, data=DATA)
         f3, f1 = _file(tre), _file(e)
         stesse = f3["passo_1.jsonl"] == f1["passo_1.jsonl"] and f3["passo_2.jsonl"] == f1["passo_2.jsonl"]
-        csv_3 = f3["prove"].decode("utf-8").replace(tre.id_ricerca, e.id_ricerca).encode("utf-8")
-        check("31. 3 processi = 1 processo: passo 1, passo 2 e prove identici (cambia solo l'id, perché i processi "
-              "stanno nella config)", stesse and csv_3 == f1["prove"] and tre.passo_2.equals(e.passo_2))
+        check("31. 3 processi = 1 processo: passo 1, passo 2 e prove identici, stesso id (i processi non stanno "
+              "nell'impronta)", stesse and tre.id_ricerca == e.id_ricerca and f3["prove"] == f1["prove"]
+              and tre.passo_2.equals(e.passo_2))
         check("32. con il conto alterato (5 prove di un'altra ricerca) gli esiti non cambiano: cambia solo il numero",
               stesse and registro.conto_prove(P, PERP, "M15") == tre.prove + 5)
 

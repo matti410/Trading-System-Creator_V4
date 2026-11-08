@@ -2,12 +2,14 @@
 La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
 
     config = leggi_config("…/config.json")       # controlla campi e intervalli, si ferma se manca qualcosa
-    impronta_config(config)                       # sha256 del contenuto in forma ordinata, seme compreso
+    impronta_config(config)                       # sha256 del contenuto in forma ordinata, seme compreso, processi esclusi
     id_ricerca = salva_config(config, "dati")     # dati/fabbrica/<SYMBOL>_<TIMEFRAME>/<id>/config.json
     config_standard("BINANCE_PERP_BTCUSDT", "M15")
 
 - Stessa impronta = stessa ricerca, che si può riprendere: salva_config ritorna la cartella che c'è già. Impronta
   diversa = ricerca nuova. Un file già scritto non si sovrascrive mai.
+- `processi` non entra nell'impronta (08/11): non cambia i risultati (collaudato: 1 processo = 3 processi), quindi la
+  stessa ricerca si può riprendere con un altro numero di processi. Il config.json resta quello del primo salvataggio.
 - I campi sono quelli di §6, né uno di più né uno di meno. Timeframe da M1 a D1. Sullo spot solo long.
 - Il budget non si supera mai: budget_massimo è il conto dei massimi per teoria (§5), e controlla_budget si ferma se
   supera il totale prima di partire. Così non dipende dall'ordine delle teorie.
@@ -157,9 +159,13 @@ def _testo(config: dict) -> str:
     return json.dumps(config, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
 
+FUORI_IMPRONTA = ("processi",)       # campi che non cambiano i risultati (docs/82 §6, 08/11)
+
+
 def impronta_config(config: dict) -> str:
-    """sha256 del contenuto in forma ordinata (chiavi in ordine), seme compreso."""
-    return hashlib.sha256(_testo(config).encode("utf-8")).hexdigest()
+    """sha256 del contenuto in forma ordinata (chiavi in ordine), seme compreso, senza i campi di FUORI_IMPRONTA."""
+    contenuto = {k: v for k, v in config.items() if k not in FUORI_IMPRONTA}
+    return hashlib.sha256(_testo(contenuto).encode("utf-8")).hexdigest()
 
 
 def cartella_asset(cartella_dati, symbol: str, timeframe: str) -> str:
