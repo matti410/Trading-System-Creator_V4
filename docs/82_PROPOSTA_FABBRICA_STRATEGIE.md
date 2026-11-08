@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1, L2, L3a, L3b e L4a scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
+**Stato:** L1, L2, L3a, L3b, L4a e L4b scritti; il resto è testo. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -51,12 +51,13 @@ Tutti additivi. **Il motore non si modifica**, quindi niente prove d'identità: 
 | `engine/fabbrica/registro.py` | registro delle ricerche (a catena di impronte, come P8) e conto delle prove: una prova = (ricerca, pezzo, strategia), contata una volta | L3b |
 | `engine/fabbrica/selezione.py` | condizione 2, test individuale, famiglie | L4a |
 | `engine/fabbrica/cassaforte.py` | strategie congelate, ingresso, registro della cassaforte | L4b |
+| `engine/fabbrica/sessione.py` | l'adattatore della Sessione: nomi temporanei nel catalogo, chiusura, schermate 7 e 8 con la finestra in ore | L4b |
 | `engine/fabbrica/schede.py` | scheda `.md` e `.json` | L5 |
 | `engine/vetrina_fabbrica.py` | le funzioni chiamate dalle celle | L4b (`sessione_da_strategia`), L5 (le altre) |
 | `Fabbrica_Strategie_Crypto.ipynb` | il notebook | L5 |
 | `test_fabbrica_*.py` | una suite per lavoro, ultima riga «RISULTATO: n/n» | L1–L5 |
 
-**Modifiche additive a file esistenti, dichiarate:** `engine/indicatori.py` (L2, indicatori nuovi); `suite_rapida.py` (L1, solo se serve per legare le suite nuove al codice; in L2 e L3a le durate delle suite nuove); `CLAUDE.md` e `docs/00` (L5, terzo notebook).
+**Modifiche additive a file esistenti, dichiarate:** `engine/indicatori.py` (L2, indicatori nuovi); `suite_rapida.py` (L1, solo se serve per legare le suite nuove al codice; in L2 e L3a le durate delle suite nuove); `CLAUDE.md` e `docs/00` (L5, terzo notebook); `engine/vetrina_verifica.py` (L4b, 08/11: parametro facoltativo `finestra` di `verifica_trade`, `controlla_periodo`, `registro_trade`, `_ricalcola`, predefinito la `FINESTRA` del Lab, 500: il Lab non cambia); `engine/fabbrica/registro.py` (L4b: l'ora degli eventi da `adesso()`, che i collaudi fissano).
 Nessun pacchetto nuovo da installare: numpy, pandas, numba e TA-Lib ci sono già.
 
 ---
@@ -344,6 +345,13 @@ Il conto **non decide**: nessun esito dipende da k.
 - `Pezzi` senza permesso: errore.
 - Elenco delle strategie scritto prima della lettura: controllato con un dataset che si rompe alla prima lettura.
 
+*Come è scritto in L4b (08/11):*
+- **L'ordine di `entra(cartella_dati, id_ricerca, strategie, conferma)`.** Prima, senza leggere nessun file di barre, nemmeno ricerca e selezione: config e `selezione.json` della ricerca, la frase di conferma (`FRASE_CONFERMA`), ogni strategia «scelta» in selezione, la catena dei registri di tutte le macchine, la finestra scorrevole, nessuna strategia già entrata nel tratto. Poi l'elenco nel registro (evento `ingresso_cassaforte`, con le strategie entrate nel tratto fino a quel momento). Solo dopo il permesso e la lettura dei dati; le impronte di ricerca e selezione devono essere quelle dell'avvio. L'esito va nel registro come `esito_cassaforte`.
+- **Il tratto** è `<SYMBOL>_<TIMEFRAME>_<inizio>_<fine>` della cassaforte. `congela` fa la parte del registro da sola (la usano i collaudi delle regole).
+- **Il pezzo di cassaforte:** ricerca, selezione e cassaforte attaccate per gli indicatori; i segnali prima della prima barra della cassaforte sono spenti; il trade ancora aperto all'ultima barra resta fuori, come nel motore. Motore completo (`trade_completi`). Costi del pezzo di cassaforte, con il prezzo mediano della cassaforte (P1: «i costi si calcolano sul pezzo tagliato»; il Lab usa invece l'in-sample per l'out-of-sample).
+- **Decide il test individuale:** t netto in cassaforte ≥ 1,96. Ogni strategia entrata è una prova (pezzo «cassaforte»); accanto, il conto dell'asset, la soglia da leggere e le strategie entrate nel tratto.
+- **Un'interruzione fra l'ingresso e la lettura:** le strategie restano entrate (rientrare è un errore); `esito_cassaforte(cartella_dati, id_ricerca)` rifà la valutazione delle strategie già entrate, senza un ingresso nuovo, e scrive l'esito una volta sola.
+
 ### P9 · Money management, stress test, verifica dei trade
 
 **Come si fa.** Si riusano le schermate 7, 9 e 8 del Lab. La percentuale si calibra su ricerca + selezione (l'«in-sample») e la cassaforte fa da «out-of-sample», come nel Lab; leva mai oltre il tetto (perpetual 2, spot 1).
@@ -355,6 +363,14 @@ Il conto **non decide**: nessun esito dipende da k.
 **Rischio da verificare in L4:** ho visto i nomi dei campi, non come vengono usati. Se `fs` è troppo legato al Lab, il ripiego è chiamare le funzioni sotto (`money_management_trade`, `montecarlo.*`).
 
 **Collaudo.** Su un sistema costruito nel Lab e rifatto a mano nella fabbrica, stessi trade e stessi numeri delle schermate 7, 9 e 8.
+
+*Come è scritto in L4b (08/11, scelta di Mattia in §8):*
+- **Dove:** `engine/fabbrica/sessione.py` (`apri_sessione`, `sessione` per il blocco `with`, `chiudi`, `money_management`, `verifica_trade`); `engine/vetrina_fabbrica.py` nasce con la sola `sessione_da_strategia`.
+- **In-sample** = ricerca + selezione, con i loro indicatori e i loro costi; i trade finiscono all'ultima barra della selezione. **Out-of-sample** = la cassaforte, con i trade di `entra` riportati alle barre del suo pezzo. Una Sessione si apre solo per una strategia entrata in cassaforte.
+- **I nomi temporanei:** trigger e filtri della strategia si registrano nel catalogo come `FAB_SES_<n>_<blocco>`; ogni nome restituisce la maschera già calcolata dalla fabbrica, letta per data, così non riparte da zero all'inizio della cassaforte. `chiudi(s)` li toglie, anche dopo un errore a metà dell'apertura o dentro il blocco `with`.
+- **Schermata 7:** `money_management_trade` (la funzione sotto la schermata del Lab) con la finestra delle soglie di 125 ore in barre e il lag della fabbrica; `simulazioni` facoltativo (predefinito quello del Lab, 10.000).
+- **Schermata 8:** `vetrina_verifica.verifica_trade(s, finestra)` con la stessa finestra; `lente(s, mostra_trigger=False)`, perché i disegni delle figure del Lab non conoscono i nomi temporanei. **Schermata 9:** `vetrina.stress_test(s)` così com'è.
+- **Il collaudo fatto al posto del «sistema rifatto a mano».** Il Lab calcola in-sample e out-of-sample ognuno da sé, con gli indicatori che ripartono da zero, la fabbrica no: i trade vicini all'inizio dell'out-of-sample non sarebbero gli stessi. Si controlla quindi l'adattatore: su M15 la schermata 7 del Lab e l'adattatore passano a `money_management_trade` gli stessi argomenti; la verifica dell'adattatore è uguale a quella del Lab con le sue 500 barre; su H1 la finestra è di 125 barre e ogni regola resta OK.
 
 ### P10 · La scheda
 
@@ -542,6 +558,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 - Dati (07/11): letti con `exchange.leggi_csv` e gli stessi controlli di `vetrina.carica_storico`, che accetta solo da M5 a H4; la cassaforte si rilegge dal disco solo con il permesso (P1).
 - Impronta della config (08/11): `processi` esce dall'impronta, perché non cambia i risultati; stessa ricerca con 1 o 3 processi (§6).
 - Divisione di L4 (08/11): L4a selezione e conto delle prove (P6, P7); L4b cassaforte e Sessione (P8, P9) (§9).
+- Verifica dei trade nella fabbrica (08/11, P9): strada 1, le funzioni del Lab con trigger e filtri della strategia registrati con nomi temporanei; la finestra di 500 barre della voce «stop non ancora calcolabile» diventa un parametro della funzione del Lab, con 500 come predefinito; la fabbrica passa le sue 125 ore in barre.
 - Selezione (08/11, scelte di L4a): famiglie misurate sui segnali finali di ricerca + selezione, lato per lato; P(EV<0) con il bootstrap di `p_ev_negativo` (10.000 ricampionamenti, seme 0) sui bp di selezione; il pezzo passato alla selezione finisce all'ultima barra della selezione, senza barre della cassaforte (P6).
 
 ---
