@@ -159,6 +159,11 @@ def _righe_verificate(percorso: str) -> list[str]:
     return righe
 
 
+def adesso() -> str:
+    """L'istante di un evento, in UTC. Una funzione a parte: i collaudi «registro identico al bit» la fissano."""
+    return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+
+
 def scrivi_evento(cartella_asset, evento: dict, nome_macchina: str | None = None) -> dict:
     """Aggiunge un evento in fondo al registro di questa macchina, con numero, data e impronta della riga prima."""
     nome = nome_macchina or macchina()
@@ -166,7 +171,7 @@ def scrivi_evento(cartella_asset, evento: dict, nome_macchina: str | None = None
     os.makedirs(str(cartella_asset), exist_ok=True)
     righe = _righe_verificate(percorso)
     riga = {"n": len(righe) + 1, "prima": _impronta(righe[-1]) if righe else "", "macchina": nome,
-            "quando": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"), **evento}
+            "quando": adesso(), **evento}
     with open(percorso, "a", encoding="utf-8") as f:
         f.write(json_riga(riga) + "\n")
     return riga

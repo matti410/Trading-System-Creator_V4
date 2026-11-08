@@ -93,7 +93,7 @@ def _filtri_del_lato(s, lato: str) -> list[str]:
     return nomi
 
 
-def _ricalcola(s, df: pd.DataFrame) -> dict:
+def _ricalcola(s, df: pd.DataFrame, finestra: int | None = None) -> dict:
     """
     Le condizioni della strategia ricalcolate dal registro, barra per barra.
 
@@ -107,6 +107,10 @@ def _ricalcola(s, df: pd.DataFrame) -> dict:
         soglia_ok    lo stop/target della barra d'ingresso e' calcolabile
         finale       segnale che il motore puo' tradare
     Piu' `quarantena` (una voce per barra) e `n` (barre).
+
+    finestra (08/11/2026, docs/82 P9): le barre delle soglie adattive per la voce
+    «stop non ancora calcolabile». None = FINESTRA del Lab (500), come prima; la
+    fabbrica passa le sue 125 ore in barre.
     """
     n = len(df)
     u = s.uscite
@@ -117,7 +121,7 @@ def _ricalcola(s, df: pd.DataFrame) -> dict:
     from .exit_search_bt import per_lato
     usa_sl = dict(zip(("long", "short"), (bool(v) for v in per_lato(u["perc_sl"]))))   # 23/10/2026: per lato
     usa_tp = dict(zip(("long", "short"), (bool(v) for v in per_lato(u["perc_tp"]))))
-    soglie = soglie_per_lato(df, u["n_barre_long"], u["n_barre_short"], _v.FINESTRA,
+    soglie = soglie_per_lato(df, u["n_barre_long"], u["n_barre_short"], _v.FINESTRA if finestra is None else finestra,
                              u["perc_sl"], u["perc_tp"], lag=_v.LAG)
     out = {"quarantena": q, "n": n, "soglie": soglie}
     for segno, lato in _LATI:
@@ -185,7 +189,7 @@ def _motivi_uscita(s, trades: pd.DataFrame) -> list[str]:
     return motivi
 
 
-def registro_trade(s, periodo: str = "out-of-sample") -> pd.DataFrame:
+def registro_trade(s, periodo: str = "out-of-sample", finestra: int | None = None) -> pd.DataFrame:
     """
     L'elenco dei trade di un periodo, in ordine di ingresso e numerati da 1.
     Orari in ora italiana. Colonne tecniche in fondo (barre e prezzo dello stop).
@@ -199,7 +203,7 @@ def registro_trade(s, periodo: str = "out-of-sample") -> pd.DataFrame:
     _, netti = pips_per_trade(t, s.fs.pip_size, s.fs.commission or 0.0)
     t["_pips"] = netti.to_numpy()
     t = t.sort_values("EntryBar", kind="mergesort").reset_index(drop=True)
-    cond = _ricalcola(s, df)
+    cond = _ricalcola(s, df, finestra)
     seg = t["EntryBar"].to_numpy(dtype=int) - 1
     scattati = []
     for i, lato_num in enumerate(np.sign(t["Size"].to_numpy())):
@@ -252,7 +256,7 @@ MOTIVI_NON_TRADATO = (
 )
 
 
-def controlla_periodo(s, periodo: str) -> dict:
+def controlla_periodo(s, periodo: str, finestra: int | None = None) -> dict:
     """
     Il controllo di un periodo. Ritorna:
         registro      l'elenco dei trade (registro_trade)
@@ -261,8 +265,8 @@ def controlla_periodo(s, periodo: str) -> dict:
         segnali       quanti segnali del trigger in tutto
     """
     df, trades = _periodo(s, periodo)
-    r = registro_trade(s, periodo)
-    cond = _ricalcola(s, df)
+    r = registro_trade(s, periodo, finestra)
+    cond = _ricalcola(s, df, finestra)
     n = cond["n"]
     q = cond["quarantena"]
     non_tradati = {m: 0 for m in MOTIVI_NON_TRADATO}
@@ -336,7 +340,7 @@ def controlla_periodo(s, periodo: str) -> dict:
     return {"registro": r, "esiti": esiti, "non_tradati": non_tradati, "segnali": segnali}
 
 
-def verifica_trade(s) -> dict:
+def verifica_trade(s, finestra: int | None = None) -> dict:
     """
     Schermata 8a. Controlla tutti i trade della strategia scelta, in-sample e
     out-of-sample, contro le condizioni ricalcolate dal registro. Mostra le
@@ -345,11 +349,13 @@ def verifica_trade(s) -> dict:
 
     Ritorna {"regole", "uscite", "segnali"} (tabelle) e "da_guardare": per
     ogni periodo i numeri dei trade che violano una regola (per la lente).
+
+    finestra (08/11/2026): vedi _ricalcola; None = la FINESTRA del Lab, come prima.
     """
     s._serve("oos", "6 · Scheda strategia")
     if s.trades_is is None:
         raise RuntimeError("Manca un passaggio: esegui prima la schermata «6 · Scheda strategia».")
-    controlli = {p: controlla_periodo(s, p) for p in PERIODI}
+    controlli = {p: controlla_periodo(s, p, finestra) for p in PERIODI}
     s.controlli = controlli
     totale = sum(len(c["registro"]) for c in controlli.values())
 
