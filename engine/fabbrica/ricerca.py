@@ -682,10 +682,13 @@ def _degeneri_zoom(ris_2: list[dict], tolte: list[dict]) -> list[dict]:
 
 # ------------------------------------------------------------------ il lancio
 def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbose: bool = True,
-           data: str | None = None) -> EsitoRicerca:
+           data: str | None = None, avanzamento: Callable[[dict], None] | None = None) -> EsitoRicerca:
     """
     La ricerca dei passi 1 e 2 con l'altopiano (vedi la testa del file). Se la stessa config è già stata lanciata,
     riprende da dove era. `ferma_dopo` = fermati dopo tante teorie (per i collaudi della ripresa).
+    `avanzamento` (L5a, 08/11): chiamata dopo ogni teoria scritta con {fase, numero, totale, prove, prove_ora,
+    secondi, budget_massimo}; prove_ora = le prove di questa chiamata, secondi = da quando è partita. Non cambia nulla
+    della ricerca.
     """
     t_inizio = time.perf_counter()
     controlla_config(config)
@@ -700,11 +703,16 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
     per_id = {t.id: t for t in prep.teorie}
     tempi = {"preparazione_s": prep.durata_s}
     fatte_ora = [0]                  # teorie finite in questa chiamata, passo 1 e passo 2
+    prove_prima = len(prove)
 
     def scrivi(percorso, ris, nome_fase, numero, totale):
         prove.aggiungi(_righe_prove(id_ricerca, ris["teoria"], ris["prove"]))
         _aggiungi_jsonl(percorso, ris)
         fatte_ora[0] += 1
+        if avanzamento is not None:
+            avanzamento({"fase": nome_fase, "numero": numero, "totale": totale, "prove": len(prove),
+                         "prove_ora": len(prove) - prove_prima, "secondi": time.perf_counter() - t_inizio,
+                         "budget_massimo": prep.budget_massimo})
         if verbose and (numero % 50 == 0 or numero == totale):
             print(f"  {nome_fase}: teoria {numero} di {totale}, {len(prove)} prove, "
                   f"{time.perf_counter() - t_inizio:.0f} s", flush=True)

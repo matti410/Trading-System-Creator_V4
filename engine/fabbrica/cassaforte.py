@@ -277,6 +277,32 @@ def esito_cassaforte(cartella_dati, id_ricerca: str) -> EsitoCassaforte:
     return _apri_e_valuta(cartella_dati, config, base, cartella, id_ricerca, ingressi, tabella, scrivi=True)
 
 
+def trade_entrata(cartella_dati, config: dict, riga: dict, impronte: dict | None = None) -> tuple:
+    """
+    (L5a, per la scheda, docs/82 P10) I trade sulla cassaforte di una strategia GIÀ ENTRATA nel tratto della config,
+    rifatti da capo: stesso pezzo, stessi costi, stesso motore di `entra`, quindi gli stessi trade al bit. Nessun
+    ingresso nuovo, nessuna prova, niente nel registro. Si ferma se la strategia non è entrata in quel tratto e, con
+    `impronte` ({ricerca, selezione, cassaforte}), se i dati non sono più quelli. `config` basta che abbia symbol,
+    timeframe, confini e i blocchi della strategia; `riga` = teoria, valori, id_strategia.
+    Ritorna (trade, impronte dei tre pezzi).
+    """
+    from .dati import impronta_pezzo
+    symbol, timeframe = config["symbol"], config["timeframe"]
+    confini = Confini.da_config(config["confini"])
+    base = cartella_asset(cartella_dati, symbol, timeframe)
+    if not gia_entrata(base, tratto(symbol, timeframe, confini), riga["id_strategia"]):
+        raise ValueError(f"la strategia {riga['id_strategia']} non è entrata nel tratto di cassaforte della scheda: "
+                         "i suoi trade di cassaforte non si rifanno.")
+    pezzi = carica_pezzi(symbol, timeframe, confini, cartella_dati)
+    aperta = pezzi.apri_cassaforte(PermessoCassaforte(symbol, timeframe, confini.tratto_cassaforte))
+    trovate = {**pezzi.impronte, "cassaforte": impronta_pezzo(aperta["df"])}
+    if impronte is not None and dict(impronte) != trovate:
+        raise ValueError("i dati non sono più quelli della scheda (impronte diverse): i trade non si rifanno.")
+    p = pezzo_cassaforte(pezzi, aperta)
+    v = ValutatoreSelezione(blocchi_da_config(config), Cache(p.df, LIMITE_CACHE_MB), Costi(p.df, p.costi), p.inizio)
+    return trade_completi(strategia_da_riga(riga, symbol, timeframe), v, p.costi), trovate
+
+
 def tratti_usati(cartella_asset_) -> list[tuple]:
     """I tratti di cassaforte già usati per l'asset, come (da, a) in UTC."""
     return sorted({(_utc(e["tratto"]["da"]), _utc(e["tratto"]["a"])) for e in _ingressi(registro.leggi_registro(

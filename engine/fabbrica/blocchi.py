@@ -57,6 +57,33 @@ FILTRI_CATALOGO = {
 }
 # I filtri che su un timeframe non sono mai veri: F20 guarda l'ora della barra e su D1 la barra è sempre quella delle 00:00.
 FILTRI_MAI_VERI = {"F20_SESSION_OVERLAP": ("D1",)}
+# Perché un blocco del catalogo resta fuori su un timeframe (L5a, 08/11; diagnosi e decisione di Mattia dell'08/11).
+# Tre casi: il limite è nella logica; un'approssimazione della regola esclusa per scelta (sarebbe una variante, non la
+# regola); escluso solo dall'elenco dei timeframe del catalogo (la regola in minuti sarebbe la stessa: aprire M1 è un
+# lavoro futuro, separato). Un collaudo controlla che ogni blocco tolto dalla config standard abbia qui il suo motivo.
+LIMITE_LOGICO = "limite logico"
+APPROSSIMAZIONE_ESCLUSA = "approssimazione esclusa per scelta"
+SOLO_ELENCO = "escluso solo dall'elenco"
+_SOLO_M1 = (SOLO_ELENCO, "la regola in minuti sarebbe la stessa; l'elenco dei timeframe del catalogo parte da M5 "
+                         "(aprire M1 è un lavoro futuro, separato)")
+MOTIVI_ESCLUSIONE = {
+    **{("E36", tf): (LIMITE_LOGICO, "le 09:30 e le 16:30 di New York non sono la fine di una candela di questo "
+                                    "timeframe") for tf in ("H1", "H4", "D1")},
+    ("E47", "M1"): _SOLO_M1,
+    ("E47", "M30"): (APPROSSIMAZIONE_ESCLUSA, "l'ATR di 70 minuti diventerebbe di 60 (2 barre): una variante della "
+                                              "regola"),
+    **{("E47", tf): (LIMITE_LOGICO, "ATR e sua media sarebbero di una barra sola: l'ATR non può stare sotto 0,8 volte "
+                                    "sé stesso") for tf in ("H1", "H4", "D1")},
+    ("E49", "M1"): _SOLO_M1,
+    **{("E49", tf): (LIMITE_LOGICO, "le 3 ore per lato e la candela di un'ora sono più corte di una barra")
+       for tf in ("H4", "D1")},
+    ("E51", "M1"): _SOLO_M1,
+    ("E51", "H4"): (APPROSSIMAZIONE_ESCLUSA, "il movimento di 5 ore diventerebbe di 4 (1 barra): una variante della "
+                                             "regola"),
+    ("E51", "D1"): (LIMITE_LOGICO, "le 5 ore del movimento sono più corte di una barra"),
+    ("F20_SESSION_OVERLAP", "D1"): (LIMITE_LOGICO, "la barra giornaliera è sempre quella delle 00:00: Londra e New York "
+                                                   "non sono mai aperte insieme"),
+}
 # nome del blocco -> (uscita long, uscita short, famiglia)
 USCITE_CATALOGO = {
     "X0": ("X0_NO_EXIT", "X0_SHORT_NO_EXIT", "nessuna regola"),

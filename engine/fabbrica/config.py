@@ -25,8 +25,8 @@ import os
 
 from engine.exchange import simboli_exchange, solo_long
 
-from .blocchi import (FILTRI_CATALOGO, GRIGLIE_NUOVI, GRIGLIE_USCITA, MINUTI_TIMEFRAME, TRIGGER_CATALOGO,
-                      USCITE_CATALOGO, blocchi_da_config)
+from .blocchi import (FILTRI_CATALOGO, GRIGLIE_NUOVI, GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE,
+                      TRIGGER_CATALOGO, USCITE_CATALOGO, blocchi_da_config)
 from .dati import Confini
 
 VERSIONE = 1
@@ -228,3 +228,31 @@ def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi
                    "prove_per_giro": 90},
         "seme": seme, "processi": processi,
     }
+
+
+def blocchi_esclusi(timeframe: str) -> list[dict]:
+    """
+    I blocchi di P-L2 che config_standard lascia fuori su `timeframe`, con il motivo (L5a, 08/11): blocco, tipo del
+    motivo (limite logico, approssimazione esclusa per scelta, escluso solo dall'elenco) e spiegazione. Si ferma se un
+    blocco tolto non ha il suo motivo in blocchi.MOTIVI_ESCLUSIONE: nessun blocco esce in silenzio.
+    """
+    if timeframe not in MINUTI_TIMEFRAME:
+        raise ValueError(f"timeframe {timeframe!r} non previsto: {sorted(MINUTI_TIMEFRAME)}")
+    dentro = config_standard("BINANCE_PERP_BTCUSDT", timeframe)["blocchi"]
+    out = []
+    for nome in BLOCCHI_STANDARD:
+        if nome in dentro:
+            continue
+        if (nome, timeframe) not in MOTIVI_ESCLUSIONE:
+            raise ValueError(f"{nome} esce dalla config su {timeframe} senza un motivo in MOTIVI_ESCLUSIONE.")
+        tipo, motivo = MOTIVI_ESCLUSIONE[(nome, timeframe)]
+        out.append({"blocco": nome, "tipo": tipo, "motivo": motivo})
+    return out
+
+
+def controlla_tipi_rimasti(config: dict) -> None:
+    """Si ferma se nella config non resta almeno un trigger e almeno un'uscita (L5a, cella 1 del notebook)."""
+    tipi = {b.tipo for b in blocchi_da_config(config)}
+    for tipo, nome in (("trigger", "un trigger"), ("uscita", "un'uscita")):
+        if tipo not in tipi:
+            raise ValueError(f"su {config['timeframe']} non resta {nome} dopo le esclusioni: la ricerca non può partire.")
