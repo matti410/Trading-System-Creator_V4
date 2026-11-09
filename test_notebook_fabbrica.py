@@ -9,6 +9,11 @@ Prima controlla il file (celle, testi, chiamate); poi esegue il notebook intero 
 una cartella di dati SINTETICI e una config ridotta. Le impostano i collaudi su una copia del notebook, cambiando i
 valori dei campi e la cartella dei dati: il notebook vero non ha campi in più e non viene modificato. Servono
 nbclient e un kernel di Jupyter (ipykernel). Stampa una riga per collaudo e alla fine «RISULTATO: n/n test superati».
+
+    python test_notebook_fabbrica.py --copia [cartella]
+
+non fa collaudi: prepara in `cartella` (predefinita: collaudo_fabbrica nella cartella temporanea) i dati sintetici e
+la copia di collaudo del notebook, da aprire in VS Code e lanciare cella per cella.
 """
 from __future__ import annotations
 
@@ -142,6 +147,8 @@ def _copia_di_collaudo(nb, dati: str):
     per = {_titolo(c): c for c in nb.cells if c.cell_type == "code"}
     a = per["Avvio"]
     a.source = _cambia(a.source, 'nome_macchina = "pc"', 'nome_macchina = "collaudo"')
+    a.source = _cambia(a.source, 'warnings.simplefilter("ignore")',
+                       'warnings.simplefilter("ignore")' + "\n" + f"os.chdir({QUI!r})      # copia di collaudo: il progetto")
     a.source = _cambia(a.source, "DATI_DIR = cartella_dati_avvio(os.getcwd(), False, DATI_DRIVE, False)",
                        f"DATI_DIR = {dati!r}")
     c1 = per["1 · Configura"]
@@ -194,9 +201,7 @@ def _esecuzione(nb):
               "manca ipykernel: pip install ipykernel")
         return
     with tempfile.TemporaryDirectory() as dati:
-        n = int(sum(CONFINI[k] for k in ("ricerca_ore", "selezione_ore", "cassaforte_ore")) * 4) + 100
-        sintetici.scrivi_storico(dati, SPOT, "M15",
-                                 sintetici.mercato_piantato(n, seme=5, minuti=15, inizio="2024-01-01", prezzo=2000.0))
+        _dati_sintetici(dati)
         copia = _copia_di_collaudo(nb, dati)
         try:
             uscite = _gira(copia)
@@ -246,6 +251,31 @@ def _esecuzione(nb):
               and all(not c.outputs for c in _leggi().cells if c.cell_type == "code"))
 
 
+def _dati_sintetici(dati: str) -> None:
+    n = int(sum(CONFINI[k] for k in ("ricerca_ore", "selezione_ore", "cassaforte_ore")) * 4) + 100
+    sintetici.scrivi_storico(dati, SPOT, "M15",
+                             sintetici.mercato_piantato(n, seme=5, minuti=15, inizio="2024-01-01", prezzo=2000.0))
+
+
+def prepara_copia(cartella: str) -> str:
+    """
+    --copia: una cartella con dati sintetici e la copia di collaudo del notebook, da aprire in VS Code e lanciare
+    cella per cella (stessi valori del collaudo). Il notebook vero non cambia.
+    """
+    import nbformat
+    cartella = os.path.abspath(cartella)
+    if os.path.exists(cartella) and os.listdir(cartella):
+        raise SystemExit(f"{cartella} esiste e non è vuota: scegli un'altra cartella (non cancello niente).")
+    dati = os.path.join(cartella, "dati_sintetici")
+    os.makedirs(dati)
+    _dati_sintetici(dati)
+    percorso = os.path.join(cartella, "Fabbrica_collaudo_sintetico.ipynb")
+    nbformat.write(_copia_di_collaudo(_leggi(), dati), percorso)
+    print(f"Pronto. Apri in VS Code: {percorso}")
+    print(f"Dati sintetici in: {dati}")
+    return percorso
+
+
 def _ha_ipykernel() -> bool:
     import importlib.util
     return importlib.util.find_spec("ipykernel") is not None
@@ -261,4 +291,7 @@ def _righe(percorso: str) -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--copia":
+        prepara_copia(sys.argv[2] if len(sys.argv) > 2 else os.path.join(tempfile.gettempdir(), "collaudo_fabbrica"))
+        sys.exit(0)
     sys.exit(esegui())
