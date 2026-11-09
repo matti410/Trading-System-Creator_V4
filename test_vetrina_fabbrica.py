@@ -23,6 +23,7 @@ import warnings
 import matplotlib
 import pandas as pd
 
+from engine import vetrina
 from engine import vetrina_fabbrica as vf
 from engine.fabbrica import registro, sintetici
 from engine.fabbrica.blocchi import LIMITE_LOGICO
@@ -226,7 +227,12 @@ def _celle(radice):
           errore(lambda: vf.mm_e_stress(r, numero, trade_da_vedere="tre")) and (
               errore(lambda: vf.mm_e_stress(r, int(fam["numero"].iloc[0]))) if len(fam) else True)
           and stato_registro() == catalogo)
-    out = _zitto(vf.mm_e_stress, r, numero, simulazioni=200, simulazioni_stress=500, trade_da_vedere="1")
+    lab_prima = _testi_lab()
+    aiutanti = {n: getattr(vetrina, n) for n in vf._AIUTANTI}
+    schermo = io.StringIO()
+    with contextlib.redirect_stdout(schermo):
+        out = vf.mm_e_stress(r, numero, simulazioni=200, simulazioni_stress=500, trade_da_vedere="1")
+    visto = schermo.getvalue()
     with open(out["percorso"], encoding="utf-8") as f:
         salvato = json.load(f)
     check("20. money management, stress test e sempre la verifica: le regole tutte OK; il riassunto è salvato; il "
@@ -234,6 +240,22 @@ def _celle(radice):
           and salvato["verifica"]["regole"] and salvato["mm"]["percentuale"] == out["mm"]["f"]
           and salvato["stress"]["controllo"] and stato_registro() == catalogo,
           f"{len(out['verifica']['regole'])} regole")
+    check("21. nella 6 nessun rimando alle schermate del Lab e nessun nome FAB_SES_…: la lente dice il nome del blocco",
+          "schermat" not in visto.lower() and "FAB_SES" not in visto and "Trigger scattato" in visto
+          and any(x in visto for x in ("Donchian", "RSI ", "E5 ·")) and "poi vai alla 7" in visto.lower())
+    vero_stress = vetrina.stress_test
+
+    def rotto(*a, **k):
+        raise RuntimeError("errore a metà della cella 6")
+
+    vetrina.stress_test = rotto
+    try:
+        fermata = errore(lambda: _zitto(vf.mm_e_stress, r, numero, simulazioni=200), RuntimeError)
+    finally:
+        vetrina.stress_test = vero_stress
+    check("22. dopo la 6, anche fermata da un errore a metà, le funzioni del Lab sono le stesse e stampano esattamente "
+          "i testi di prima; il catalogo è pulito", fermata and all(getattr(vetrina, n) is f for n, f in aiutanti.items())
+          and _testi_lab() == lab_prima and stato_registro() == catalogo)
 
     print("\n7 · Le schede")
     fatte = _zitto(vf.schede, r)
@@ -242,20 +264,35 @@ def _celle(radice):
         with open(m, encoding="utf-8") as f:
             testi[os.path.basename(m)[:-3]] = f.read()
     con_mm = testi.get(scelte[0], "")
-    check("21. una scheda .md e .json per ogni strategia entrata; quella con la 6 porta verifica e money management, "
+    check("23. una scheda .md e .json per ogni strategia entrata; quella con la 6 porta verifica e money management, "
           "le altre dicono «esegui la 6»", len(fatte) == len(scelte) and "Rischio a ogni trade" in con_mm
           and "esegui la 6" not in con_mm.split("## Blocchi")[0]
           and all("esegui la 6" in t for k, t in testi.items() if k != scelte[0]))
     a2 = _zitto(vf.avvio, d, "pc2")
     riga = a2["ricerche"].iloc[0]
     attese = int((df.index >= c.tratto["a"]).sum())
-    check("22. Avvio dopo la cassaforte: la ricerca, le strategie entrate, le barre dopo l'ultima cassaforte e quante "
+    check("24. Avvio dopo la cassaforte: la ricerca, le strategie entrate, le barre dopo l'ultima cassaforte e quante "
           "ne servono per un tratto nuovo", riga["ricerca"] == r.id_ricerca and riga["entrate in cassaforte"] == len(scelte)
           and riga["barre dopo"] == attese and riga["servono per un tratto nuovo"] == 2000,
           f"{attese} barre dopo, ne servono 2000")
-    check("23. i file di questa macchina hanno il nome scritto nell'Avvio (registro_pc2.jsonl, prove_pc2.csv)",
+    check("25. i file di questa macchina hanno il nome scritto nell'Avvio (registro_pc2.jsonl, prove_pc2.csv)",
           os.path.exists(os.path.join(cartella_asset(d, SPOT, "M15"), "registro_pc2.jsonl"))
           and os.path.exists(os.path.join(r.cartella, "prove_pc2.csv")))
+
+
+def _testi_lab() -> str:
+    """Quello che stampano gli aiutanti del Lab con testi che la fabbrica riscriverebbe (rimandi e nomi FAB_SES_…)."""
+    t = "Poi vai alla schermata 9. Trigger FAB_SES_1_DONCHIAN; drawdown dalla schermata 7."
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        vetrina._riquadro(t, t, t)
+        vetrina._nota(t)
+        vetrina._avviso(t)
+        vetrina._spiegazione(t, t)
+        vetrina._titolo(t)
+        vetrina._mostra((t, pd.DataFrame({"a": [t]})))
+        vetrina._dettaglio(t, (t, pd.DataFrame({"a": [t]})))
+    return buf.getvalue()
 
 
 def _nessuna_ricerca(cartella) -> bool:
@@ -281,7 +318,7 @@ def _d1(radice):
     cfg["confini"] = confini
     conf = _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "D1", 1, cfg, DATA)
     tolti = {e["blocco"]: e["tipo"] for e in conf.esclusi}
-    check("24. D1 con la config standard: la cella elenca i 5 blocchi tolti con il motivo (F20 limite logico) e "
+    check("26. D1 con la config standard: la cella elenca i 5 blocchi tolti con il motivo (F20 limite logico) e "
           "prosegue: la ricerca è configurata", conf.teorie > 0 and len(tolti) == 5
           and tolti.get("F20_SESSION_OVERLAP") == LIMITE_LOGICO and "F20_SESSION_OVERLAP" not in conf.config["blocchi"],
           f"{conf.teorie} teorie")

@@ -230,6 +230,8 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
     if config is None:
         config = config_standard(symbol, timeframe, processi=int(processi))
     config = controlla_config(config)
+    if (config["symbol"], config["timeframe"]) != (symbol, timeframe):
+        raise ValueError(f"la config è di {config['symbol']} {config['timeframe']}, i campi dicono {symbol} {timeframe}.")
     controlla_tipi_rimasti(config)
     esclusi = esclusi_dalla_config(config)
     confini = Confini.da_config(config["confini"])
