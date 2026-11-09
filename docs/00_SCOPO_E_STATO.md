@@ -9,7 +9,8 @@ stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede. Le proposte d
 `81` stanno in `docs/archivio/`; ogni rimando a quei numeri vale per quella cartella.
 
 **Incarico in corso (05/11/2026): `81_FABBRICA`** (`81_FABBRICA_STRATEGIE.md`), la fabbrica di strategie. Proposta in
-`82_PROPOSTA_FABBRICA_STRATEGIE.md`, ramo `fabbrica-strategie`. **Eccezione: in `engine/fabbrica/` i parametri si
+`82_PROPOSTA_FABBRICA_STRATEGIE.md`, un ramo per lavoro (L1–L5b, `82` §9); dal 09/11 il suo notebook,
+`Fabbrica_Strategie_Crypto.ipynb` (L5b), collaudato solo su dati sintetici: il primo lancio sui dati veri lo decide Mattia. **Eccezione: in `engine/fabbrica/` i parametri si
 ottimizzano (`docs/81_FABBRICA`).** Il catalogo dei trigger intraday (`78`, `79`) è unito (PR #97): 12 trigger nuovi
 E46–E52, E50 spento come doppione di E3.
 
@@ -27,7 +28,8 @@ E46–E52, E50 spento come doppione di E3.
 - **Notebook vivi, sempre allineati:** `Trading_System_Lab_Crypto.ipynb` (Lab
   guidato, nove schermate, chiama `engine/vetrina.py`) e
   `Trading_Grid_Search_v4_backtesting.ipynb` (ricerca). Il collaudo del
-  catalogo è in `Collaudo_Catalogo.ipynb`. La mappa delle anomalie ha il suo notebook,
+  catalogo è in `Collaudo_Catalogo.ipynb`. La fabbrica ha il suo notebook, separato e non allineato agli altri,
+  `Fabbrica_Strategie_Crypto.ipynb` (chiama `engine/vetrina_fabbrica.py`). La mappa delle anomalie ha il suo notebook,
   `Mappa_Anomalie_Crypto.ipynb` (chiama `engine/vetrina_mappa.py`; il Lab ne mostra gli
   esiti alla 2b). `archivio/Trading_System_Lab.ipynb` (broker) è sospeso. Girano in locale e su Colab (Drive); in locale i dati stanno nella cartella
   di Google Drive per desktop se c'è (streaming, offline solo la cartella del progetto),
@@ -147,7 +149,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 50 suite, 3 alla volta, circa 23 minuti; alla fine deve stampare
+  --tutte`, 62 suite, 3 alla volta, circa 28 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 143 condizioni (85 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 65 prove (+12 dei trigger intraday E46–E52, 02/11, `79`), dalla mappa 2 (E45,
