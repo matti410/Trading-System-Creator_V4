@@ -5,7 +5,7 @@ La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
     impronta_config(config)                       # sha256 del contenuto in forma ordinata, seme compreso, processi esclusi
     id_ricerca = salva_config(config, "dati")     # dati/fabbrica/<SYMBOL>_<TIMEFRAME>/<id>/config.json
     config_standard("BINANCE_PERP_BTCUSDT", "M15")
-    confini_standard("M15", ultima_barra)         # (09/11) i confini fino all'ultima barra chiusa, nelle proporzioni
+    confini_standard("M15", ultima_barra)         # (09/11) i confini fino all'ultima mezzanotte UTC chiusa
 
 - Stessa impronta = stessa ricerca, che si può riprendere: salva_config ritorna la cartella che c'è già. Impronta
   diversa = ricerca nuova. Un file già scritto non si sovrascrive mai.
@@ -43,7 +43,7 @@ SOTTOCAMPI = {
 }
 FILTRI_MAX = 2                         # i modelli di docs/82 P3: T+U, T+F+U, T+F+F+U
 # La prima finestra (docs/82 P1 e §6). Dal 09/11 dà solo l'inizio fisso e le proporzioni dei tre pezzi:
-# la cella 1 calcola i confini con confini_standard, fino all'ultima barra chiusa del CSV.
+# la cella 1 calcola i confini con confini_standard, fino all'ultima mezzanotte UTC chiusa del CSV.
 CONFINI_STANDARD = {"inizio": "2020-01-02 00:00", "ricerca_ore": 30624, "selezione_ore": 17177.75,
                     "cassaforte_ore": 11779.5}
 BLOCCHI_STANDARD = (*TRIGGER_CATALOGO, "RSI_RIENTRO", "DONCHIAN", *FILTRI_CATALOGO, "ADX", "ATR_RELATIVO",
@@ -203,10 +203,12 @@ def salva_config(config: dict, cartella_dati, data: str | None = None) -> str:
 
 def confini_standard(timeframe: str, ultima_barra) -> dict:
     """
-    (09/11, decisione di Mattia) I confini standard sui dati di oggi: inizio fisso (CONFINI_STANDARD), fine = chiusura
-    dell'ultima barra chiusa del CSV (`ultima_barra` = il suo inizio, UTC). I tre pezzi stanno nelle proporzioni di
-    CONFINI_STANDARD (30624 : 17177,75 : 11779,5 ore); ogni confine cade all'inizio di una barra del timeframe, la più
-    vicina (a metà strada verso l'alto). Ritorna il dizionario «confini» della config, con le ore risultanti.
+    (09/11, decisioni di Mattia) I confini standard sui dati di oggi: inizio fisso (CONFINI_STANDARD), fine = l'ultima
+    mezzanotte UTC chiusa, cioè la mezzanotte alla chiusura dell'ultima barra chiusa del CSV o quella prima
+    (`ultima_barra` = il suo inizio, UTC; su D1 è la chiusura stessa). Così nella stessa giornata UTC la cella 1 dà la
+    stessa ricerca anche con barre nuove. I tre pezzi stanno nelle proporzioni di CONFINI_STANDARD (30624 : 17177,75 :
+    11779,5 ore); ogni confine cade all'inizio di una barra del timeframe, la più vicina (a metà strada verso l'alto).
+    Ritorna il dizionario «confini» della config, con le ore risultanti.
     """
     import pandas as pd
     if timeframe not in MINUTI_TIMEFRAME:
@@ -214,10 +216,11 @@ def confini_standard(timeframe: str, ultima_barra) -> dict:
     passo = pd.Timedelta(minutes=MINUTI_TIMEFRAME[timeframe])
     inizio = pd.Timestamp(CONFINI_STANDARD["inizio"], tz="UTC")
     t = pd.Timestamp(ultima_barra)
-    fine = (t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")) + passo
-    if (fine - inizio) % passo != pd.Timedelta(0):
+    chiusura = (t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")) + passo
+    if (chiusura - inizio) % passo != pd.Timedelta(0):
         raise ValueError(f"l'ultima barra ({t}) non cade all'inizio di una barra {timeframe} contata dal "
                          f"{CONFINI_STANDARD['inizio']} UTC.")
+    fine = chiusura.floor("D")                   # l'ultima mezzanotte UTC chiusa (09/11)
     barre = (fine - inizio) // passo
     ore = [float(CONFINI_STANDARD[k]) for k in ("ricerca_ore", "selezione_ore", "cassaforte_ore")]
     totale = sum(ore)

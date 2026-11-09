@@ -14,7 +14,7 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
 - Come il Lab, le celle non hanno codice: chiamano queste funzioni. Nessuna ricalcola niente che la fabbrica non abbia
   già fatto: le regole sono quelle di engine/fabbrica/ (ricerca, selezione, cassaforte, sessione, schede).
 - Cella 1 (09/11): a ogni avvio aggiorna i CSV dall'exchange (senza rete: avviso e i CSV che ci sono); confini dal
-  02/01/2020 all'ultima barra chiusa, nelle proporzioni della config standard. Timeframe da M1 a D1. I blocchi tolti
+  02/01/2020 all'ultima mezzanotte UTC chiusa, nelle proporzioni della config standard. Timeframe da M1 a D1. I blocchi tolti
   su quel timeframe si elencano con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo
   dall'elenco) e la cella prosegue; si ferma solo se mancano i dati o se non resta un trigger o un'uscita (Mattia,
   08/11). Lo stesso elenco va nel riepilogo della 2 (riepilogo.json) e nelle schede.
@@ -247,7 +247,8 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
               config: dict | None = None, data: str | None = None) -> Configurazione:
     """
     Cella 1. Aggiorna i dati (aggiorna_dati), poi la config standard sul symbol e sul timeframe scelti (da M1 a D1), con
-    i confini fino all'ultima barra chiusa (config.confini_standard, 09/11), controllata e bloccata con l'impronta.
+    i confini fino all'ultima mezzanotte UTC chiusa (config.confini_standard, 09/11: nello stesso giorno UTC, stessa
+    ricerca), controllata e bloccata con l'impronta.
     Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un trigger o un'uscita; i blocchi tolti
     sul timeframe si elencano con il motivo. `config` (scritta a mano, per i collaudi) prende il posto di quella
     standard e resta com'è, confini compresi.

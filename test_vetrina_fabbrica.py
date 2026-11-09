@@ -423,6 +423,25 @@ def _dati_e_confini(radice):
     check("30. una config scritta a mano resta com'è, confini compresi",
           isinstance(conf_m, vf.Configurazione) and conf_m.config["confini"] == a_mano["confini"],
           repr(conf_m)[:200] if not isinstance(conf_m, vf.Configurazione) else "")
+
+    print("\nH4: due lanci della cella 1 nello stesso giorno UTC, con barre nuove in mezzo (09/11, correzione PR #109)")
+    from engine.fabbrica.config import impronta_config
+    h4 = os.path.join(radice, "H4_stesso_giorno")
+    ultima = pd.Timestamp("2026-11-05 16:00", tz="UTC")                 # chiude alle 20:00: stesso giorno
+    n = int((ultima - pd.Timestamp("2020-01-02", tz="UTC")) / pd.Timedelta(hours=4)) + 1
+    tutto = sintetici.mercato_piantato(n, seme=11, minuti=240, inizio="2020-01-02", prezzo=2_000.0)
+    sintetici.scrivi_storico(h4, SPOT, "H4", tutto.iloc[:-3])           # fino alla barra delle 04:00
+    vf._scarica = _con_exchange(_Exchange())                            # primo lancio: exchange irraggiungibile
+    primo, _t1 = _parlato(vf.configura, h4, "BYBIT", "SPOT", "ETH", "H4", 1, None, DATA)
+    vf._scarica = _con_exchange(_Exchange(tutto))                       # secondo: arrivano le barre fino alle 16:00
+    secondo, t2 = _parlato(vf.configura, h4, "BYBIT", "SPOT", "ETH", "H4", 1, None, DATA)
+    ok = isinstance(primo, vf.Configurazione) and isinstance(secondo, vf.Configurazione)
+    check("31. stesso giorno UTC, barre nuove fra i due lanci: stessi confini (fine alla mezzanotte del 05/11), stessa "
+          "impronta, stessa ricerca: il secondo lancio riprende",
+          ok and "(3 barre nuove)" in t2 and impronta_config(primo.config) == impronta_config(secondo.config)
+          and primo.id_ricerca == secondo.id_ricerca and primo.nuova and not secondo.nuova
+          and secondo.limiti["cassaforte"][1] == pd.Timestamp("2026-11-05", tz="UTC"),
+          f"{primo.id_ricerca} e {secondo.id_ricerca}" if ok else f"{primo!r} {secondo!r}"[:300])
     vf._scarica = _con_exchange(_Exchange())
 
 

@@ -56,8 +56,8 @@ e indicatore TradingView sono fuori da questo incarico.
 ## §3 · La pipeline
 
 1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte. A ogni avvio i dati si aggiornano
-   dall'exchange; i pezzi vanno dall'inizio fisso all'ultima barra chiusa, nelle proporzioni della config standard
-   (circa 51% / 29% / 20%).
+   dall'exchange; i pezzi vanno dall'inizio fisso all'ultima mezzanotte UTC chiusa, nelle proporzioni della config
+   standard (circa 51% / 29% / 20%).
 2. **Config scritta e salvata prima del lancio**, con impronta (hash): blocchi ammessi, intervalli, modelli,
    condizioni di qualità, budget, seed. Un rilancio con config diversa è una ricerca nuova: le prove si sommano nel
    conto.
@@ -96,7 +96,8 @@ e indicatore TradingView sono fuori da questo incarico.
 - Seed fisso → stessi risultati. Una ricerca interrotta deve poter riprendere.
 - Velocità: nella proposta, stima del tempo per backtest × budget su BINANCE_PERP_BTCUSDT M15, e un tempo obiettivo
   per una ricerca standard sul PC di Mattia. Nessun calcolo che chieda ore a ogni ricerca.
-- Solo dati già presenti (OHLCV e funding). Niente download nuovi in questo incarico.
+- Solo OHLCV e funding, gli stessi del Lab: nessun tipo di dato nuovo. Dal 09/11 la cella 1 li aggiorna dall'exchange
+  a ogni avvio.
 
 ## §5 · Il notebook `Fabbrica_Strategie_Crypto.ipynb`
 
