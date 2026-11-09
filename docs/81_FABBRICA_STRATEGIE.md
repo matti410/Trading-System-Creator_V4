@@ -49,14 +49,15 @@ e indicatore TradingView sono fuori da questo incarico.
 - **Condizione di qualità:** regole sì/no che una strategia deve passare (trade minimi, drawdown, peso massimo di un
   singolo trade, costi inclusi).
 - **Budget:** il numero massimo di strategie provate. Ogni strategia provata è una **prova**.
-- **Cassaforte:** l'ultimo pezzo di dati dell'asset. Ogni strategia ci entra **una volta per tratto**; strategie
-  nuove possono entrarci, e ognuna è registrata.
+- **Cassaforte:** l'ultimo pezzo di dati dell'asset. Una strategia nuova ci entra sempre; una strategia già entrata
+  non rientra in una cassaforte che si sovrappone a quella in cui è entrata. Ognuna è registrata.
 - **Test individuale:** il t netto della strategia contro la soglia per una prova sola. È il test che decide.
 
 ## §3 · La pipeline
 
-1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte, con durate fisse nella config. La finestra scorre in avanti; la
-   nuova cassaforte è fatta solo di barre mai usate come cassaforte.
+1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte. A ogni avvio i dati si aggiornano
+   dall'exchange; i pezzi vanno dall'inizio fisso all'ultima barra chiusa, nelle proporzioni della config standard
+   (circa 51% / 29% / 20%).
 2. **Config scritta e salvata prima del lancio**, con impronta (hash): blocchi ammessi, intervalli, modelli,
    condizioni di qualità, budget, seed. Un rilancio con config diversa è una ricerca nuova: le prove si sommano nel
    conto.
