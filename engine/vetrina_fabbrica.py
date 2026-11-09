@@ -2,8 +2,8 @@
 Le funzioni chiamate dalle celle del notebook della fabbrica (docs/82 §7). Nasce in L4b con la sola
 sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella:
 
-    avvio(cartella_dati, macchina="pc")                     # Avvio: dati trovati, ricerche, barre dopo l'ultima cassaforte
-    conf = configura(cartella_dati, "BINANCE", "PERP", "BTC", "M15")              # 1 · Configura
+    avvio(cartella_dati, macchina="pc")                     # Avvio: dati trovati, ricerche, ultima cassaforte usata
+    conf = configura(cartella_dati, "BINANCE", "PERP", "BTC", "M15")              # 1 · Configura (aggiorna i dati)
     r = ricerca(conf)                                        # 2 · La ricerca (riprende se interrotta)
     imbuto(r)                                                # 3 · L'imbuto
     strategie_rimaste(r)                                     # 4 · Le strategie rimaste (numerate)
@@ -13,12 +13,14 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
 
 - Come il Lab, le celle non hanno codice: chiamano queste funzioni. Nessuna ricalcola niente che la fabbrica non abbia
   già fatto: le regole sono quelle di engine/fabbrica/ (ricerca, selezione, cassaforte, sessione, schede).
-- Cella 1: timeframe da M1 a D1. I blocchi tolti su quel timeframe si elencano con il motivo (limite logico,
-  approssimazione esclusa per scelta, escluso solo dall'elenco) e la cella prosegue; si ferma solo se mancano i dati o
-  se non resta un trigger o un'uscita (Mattia, 08/11). Lo stesso elenco va nel riepilogo della 2 (riepilogo.json) e
-  nelle schede.
-- Cella 5: le strategie già entrate non rientrano mai; rieseguita, la cella ne mostra l'esito. I numeri nuovi entrano
-  come un ingresso nuovo, sempre con la frase. Vuoto = nessuna, e non succede niente.
+- Cella 1 (09/11): a ogni avvio aggiorna i CSV dall'exchange (senza rete: avviso e i CSV che ci sono); confini dal
+  02/01/2020 all'ultima barra chiusa, nelle proporzioni della config standard. Timeframe da M1 a D1. I blocchi tolti
+  su quel timeframe si elencano con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo
+  dall'elenco) e la cella prosegue; si ferma solo se mancano i dati o se non resta un trigger o un'uscita (Mattia,
+  08/11). Lo stesso elenco va nel riepilogo della 2 (riepilogo.json) e nelle schede.
+- Cella 5: le strategie già entrate non rientrano (né nella stessa ricerca né in una cassaforte che si sovrappone);
+  rieseguita, la cella ne mostra l'esito. I numeri nuovi entrano come un ingresso nuovo, sempre con la frase. Vuoto =
+  nessuna, e non succede niente.
 - Cella 6: money management e stress test, e sempre la verifica dei trade (docs/81 §3 passo 9); la lente su un trade è
   facoltativa. Il riassunto va in <ricerca>/mm/<id_strategia>.json, e da lì nella scheda.
 """
@@ -109,21 +111,14 @@ def _ultima_data_csv(percorso: str) -> pd.Timestamp | None:
         return None
 
 
-def _date_csv(percorso: str) -> pd.DatetimeIndex:
-    """Solo la colonna delle date di un CSV (nessun prezzo)."""
-    d = pd.read_csv(percorso, usecols=["Date"])["Date"]
-    return pd.DatetimeIndex(pd.to_datetime(d)).tz_localize("UTC")
-
-
 def avvio(cartella_dati, macchina: str = "pc") -> dict:
     """
     Avvio: il nome della macchina nei file della fabbrica, i dati trovati (symbol, timeframe, ultima barra) e, per
-    ogni symbol e timeframe con ricerche, le ricerche fatte e le barre dopo l'ultima cassaforte usata (servono per un
-    tratto nuovo: almeno la durata della cassaforte). Non scarica niente. Ritorna {"macchina", "dati", "ricerche"}.
+    ogni symbol e timeframe con ricerche, le ricerche fatte e la fine dell'ultima cassaforte usata. Non scarica niente:
+    i dati si aggiornano alla cella 1 (09/11). Ritorna {"macchina", "dati", "ricerche"}.
     """
     from engine.exchange import simboli_exchange
     from engine.fabbrica.blocchi import MINUTI_TIMEFRAME
-    from engine.fabbrica.cache import barre_da_ore
     nome = registro.imposta_macchina(macchina)
     cartella = str(cartella_dati)
     righe = []
@@ -152,16 +147,10 @@ def avvio(cartella_dati, macchina: str = "pc") -> dict:
                     stato = json.load(f)
             entrate = {s["id_strategia"] for e in eventi if e.get("tipo") == cas_mod.INGRESSO
                        and e.get("id_ricerca") == id_r for s in e["strategie"]}
-            sym, tf = config["symbol"], config["timeframe"]
-            p = os.path.join(cartella, f"{sym}_{tf}.csv")
-            dopo, servono = None, barre_da_ore(float(config["confini"]["cassaforte_ore"]), MINUTI_TIMEFRAME[tf])
-            if tratti and os.path.exists(p):
-                dopo = int((_date_csv(p) >= tratti[-1][1]).sum())
-            ricerche.append({"symbol": sym, "timeframe": tf, "ricerca": id_r,
+            ricerche.append({"symbol": config["symbol"], "timeframe": config["timeframe"], "ricerca": id_r,
                              "a che punto": {"finita": "finita"}.get(stato.get("fase"), stato.get("fase", "—")),
                              "entrate in cassaforte": len(entrate),
-                             "ultima cassaforte usata fino al": _data(tratti[-1][1]) if tratti else "nessuna",
-                             "barre dopo": dopo, "servono per un tratto nuovo": servono})
+                             "ultima cassaforte usata fino al": _data(tratti[-1][1]) if tratti else "nessuna"})
     ric = pd.DataFrame(ricerche)
     _titolo(f"Fabbrica pronta · macchina «{nome}» · dati da {cartella}")
     if len(dati):
@@ -169,11 +158,10 @@ def avvio(cartella_dati, macchina: str = "pc") -> dict:
         vista["ultima barra (UTC)"] = [_data(t) if t is not None else "—" for t in vista["ultima barra (UTC)"]]
         _mostra((f"Dati trovati: {len(dati)} file", vista))
     else:
-        _avviso(f"Nella cartella {cartella} non ci sono CSV dei symbol da exchange: lancia scarica_dati_crypto.py.")
+        _avviso(f"Nella cartella {cartella} non ci sono ancora CSV dei symbol da exchange: la cella 1 scarica quello "
+                "del symbol e del timeframe scelti.")
     if len(ric):
         _mostra(("Ricerche già fatte dalla fabbrica", ric))
-        _nota("«Barre dopo» = le barre del CSV dopo la fine dell'ultima cassaforte usata per quel symbol e timeframe. "
-              "Un tratto nuovo di cassaforte ne chiede almeno quante la sua durata («servono»).")
     else:
         _nota("Nessuna ricerca della fabbrica in questa cartella.")
     return {"macchina": nome, "dati": dati, "ricerche": ric}
@@ -208,17 +196,66 @@ def _gia_salvata(config: dict, cartella_dati) -> bool:
     return os.path.isdir(base) and any(n.endswith(fine) for n in os.listdir(base))
 
 
+ATTESA_TENTATIVI = 1.0      # secondi fra i tentativi del download (1, 2, 4, 8, 16): senza rete la cella aspetta poco
+
+
+def _scarica(symbol: str, timeframe: str, cartella: str) -> dict:
+    """
+    Il download della cella 1: engine/aggiorna_dati.aggiorna_per_lab (candele e, sui perpetual, funding), lo stesso
+    codice del Lab e di scarica_dati_crypto.py. I collaudi lo sostituiscono con un exchange finto: la suite non va in rete.
+    """
+    from engine.aggiorna_dati import aggiorna_per_lab
+    return aggiorna_per_lab(symbol, timeframe, cartella, verbose=False, attesa=ATTESA_TENTATIVI)
+
+
+def aggiorna_dati(cartella_dati, symbol: str, timeframe: str) -> dict:
+    """
+    (09/11) Cella 1, prima della config: aggiorna i CSV dall'exchange e dice fin dove arrivano i dati. Nessun
+    interruttore. Se l'exchange non risponde o ccxt manca: un avviso e si usano i CSV fino all'ultimo salvataggio. Si
+    ferma (ValueError «La cella si ferma») solo se il CSV non c'è e il download non riesce. Crea la cartella se manca.
+    Ritorna {"aggiornati": bool, "ultima_barra": inizio dell'ultima barra chiusa, "fine": la sua chiusura, "esito"}.
+    """
+    from engine.fabbrica.blocchi import MINUTI_TIMEFRAME
+    cartella = str(cartella_dati)
+    os.makedirs(cartella, exist_ok=True)
+    percorso = os.path.join(cartella, f"{symbol}_{timeframe}.csv")
+    print(f"Aggiorno {symbol} {timeframe} dall'exchange"
+          + ("" if os.path.exists(percorso) else " (il file non c'è: lo scarico tutto dal 02/01/2020, ci vuole un po')")
+          + "…", flush=True)
+    try:
+        esito = _scarica(symbol, timeframe, cartella)
+    except FileNotFoundError as e:
+        raise ValueError(f"La cella si ferma: {e}") from e
+    ultima = _ultima_data_csv(percorso) if os.path.exists(percorso) else None
+    if ultima is None:
+        raise ValueError(f"La cella si ferma: non riesco a leggere l'ultima barra di {percorso}.")
+    fine = ultima + pd.Timedelta(minutes=MINUTI_TIMEFRAME[timeframe])
+    candele, funding = esito["candele"], esito.get("funding")
+    aggiornati = candele["esito"] == "aggiornato"
+    if aggiornati:
+        _nota(f"Dati aggiornati fino a {_data(fine)} UTC ({_f(candele.get('nuove', 0))} barre nuove).")
+        if funding is not None and funding["esito"] != "aggiornato":
+            fino = f" fino al {_data(funding['al'])} UTC" if funding.get("al") is not None else ""
+            _avviso(f"Il funding non si è aggiornato: uso quello che c'è{fino}. Motivo: {funding.get('errore')}")
+    else:
+        _avviso(f"Exchange non raggiungibile: uso i dati fino a {_data(fine)} UTC.")
+        _nota(f"Motivo: {candele.get('errore')}")
+    return {"aggiornati": aggiornati, "ultima_barra": ultima, "fine": fine, "esito": esito}
+
+
 def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe: str, processi: int = 3,
               config: dict | None = None, data: str | None = None) -> Configurazione:
     """
-    Cella 1. La config standard sul symbol e sul timeframe scelti (da M1 a D1), controllata e bloccata con l'impronta.
+    Cella 1. Aggiorna i dati (aggiorna_dati), poi la config standard sul symbol e sul timeframe scelti (da M1 a D1), con
+    i confini fino all'ultima barra chiusa (config.confini_standard, 09/11), controllata e bloccata con l'impronta.
     Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un trigger o un'uscita; i blocchi tolti
-    sul timeframe si elencano con il motivo. `config` (solo per i collaudi) prende il posto di quella standard.
+    sul timeframe si elencano con il motivo. `config` (scritta a mano, per i collaudi) prende il posto di quella
+    standard e resta com'è, confini compresi.
     """
     from engine.exchange import simboli_exchange
     from engine.fabbrica.blocchi import MINUTI_TIMEFRAME
-    from engine.fabbrica.config import (config_standard, controlla_config, controlla_tipi_rimasti, impronta_config,
-                                        salva_config)
+    from engine.fabbrica.config import (config_standard, confini_standard, controlla_config, controlla_tipi_rimasti,
+                                        impronta_config, salva_config)
     from engine.fabbrica.dati import Confini, carica_pezzi
     from engine.fabbrica.ricerca import prepara
     from engine.fabbrica.schede import esclusi_dalla_config
@@ -227,8 +264,10 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
         raise ValueError(f"{symbol}: non è un symbol da exchange della tabella (engine/simboli.py).")
     if timeframe not in MINUTI_TIMEFRAME:
         raise ValueError(f"timeframe {timeframe!r}: usa uno di {list(MINUTI_TIMEFRAME)}.")
+    dati = aggiorna_dati(cartella_dati, symbol, timeframe)
     if config is None:
-        config = config_standard(symbol, timeframe, processi=int(processi))
+        config = config_standard(symbol, timeframe, processi=int(processi),
+                                 confini=confini_standard(timeframe, dati["ultima_barra"]))
     config = controlla_config(config)
     if (config["symbol"], config["timeframe"]) != (symbol, timeframe):
         raise ValueError(f"la config è di {config['symbol']} {config['timeframe']}, i campi dicono {symbol} {timeframe}.")

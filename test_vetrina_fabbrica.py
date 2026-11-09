@@ -75,6 +75,43 @@ def _mercato(minuti=15, confini=CONFINI, extra=100):
     return sintetici.mercato_piantato(n, seme=5, minuti=minuti, inizio="2024-01-01", prezzo=2_000.0)
 
 
+class _Exchange:
+    """
+    Un exchange come ccxt, senza rete (09/11): con `df` dà le sue barre da `since` in avanti; senza, non risponde
+    (ogni richiesta fallisce). La cella 1 aggiorna i dati a ogni avvio: nella suite passa sempre da qui.
+    """
+
+    def __init__(self, df=None):
+        self.df, self.chiamate = df, 0
+
+    def load_markets(self):
+        return {}
+
+    def fetch_ohlcv(self, simbolo, tf, since=None, limit=1000):
+        self.chiamate += 1
+        if self.df is None:
+            raise ConnectionError("NetworkError: exchange irraggiungibile (collaudo)")
+        ms = pd.DatetimeIndex(self.df.index).as_unit("ns").asi8 // 1_000_000
+        v = self.df[["Open", "High", "Low", "Close", "Volume"]].to_numpy()
+        dentro = [k for k in range(len(ms)) if ms[k] >= since][:limit]
+        return [[int(ms[k]), *map(float, v[k])] for k in dentro]
+
+    def fetch_funding_rate_history(self, simbolo, since=None, limit=None, params=None):
+        self.chiamate += 1
+        raise ConnectionError("NetworkError: exchange irraggiungibile (collaudo)")
+
+
+def _con_exchange(ex):
+    """Il download della cella 1 (vf._scarica) con l'exchange finto `ex`: lo stesso aggiorna_per_lab, nessuna rete."""
+    from engine.aggiorna_dati import aggiorna_per_lab
+    from engine.exchange import CCXT_ID
+
+    def scarica(symbol, timeframe, cartella):
+        return aggiorna_per_lab(symbol, timeframe, cartella, aperti={k: ex for k in set(CCXT_ID.values())},
+                                verbose=False, attesa=0.0)
+    return scarica
+
+
 def _eventi(d, tipo):
     return [e for e in registro.leggi_registro(cartella_asset(d, SPOT, "M15")) if e.get("tipo") == tipo]
 
@@ -93,12 +130,16 @@ def esegui() -> int:
     t0 = time.perf_counter()
     registro_adesso = registro.adesso
     registro.adesso = lambda: ORA_FISSA
+    scarica_vero = vf._scarica
+    vf._scarica = _con_exchange(_Exchange())          # la suite non va in rete: l'exchange non risponde
     try:
         with tempfile.TemporaryDirectory() as radice:
             _celle(radice)
             _d1(radice)
+            _dati_e_confini(radice)
     finally:
         registro.adesso = registro_adesso
+        vf._scarica = scarica_vero
         registro.imposta_macchina(None)
     print("\n" + "=" * 70)
     print(f"Durata: {time.perf_counter() - t0:.0f} s")
@@ -270,11 +311,11 @@ def _celle(radice):
           and all("esegui la 6" in t for k, t in testi.items() if k != scelte[0]))
     a2 = _zitto(vf.avvio, d, "pc2")
     riga = a2["ricerche"].iloc[0]
-    attese = int((df.index >= c.tratto["a"]).sum())
-    check("24. Avvio dopo la cassaforte: la ricerca, le strategie entrate, le barre dopo l'ultima cassaforte e quante "
-          "ne servono per un tratto nuovo", riga["ricerca"] == r.id_ricerca and riga["entrate in cassaforte"] == len(scelte)
-          and riga["barre dopo"] == attese and riga["servono per un tratto nuovo"] == 2000,
-          f"{attese} barre dopo, ne servono 2000")
+    check("24. Avvio dopo la cassaforte: la ricerca, le strategie entrate e la fine dell'ultima cassaforte usata "
+          "(09/11: niente più «barre dopo», la finestra scorrevole non c'è più)",
+          riga["ricerca"] == r.id_ricerca and riga["entrate in cassaforte"] == len(scelte)
+          and riga["ultima cassaforte usata fino al"] == vf._data(c.tratto["a"])
+          and "barre dopo" not in a2["ricerche"].columns, riga["ultima cassaforte usata fino al"])
     check("25. i file di questa macchina hanno il nome scritto nell'Avvio (registro_pc2.jsonl, prove_pc2.csv)",
           os.path.exists(os.path.join(cartella_asset(d, SPOT, "M15"), "registro_pc2.jsonl"))
           and os.path.exists(os.path.join(r.cartella, "prove_pc2.csv")))
@@ -322,6 +363,67 @@ def _d1(radice):
           "prosegue: la ricerca è configurata", conf.teorie > 0 and len(tolti) == 5
           and tolti.get("F20_SESSION_OVERLAP") == LIMITE_LOGICO and "F20_SESSION_OVERLAP" not in conf.config["blocchi"],
           f"{conf.teorie} teorie")
+
+
+def _parlato(funzione, *a, **k):
+    """(risultato, testo stampato); se si ferma, (l'errore, testo stampato)."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        try:
+            return funzione(*a, **k), buf.getvalue()
+        except Exception as e:  # noqa: BLE001
+            return e, buf.getvalue()
+
+
+def _dati_e_confini(radice):
+    print("\n1 · Configura: i dati a ogni avvio e i confini sull'ultima barra (09/11)")
+    from engine.fabbrica.config import confini_standard
+    d = os.path.join(radice, "giu")
+    df = _mercato()
+    p = sintetici.scrivi_storico(d, SPOT, "M15", df)
+    with open(p, "rb") as f:
+        prima = f.read()
+    giu = _Exchange()
+    vf._scarica = _con_exchange(giu)
+    conf, testo = _parlato(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, _cfg(), DATA)
+    with open(p, "rb") as f:
+        dopo = f.read()
+    fino = vf._data(df.index[-1] + pd.Timedelta(minutes=15))
+    check("27. exchange irraggiungibile: avviso «exchange non raggiungibile: uso i dati fino a …» con la chiusura "
+          "dell'ultima barra, il CSV resta quello di prima ed è letto: la ricerca è configurata",
+          isinstance(conf, vf.Configurazione) and giu.chiamate > 0 and dopo == prima and conf.barre_ricerca > 0
+          and f"Exchange non raggiungibile: uso i dati fino a {fino} UTC" in testo, fino)
+
+    nuova = os.path.join(radice, "nuova", "dati")             # la cartella non c'è: la cella la crea
+    _, testo_n = _parlato(vf.configura, nuova, "BYBIT", "SPOT", "ETH", "M15", 1, _cfg(), DATA)
+    check("28. cartella dei dati che non c'è e exchange irraggiungibile: la cartella si crea, la cella si ferma perché "
+          "il CSV non c'è e non si scarica", os.path.isdir(nuova) and isinstance(_, ValueError)
+          and "La cella si ferma" in str(_) and not os.listdir(nuova))
+
+    print("\nD1 dal 02/01/2020, l'exchange dà 6 barre nuove; config standard (confini calcolati)")
+    d1 = os.path.join(radice, "D1_standard")
+    tutto = sintetici.mercato_piantato(2_500, seme=7, minuti=1440, inizio="2020-01-02", prezzo=2_000.0)
+    sintetici.scrivi_storico(d1, SPOT, "D1", tutto.iloc[:-6])
+    vf._scarica = _con_exchange(_Exchange(tutto))
+    conf, testo = _parlato(vf.configura, d1, "BYBIT", "SPOT", "ETH", "D1", 1, None, DATA)
+    ultima = tutto.index[-1]
+    attesi = confini_standard("D1", ultima)
+    lim = conf.limiti if isinstance(conf, vf.Configurazione) else {}
+    check("29. dati aggiornati: «dati aggiornati fino a …» con la chiusura dell'ultima barra nuova; i confini della "
+          "config sono quelli calcolati su quella barra, con le ore nella config; la cella mostra le date dei tre pezzi",
+          isinstance(conf, vf.Configurazione) and conf.config["confini"] == attesi
+          and lim["cassaforte"][1] == ultima + pd.Timedelta(days=1)
+          and f"Dati aggiornati fino a {vf._data(ultima + pd.Timedelta(days=1))} UTC (6 barre nuove)" in testo
+          and all(vf._data(lim[x][0]) in testo for x in ("ricerca", "selezione", "cassaforte")),
+          f"{attesi}" if isinstance(conf, vf.Configurazione) else repr(conf)[:300])
+    a_mano = dict(_cfg("D1"), confini={"inizio": "2020-01-02 00:00", "ricerca_ore": 24 * 1200,
+                                       "selezione_ore": 24 * 700, "cassaforte_ore": 24 * 400})
+    vf._scarica = _con_exchange(_Exchange())
+    conf_m, _t = _parlato(vf.configura, d1, "BYBIT", "SPOT", "ETH", "D1", 1, a_mano, DATA)
+    check("30. una config scritta a mano resta com'è, confini compresi",
+          isinstance(conf_m, vf.Configurazione) and conf_m.config["confini"] == a_mano["confini"],
+          repr(conf_m)[:200] if not isinstance(conf_m, vf.Configurazione) else "")
+    vf._scarica = _con_exchange(_Exchange())
 
 
 if __name__ == "__main__":

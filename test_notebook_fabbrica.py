@@ -44,6 +44,15 @@ FUNZIONI = {"configura", "ricerca", "imbuto", "strategie_rimaste", "cassaforte",
 TITOLI = ["Avvio", "1 · Configura", "2 · La ricerca", "3 · L'imbuto", "4 · Le strategie rimaste", "5 · La cassaforte",
           "6 · MM, stress test e verifica dei trade", "7 · Le schede"]
 ESITI: list[bool] = []
+# (09/11) La cella 1 aggiorna i dati a ogni avvio: nella copia di collaudo l'exchange non risponde (nessuna rete) e la
+# cella usa il CSV sintetico, con l'avviso. Stesso aggiorna_per_lab, con un exchange finto.
+SENZA_RETE = (
+    "import engine.vetrina_fabbrica as _vf, engine.aggiorna_dati as _ad, engine.exchange as _ex   # collaudo: senza rete\n"
+    "class _Giu:\n"
+    "    def __getattr__(self, nome):\n"
+    "        raise ConnectionError('NetworkError: exchange irraggiungibile (collaudo)')\n"
+    "_vf._scarica = lambda s, t, c: _ad.aggiorna_per_lab(s, t, c, aperti={k: _Giu() for k in set(_ex.CCXT_ID.values())},\n"
+    "                                                    verbose=False, attesa=0.0)\n")
 
 
 def check(nome: str, ok: bool, dettaglio: str = "") -> None:
@@ -151,6 +160,7 @@ def _copia_di_collaudo(nb, dati: str):
                        'warnings.simplefilter("ignore")' + "\n" + f"os.chdir({QUI!r})      # copia di collaudo: il progetto")
     a.source = _cambia(a.source, "DATI_DIR = cartella_dati_avvio(os.getcwd(), False, DATI_DRIVE, False)",
                        f"DATI_DIR = {dati!r}")
+    a.source = _cambia(a.source, "pronto = avvio(", SENZA_RETE + "pronto = avvio(")
     c1 = per["1 · Configura"]
     for v, n in (('exchange = "BINANCE"', 'exchange = "BYBIT"'), ('mercato = "PERP"', 'mercato = "SPOT"'),
                  ('moneta = "BTC"', 'moneta = "ETH"'), ("processi = 3", "processi = 2")):

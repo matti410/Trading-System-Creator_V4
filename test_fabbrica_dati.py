@@ -23,8 +23,8 @@ import numpy as np
 import pandas as pd
 
 from engine.fabbrica import sintetici
-from engine.fabbrica.config import (CAMPI, budget_massimo, cartella_asset, config_standard, controlla_budget,
-                                    controlla_config, impronta_config, leggi_config, salva_config)
+from engine.fabbrica.config import (CAMPI, budget_massimo, cartella_asset, confini_standard, config_standard,
+                                    controlla_budget, controlla_config, impronta_config, leggi_config, salva_config)
 from engine.fabbrica.dati import (Confini, PermessoCassaforte, Pezzi, carica_pezzi, controlla_cassaforte_nuova,
                                   impronta_pezzo)
 from engine.vetrina import carica_storico, costi_storico
@@ -207,7 +207,7 @@ def esegui() -> int:
         check("23. un funding che non copre i pezzi: errore", errore(lambda: carica_pezzi(PERP, "M15", Confini.da_config(PICCOLI), cart_f)))
 
         # ------------------------------------------------------------------ la finestra scorrevole
-        print("\nLa finestra scorrevole, con un registro finto delle cassaforti")
+        print("\nLa sovrapposizione fra cassaforti, con un registro finto dei tratti")
         registro = [conf.tratto_cassaforte]
         sposta = lambda ore: Confini.da_config({**STANDARD, "inizio": str(T("2020-01-02") + pd.Timedelta(hours=ore))})
         check("24. stessa finestra: la cassaforte è già usata, errore", errore(lambda: controlla_cassaforte_nuova(conf, registro)))
@@ -303,6 +303,32 @@ def esegui() -> int:
             check("42. processi diversi: stessa impronta, stessa ricerca, config.json intatto (08/11)",
                   impronta_config({**cfg, "processi": 1}) == impronta_config(cfg) and id4 == id3
                   and f.read() == byte_3 and len(os.listdir(cartella_asset(dati, PERP, "M15"))) == 2)
+
+        # ------------------------------------------------------------------ i confini sui dati (09/11)
+        print("\nI confini standard calcolati sull'ultima barra chiusa (09/11)")
+        oggi = confini_standard("M15", "2026-10-19 13:00")         # chiude alle 13:15: la fine della prima finestra
+        check("43. con l'ultima barra M15 della prima finestra i confini sono quelli di oggi, al bit (stessa impronta)",
+              oggi == STANDARD and impronta_config(config_standard(PERP, "M15", confini=oggi)) == impronta_config(
+                  config_standard(PERP, "M15")), str(oggi))
+        quote = np.array([30624, 17177.75, 11779.5]) / 59581.25
+        giusti = []
+        for tf, minuti, ultima in (("M1", 1, "2026-11-09 08:41"), ("M15", 15, "2026-11-09 08:30"),
+                                   ("H4", 240, "2026-11-09 04:00"), ("D1", 1440, "2026-11-08 00:00")):
+            c = confini_standard(tf, ultima)
+            lim = Confini.da_config(c).limiti()
+            passo = pd.Timedelta(minutes=minuti)
+            fine = _utc(ultima) + passo
+            barre = (fine - _utc(STANDARD["inizio"])) / passo
+            pezzi = np.array([(lim[p][1] - lim[p][0]) / passo for p in ("ricerca", "selezione", "cassaforte")])
+            giusti.append(lim["ricerca"][0] == _utc(STANDARD["inizio"]) and lim["cassaforte"][1] == fine
+                          and all((lim[p][0] - _utc(STANDARD["inizio"])) % passo == pd.Timedelta(0) for p in lim)
+                          and pezzi.sum() == barre
+                          and np.all(np.abs(np.cumsum(pezzi)[:2] - np.cumsum(quote)[:2] * barre) <= 0.5))
+        check("44. da M1 a D1: inizio fisso, fine = chiusura dell'ultima barra, confini all'inizio di una barra, pezzi "
+              "nelle proporzioni di oggi a meno di mezza barra", all(giusti), str(giusti))
+        check("45. un'ultima barra fuori dalla griglia del timeframe, o troppo poche barre: errore",
+              errore(lambda: confini_standard("H4", "2026-11-09 05:00"))
+              and errore(lambda: confini_standard("D1", "2020-01-03 00:00")))
     finally:
         shutil.rmtree(base, ignore_errors=True)
 

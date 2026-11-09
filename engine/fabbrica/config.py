@@ -5,6 +5,7 @@ La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
     impronta_config(config)                       # sha256 del contenuto in forma ordinata, seme compreso, processi esclusi
     id_ricerca = salva_config(config, "dati")     # dati/fabbrica/<SYMBOL>_<TIMEFRAME>/<id>/config.json
     config_standard("BINANCE_PERP_BTCUSDT", "M15")
+    confini_standard("M15", ultima_barra)         # (09/11) i confini fino all'ultima barra chiusa, nelle proporzioni
 
 - Stessa impronta = stessa ricerca, che si può riprendere: salva_config ritorna la cartella che c'è già. Impronta
   diversa = ricerca nuova. Un file già scritto non si sovrascrive mai.
@@ -41,7 +42,8 @@ SOTTOCAMPI = {
     "budget": ("totale", "per_teoria_passo_1", "teorie_passo_2", "giri_zoom", "prove_per_giro"),
 }
 FILTRI_MAX = 2                         # i modelli di docs/82 P3: T+U, T+F+U, T+F+F+U
-# La prima finestra (docs/82 P1 e §6)
+# La prima finestra (docs/82 P1 e §6). Dal 09/11 dà solo l'inizio fisso e le proporzioni dei tre pezzi:
+# la cella 1 calcola i confini con confini_standard, fino all'ultima barra chiusa del CSV.
 CONFINI_STANDARD = {"inizio": "2020-01-02 00:00", "ricerca_ore": 30624, "selezione_ore": 17177.75,
                     "cassaforte_ore": 11779.5}
 BLOCCHI_STANDARD = (*TRIGGER_CATALOGO, "RSI_RIENTRO", "DONCHIAN", *FILTRI_CATALOGO, "ADX", "ATR_RELATIVO",
@@ -199,10 +201,45 @@ def salva_config(config: dict, cartella_dati, data: str | None = None) -> str:
     return id_ricerca
 
 
-def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi: int = 3) -> dict:
+def confini_standard(timeframe: str, ultima_barra) -> dict:
+    """
+    (09/11, decisione di Mattia) I confini standard sui dati di oggi: inizio fisso (CONFINI_STANDARD), fine = chiusura
+    dell'ultima barra chiusa del CSV (`ultima_barra` = il suo inizio, UTC). I tre pezzi stanno nelle proporzioni di
+    CONFINI_STANDARD (30624 : 17177,75 : 11779,5 ore); ogni confine cade all'inizio di una barra del timeframe, la più
+    vicina (a metà strada verso l'alto). Ritorna il dizionario «confini» della config, con le ore risultanti.
+    """
+    import pandas as pd
+    if timeframe not in MINUTI_TIMEFRAME:
+        raise ValueError(f"timeframe {timeframe!r} non previsto: {list(MINUTI_TIMEFRAME)}")
+    passo = pd.Timedelta(minutes=MINUTI_TIMEFRAME[timeframe])
+    inizio = pd.Timestamp(CONFINI_STANDARD["inizio"], tz="UTC")
+    t = pd.Timestamp(ultima_barra)
+    fine = (t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")) + passo
+    if (fine - inizio) % passo != pd.Timedelta(0):
+        raise ValueError(f"l'ultima barra ({t}) non cade all'inizio di una barra {timeframe} contata dal "
+                         f"{CONFINI_STANDARD['inizio']} UTC.")
+    barre = (fine - inizio) // passo
+    ore = [float(CONFINI_STANDARD[k]) for k in ("ricerca_ore", "selezione_ore", "cassaforte_ore")]
+    totale = sum(ore)
+    b1 = math.floor(barre * ore[0] / totale + 0.5)
+    b2 = math.floor(barre * (ore[0] + ore[1]) / totale + 0.5)
+    if not 0 < b1 < b2 < barre:
+        raise ValueError(f"dal {CONFINI_STANDARD['inizio']} UTC all'ultima barra ci sono {barre} barre {timeframe}: "
+                         "troppo poche per tre pezzi.")
+    def in_ore(n):        # intere come intero (30624, non 30624.0): stessa config, stessa impronta di CONFINI_STANDARD
+        v = round(n * MINUTI_TIMEFRAME[timeframe] / 60.0, 6)
+        return int(v) if v == int(v) else v
+
+    return {"inizio": CONFINI_STANDARD["inizio"], "ricerca_ore": in_ore(b1), "selezione_ore": in_ore(b2 - b1),
+            "cassaforte_ore": in_ore(barre - b2)}
+
+
+def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi: int = 3,
+                    confini: dict | None = None) -> dict:
     """
     La config di §6 con tutti i blocchi di P-L2 ammessi sul timeframe e le loro griglie. I blocchi del catalogo che
-    su quel timeframe non scattano restano fuori (blocchi.py li fermerebbe).
+    su quel timeframe non scattano restano fuori (blocchi.py li fermerebbe). `confini` (09/11): quelli calcolati da
+    confini_standard sui dati; senza, la prima finestra (CONFINI_STANDARD).
     """
     blocchi = {}
     for nome in BLOCCHI_STANDARD:
@@ -215,7 +252,7 @@ def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi
         blocchi[nome] = copy.deepcopy({k: list(v) for k, v in griglie.items()})
     return {
         "versione": VERSIONE, "symbol": symbol, "timeframe": timeframe,
-        "confini": dict(CONFINI_STANDARD),
+        "confini": dict(CONFINI_STANDARD if confini is None else confini),
         "lati": ["long"] if solo_long(symbol) else ["long", "short"],
         "blocchi": blocchi,
         "modelli": [{"trigger": 1, "filtri": [0, 2], "uscite": 1}],

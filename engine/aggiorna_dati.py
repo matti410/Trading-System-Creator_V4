@@ -90,7 +90,9 @@ def aggiorna_storico(symbol: str, timeframe: str, cartella, aperti: dict | None 
     df = None if vuoto else vecchio
     adesso = pd.Timestamp(time.time(), unit="s", tz="UTC")
     while da < adesso:
-        a = da + tappa
+        # (09/11) la tappa si ferma ad adesso: su D1 da + tappa (100.000 giorni) andava oltre il 2262, il limite delle
+        # date di pandas, e il download falliva sempre. Da M1 a H4 non cambia niente: scarica_storico si ferma ad adesso.
+        a = da + tappa if tappa < adesso - da else adesso
         nuovo = scarica_storico(symbol, timeframe, da=da, a=a, ex=ex, limite=limite, verbose=verbose,
                                 attesa=attesa)
         if len(nuovo):
