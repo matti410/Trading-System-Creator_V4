@@ -64,7 +64,7 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   Se un test fallisce, fermati e spiega.
 - Dal 21/10/2026: durante il lavoro basta la suite rapida, `python suite_rapida.py`
   (le suite legate al codice cambiato, 2-3 minuti). La completa,
-  `python suite_rapida.py --tutte` (3 suite alla volta, circa 25 minuti; alla fine
+  `python suite_rapida.py --tutte` (3 suite alla volta, circa 28 minuti; alla fine
   «SUITE COMPLETA: n/n»), e' obbligatoria prima di ogni Pull request.
 
 ## Dati e MT5
@@ -107,6 +107,7 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   fatta in uno va portata nell'altro.
 - Sospeso dal 20/10/2026: archivio/Trading_System_Lab.ipynb (broker CFD). Non si aggiorna e non si
   collauda; in testa ha la riga «sospeso dal 20/10/2026, non mantenuto». Non va cancellato.
+- Terzo notebook, separato e non allineato agli altri due: Fabbrica_Strategie_Crypto.ipynb (la fabbrica, docs/81_FABBRICA_STRATEGIE.md); le celle chiamano solo engine/vetrina_fabbrica.py.
 - I Lab non hanno codice nelle celle: chiamano le funzioni di engine/vetrina.py. Allineare
   vuol dire di solito modificare vetrina.py. Dati e costi si leggono con carica_storico e
   costi_storico.

@@ -107,6 +107,34 @@ TESTI_USCITE = {                       # la regola d'uscita; None = nessuna rego
 }
 
 
+def _ore(barre: int, minuti: int) -> str:
+    tot = int(barre) * int(minuti)
+    return ("1 minuto" if tot == 1 else f"{tot} minuti") if tot < 60 else ("1 ora" if tot == 60
+                                                                             else f"{_numero(tot / 60)} ore")
+
+
+def nome_breve(blocco: str, valori: dict, timeframe: str) -> str:
+    """
+    Il nome di un blocco con i suoi valori principali, per le tabelle e la lente (L5b, 08/11): «Donchian 12 ore»,
+    «RSI 4 ore, soglia 30», «E47 · rottura dopo compressione». Al posto dei nomi temporanei FAB_SES_… del catalogo.
+    """
+    from .blocchi import FILTRI_CATALOGO, TRIGGER_CATALOGO, USCITE_CATALOGO
+    m = MINUTI_TIMEFRAME[timeframe]
+    v = valori or {}
+    if blocco == "DONCHIAN":
+        return f"Donchian {_ore(v['canale_barre'], m)}"
+    if blocco == "RSI_RIENTRO":
+        return f"RSI {_ore(v['periodo_barre'], m)}, soglia {_numero(v['soglia'])}"
+    if blocco == "ADX":
+        return f"ADX {_ore(v['periodo_barre'], m)} sopra {_numero(v['soglia'])}"
+    if blocco == "ATR_RELATIVO":
+        return f"ATR {_ore(v['breve_barre'], m)} / {_ore(v['lungo_barre'], m)} sopra {_numero(v['soglia'])}"
+    for catalogo, i in ((TRIGGER_CATALOGO, 2), (FILTRI_CATALOGO, 2), (USCITE_CATALOGO, 2)):
+        if blocco in catalogo:
+            return f"{blocco} · {catalogo[blocco][i]}"
+    return blocco
+
+
 def regole_in_parole(strategia: Strategia, timeframe: str) -> dict:
     """
     {"ingresso", "filtri", "uscita", "righe"}: le regole della strategia in parole, dal testo di ogni blocco con i

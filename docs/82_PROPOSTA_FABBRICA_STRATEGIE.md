@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1, L2, L3a, L3b, L4a, L4b e L5a scritti; il resto (L5b, il notebook) è testo. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -57,8 +57,8 @@ Tutti additivi. **Il motore non si modifica**, quindi niente prove d'identità: 
 | `Fabbrica_Strategie_Crypto.ipynb` | il notebook | L5b |
 | `test_fabbrica_*.py` | una suite per lavoro, ultima riga «RISULTATO: n/n» | L1–L5 |
 
-**Modifiche additive a file esistenti, dichiarate:** `engine/indicatori.py` (L2, indicatori nuovi); `suite_rapida.py` (L1, solo se serve per legare le suite nuove al codice; in L2 e L3a le durate delle suite nuove); `CLAUDE.md` e `docs/00` (L5, terzo notebook); `engine/vetrina_verifica.py` (L4b, 08/11: parametro facoltativo `finestra` di `verifica_trade`, `controlla_periodo`, `registro_trade`, `_ricalcola`, predefinito la `FINESTRA` del Lab, 500: il Lab non cambia); `engine/fabbrica/registro.py` (L4b: l'ora degli eventi da `adesso()`, che i collaudi fissano; L5a: `imposta_macchina`, il nome della macchina scritto nell'Avvio). L5a, 08/11, tutte additive: `engine/fabbrica/ricerca.py` (parametro facoltativo `avanzamento` di `lancia`, che non cambia la ricerca); `engine/fabbrica/blocchi.py` (`MOTIVI_ESCLUSIONE`); `engine/fabbrica/config.py` (`blocchi_esclusi`, `controlla_tipi_rimasti`); `engine/fabbrica/cassaforte.py` (`trade_entrata`); `engine/fabbrica/sessione.py` (`in_sample`, il calcolo dell'in-sample tolto da `apri_sessione` senza cambiarlo, usato anche dalla scheda); `suite_rapida.py` (le durate delle due suite nuove).
-Nessun pacchetto nuovo da installare: numpy, pandas, numba e TA-Lib ci sono già.
+**Modifiche additive a file esistenti, dichiarate:** `engine/indicatori.py` (L2, indicatori nuovi); `suite_rapida.py` (L1, solo se serve per legare le suite nuove al codice; in L2 e L3a le durate delle suite nuove); `CLAUDE.md` e `docs/00` (L5, terzo notebook); `engine/vetrina_verifica.py` (L4b, 08/11: parametro facoltativo `finestra` di `verifica_trade`, `controlla_periodo`, `registro_trade`, `_ricalcola`, predefinito la `FINESTRA` del Lab, 500: il Lab non cambia); `engine/fabbrica/registro.py` (L4b: l'ora degli eventi da `adesso()`, che i collaudi fissano; L5a: `imposta_macchina`, il nome della macchina scritto nell'Avvio). L5a, 08/11, tutte additive: `engine/fabbrica/ricerca.py` (parametro facoltativo `avanzamento` di `lancia`, che non cambia la ricerca); `engine/fabbrica/blocchi.py` (`MOTIVI_ESCLUSIONE`); `engine/fabbrica/config.py` (`blocchi_esclusi`, `controlla_tipi_rimasti`); `engine/fabbrica/cassaforte.py` (`trade_entrata`); `engine/fabbrica/sessione.py` (`in_sample`, il calcolo dell'in-sample tolto da `apri_sessione` senza cambiarlo, usato anche dalla scheda); `suite_rapida.py` (le durate delle due suite nuove). L5b, 09/11: `engine/fabbrica/blocchi.py` (`_non_scatta`, l'errore di una config scritta a mano dice quale blocco e perché); `engine/fabbrica/schede.py` (`nome_breve`); `engine/fabbrica/sessione.py` (`s.fabbrica["nomi"]`); `engine/vetrina_fabbrica.py` (i testi della cella 6); `CLAUDE.md` e `docs/00` (il terzo notebook); `suite_rapida.py` (la durata di `test_notebook_fabbrica`).
+Nessun pacchetto nuovo per il codice: numpy, pandas, numba e TA-Lib ci sono già. Per eseguire il notebook sul PC e per il suo collaudo con nbclient serve `ipykernel`, installato nella `.venv` del progetto il 09/11 con il via di Mattia (7.4.0); nbclient e nbformat c'erano già.
 
 ---
 
@@ -140,7 +140,9 @@ Il meccanismo qui sotto è stato **confermato in L2 leggendo le condizioni**: E5
 - **Minimo di 5 barre (07/11)** per periodo di RSI, periodo di ADX e ATR lungo: i valori sotto salgono a 5. L'ATR breve resta con minimo 1 barra, come durate e canale di Donchian.
 - Nella griglia i **valori doppi dopo l'arrotondamento si tolgono**: su D1 le uscite a 1, 2, 4 e 8 ore diventano una sola, 1 barra.
 - Le **ore effettive** (barre × durata della barra) si leggono dal blocco, per la scheda: `ore_effettive`, `griglia_ore`, `finestre_ore`.
-- I blocchi del catalogo restano come sono: un blocco su un timeframe dove non scatterebbe mai esce dalla config con il suo motivo (limite logico, approssimazione esclusa, escluso solo dall'elenco) e la ricerca prosegue (08/11) (E5 da M1 a D1; E36 da M1 a M30; E47 M5 e M15; E49 ed E51 da M5 a H1; F20 fino a H4: su D1 esce dalla config con il suo motivo, limite logico, perché la barra è sempre quella delle 00:00, e la ricerca prosegue (08/11)). I filtri con finestre in barre (F2, F3, trend, F25) restano così, e il blocco espone le loro finestre in ore.
+- I blocchi del catalogo restano come sono e scattano solo su alcuni timeframe: E5 da M1 a D1; E36 da M1 a M30; E47 M5 e M15; E49 ed E51 da M5 a H1; F20 fino a H4 (su D1 la barra è sempre quella delle 00:00). Su un timeframe dove un blocco non scatterebbe mai, due casi (08/11):
+  - **config standard:** il blocco esce dalla config con il suo motivo (limite logico, approssimazione esclusa, escluso solo dall'elenco) e la ricerca prosegue;
+  - **config scritta a mano:** un blocco scelto esplicitamente che non scatta ferma la config con un errore che dice quale blocco e perché. I filtri con finestre in barre (F2, F3, trend, F25) restano così, e il blocco espone le loro finestre in ore.
 
 **Griglia e spazio.** La **griglia** contiene i valori larghi del passo 1. Lo **spazio** di ogni parametro ha lo stesso minimo e massimo della griglia e il **passo più fine**: 1 barra per i parametri in ore, 1 per le soglie intere (RSI, ADX, percentile dello stop), 0,1 per la soglia di ATR relativo. Lo zoom (P5) si muove nello spazio.
 
@@ -510,6 +512,8 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 **Glossario in testa.**
 
 - **Long / short:** guadagni se il prezzo sale / se scende.
+- **Perpetual:** un contratto sulla moneta senza scadenza; si può andare long o short. **Spot:** compri la moneta vera, solo long.
+- **Spread:** la differenza fra il prezzo a cui compri e quello a cui vendi nello stesso momento.
 - **bp (punto base):** un centesimo dell'1%. Un trade che guadagna l'1% fa 100 bp.
 - **Costo:** quello che paghi all'exchange per ogni trade (commissione, spread, funding). Tutti i numeri sono già al netto.
 - **Funding:** il pagamento periodico fra chi è long e chi è short sui perpetual. Può essere un costo o un incasso.
@@ -532,7 +536,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 *Cosa fa:* prepara il notebook e trova i dati. *Come leggere:* la cartella, i symbol con l'ultima barra (per esempio «16 file, ultima barra 19/10/2026»); per ogni symbol e timeframe con ricerche, le barre dopo l'ultima cassaforte usata e quante ne servono per un tratto nuovo (per esempio «3.100 barre dopo, ne servono 47.118»). *Poi:* vai alla 1.
 
 **1 · Configura** (`configura(cartella_dati, exchange, mercato, moneta, timeframe, processi)`). Campi: exchange, mercato, moneta, timeframe da M1 a D1, processi (3 sul PC, 2 su Colab). Il resto è la config standard di §6; il seme non è un campo.
-*Cosa fa:* scrive le regole della ricerca e le blocca con un'impronta. *Come leggere:* le date dei tre pezzi (la cassaforte «chiusa»), teorie e prove previste, una stima grezza del tempo (per esempio «1.176 teorie, 96.840 prove, circa 15 minuti»); i blocchi tolti su quel timeframe, ognuno con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo dall'elenco). *Poi:* passa alla 2. **Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.**
+*Cosa fa:* scrive le regole della ricerca e le salva: per questa ricerca non si possono più cambiare. *Come leggere:* le date dei tre pezzi (la cassaforte «chiusa»), teorie e prove previste, una stima grezza del tempo (per esempio «1.176 teorie, 96.840 prove, circa 15 minuti»); i blocchi tolti su quel timeframe, ognuno con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo dall'elenco). *Poi:* passa alla 2. **Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.**
 Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un trigger o un'uscita. Rieseguita con gli stessi campi dà la stessa ricerca.
 
 **2 · La ricerca** (`ricerca(conf)`).
@@ -542,7 +546,7 @@ Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un tr
 *Cosa fa:* mostra quante strategie restano a ogni passo, la figura principale. *Come leggere:* per esempio «teorie 1.176 → passo 1: 900 → zoom: 150 → altopiano: 40 → selezione: 6 → scelte: 4 → cassaforte: da aprire». Un imbuto che resta vuoto non è un errore: è una risposta. I motivi di scarto in una sezione chiusa. *Poi:* guarda le strategie alla 4.
 
 **4 · Le strategie rimaste** (`strategie_rimaste(r)`).
-*Cosa fa:* una riga per strategia, numerata, prima le «scelte», con le regole in parole e i numeri di ricerca e selezione. *Come leggere:* EV 8 bp vuol dire 0,08% a trade, già al netto dei costi. Decide il t di selezione contro 1,96: t 2,4 passa. Accanto, da leggere, le prove sull'asset e la soglia corrispondente (per esempio 97.000 e 5,02). *Poi:* decidi quali far entrare in cassaforte; anche nessuna.
+*Cosa fa:* una riga per strategia, numerata, prima le «scelte», con le regole in parole e i numeri di ricerca e selezione. *Come leggere:* EV 8 bp vuol dire 0,08% a trade, già al netto dei costi. Decide il t di selezione contro 1,96: t 2,4 passa. Accanto, da leggere, le prove sull'asset e la soglia corrispondente (per esempio 97.000 e 5,02): è il t che servirebbe se ogni prova fatta contasse come un tentativo; è solo da leggere, non decide. *Poi:* decidi quali far entrare in cassaforte; anche nessuna.
 
 **5 · La cassaforte** (`cassaforte(r, strategie, frase)`). Campi: i numeri della 4 («1, 3») oppure «tutte le scelte»; la frase di conferma.
 *Cosa fa:* scrive nel registro le strategie scelte, poi le prova sull'ultimo pezzo di dati. *Come leggere:* selezione e cassaforte affiancate; per esempio EV 8 bp in selezione e 2 bp in cassaforte vuol dire un quarto del guadagno medio. Decide il t contro 1,96. Da leggere: quante strategie sono entrate in questo tratto (per esempio 6). *Poi:* passa alla 6.
@@ -551,10 +555,13 @@ Vuoto = non entra niente. Frase sbagliata = si ferma, il registro non cambia. Ri
 
 **6 · MM, stress test e verifica dei trade** (`mm_e_stress(r, numero, capitale, drawdown_max_pct, anni, modello, leva, trade_da_vedere)`). Campi: il numero della 4 (solo fra le entrate) e quelli delle schermate 7 e 9 del Lab; «trade da vedere», vuoto per default.
 *Nota per L5b (Mattia, 08/11):* i riquadri del Lab non devono rimandare a schermate che nella fabbrica non esistono (per esempio «poi vai alla schermata 9»), e la lente mostra il nome del blocco (per esempio «Donchian 12 ore»), non `FAB_SES_…`; senza cambiare il Lab.
+*Come è scritto in L5b (09/11):* durante la cella 6 gli aiutanti di presentazione del Lab (`vetrina._riquadro`, `_nota`, `_avviso`, `_spiegazione`, `_titolo`, `_mostra`, `_dettaglio`) sono sostituiti per il tempo della cella da versioni che riscrivono il testo prima di passarlo all'originale (`vetrina_fabbrica._testi_fabbrica`, regole in `RIMANDI`); all'uscita, anche dopo un errore, tornano gli stessi oggetti di prima (collaudo n. 22 di `test_vetrina_fabbrica.py`). La lente e le tabelle mostrano il nome breve del blocco (`schede.nome_breve`, per esempio «Donchian 12 ore»).
 *Cosa fa:* dice quanto rischiare a ogni trade e quanto può andare male, e controlla ogni trade contro le regole. *Come leggere:* per esempio «rischio 0,5% a trade: nel 95% delle storie simulate il calo resta sotto il 20%»; ogni regola della verifica deve dire OK. Con un numero in «trade da vedere» quel trade sul grafico. *Poi:* vai alla 7.
 
 **7 · Le schede** (`schede(r)`).
 *Cosa fa:* scrive un file `.md` e uno `.json` per ogni strategia entrata in cassaforte. *Come leggere:* il `.md` si legge (regole, cammino, prove, verifica, MM, blocchi tolti), il `.json` serve a rifare la strategia. *Poi:* la scheda descrive cosa è successo sui dati; la decisione è tua.
+
+*Il notebook in L5b (09/11):* `Fabbrica_Strategie_Crypto.ipynb`, costruito da queste celle; nel glossario in più asset, zoom, in-sample / out-of-sample. L'Avvio è quello del Lab (Colab con Drive, oppure il PC con `cartella_dati_avvio`); installa TA-Lib, backtesting e numba solo se mancano o hanno un'altra versione. Collaudo: `test_notebook_fabbrica.py` controlla il file (testi di al massimo 6 righe con un esempio numerico, una chiamata per cella, glossario, avviso della 5) ed esegue il notebook intero con nbclient, due volte, su dati sintetici con una config ridotta, impostate su una copia; la seconda volta non aggiunge prove né ingressi. `python test_notebook_fabbrica.py --copia [cartella]` prepara i dati sintetici e la copia di collaudo da aprire in VS Code.
 
 ---
 
@@ -601,7 +608,7 @@ Un ramo e una PR per ciascuno, in quest'ordine. Il via è di Mattia, lavoro per 
 | **L4a** | selezione, famiglie, conto delle prove, vantaggio piantato fino alla selezione | L3 | 1 | il vantaggio piantato oltre la selezione |
 | **L4b** | cassaforte, registro a catena, test del veleno, adattatore della Sessione | L4a | 1–2 | il collaudo del veleno |
 | **L5a** | schede, funzioni delle celle (`vetrina_fabbrica.py`), blocchi tolti per timeframe, collaudi | L4 | 1 | le due suite e una scheda su dati sintetici |
-| **L5b** | il notebook, il suo collaudo intero, allineamento di `docs/00` e `CLAUDE.md` | L5a | 1 | il notebook su dati veri, se e quando dici tu |
+| **L5b** | il notebook, il suo collaudo intero, allineamento di `docs/00` e `CLAUDE.md` (fatto il 09/11, solo dati sintetici) | L5a | 1 | il notebook su dati veri, se e quando dici tu |
 
 **Fino a L5 tutti i collaudi girano su dati sintetici.** Nessun lancio sui dati veri senza il tuo via: il primo lancio vero conta le prove della fabbrica e non si torna indietro.
 
