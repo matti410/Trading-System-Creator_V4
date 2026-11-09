@@ -64,7 +64,7 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   Se un test fallisce, fermati e spiega.
 - Dal 21/10/2026: durante il lavoro basta la suite rapida, `python suite_rapida.py`
   (le suite legate al codice cambiato, 2-3 minuti). La completa,
-  `python suite_rapida.py --tutte` (3 suite alla volta, circa 25 minuti; alla fine
+  `python suite_rapida.py --tutte` (3 suite alla volta, circa 28 minuti; alla fine
   «SUITE COMPLETA: n/n»), e' obbligatoria prima di ogni Pull request.
 
 ## Dati e MT5

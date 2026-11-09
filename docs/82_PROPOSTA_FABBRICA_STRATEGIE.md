@@ -512,6 +512,8 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 **Glossario in testa.**
 
 - **Long / short:** guadagni se il prezzo sale / se scende.
+- **Perpetual:** un contratto sulla moneta senza scadenza; si può andare long o short. **Spot:** compri la moneta vera, solo long.
+- **Spread:** la differenza fra il prezzo a cui compri e quello a cui vendi nello stesso momento.
 - **bp (punto base):** un centesimo dell'1%. Un trade che guadagna l'1% fa 100 bp.
 - **Costo:** quello che paghi all'exchange per ogni trade (commissione, spread, funding). Tutti i numeri sono già al netto.
 - **Funding:** il pagamento periodico fra chi è long e chi è short sui perpetual. Può essere un costo o un incasso.
@@ -534,7 +536,7 @@ Come il Lab: nelle celle solo la chiamata a una funzione di `engine/vetrina_fabb
 *Cosa fa:* prepara il notebook e trova i dati. *Come leggere:* la cartella, i symbol con l'ultima barra (per esempio «16 file, ultima barra 19/10/2026»); per ogni symbol e timeframe con ricerche, le barre dopo l'ultima cassaforte usata e quante ne servono per un tratto nuovo (per esempio «3.100 barre dopo, ne servono 47.118»). *Poi:* vai alla 1.
 
 **1 · Configura** (`configura(cartella_dati, exchange, mercato, moneta, timeframe, processi)`). Campi: exchange, mercato, moneta, timeframe da M1 a D1, processi (3 sul PC, 2 su Colab). Il resto è la config standard di §6; il seme non è un campo.
-*Cosa fa:* scrive le regole della ricerca e le blocca con un'impronta. *Come leggere:* le date dei tre pezzi (la cassaforte «chiusa»), teorie e prove previste, una stima grezza del tempo (per esempio «1.176 teorie, 96.840 prove, circa 15 minuti»); i blocchi tolti su quel timeframe, ognuno con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo dall'elenco). *Poi:* passa alla 2. **Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.**
+*Cosa fa:* scrive le regole della ricerca e le salva: per questa ricerca non si possono più cambiare. *Come leggere:* le date dei tre pezzi (la cassaforte «chiusa»), teorie e prove previste, una stima grezza del tempo (per esempio «1.176 teorie, 96.840 prove, circa 15 minuti»); i blocchi tolti su quel timeframe, ognuno con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo dall'elenco). *Poi:* passa alla 2. **Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.**
 Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un trigger o un'uscita. Rieseguita con gli stessi campi dà la stessa ricerca.
 
 **2 · La ricerca** (`ricerca(conf)`).
@@ -544,7 +546,7 @@ Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un tr
 *Cosa fa:* mostra quante strategie restano a ogni passo, la figura principale. *Come leggere:* per esempio «teorie 1.176 → passo 1: 900 → zoom: 150 → altopiano: 40 → selezione: 6 → scelte: 4 → cassaforte: da aprire». Un imbuto che resta vuoto non è un errore: è una risposta. I motivi di scarto in una sezione chiusa. *Poi:* guarda le strategie alla 4.
 
 **4 · Le strategie rimaste** (`strategie_rimaste(r)`).
-*Cosa fa:* una riga per strategia, numerata, prima le «scelte», con le regole in parole e i numeri di ricerca e selezione. *Come leggere:* EV 8 bp vuol dire 0,08% a trade, già al netto dei costi. Decide il t di selezione contro 1,96: t 2,4 passa. Accanto, da leggere, le prove sull'asset e la soglia corrispondente (per esempio 97.000 e 5,02). *Poi:* decidi quali far entrare in cassaforte; anche nessuna.
+*Cosa fa:* una riga per strategia, numerata, prima le «scelte», con le regole in parole e i numeri di ricerca e selezione. *Come leggere:* EV 8 bp vuol dire 0,08% a trade, già al netto dei costi. Decide il t di selezione contro 1,96: t 2,4 passa. Accanto, da leggere, le prove sull'asset e la soglia corrispondente (per esempio 97.000 e 5,02): è il t che servirebbe se ogni prova fatta contasse come un tentativo; è solo da leggere, non decide. *Poi:* decidi quali far entrare in cassaforte; anche nessuna.
 
 **5 · La cassaforte** (`cassaforte(r, strategie, frase)`). Campi: i numeri della 4 («1, 3») oppure «tutte le scelte»; la frase di conferma.
 *Cosa fa:* scrive nel registro le strategie scelte, poi le prova sull'ultimo pezzo di dati. *Come leggere:* selezione e cassaforte affiancate; per esempio EV 8 bp in selezione e 2 bp in cassaforte vuol dire un quarto del guadagno medio. Decide il t contro 1,96. Da leggere: quante strategie sono entrate in questo tratto (per esempio 6). *Poi:* passa alla 6.
