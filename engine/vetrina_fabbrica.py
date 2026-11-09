@@ -24,6 +24,7 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -512,6 +513,83 @@ def cassaforte(r, strategie: str = "", frase: str = ""):
 
 
 # ------------------------------------------------------------------ 6 · MM, stress test e verifica dei trade
+# I riquadri del Lab rimandano alle sue schermate; nella fabbrica quelle schermate non ci sono (Mattia, 08/11, nota per
+# L5b). Durante la cella 6 i testi passano da qui: rimandi riscritti, nomi temporanei FAB_SES_… al posto del nome breve
+# del blocco. Il Lab non cambia: le sue funzioni sono le stesse, si sostituisce solo il testo che mostrano, e solo
+# dentro _testi_fabbrica.
+RIMANDI = (
+    (r"Poi vai alla schermata 8 \(verifica dei trade\) e alla 9 \(stress test\)\.",
+     "In questa cella seguono lo stress test e la verifica dei trade."),
+    (r"Usa la scheda della 6 di adesso: ([^,]+ trade in-sample e [^,]+ out-of-sample), .*?Se rifai la 6, rifai anche "
+     r"questa schermata\.", r"Usa i trade della strategia: \1 (in-sample = ricerca + selezione, out-of-sample = "
+                            r"cassaforte)."),
+    (r"Drawdown che accetti, dalla schermata 7:", "Drawdown che accetti, dal money management qui sopra:"),
+    (r"Apri la lente qui sotto per vedere un trade sul grafico, poi vai alla schermata 9\.",
+     "Per vedere un trade sul grafico scrivi il suo numero in «trade da vedere» e rilancia la cella; poi vai alla 7."),
+    (r"Cambia numero o data per guardare altri trade, o lascia il numero a 0 per pescarne uno a caso\.",
+     "Per guardare un altro trade cambia il numero in «trade da vedere» e rilancia la cella."),
+    (r"[Pp]oi vai alla schermata \d+\.", "Poi vai alla 7 · Le schede."),
+    (r"[^.;]*\bschermat[ae]\b[^.;]*[.;]", ""),          # ogni altra frase che rimanda a una schermata del Lab
+)
+_AIUTANTI = ("_riquadro", "_nota", "_avviso", "_spiegazione", "_titolo", "_mostra", "_dettaglio")
+
+
+def _riscrivi(testo, nomi: dict):
+    """Un testo del Lab con i nomi brevi dei blocchi e i rimandi della fabbrica (vedi RIMANDI)."""
+    if not isinstance(testo, str):
+        return testo
+    prima = testo
+    for vecchio in sorted(nomi, key=len, reverse=True):
+        testo = testo.replace(vecchio, nomi[vecchio])
+    for schema, nuovo in RIMANDI:
+        testo = re.sub(schema, nuovo, testo)
+    return testo if testo == prima else re.sub(r" {2,}", " ", testo).strip()
+
+
+def _riscrivi_tabella(df, nomi: dict):
+    if not isinstance(df, pd.DataFrame):
+        return df
+    out = df.copy()
+    out.columns = [_riscrivi(c, nomi) for c in out.columns]
+    for c in out.columns:
+        if out[c].dtype == object or pd.api.types.is_string_dtype(out[c]):
+            out[c] = [_riscrivi(x, nomi) for x in out[c]]
+    return out
+
+
+@contextlib.contextmanager
+def _testi_fabbrica(s):
+    """Dentro il blocco, i testi che le funzioni del Lab mostrano sono quelli della fabbrica (vedi RIMANDI)."""
+    from engine.fabbrica.schede import nome_breve
+    v = _v()
+    st = s.fabbrica["strategia"]
+    nomi = {temp: nome_breve(blocco, st.valori_di(blocco), s.timeframe) for blocco, temp in
+            s.fabbrica.get("nomi", {}).items()}
+    nomi[s.filtro] = " + ".join(nome_breve(b, st.valori_di(b), s.timeframe) for b in st.blocchi)
+    orig = {n: getattr(v, n) for n in _AIUTANTI}
+
+    def testo(nome):
+        return lambda *a, **k: orig[nome](*[_riscrivi(x, nomi) for x in a], **k)
+
+    def tabelle(nome, prime: int):
+        def f(*a, **k):
+            a = list(a)
+            for i in range(prime):
+                if i < len(a):
+                    a[i] = _riscrivi(a[i], nomi)
+            a[prime:] = [(_riscrivi(t, nomi), _riscrivi_tabella(df, nomi)) for t, df in a[prime:]]
+            return orig[nome](*a, **k)
+        return f
+
+    for n in ("_riquadro", "_nota", "_avviso", "_spiegazione", "_titolo"):
+        setattr(v, n, testo(n))
+    v._mostra, v._dettaglio = tabelle("_mostra", 0), tabelle("_dettaglio", 1)
+    try:
+        yield nomi
+    finally:
+        for n, f in orig.items():
+            setattr(v, n, f)
+
 def _riassunto(x):
     from engine.fabbrica.schede import _pulito
     return _pulito(x)
@@ -542,7 +620,7 @@ def mm_e_stress(r, numero: int, capitale: float = 10_000.0, drawdown_max_pct: fl
         if not m:
             raise ValueError(f"trade da vedere {trade_da_vedere!r}: scrivi un numero (es. «3»), o «in-sample 5».")
         vista = ("in-sample" if m.group(1) else "out-of-sample", int(m.group(2)))
-    with ses.sessione(c, id_s) as s:
+    with ses.sessione(c, id_s) as s, _testi_fabbrica(s):
         _titolo(f"Strategia {numero} · money management")
         mm = ses.money_management(s, capitale=capitale, drawdown_max_pct=drawdown_max_pct, anni=anni,
                                   modello=modello, leva=leva, simulazioni=simulazioni)

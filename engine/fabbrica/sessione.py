@@ -138,6 +138,7 @@ def apri_sessione(esito, id_strategia: str):
                   "id_strategia": id_strategia, "id_ricerca": esito.ingressi[0]["id_ricerca"], "tratto": esito.tratto}
     try:
         nomi = _registra(prefisso, st, cache_is, cache_tutto, pezzo.inizio, blocchi)
+        s.fabbrica["nomi"] = dict(nomi)          # blocco -> nome temporaneo nel catalogo (L5b: per i nomi brevi)
         u = st.valori_di(st.uscita)
         lato = "long" if st.lato == 1 else "short"
         s.symbol, s.timeframe, s.cartella = symbol, timeframe, pezzi.cartella

@@ -17,7 +17,11 @@ I blocchi della fabbrica (docs/82 P-L2, lavoro L2): i mattoncini con cui il gene
   la soglia di ATR relativo).
 - I blocchi del catalogo prendono la condizione dal registro (engine.registry): i dizionari non cambiano. Il loro
   df deve avere le colonne di aggiungi_indicatori. Il catalogo non ha parametri: hanno finestre sue, in barre o in minuti.
-  Su un timeframe dove non scatterebbe mai, la config si ferma con un errore.
+  Su un timeframe dove non scatterebbe mai, due casi (08/11):
+  - config standard (config.config_standard): il blocco esce dalla config con il suo motivo (MOTIVI_ESCLUSIONE: limite
+    logico, approssimazione esclusa per scelta, escluso solo dall'elenco) e la ricerca prosegue;
+  - config scritta a mano: un blocco scelto esplicitamente che non scatta ferma la config con un errore che dice quale
+    blocco e perché (_non_scatta).
 - `famiglia` è quella di P-L2 e P3; il generatore (L3) la controlla con famiglie.py.
 """
 from __future__ import annotations
@@ -297,6 +301,14 @@ def _parametri(nome: str, griglie: dict, config_blocco: dict, minuti: int) -> tu
     return tuple(parametri), griglia
 
 
+def _non_scatta(nome: str, timeframe: str, di_base: str) -> ValueError:
+    """L'errore di una config scritta a mano con un blocco che su quel timeframe non scatta: quale blocco e perché."""
+    tipo, motivo = MOTIVI_ESCLUSIONE.get((nome, timeframe), (None, None))
+    perche = f"{tipo}: {motivo}" if tipo else di_base
+    return ValueError(f"il blocco {nome} non scatta su {timeframe} ({perche}). Toglilo dalla config, oppure usa la "
+                      "config standard, che lo lascia fuori da sola con il suo motivo.")
+
+
 def _blocco(nome: str, config_blocco: dict, timeframe: str) -> Blocco:
     minuti = MINUTI_TIMEFRAME[timeframe]
     if nome in TRIGGER_CATALOGO or nome in FILTRI_CATALOGO:
@@ -305,11 +317,11 @@ def _blocco(nome: str, config_blocco: dict, timeframe: str) -> Blocco:
     if nome in TRIGGER_CATALOGO:
         lungo, corto, famiglia, ammessi = TRIGGER_CATALOGO[nome]
         if timeframe not in ammessi:
-            raise ValueError(f"{nome} sul catalogo scatta solo su {ammessi}, non su {timeframe}.")
+            raise _non_scatta(nome, timeframe, f"sul catalogo scatta solo su {', '.join(ammessi)}")
         return Blocco(nome, "trigger", famiglia, minuti, _catalogo=(lungo, corto))
     if nome in FILTRI_CATALOGO:
         if timeframe in FILTRI_MAI_VERI.get(nome, ()):
-            raise ValueError(f"{nome} sul catalogo non è mai vero su {timeframe}.")
+            raise _non_scatta(nome, timeframe, "sul catalogo non è mai vero su questo timeframe")
         lungo, corto, famiglia, finestre = FILTRI_CATALOGO[nome]
         return Blocco(nome, "filtro", famiglia, minuti, neutro=lungo == corto, finestre_barre=dict(finestre), _catalogo=(lungo, corto))
     if nome in USCITE_CATALOGO:

@@ -140,7 +140,9 @@ Il meccanismo qui sotto è stato **confermato in L2 leggendo le condizioni**: E5
 - **Minimo di 5 barre (07/11)** per periodo di RSI, periodo di ADX e ATR lungo: i valori sotto salgono a 5. L'ATR breve resta con minimo 1 barra, come durate e canale di Donchian.
 - Nella griglia i **valori doppi dopo l'arrotondamento si tolgono**: su D1 le uscite a 1, 2, 4 e 8 ore diventano una sola, 1 barra.
 - Le **ore effettive** (barre × durata della barra) si leggono dal blocco, per la scheda: `ore_effettive`, `griglia_ore`, `finestre_ore`.
-- I blocchi del catalogo restano come sono: un blocco su un timeframe dove non scatterebbe mai esce dalla config con il suo motivo (limite logico, approssimazione esclusa, escluso solo dall'elenco) e la ricerca prosegue (08/11) (E5 da M1 a D1; E36 da M1 a M30; E47 M5 e M15; E49 ed E51 da M5 a H1; F20 fino a H4: su D1 esce dalla config con il suo motivo, limite logico, perché la barra è sempre quella delle 00:00, e la ricerca prosegue (08/11)). I filtri con finestre in barre (F2, F3, trend, F25) restano così, e il blocco espone le loro finestre in ore.
+- I blocchi del catalogo restano come sono e scattano solo su alcuni timeframe: E5 da M1 a D1; E36 da M1 a M30; E47 M5 e M15; E49 ed E51 da M5 a H1; F20 fino a H4 (su D1 la barra è sempre quella delle 00:00). Su un timeframe dove un blocco non scatterebbe mai, due casi (08/11):
+  - **config standard:** il blocco esce dalla config con il suo motivo (limite logico, approssimazione esclusa, escluso solo dall'elenco) e la ricerca prosegue;
+  - **config scritta a mano:** un blocco scelto esplicitamente che non scatta ferma la config con un errore che dice quale blocco e perché. I filtri con finestre in barre (F2, F3, trend, F25) restano così, e il blocco espone le loro finestre in ore.
 
 **Griglia e spazio.** La **griglia** contiene i valori larghi del passo 1. Lo **spazio** di ogni parametro ha lo stesso minimo e massimo della griglia e il **passo più fine**: 1 barra per i parametri in ore, 1 per le soglie intere (RSI, ADX, percentile dello stop), 0,1 per la soglia di ATR relativo. Lo zoom (P5) si muove nello spazio.
 
