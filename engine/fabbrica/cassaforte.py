@@ -1,6 +1,7 @@
 """
-La cassaforte della fabbrica (docs/82 P8, lavoro L4b): le strategie scelte entrano una volta per tratto, si congelano
-nel registro, e solo dopo si legge l'ultimo pezzo di dati.
+La cassaforte della fabbrica (docs/82 P8, lavoro L4b): le strategie scelte si congelano nel registro, e solo dopo si
+legge l'ultimo pezzo di dati. Dal 09/11 (docs/81 §2): una strategia nuova entra sempre; una strategia già entrata non
+rientra in una cassaforte che si sovrappone a una in cui è già entrata (stesso symbol e timeframe).
 
     esito = entra(cartella_dati, id_ricerca, ["id1", "id2"], conferma=FRASE_CONFERMA)
     esito.tabella        # una riga per strategia: t di selezione, trade, EV, t in cassaforte, soglia, esito
@@ -9,8 +10,8 @@ nel registro, e solo dopo si legge l'ultimo pezzo di dati.
 
 L'ordine di `entra`, che è la regola (docs/82 P8):
 1. senza leggere una barra: config e selezione della ricerca (selezione.json), la frase di conferma, ogni strategia
-   «scelta» in selezione (selezione.controlla_ammessa), la catena del registro di ogni macchina, la finestra
-   scorrevole (dati.controlla_cassaforte_nuova sui tratti già usati), nessuna strategia già entrata nel tratto;
+   «scelta» in selezione (selezione.controlla_ammessa), la catena del registro di ogni macchina, nessuna strategia
+   già entrata in una cassaforte che si sovrappone a questa (dati.controlla_cassaforte_nuova sui suoi tratti);
 2. l'elenco congelato si scrive nel registro dell'asset (evento «ingresso_cassaforte»): strategie, tratto, ricerca,
    impronta della config, strategie entrate nel tratto fino a quel momento;
 3. solo ora il permesso (dati.PermessoCassaforte) e la lettura dei dati: le impronte di ricerca e selezione devono
@@ -21,9 +22,11 @@ L'ordine di `entra`, che è la regola (docs/82 P8):
    Decide il test individuale: t netto >= selezione.soglia_test(alfa) = 1,96. Ogni strategia è una prova (pezzo
    «cassaforte») nel file delle prove della ricerca; l'esito va nel registro (evento «esito_cassaforte»).
 
-- Il tratto è symbol, timeframe, inizio e fine della cassaforte. Nello stesso tratto una strategia entra una volta
-  sola: la seconda volta si ferma con un errore e non scrive nulla. In un tratto nuovo (la finestra è scorsa di almeno
-  la durata della cassaforte) può entrare. Un parametro cambiato è una strategia nuova (valutatore.id_strategia).
+- Il tratto è symbol, timeframe, inizio e fine della cassaforte. Una strategia già entrata non rientra nello stesso
+  tratto né in uno che vi si sovrappone: si ferma con il motivo e non scrive nulla. In un tratto che non si
+  sovrappone a quelli in cui è entrata può entrare. Una strategia nuova entra sempre, anche in una cassaforte che si
+  sovrappone a quelle già usate (la finestra scorrevole non c'è più, 09/11). Un parametro cambiato è una strategia
+  nuova (valutatore.id_strategia).
 - Le strategie entrate in un tratto sono un numero da leggere, contato su tutte le macchine; non decide nulla.
 - Il registro non si tocca a mano: ogni riga ha l'impronta della riga prima (registro.leggi_registro si ferma).
 - Limiti dichiarati (docs/82 P8): il file sta sul disco di Mattia, togliere le ultime righe non rompe la catena; PC e
@@ -99,18 +102,25 @@ def congela(cartella_asset_, confini: Confini, symbol: str, timeframe: str, stra
     eventi = registro.leggi_registro(cartella_asset_)          # si ferma se una catena è rotta
     id_tratto = tratto(symbol, timeframe, confini)
     da, a = confini.tratto_cassaforte
-    usati = {(e["tratto"]["da"], e["tratto"]["a"]) for e in _ingressi(eventi) if e["tratto"]["id"] != id_tratto}
-    controlla_cassaforte_nuova(confini, sorted(usati))
     ids = [s["id_strategia"] for s in strategie]
     if not ids:
         raise ValueError("nessuna strategia da far entrare.")
     if len(set(ids)) != len(ids):
         raise ValueError("una strategia compare due volte nell'elenco.")
+    motivi = []
+    for i in ids:                     # (09/11) una strategia nuova entra sempre; una già entrata non in una sovrapposta
+        dove_entrata = sorted({(_utc(e["tratto"]["da"]), _utc(e["tratto"]["a"])) for e in _ingressi(eventi)
+                               if (e["tratto"]["symbol"], e["tratto"]["timeframe"]) == (symbol, timeframe)
+                               and i in {s["id_strategia"] for s in e["strategie"]}})
+        try:
+            controlla_cassaforte_nuova(confini, dove_entrata)
+        except ValueError as e:
+            motivi.append(f"{i}: già entrata, {e}")
+    if motivi:
+        raise ValueError("una strategia già entrata non rientra in una cassaforte che si sovrappone a quella in cui è "
+                         "entrata; non entra nessuna. " + " ".join(motivi)
+                         + " Un parametro cambiato è una strategia nuova.")
     gia = _entrate(eventi, id_tratto)
-    dentro = [i for i in ids if i in gia]
-    if dentro:
-        raise ValueError(f"in questo tratto di cassaforte ({id_tratto}) sono già entrate {dentro}: una strategia "
-                         "entra una volta sola per tratto. Un parametro cambiato è una strategia nuova.")
     evento = {"tipo": INGRESSO, **dove,
               "tratto": {"id": id_tratto, "symbol": symbol, "timeframe": timeframe, "da": da.isoformat(),
                          "a": a.isoformat()},

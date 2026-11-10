@@ -148,8 +148,20 @@ def _regole(radice):
           "nuovo parte da 1, quello vecchio non cambia", e4["entrate_nel_tratto"] == 1 and strategie_entrate(base, t2) == 1
           and strategie_entrate(base, t1) == 3 and t2 != t1 and len(tratti_usati(base)) == 2)
     c_mezzo = Confini.da_config({**CONFINI, "inizio": "2024-01-11 10:00"})   # avanti di 250 ore: tocca i due tratti
-    check("5. una cassaforte che tocca barre già usate come cassaforte: errore (finestra scorrevole)",
-          errore(lambda: congela(base, c_mezzo, SPOT, "M15", _elenco(["zzz"]), dove)))
+    t_mezzo = tratto(SPOT, "M15", c_mezzo)
+    prima = _leggi(registro.percorso_registro(base))
+    try:
+        congela(base, c_mezzo, SPOT, "M15", _elenco(["zzz", "aaa"]), dove)
+        motivo = ""
+    except ValueError as e:
+        motivo = str(e)
+    check("5. (09/11) una strategia già entrata, in una cassaforte che si sovrappone a quella in cui è entrata: si ferma "
+          "con il motivo, non entra nessuna dell'elenco, nel registro non si scrive nulla",
+          "aaa: già entrata" in motivo and "si sovrappone" in motivo and "zzz:" not in motivo
+          and _leggi(registro.percorso_registro(base)) == prima and strategie_entrate(base, t_mezzo) == 0, motivo[:160])
+    e5 = congela(base, c_mezzo, SPOT, "M15", _elenco(["zzz"]), dove)
+    check("5b. (09/11) una strategia nuova in una cassaforte che si sovrappone a quelle già usate: entra",
+          e5["tratto"]["id"] == t_mezzo and gia_entrata(base, t_mezzo, "zzz") and strategie_entrate(base, t_mezzo) == 1)
     congela(base, c1, SPOT, "M15", _elenco(["ddd"]), dove, nome_macchina="colab")
     check("6. i controlli leggono i registri di tutte le macchine: entrata da Colab, ferma sul PC; il conto le somma",
           gia_entrata(base, t1, "ddd") and strategie_entrate(base, t1) == 4
