@@ -10,7 +10,7 @@ conferma; il registro degli ingressi resta, solo come annotazione da leggere.
 
 L'ordine di `entra`, che è la regola (docs/82 P8):
 1. senza leggere una barra: config e selezione della ricerca (selezione.json), ogni strategia «scelta» in selezione
-   (selezione.controlla_ammessa), la catena del registro di ogni macchina;
+   (selezione.controlla_ammessa);
 2. l'elenco congelato si scrive nel registro dell'asset (evento «ingresso_cassaforte»): strategie, tratto, ricerca,
    impronta della config, strategie entrate nel tratto fino a quel momento;
 3. solo ora il permesso (dati.PermessoCassaforte) e la lettura dei dati: le impronte di ricerca e selezione devono
@@ -27,9 +27,8 @@ L'ordine di `entra`, che è la regola (docs/82 P8):
   nuova (valutatore.id_strategia).
 - Le strategie entrate in un tratto (ognuna una volta) sono un numero da leggere, contato su tutte le macchine; non
   decide nulla.
-- Il registro non si tocca a mano: ogni riga ha l'impronta della riga prima (registro.leggi_registro si ferma).
-- Limiti dichiarati (docs/82 P8): il file sta sul disco di Mattia, togliere le ultime righe non rompe la catena; PC e
-  Colab che fanno entrare la stessa strategia nello stesso momento, prima che Drive sincronizzi, non si vedono.
+- Il registro è un file di annotazioni, solo in aggiunta (10/11, scelta B): niente catena di impronte, non ferma
+  niente (registro.py). PC e Colab che scrivono nello stesso momento, prima che Drive sincronizzi, non si vedono.
 """
 from __future__ import annotations
 
@@ -57,7 +56,7 @@ INGRESSO, ESITO = "ingresso_cassaforte", "esito_cassaforte"
 LIMITE_CACHE_MB = 1500
 
 __all__ = ["EsitoCassaforte", "congela", "entra", "esito_cassaforte", "gia_entrata", "id_strategia",
-           "strategie_entrate", "tratti_usati", "tratto", "verifica_registro"]
+           "strategie_entrate", "tratti_usati", "tratto"]
 
 
 # ------------------------------------------------------------------ il tratto e il registro
@@ -65,11 +64,6 @@ def tratto(symbol: str, timeframe: str, confini: Confini) -> str:
     """L'identità del tratto di cassaforte: symbol, timeframe, inizio e fine (UTC)."""
     da, a = confini.tratto_cassaforte
     return f"{symbol}_{timeframe}_{da:%Y%m%dT%H%M}_{a:%Y%m%dT%H%M}"
-
-
-def verifica_registro(cartella_asset_) -> None:
-    """Si ferma se la catena delle impronte di un registro è rotta (tutte le macchine)."""
-    registro.leggi_registro(cartella_asset_)
 
 
 def _ingressi(eventi, id_tratto: str | None = None) -> list[dict]:
@@ -97,7 +91,7 @@ def congela(cartella_asset_, confini: Confini, symbol: str, timeframe: str, stra
     Il passo 2 di `entra`, da solo: controlli sul registro e scrittura dell'elenco. `strategie` = righe con
     id_strategia (e teoria, valori, t_selezione); `dove` = id_ricerca e impronta_config. Ritorna l'evento scritto.
     """
-    eventi = registro.leggi_registro(cartella_asset_)          # si ferma se una catena è rotta
+    eventi = registro.leggi_registro(cartella_asset_)
     id_tratto = tratto(symbol, timeframe, confini)
     da, a = confini.tratto_cassaforte
     ids = [s["id_strategia"] for s in strategie]

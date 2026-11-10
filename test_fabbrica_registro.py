@@ -94,45 +94,49 @@ def esegui() -> int:
         check("12. un file vuoto non conta e non rompe", registro.conto_prove(dati, PERP, "M15") == 10)
 
         # ------------------------------------------------------------------ il registro dell'asset
-        print("\nIl registro dell'asset, a catena")
+        print("\nIl registro dell'asset: annotazioni, solo in aggiunta (10/11, senza catena)")
         e1 = registro.scrivi_evento(base, {"tipo": "avvio_ricerca", "id_ricerca": "A", "x": np.int64(3)}, "pc")
         e2 = registro.scrivi_evento(base, {"tipo": "fine_ricerca", "id_ricerca": "A", "t": float("nan")}, "pc")
         e3 = registro.scrivi_evento(base, {"tipo": "avvio_ricerca", "id_ricerca": "B"}, "pc")
         eventi = registro.leggi_registro(base)
-        check("13. tre eventi, numerati, con macchina, data e impronta della riga prima",
-              [e["n"] for e in eventi] == [1, 2, 3] and eventi[0]["prima"] == "" and len(eventi[1]["prima"]) == 64
+        check("13. tre eventi, numerati, con macchina e data; nessuna impronta della riga prima",
+              [e["n"] for e in eventi] == [1, 2, 3] and all("prima" not in e for e in eventi)
               and all(e["macchina"] == "pc" and e["quando"] for e in eventi) and eventi[0]["x"] == 3
-              and math.isnan(eventi[1]["t"]))
+              and math.isnan(eventi[1]["t"]) and (e1["n"], e2["n"], e3["n"]) == (1, 2, 3))
         registro.scrivi_evento(base, {"tipo": "avvio_ricerca", "id_ricerca": "B"}, "colab")
-        check("14. i registri di due macchine si leggono insieme, ognuno con la sua catena",
-              len(registro.leggi_registro(base)) == 4)
+        check("14. i registri di due macchine si leggono insieme", len(registro.leggi_registro(base)) == 4)
 
         percorso = registro.percorso_registro(base, "pc")
         with open(percorso, encoding="utf-8") as f:
             originale = f.read()
+        righe = originale.splitlines(keepends=True)
 
-        def rotto(testo):
+        def letto(testo):
             with open(percorso, "w", encoding="utf-8") as f:
                 f.write(testo)
-            esito = errore(lambda: registro.leggi_registro(base))
-            with open(percorso, "w", encoding="utf-8") as f:
-                f.write(originale)
-            return esito
+            return [e for e in registro.leggi_registro(base) if e["macchina"] == "pc"]
 
-        righe = originale.splitlines(keepends=True)
-        check("15. una riga modificata a mano: errore", rotto(originale.replace('"id_ricerca":"A"', '"id_ricerca":"Z"', 1)))
-        check("16. una riga tolta in mezzo: errore", rotto(righe[0] + righe[2]))
-        check("17. l'ultima riga tolta lascia la catena intera (limite dichiarato in P8)", not rotto(righe[0] + righe[1]))
-        check("18. una riga aggiunta a mano senza catena: errore",
-              rotto(originale + json.dumps({"n": 4, "prima": "", "tipo": "falso"}) + "\n"))
-        check("19. una riga a metà in fondo: errore", rotto(originale + '{"n": 4, "pri'))
-        check("20. scrivere su un registro rotto: errore, e il file resta com'era",
-              errore(lambda: (open(percorso, "a", encoding="utf-8").write("x\n"), registro.scrivi_evento(base, {"tipo": "y"}, "pc")))
-              and open(percorso, encoding="utf-8").read() == originale + "x\n")
-        with open(percorso, "w", encoding="utf-8") as f:
-            f.write(originale)
-        check("21. dopo il ripristino la catena torna buona", len(registro.leggi_registro(base)) == 4 and e3["n"] == 3
-              and e1["prima"] == "" and e2["prima"] == registro._impronta(righe[0].rstrip("\n")))
+        cambiata = letto(originale.replace('"id_ricerca":"A"', '"id_ricerca":"Z"', 1))
+        check("15. una riga cambiata a mano: si legge com'è, nessun errore",
+              [e["id_ricerca"] for e in cambiata] == ["Z", "A", "B"])
+        tolta = letto(righe[0] + righe[2])
+        e4 = registro.scrivi_evento(base, {"tipo": "y"}, "pc")
+        check("16. una riga tolta in mezzo: si leggono le altre; l'evento nuovo prende il numero più alto + 1",
+              [e["n"] for e in tolta] == [1, 3] and e4["n"] == 4)
+        rovinato = letto(originale + '{"n": 4, "pri')
+        e5 = registro.scrivi_evento(base, {"tipo": "z"}, "pc")
+        dopo = [e for e in registro.leggi_registro(base) if e["macchina"] == "pc"]
+        check("17. una riga a metà in fondo si salta; l'evento dopo va su una riga nuova e si legge",
+              len(rovinato) == 3 and [e["n"] for e in dopo] == [1, 2, 3, 4] and e5["n"] == 4
+              and dopo[-1]["tipo"] == "z")
+        vecchio = "".join(json.dumps({"n": k + 1, "prima": "" if k == 0 else "a" * 64, "macchina": "pc",
+                                      "quando": "2026-11-08T00:00:00+00:00", "tipo": "avvio_ricerca"}) + "\n"
+                          for k in range(2))
+        letto(vecchio)
+        e6 = registro.scrivi_evento(base, {"tipo": "w"}, "pc")
+        check("18. un registro scritto prima del 10/11, con l'impronta «prima», si legge e si continua",
+              [e["n"] for e in registro.leggi_registro(base) if e["macchina"] == "pc"] == [1, 2, 3]
+              and e6["n"] == 3)
 
     print("\n" + "=" * 70)
     print(f"Durata: {time.perf_counter() - t0:.0f} s")

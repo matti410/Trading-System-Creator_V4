@@ -5,14 +5,16 @@ Il registro della fabbrica (docs/82 P7 e §6, lavoro L3b).
     prove.aggiungi(righe)                               # una riga per strategia valutata; quelle già scritte si saltano
     aggiungi_prove(cartella_ricerca, righe)             # lo stesso, in una chiamata
     conto_prove(cartella_dati, symbol, timeframe)       # k: tutte le ricerche e tutte le macchine dell'asset
-    scrivi_evento(cartella_asset, evento)               # registro_<macchina>.jsonl: solo in aggiunta, a catena
-    leggi_registro(cartella_asset)                      # gli eventi di tutte le macchine, catena controllata
+    scrivi_evento(cartella_asset, evento)               # registro_<macchina>.jsonl: solo in aggiunta
+    leggi_registro(cartella_asset)                      # gli eventi di tutte le macchine
 
 - Una prova è una strategia valutata su un pezzo di dati. La chiave è (id_ricerca, pezzo, id_strategia): la stessa
   strategia in due giri dello zoom, in una ripresa o sulla stessa ricerca lanciata su due macchine si conta una volta;
   due ricerche diverse si sommano (P2). Il conto non decide nulla: si legge, con giudizio.soglia_rumore(k) accanto.
-- Il registro dell'asset ha una riga JSON per evento. Ogni riga contiene l'impronta (sha256) della riga prima: se la
-  catena è rotta, la lettura si ferma con un errore (P8).
+- Il registro dell'asset ha una riga JSON per evento: un file di annotazioni, solo in aggiunta (10/11, scelta B). Non
+  ferma niente: una riga cambiata o tolta si legge com'è, una riga che non è JSON (a metà, rovinata) si salta. Niente
+  più impronta della riga prima; i registri scritti prima, con il campo «prima», si leggono come gli altri. Il numero
+  «n» di una riga è il più alto del file + 1: lega l'esito della cassaforte al suo ingresso.
 - Il nome della macchina è quello del Lab: vetrina.macchina_predefinita, «pc» o «colab»; dal notebook (L5a) quello
   scritto nell'Avvio, con imposta_macchina (un secondo PC: «pc2»), così due PC con Drive non scrivono lo stesso file.
 - Una riga rimasta a metà (il PC si è spento mentre scriveva) nel file delle prove si toglie alla lettura dopo: la
@@ -23,7 +25,6 @@ from __future__ import annotations
 import csv
 import datetime as _dt
 import glob
-import hashlib
 import json
 import os
 
@@ -155,29 +156,20 @@ def percorso_registro(cartella_asset, nome_macchina: str | None = None) -> str:
     return os.path.join(str(cartella_asset), f"registro_{nome_macchina or macchina()}.jsonl")
 
 
-def _impronta(riga: str) -> str:
-    return hashlib.sha256(riga.encode("utf-8")).hexdigest()
-
-
-def _righe_verificate(percorso: str) -> list[str]:
-    """Le righe del registro, dopo aver controllato numero e catena delle impronte."""
+def _eventi_file(percorso: str) -> list[dict]:
+    """Gli eventi di un registro, nell'ordine; le righe che non si leggono come JSON si saltano (10/11)."""
     if not os.path.exists(percorso):
         return []
+    eventi = []
     with open(percorso, encoding="utf-8") as f:
-        testo = f.read()
-    if testo and not testo.endswith("\n"):
-        raise ValueError(f"{percorso}: l'ultima riga è a metà, il registro non si tocca a mano: la ricerca si ferma.")
-    righe = testo.splitlines()
-    for i, riga in enumerate(righe):
-        try:
-            evento = json.loads(riga)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"{percorso}, riga {i + 1}: non è JSON, il registro è stato modificato.") from e
-        attesa = _impronta(righe[i - 1]) if i else ""
-        if evento.get("n") != i + 1 or evento.get("prima") != attesa:
-            raise ValueError(f"{percorso}, riga {i + 1}: la catena delle impronte è rotta (riga tolta, aggiunta o "
-                             "modificata a mano): la ricerca si ferma.")
-    return righe
+        for riga in f:
+            try:
+                evento = json.loads(riga)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(evento, dict):
+                eventi.append(evento)
+    return eventi
 
 
 def adesso() -> str:
@@ -186,21 +178,25 @@ def adesso() -> str:
 
 
 def scrivi_evento(cartella_asset, evento: dict, nome_macchina: str | None = None) -> dict:
-    """Aggiunge un evento in fondo al registro di questa macchina, con numero, data e impronta della riga prima."""
+    """Aggiunge un evento in fondo al registro di questa macchina, con numero e data (10/11: senza impronta)."""
     nome = nome_macchina or macchina()
     percorso = percorso_registro(cartella_asset, nome)
     os.makedirs(str(cartella_asset), exist_ok=True)
-    righe = _righe_verificate(percorso)
-    riga = {"n": len(righe) + 1, "prima": _impronta(righe[-1]) if righe else "", "macchina": nome,
-            "quando": adesso(), **evento}
+    numeri = [e["n"] for e in _eventi_file(percorso) if isinstance(e.get("n"), int) and not isinstance(e["n"], bool)]
+    riga = {"n": max(numeri, default=0) + 1, "macchina": nome, "quando": adesso(), **evento}
+    a_capo = ""
+    if os.path.exists(percorso) and os.path.getsize(percorso):
+        with open(percorso, "rb") as f:
+            f.seek(-1, os.SEEK_END)
+            a_capo = "" if f.read(1) == b"\n" else "\n"      # dopo una riga rimasta a metà, si va a capo
     with open(percorso, "a", encoding="utf-8") as f:
-        f.write(json_riga(riga) + "\n")
+        f.write(a_capo + json_riga(riga) + "\n")
     return riga
 
 
 def leggi_registro(cartella_asset) -> list[dict]:
-    """Gli eventi dei registri di tutte le macchine dell'asset, catena controllata, file per file."""
+    """Gli eventi dei registri di tutte le macchine dell'asset, file per file. Non si ferma mai (10/11)."""
     eventi = []
     for percorso in sorted(glob.glob(os.path.join(str(cartella_asset), "registro_*.jsonl"))):
-        eventi.extend(json.loads(r) for r in _righe_verificate(percorso))
+        eventi.extend(_eventi_file(percorso))
     return eventi

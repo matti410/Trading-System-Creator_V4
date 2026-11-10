@@ -29,7 +29,7 @@ from engine.fabbrica import dati as dati_mod
 from engine.fabbrica import registro, sintetici
 from engine.fabbrica import sessione as ses
 from engine.fabbrica.cassaforte import (INGRESSO, congela, entra, esito_cassaforte, gia_entrata,
-                                        strategie_entrate, tratti_usati, tratto, verifica_registro)
+                                        strategie_entrate, tratti_usati, tratto)
 from engine.fabbrica.blocchi import blocchi_da_config
 from engine.fabbrica.cache import Cache
 from engine.fabbrica.config import cartella_asset, config_standard
@@ -167,13 +167,15 @@ def _regole(radice):
     righe[0] = righe[0].replace('"entrate_nel_tratto":2', '"entrate_nel_tratto":1')
     with open(percorso, "wb") as f:
         f.write(("\n".join(righe) + "\n").encode("utf-8"))
-    rotto_1 = errore(lambda: verifica_registro(base)) and errore(lambda: gia_entrata(base, t1, "aaa"))
+    cambiata = gia_entrata(base, t1, "aaa") and [e for e in registro.leggi_registro(base)
+                                                  if e["macchina"] == registro.macchina()][0]["entrate_nel_tratto"] == 1
     with open(percorso, "wb") as f:
         f.write(("\n".join(buono.decode("utf-8").splitlines()[:1] + buono.decode("utf-8").splitlines()[2:]) + "\n")
                 .encode("utf-8"))
-    rotto_2 = errore(lambda: verifica_registro(base))
-    check("8. registro modificato a mano (una riga cambiata, una riga tolta in mezzo): errore",
-          rotto_1 and rotto_2 and errore(lambda: congela(base, c1, SPOT, "M15", _elenco(["fff"]), dove)))
+    e8 = congela(base, c1, SPOT, "M15", _elenco(["fff"]), dove)
+    check("8. (10/11) registro modificato a mano (una riga cambiata, una riga tolta in mezzo): si legge com'è e non "
+          "ferma niente; un ingresso nuovo si scrive in fondo", cambiata and e8["tipo"] == INGRESSO
+          and gia_entrata(base, t1, "fff"))
     with open(percorso, "wb") as f:
         f.write(buono)
 
