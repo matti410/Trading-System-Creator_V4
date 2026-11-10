@@ -72,8 +72,9 @@ e indicatore TradingView sono fuori da questo incarico.
 7. **Conto delle prove, da leggere:** ogni strategia valutata è contata; la scheda mostra il totale e la soglia che
    corrisponderebbe a quel totale, accanto al test individuale. Il conto **non decide**.
 8. **Cassaforte:** le strategie scelte si congelano e si scrivono nel registro **prima** di leggere una barra; poi si
-   valutano sulla cassaforte con il test individuale. Il registro (data, strategie, esito) non si modifica a mano e
-   tiene il numero di strategie entrate in quella cassaforte (da leggere). Una strategia può rientrare quante volte si
+   valutano sulla cassaforte con il test individuale. Il registro (data, strategie, esito) è un file di annotazioni,
+   solo in aggiunta, che non ferma niente (10/11), e tiene il numero di strategie entrate in quella cassaforte (da
+   leggere). Una strategia può rientrare quante volte si
    vuole (10/11); un parametro cambiato è una strategia nuova.
 9. **MM, stress test, verifica dei trade:** riuso di quanto fa il Lab alle schermate 7, 9 e 8.
 10. **Scheda:** un `.md` e un `.json` per strategia: blocchi, regole in parole, valori, dati usati, prove contate,
