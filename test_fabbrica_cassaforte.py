@@ -28,7 +28,7 @@ from engine import vetrina, vetrina_verifica
 from engine.fabbrica import dati as dati_mod
 from engine.fabbrica import registro, sintetici
 from engine.fabbrica import sessione as ses
-from engine.fabbrica.cassaforte import (FRASE_CONFERMA, INGRESSO, congela, entra, esito_cassaforte, gia_entrata,
+from engine.fabbrica.cassaforte import (INGRESSO, congela, entra, esito_cassaforte, gia_entrata,
                                         strategie_entrate, tratti_usati, tratto, verifica_registro)
 from engine.fabbrica.blocchi import blocchi_da_config
 from engine.fabbrica.cache import Cache
@@ -134,10 +134,10 @@ def _regole(radice):
     check("1. il primo ingresso scrive l'elenco nel registro; due strategie entrate nel tratto",
           e["tipo"] == INGRESSO and e["tratto"]["id"] == t1 and e["entrate_nel_tratto"] == 2
           and gia_entrata(base, t1, "aaa") and strategie_entrate(base, t1) == 2 and not gia_entrata(base, t1, "ccc"))
-    prima = _leggi(registro.percorso_registro(base))
-    check("2. la stessa strategia di nuovo nello stesso tratto: errore, nel registro non si scrive nulla",
-          errore(lambda: congela(base, c1, SPOT, "M15", _elenco(["ccc", "aaa"]), dove))
-          and _leggi(registro.percorso_registro(base)) == prima)
+    e2 = congela(base, c1, SPOT, "M15", _elenco(["aaa"]), dove)
+    check("2. (10/11) la stessa strategia di nuovo nello stesso tratto: entra, un ingresso nuovo nel registro; le "
+          "strategie entrate nel tratto restano 2 (ognuna contata una volta)",
+          e2["tipo"] == INGRESSO and e2["entrate_nel_tratto"] == 2 and strategie_entrate(base, t1) == 2)
     e3 = congela(base, c1, SPOT, "M15", _elenco(["aaa_parametro_cambiato"]), {**dove, "id_ricerca": "r2"})
     check("3. un parametro cambiato è una strategia nuova: entra nello stesso tratto, il conto sale di uno",
           e3["entrate_nel_tratto"] == 3 and strategie_entrate(base, t1) == 3)
@@ -149,23 +149,14 @@ def _regole(radice):
           and strategie_entrate(base, t1) == 3 and t2 != t1 and len(tratti_usati(base)) == 2)
     c_mezzo = Confini.da_config({**CONFINI, "inizio": "2024-01-11 10:00"})   # avanti di 250 ore: tocca i due tratti
     t_mezzo = tratto(SPOT, "M15", c_mezzo)
-    prima = _leggi(registro.percorso_registro(base))
-    try:
-        congela(base, c_mezzo, SPOT, "M15", _elenco(["zzz", "aaa"]), dove)
-        motivo = ""
-    except ValueError as e:
-        motivo = str(e)
-    check("5. (09/11) una strategia già entrata, in una cassaforte che si sovrappone a quella in cui è entrata: si ferma "
-          "con il motivo, non entra nessuna dell'elenco, nel registro non si scrive nulla",
-          "aaa: già entrata" in motivo and "si sovrappone" in motivo and "zzz:" not in motivo
-          and _leggi(registro.percorso_registro(base)) == prima and strategie_entrate(base, t_mezzo) == 0, motivo[:160])
-    e5 = congela(base, c_mezzo, SPOT, "M15", _elenco(["zzz"]), dove)
-    check("5b. (09/11) una strategia nuova in una cassaforte che si sovrappone a quelle già usate: entra",
-          e5["tratto"]["id"] == t_mezzo and gia_entrata(base, t_mezzo, "zzz") and strategie_entrate(base, t_mezzo) == 1)
+    e5 = congela(base, c_mezzo, SPOT, "M15", _elenco(["zzz", "aaa"]), dove)
+    check("5. (10/11) in una cassaforte che si sovrappone a quelle già usate entrano sia una strategia nuova sia una "
+          "già entrata", e5["tratto"]["id"] == t_mezzo and gia_entrata(base, t_mezzo, "zzz")
+          and gia_entrata(base, t_mezzo, "aaa") and strategie_entrate(base, t_mezzo) == 2)
     congela(base, c1, SPOT, "M15", _elenco(["ddd"]), dove, nome_macchina="colab")
-    check("6. i controlli leggono i registri di tutte le macchine: entrata da Colab, ferma sul PC; il conto le somma",
-          gia_entrata(base, t1, "ddd") and strategie_entrate(base, t1) == 4
-          and errore(lambda: congela(base, c1, SPOT, "M15", _elenco(["ddd"]), dove)))
+    e6 = congela(base, c1, SPOT, "M15", _elenco(["ddd"]), dove)
+    check("6. il conto legge i registri di tutte le macchine: entrata da Colab, rientrata dal PC, contata una volta",
+          gia_entrata(base, t1, "ddd") and strategie_entrate(base, t1) == 4 and e6["entrate_nel_tratto"] == 4)
     check("7. elenco vuoto o con una strategia due volte: errore",
           errore(lambda: congela(base, c1, SPOT, "M15", [], dove))
           and errore(lambda: congela(base, c1, SPOT, "M15", _elenco(["eee", "eee"]), dove)))
@@ -209,14 +200,12 @@ def _giro(radice):
         return _leggi(registro.percorso_registro(base)), _leggi(prove_csv)
 
     stato = fermo()
-    check("9. frase di conferma sbagliata: errore, niente nel registro né nelle prove",
-          scelte and errore(lambda: entra(A, e.id_ricerca, scelte, "si")) and fermo() == stato)
     altre = list(e.selezione.tabella.loc[e.selezione.tabella["esito"] != "scelta", "id_strategia"])
     check("10. una strategia non scelta in selezione (scartata o della stessa famiglia): errore, niente scritto",
-          altre and all(errore(lambda i=i: entra(A, e.id_ricerca, scelte + [i], FRASE_CONFERMA)) for i in altre)
+          scelte and altre and all(errore(lambda i=i: entra(A, e.id_ricerca, scelte + [i])) for i in altre)
           and fermo() == stato, f"{len(altre)} non scelte")
 
-    c = entra(A, e.id_ricerca, scelte, FRASE_CONFERMA)
+    c = entra(A, e.id_ricerca, scelte)
     eventi = registro.leggi_registro(base)
     tipi = [x["tipo"] for x in eventi]
     tab = c.tabella
@@ -243,9 +232,14 @@ def _giro(radice):
           sorted(csv.loc[csv["pezzo"] == "cassaforte", "id_strategia"]) == sorted(scelte) and (tab["prove_asset"] == k).all()
           and np.allclose(tab["soglia_da_leggere"], soglia_rumore(k)) and (tab["entrate_nel_tratto"] == len(scelte)).all()
           and eventi[3]["entrate_nel_tratto"] == len(scelte), f"k = {k}")
+    prove_prima = _leggi(prove_csv)
+    c_ri = entra(A, e.id_ricerca, scelte[:1])
+    tipi_ri = [x["tipo"] for x in registro.leggi_registro(base)]
+    check("15. (10/11) la stessa strategia di nuovo nello stesso tratto: entra; un ingresso e un esito in più nel "
+          "registro, stessi numeri, nessuna prova nuova",
+          tipi_ri[-2:] == ["ingresso_cassaforte", "esito_cassaforte"] and len(tipi_ri) == len(tipi) + 2
+          and c_ri.tabella.iloc[0]["t"] == tab.iloc[0]["t"] and _leggi(prove_csv) == prove_prima)
     stato = fermo()
-    check("15. la stessa strategia di nuovo nello stesso tratto: errore, niente scritto",
-          errore(lambda: entra(A, e.id_ricerca, scelte[:1], FRASE_CONFERMA)) and fermo() == stato)
     c_bis = esito_cassaforte(A, e.id_ricerca)
     check("16. l'esito si rifà identico, senza un ingresso nuovo né prove nuove", c_bis.tabella.equals(tab)
           and fermo() == stato)
@@ -268,16 +262,15 @@ def _giro(radice):
 
     dati_mod._leggi = rotta
     try:
-        fermata = errore(lambda: entra(B, eb.id_ricerca, scelte, FRASE_CONFERMA), OSError)
+        fermata = errore(lambda: entra(B, eb.id_ricerca, scelte), OSError)
     finally:
         dati_mod._leggi = vera
     ev_b = registro.leggi_registro(base_b)
     check("19. un dataset che si rompe alla prima lettura: l'elenco congelato è già nel registro, senza esito",
           fermata and len(letture) == 1 and [x["tipo"] for x in ev_b][-1] == INGRESSO
           and [x["id_strategia"] for x in ev_b[-1]["strategie"]] == scelte)
-    check("20. dopo la rottura le strategie sono entrate: rientrare è un errore; l'esito si completa una volta",
-          errore(lambda: entra(B, eb.id_ricerca, scelte, FRASE_CONFERMA))
-          and esito_cassaforte(B, eb.id_ricerca).tabella.equals(tab)
+    check("20. dopo la rottura le strategie sono entrate: l'esito si completa una volta, senza un ingresso nuovo",
+          esito_cassaforte(B, eb.id_ricerca).tabella.equals(tab)
           and [x["tipo"] for x in registro.leggi_registro(base_b)][-2:] == ["ingresso_cassaforte", "esito_cassaforte"]
           and (esito_cassaforte(B, eb.id_ricerca) is not None)
           and [x["tipo"] for x in registro.leggi_registro(base_b)].count("esito_cassaforte") == 1)
@@ -297,8 +290,8 @@ def _giro(radice):
     check("21. passi 1–7 con la cassaforte avvelenata (prezzi × 3, volume 1): ogni file della fabbrica identico al bit, "
           "registro compreso", ew.id_ricerca == ec.id_ricerca
           and _fotografia(W, solo="fabbrica") == _fotografia(C, solo="fabbrica"), f"{len(_fotografia(C, solo='fabbrica'))} file")
-    cc = entra(C, ec.id_ricerca, scelte, FRASE_CONFERMA)
-    cw = entra(W, ew.id_ricerca, scelte, FRASE_CONFERMA)
+    cc = entra(C, ec.id_ricerca, scelte)
+    cw = entra(W, ew.id_ricerca, scelte)
     r_c = _leggi(registro.percorso_registro(cartella_asset(C, SPOT, "M15"))).splitlines()
     r_w = _leggi(registro.percorso_registro(cartella_asset(W, SPOT, "M15"))).splitlines()
     check("22. anche l'elenco congelato è identico al bit; solo la valutazione della cassaforte cambia",
@@ -387,7 +380,7 @@ def _sessione(radice, A, e, c, cfg):
     eh = lancia(_cfg("H1", confini_h1, ("DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "X0")), H, verbose=False,
                 data=DATA)
     scelte_h = list(eh.selezione.scelte["id_strategia"])
-    ch = entra(H, eh.id_ricerca, scelte_h, FRASE_CONFERMA) if scelte_h else None
+    ch = entra(H, eh.id_ricerca, scelte_h) if scelte_h else None
     ok_h, dettaglio = False, f"imbuto {eh.imbuto}"
     if ch is not None:
         with ses.sessione(ch, scelte_h[0]) as sh:

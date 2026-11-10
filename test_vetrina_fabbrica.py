@@ -235,28 +235,28 @@ def _celle(radice):
 
     print("\n5 · La cassaforte")
     prima = _registro_bytes(d)
-    vuoto = _zitto(vf.cassaforte, r, "", "")
+    vuoto = _zitto(vf.cassaforte, r, "")
     check("13. campo vuoto: non entra niente, il registro non cambia", vuoto is None and _registro_bytes(d) == prima)
-    sbagliata = errore(lambda: _zitto(vf.cassaforte, r, "tutte le scelte", "confermo"), ValueError,
-                       vf.FRASE_CONFERMA)
-    check("14. frase sbagliata: errore con la frase da scrivere; il registro non cambia",
-          sbagliata and _registro_bytes(d) == prima)
+    import inspect
+    check("14. (10/11) nessuna frase di conferma: la cella 5 ha solo il campo dei numeri",
+          list(inspect.signature(vf.cassaforte).parameters) == ["r", "strategie"] and not hasattr(vf, "FRASE_CONFERMA"))
     fam = tab[tab["esito"] != "scelta"]
-    non_scelta = (errore(lambda: _zitto(vf.cassaforte, r, str(int(fam["numero"].iloc[0])), vf.FRASE_CONFERMA))
+    non_scelta = (errore(lambda: _zitto(vf.cassaforte, r, str(int(fam["numero"].iloc[0]))))
                   if len(fam) else True)
     check("15. numeri sbagliati (lettere, fuori tabella) o una strategia non «scelta»: errore; il registro non cambia",
-          errore(lambda: vf.cassaforte(r, "uno", vf.FRASE_CONFERMA)) and errore(
-              lambda: vf.cassaforte(r, "99", vf.FRASE_CONFERMA)) and non_scelta and _registro_bytes(d) == prima)
-    c = _zitto(vf.cassaforte, r, "tutte le scelte", vf.FRASE_CONFERMA)
+          errore(lambda: vf.cassaforte(r, "uno")) and errore(lambda: vf.cassaforte(r, "99")) and non_scelta and _registro_bytes(d) == prima)
+    c = _zitto(vf.cassaforte, r, "tutte le scelte")
     scelte = list(tab[tab["esito"] == "scelta"]["id_strategia"])
     n_ingressi = len(_eventi(d, INGRESSO))
-    check("16. «tutte le scelte» con la frase: entrano le scelte, un ingresso e un esito nel registro",
+    check("16. «tutte le scelte»: entrano le scelte, un ingresso e un esito nel registro",
           c is not None and sorted(c.trade) == sorted(scelte) and n_ingressi == 1 and len(_eventi(d, ESITO)) == 1)
+    c2 = _zitto(vf.cassaforte, r, "tutte le scelte")
     dopo = _registro_bytes(d)
-    c2 = _zitto(vf.cassaforte, r, "tutte le scelte", "")
-    c3 = _zitto(vf.cassaforte, r, "", "")
-    check("17. rieseguita (con o senza numeri, senza frase): nessun ingresso nuovo, registro identico, stesso esito",
-          _registro_bytes(d) == dopo and c2.tabella.equals(c.tabella) and c3.tabella.equals(c.tabella))
+    c3 = _zitto(vf.cassaforte, r, "")
+    check("17. (10/11) rieseguita con i numeri: un ingresso e un esito in più, stesso esito; con il campo vuoto: "
+          "nessun ingresso, registro identico, stesso esito",
+          len(_eventi(d, INGRESSO)) == 2 and len(_eventi(d, ESITO)) == 2 and c2.tabella.equals(c.tabella)
+          and _registro_bytes(d) == dopo and c3.tabella.equals(c.tabella))
     imb2 = _zitto(vf.imbuto, r)
     check("18. l'imbuto legge la cassaforte dal registro: entrate e passate",
           list(imb2["quante"])[6] == len(scelte) and list(imb2["quante"])[7] == int((c.tabella["esito"] == "passa").sum()))

@@ -27,7 +27,7 @@ from engine.fabbrica import schede as sch
 from engine.fabbrica import sessione as ses
 from engine.fabbrica.blocchi import (APPROSSIMAZIONE_ESCLUSA, LIMITE_LOGICO, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE,
                                      SOLO_ELENCO, blocchi_da_config)
-from engine.fabbrica.cassaforte import FRASE_CONFERMA, entra
+from engine.fabbrica.cassaforte import entra
 from engine.fabbrica.config import blocchi_esclusi, config_standard, controlla_tipi_rimasti
 from engine.fabbrica.ricerca import lancia
 from engine.fabbrica.valutatore import Strategia, id_strategia
@@ -218,7 +218,7 @@ def _giro(radice, symbol, timeframe, confini):
     if not scelte:
         check(f"{n}. il giro arriva in cassaforte", False, f"nessuna scelta: imbuto {e.imbuto}")
         return
-    c = entra(d, e.id_ricerca, scelte, FRASE_CONFERMA)
+    c = entra(d, e.id_ricerca, scelte)
     id0 = scelte[0]
     sc = sch.componi_scheda(e, c, id0, None)
     md, js = sch.scrivi_scheda(sc, os.path.join(radice, f"schede_{timeframe}"))
