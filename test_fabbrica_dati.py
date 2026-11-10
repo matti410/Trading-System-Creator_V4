@@ -25,8 +25,7 @@ import pandas as pd
 from engine.fabbrica import sintetici
 from engine.fabbrica.config import (CAMPI, budget_massimo, cartella_asset, confini_standard, config_standard,
                                     controlla_budget, controlla_config, impronta_config, leggi_config, salva_config)
-from engine.fabbrica.dati import (Confini, PermessoCassaforte, Pezzi, carica_pezzi, controlla_cassaforte_nuova,
-                                  impronta_pezzo)
+from engine.fabbrica.dati import Confini, PermessoCassaforte, Pezzi, carica_pezzi, impronta_pezzo
 from engine.vetrina import carica_storico, costi_storico
 
 warnings.simplefilter("ignore")
@@ -205,20 +204,6 @@ def esegui() -> int:
         from engine.exchange import file_funding, salva_funding
         salva_funding(corto, file_funding(PERP, cart_f))
         check("23. un funding che non copre i pezzi: errore", errore(lambda: carica_pezzi(PERP, "M15", Confini.da_config(PICCOLI), cart_f)))
-
-        # ------------------------------------------------------------------ la finestra scorrevole
-        print("\nLa sovrapposizione fra cassaforti, con un registro finto dei tratti")
-        registro = [conf.tratto_cassaforte]
-        sposta = lambda ore: Confini.da_config({**STANDARD, "inizio": str(T("2020-01-02") + pd.Timedelta(hours=ore))})
-        check("24. stessa finestra: la cassaforte è già usata, errore", errore(lambda: controlla_cassaforte_nuova(conf, registro)))
-        check("25. spostata di meno della cassaforte: errore", errore(lambda: controlla_cassaforte_nuova(sposta(11_779.5 - 1), registro))
-              and errore(lambda: controlla_cassaforte_nuova(sposta(24), registro)))
-        controlla_cassaforte_nuova(sposta(11_779.5), registro)
-        controlla_cassaforte_nuova(sposta(2 * 11_779.5), registro + [sposta(11_779.5).tratto_cassaforte])
-        controlla_cassaforte_nuova(conf, [])
-        check("26. spostata della cassaforte o di più, o registro vuoto: si parte", True)
-        check("27. una cassaforte nuova fra due vecchie che si toccano: errore",
-              errore(lambda: controlla_cassaforte_nuova(sposta(11_779.5 / 2), registro + [sposta(11_779.5).tratto_cassaforte])))
 
         # ------------------------------------------------------------------ la config
         print("\nLa config (docs/82 P2 e §6)")

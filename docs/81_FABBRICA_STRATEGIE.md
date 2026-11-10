@@ -49,8 +49,8 @@ e indicatore TradingView sono fuori da questo incarico.
 - **Condizione di qualità:** regole sì/no che una strategia deve passare (trade minimi, drawdown, peso massimo di un
   singolo trade, costi inclusi).
 - **Budget:** il numero massimo di strategie provate. Ogni strategia provata è una **prova**.
-- **Cassaforte:** l'ultimo pezzo di dati dell'asset. Una strategia nuova ci entra sempre; una strategia già entrata
-  non rientra in una cassaforte che si sovrappone a quella in cui è entrata. Ognuna è registrata.
+- **Cassaforte:** l'ultimo pezzo di dati dell'asset, mai usato per costruire le strategie. Ogni strategia ci entra
+  quante volte si vuole (10/11); ogni ingresso è registrato, solo come annotazione da leggere.
 - **Test individuale:** il t netto della strategia contro la soglia per una prova sola. È il test che decide.
 
 ## §3 · La pipeline
@@ -73,8 +73,8 @@ e indicatore TradingView sono fuori da questo incarico.
    corrisponderebbe a quel totale, accanto al test individuale. Il conto **non decide**.
 8. **Cassaforte:** le strategie scelte si congelano e si scrivono nel registro **prima** di leggere una barra; poi si
    valutano sulla cassaforte con il test individuale. Il registro (data, strategie, esito) non si modifica a mano e
-   tiene il numero di strategie entrate in quella cassaforte (da leggere). Nello stesso tratto una strategia già entrata non rientra; un
-   parametro cambiato è una strategia nuova.
+   tiene il numero di strategie entrate in quella cassaforte (da leggere). Una strategia può rientrare quante volte si
+   vuole (10/11); un parametro cambiato è una strategia nuova.
 9. **MM, stress test, verifica dei trade:** riuso di quanto fa il Lab alle schermate 7, 9 e 8.
 10. **Scheda:** un `.md` e un `.json` per strategia: blocchi, regole in parole, valori, dati usati, prove contate,
     esito di ogni passo.
@@ -113,7 +113,7 @@ e indicatore TradingView sono fuori da questo incarico.
   - ogni cella di codice è preceduta da una cella di massimo 6 righe: **Cosa fa** (una frase), **Come leggere**
     (cosa guardare, con un esempio numerico), **Poi** (cosa fare);
   - nessuna sigla senza spiegarla la prima volta;
-  - avvisi evidenti solo per ciò che non si può annullare (es. «una strategia entra in un tratto di cassaforte una volta sola»).
+  - avvisi evidenti solo per ciò che non si può annullare.
 
 ## §6 · Cosa contiene la proposta (`docs/82`)
 

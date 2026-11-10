@@ -15,9 +15,8 @@ I dati della fabbrica in tre pezzi (docs/82 P1, lavoro L3a).
   la fabbrica va da M1 a D1 (decisione del 07/11, docs/82 §8). Solo symbol da exchange.
 - La cassaforte è sigillata: alla lettura le sue barre si buttano subito e in memoria non resta nulla. Si rilegge dal
   disco solo con un PermessoCassaforte, che crea cassaforte.py (L4) dopo aver congelato l'elenco delle strategie.
-- Sovrapposizione (09/11, al posto della finestra scorrevole): controlla_cassaforte_nuova dice se una cassaforte si
-  sovrappone a dei tratti dati. cassaforte.congela la usa con i tratti in cui una strategia è già entrata: una strategia
-  nuova entra sempre, una già entrata non rientra in una cassaforte che si sovrappone (docs/81 §2).
+- Nessun limite agli ingressi in cassaforte (10/11, docs/81 §2): niente finestra scorrevole né controllo delle
+  sovrapposizioni.
 """
 from __future__ import annotations
 
@@ -220,16 +219,3 @@ def carica_pezzi(symbol: str, timeframe: str, confini: Confini, cartella="dati")
     controlli = {nome: controlla_storico(pezzi[nome], timeframe) for nome in APERTI}
     return Pezzi(symbol, timeframe, confini, cartella, pezzi["ricerca"], pezzi["selezione"], funding, controlli)
 
-
-def controlla_cassaforte_nuova(confini: Confini, tratti_usati) -> None:
-    """
-    Si ferma se la cassaforte di `confini` si sovrappone a uno dei `tratti_usati` (coppie (da, a), UTC; due tratti
-    attaccati non si sovrappongono). Dal 09/11 cassaforte.congela la chiama con i tratti in cui una strategia è già
-    entrata, non più con tutti i tratti dell'asset (la finestra scorrevole non c'è più).
-    """
-    da, a = confini.tratto_cassaforte
-    for vecchio in tratti_usati:
-        v_da, v_a = _utc(vecchio[0]), _utc(vecchio[1])
-        if da < v_a and a > v_da:
-            raise ValueError(f"la cassaforte {da:%d/%m/%Y %H:%M} – {a:%d/%m/%Y %H:%M} UTC si sovrappone a quella del "
-                             f"{v_da:%d/%m/%Y %H:%M} – {v_a:%d/%m/%Y %H:%M} UTC.")

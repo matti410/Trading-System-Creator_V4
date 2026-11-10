@@ -7,7 +7,7 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
     r = ricerca(conf)                                        # 2 · La ricerca (riprende se interrotta)
     imbuto(r)                                                # 3 · L'imbuto
     strategie_rimaste(r)                                     # 4 · Le strategie rimaste (numerate)
-    cassaforte(r, strategie="1, 3", frase=FRASE_CONFERMA)    # 5 · La cassaforte
+    cassaforte(r, strategie="1, 3")                          # 5 · La cassaforte
     mm_e_stress(r, numero=1, capitale=10_000, ...)           # 6 · MM, stress test e verifica dei trade
     schede(r)                                                # 7 · Le schede
 
@@ -18,9 +18,9 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
   su quel timeframe si elencano con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo
   dall'elenco) e la cella prosegue; si ferma solo se mancano i dati o se non resta un trigger o un'uscita (Mattia,
   08/11). Lo stesso elenco va nel riepilogo della 2 (riepilogo.json) e nelle schede.
-- Cella 5: le strategie già entrate non rientrano (né nella stessa ricerca né in una cassaforte che si sovrappone);
-  rieseguita, la cella ne mostra l'esito. I numeri nuovi entrano come un ingresso nuovo, sempre con la frase. Vuoto =
-  nessuna, e non succede niente.
+- Cella 5 (10/11): i numeri scritti entrano in cassaforte, ogni volta che la cella si lancia, anche se sono già
+  entrati; nessuna frase di conferma. Vuoto = nessun ingresso: la cella mostra l'esito di quelle già entrate, se ce
+  ne sono.
 - Cella 6: money management e stress test, e sempre la verifica dei trade (docs/81 §3 passo 9); la lente su un trade è
   facoltativa. Il riassunto va in <ricerca>/mm/<id_strategia>.json, e da lì nella scheda.
 """
@@ -38,7 +38,6 @@ from engine.fabbrica import cassaforte as cas_mod
 from engine.fabbrica import registro
 from engine.fabbrica.sessione import apri_sessione
 
-FRASE_CONFERMA = cas_mod.FRASE_CONFERMA
 ORDINE_ESITI = {"scelta": 0, "stessa famiglia": 1, "scartata": 2}
 FILE_RIEPILOGO = "riepilogo.json"
 # Il ritmo misurato in L3b (docs/82 §5): 82.343 prove in 222 s, 3 processi, 122.496 barre nel pezzo di ricerca.
@@ -513,33 +512,26 @@ def _cartella_dati(r) -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(r.cartella)))
 
 
-def cassaforte(r, strategie: str = "", frase: str = ""):
+def cassaforte(r, strategie: str = ""):
     """
-    Cella 5. Le strategie scelte (numeri della 4 o «tutte le scelte») entrano in cassaforte con la frase di conferma,
-    poi si provano sull'ultimo pezzo. Quelle già entrate non rientrano: la cella ne mostra l'esito. Vuoto = nessuna.
+    Cella 5. Le strategie scelte (numeri della 4 o «tutte le scelte») entrano in cassaforte e si provano sull'ultimo
+    pezzo, anche se erano già entrate (10/11): ogni lancio è un ingresso nel registro, da leggere. Vuoto = nessun
+    ingresso: si mostra l'esito di quelle già entrate, se ce ne sono. La tabella ha tutte le strategie entrate in
+    questa ricerca, una riga ciascuna.
     """
     cartella = _cartella_dati(r)
     ids = numeri_strategie(r, strategie)
     gia = _cassaforte_dal_registro(r)
-    nuove = [i for i in ids if i not in gia["entrate"]]
     if not ids and not gia["entrate"]:
         _nota("Nessuna strategia scelta: in cassaforte non è entrato niente.")
         return None
-    if nuove:
-        if (frase or "").strip() != FRASE_CONFERMA:
-            raise ValueError(f"Per far entrare {len(nuove)} strategie scrivi nel campo la frase, esattamente: "
-                             f"«{FRASE_CONFERMA}». Non è entrato niente.")
-        c = cas_mod.entra(cartella, r.id_ricerca, nuove, FRASE_CONFERMA)
-        if gia["entrate"]:
+    if ids:
+        c = cas_mod.entra(cartella, r.id_ricerca, ids)
+        if set(gia["entrate"]) - set(ids):
             c = cas_mod.esito_cassaforte(cartella, r.id_ricerca)
     else:
         c = cas_mod.esito_cassaforte(cartella, r.id_ricerca)
     _ESITI_CASSAFORTE[r.id_ricerca] = c
-    gia_prima = [i for i in ids if i in gia["entrate"]]
-    if gia_prima:
-        quando = sorted({str(gia["date"].get(i, "")) for i in gia_prima})
-        _avviso(f"{len(gia_prima)} strategie erano già entrate ({', '.join(quando)}): nessun ingresso nuovo per loro. "
-                "Qui sotto il loro esito.")
     num = numerate(r).set_index("id_strategia")["numero"]
     tab = c.tabella
     vista = pd.DataFrame({"numero": [num.get(i) for i in tab["id_strategia"]], "lato": tab["lato"],

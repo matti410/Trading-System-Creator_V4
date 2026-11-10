@@ -29,7 +29,7 @@ import warnings
 import pandas as pd
 
 from engine.fabbrica import registro, sintetici
-from engine.fabbrica.cassaforte import ESITO, FRASE_CONFERMA, INGRESSO
+from engine.fabbrica.cassaforte import ESITO, INGRESSO
 from engine.fabbrica.config import cartella_asset, config_standard
 from engine.fabbrica.schede import FRASE_FINALE
 
@@ -122,8 +122,8 @@ def _file(nb):
     testi = "\n".join(c.source for c in nb.cells)
     cella5 = next(nb.cells[i - 1].source + nb.cells[i].source for i, c in enumerate(nb.cells)
                   if c.cell_type == "code" and _titolo(c) == "5 · La cassaforte")
-    check("6. la 5 ha l'avviso in maiuscolo e la frase di conferma giusta; nessun rimando alle schermate del Lab; "
-          "timeframe da M1 a D1 nella 1", "UNA VOLTA SOLA" in cella5 and FRASE_CONFERMA in cella5
+    check("6. (10/11) la 5 non ha frase di conferma né avviso «una volta sola»; nessun rimando alle schermate del Lab; "
+          "timeframe da M1 a D1 nella 1", "UNA VOLTA SOLA" not in cella5 and "frase" not in cella5.lower()
           and "schermata" not in testi.lower()
           and '["M1", "M5", "M15", "M30", "H1", "H4", "D1"]' in testi)
 
@@ -169,7 +169,6 @@ def _copia_di_collaudo(nb, dati: str):
                         f"processi=processi, config=__import__('json').loads({json.dumps(cfg)!r}), data='20260101')")
     c5 = per["5 · La cassaforte"]
     c5.source = _cambia(c5.source, 'strategie = ""', 'strategie = "tutte le scelte"')
-    c5.source = _cambia(c5.source, 'frase = ""', f'frase = {FRASE_CONFERMA!r}')
     c6 = per["6 · MM, stress test e verifica dei trade"]
     c6.source = _cambia(c6.source, 'trade_da_vedere = ""', 'trade_da_vedere = "1"')
     c6.source = _cambia(c6.source, "trade_da_vedere=trade_da_vedere)",
@@ -249,10 +248,11 @@ def _esecuzione(nb):
         except Exception as e:  # noqa: BLE001
             check("16. il notebook rilanciato da capo gira", False, f"{type(e).__name__}: {e}"[:400])
             return
-        check("16. rilanciato da capo: stessa ricerca (riprende), nessuna prova in più, nessun ingresso nuovo in "
-              "cassaforte", "già esiste: riprende" in di_nuovo["1 · Configura"]
-              and "già entrate" in di_nuovo["5 · La cassaforte"]
-              and {k: _eventi(base, k) for k in (INGRESSO, ESITO)} == prima
+        check("16. rilanciato da capo: stessa ricerca (riprende), nessuna prova in più; la 5 con gli stessi numeri fa "
+              "un ingresso nuovo in cassaforte (10/11), con il suo esito",
+              "già esiste: riprende" in di_nuovo["1 · Configura"]
+              and "La cassaforte · tratto" in di_nuovo["5 · La cassaforte"]
+              and {k: _eventi(base, k) for k in (INGRESSO, ESITO)} == {k: v + 1 for k, v in prima.items()}
               and _righe(os.path.join(base, id_r, "prove_collaudo.csv")) == prove_prima,
               f"{prima[INGRESSO]} ingressi, {prove_prima} righe di prove")
         schede = os.listdir(os.path.join(base, id_r, "schede"))
