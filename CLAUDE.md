@@ -13,6 +13,9 @@ identita': BINANCE_PERP_BTCUSDT (prima era EURUSD). Decisione in docs/63 §10.0.
 Regola che viene prima di tutte (docs/00): i risultati sui dati NON sono il metro di
 giudizio del progetto; niente commenti tipo "la strategia tiene/non tiene" né proposte
 di cambiare asset se non richiesti.
+Regola di progetto (Mattia, 10/11): la pipeline deve essere IL PIÙ SEMPLICE POSSIBILE, mantenendo il livello di
+qualità dei risultati più alto possibile. Niente blocchi, conferme o meccanismi non richiesti: si propongono a Mattia
+e si decidono insieme.
 
 ## Cosa leggere (dal 21/10/2026)
 - SEMPRE, e solo: questo CLAUDE.md e docs/00_SCOPO_E_STATO.md (lo stato attuale,
