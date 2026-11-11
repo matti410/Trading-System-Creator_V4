@@ -1,11 +1,11 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due giri), solo testo, in attesa del via.
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
-§10 Cosa ho letto · §11 Catalogo intero e ricerca in due giri (proposta dell'11/11)
+§10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11)
 
 ---
 
@@ -598,7 +598,7 @@ Vuoto = nessun ingresso: la cella mostra l'esito delle strategie già entrate, s
 - Cassaforte senza limiti di ingresso (10/11): tolto il blocco «una strategia già entrata non rientra» (stesso tratto e tratti sovrapposti): ogni strategia della 4 può entrare in cassaforte quante volte si vuole. Tolti dalla cella 5 la frase di conferma e l'avviso «una volta sola»: il campo resta solo per i numeri. Resta tutto il sigillo (la cassaforte non si legge prima della cella 5, test del veleno invariato) e il registro degli ingressi, solo come annotazione da leggere. Il conto delle prove non cambia (P8, §7).
 - Registro senza catena di impronte (10/11, scelta B): `registro_<macchina>.jsonl` resta un file di annotazioni, solo in aggiunta, che non ferma più nulla se una riga è cambiata o tolta; i registri già scritti con l'impronta si leggono come gli altri. Non cambiano il file e il conto delle prove, il sigillo della cassaforte e il test del veleno (P7, P8, §6).
 - Selezione (08/11, scelte di L4a): famiglie misurate sui segnali finali di ricerca + selezione, lato per lato; P(EV<0) con il bootstrap di `p_ev_negativo` (10.000 ricampionamenti, seme 0) sui bp di selezione; il pezzo passato alla selezione finisce all'ultima barra della selezione, senza barre della cassaforte (P6).
-- Catalogo intero e due giri (11/11, dopo la diagnosi delle famiglie dell'11/11): blocchi = tutto il catalogo, trigger e filtri, più RSI, Donchian, ADX e ATR relativo; E21, E39 ed E45 inclusi; F36 (Fear & Greed) escluso per ora; uscite le 3 di oggi (X0, X3, X1). Un blocco per famiglia, applicato in automatico all'avvio di ogni ricerca sul pezzo di ricerca, solo sui segnali (`famiglie.py`, stessa soglia; filtri misurati lato per lato; ADX e ATR relativo restano famiglia dichiarata): si tiene il blocco fra i 14 di oggi se c'è, altrimenti il trigger che scatta più spesso; l'elenco dei tenuti e dei tolti, con il motivo, va nel riepilogo della cella 1 e sulla scheda. Ricerca in due giri, tutta sul pezzo di ricerca: giro 1 tutte le teorie T+U e T+F+U; giro 2 alle 150 teorie T+F con il t più alto si aggiunge un secondo filtro, tutti quelli compatibili (non della stessa famiglia); poi le teorie dei due giri insieme e le 150 migliori allo zoom come oggi; ogni prova dei due giri entra nel conto. Budget ricalcolato per questa ricerca, con il tempo stimato sul PC. Proposta in §11, nessun codice prima del via. Quando il codice sarà unito, questa voce prende il posto di «Lista dei blocchi di P-L2 approvata», di «Budget: 100.000 prove» e del numero di teorie (1.176) di «Famiglie (06/11)».
+- Catalogo intero e due turni (11/11, dopo la diagnosi delle famiglie; rivista la sera dell'11/11 sulla PR #112): blocchi = tutto il catalogo dei trigger, i filtri di `filter_conditions.py` e di `vwap_regime_filter_conditions.py` (VWAP_GAP_WIDENING neutro e la coppia VWAP_SESSION_CLOSE in un blocco solo, come TREND_CONTEXT), più RSI, Donchian, ADX e ATR relativo; E21, E39 ed E45 inclusi; F36 (Fear & Greed) escluso per ora; uscite le 3 di oggi (X0, X3, X1). I trigger del catalogo sono 43 long e 42 short (E19 solo long). Un blocco per famiglia, in automatico all'avvio di ogni ricerca sul pezzo di ricerca, solo sui segnali (`famiglie.py`, stessa soglia, trigger e filtri lato per lato): si tiene il blocco fra i 14 di oggi se c'è, altrimenti quello che scatta più spesso (D2: per i filtri, vero sul maggior numero di barre); l'elenco dei tenuti e dei tolti, con il motivo, va nel riepilogo della cella 1 e sulla scheda. D1 = B: per scegliere i tenuti contano solo le famiglie misurate; ADX e ATR relativo restano tutti e due, e la loro famiglia dichiarata vale solo nel generatore (mai nella stessa teoria, anche al turno 2). Ricerca in due turni (la parola «giro» resta solo dell'ottimizzatore e dello zoom), tutta sul pezzo di ricerca: turno 1 tutte le teorie T+U e T+F+U; turno 2 alle 150 teorie T+F con il t più alto (D3: come la scelta del passo 2) si aggiunge un secondo filtro, tutti quelli compatibili; poi le teorie dei due turni insieme e le 150 migliori allo zoom come oggi; ogni prova dei due turni entra nel conto (fase `passo_1_turno_2`, file `turno_2.jsonl`, chiave `teorie_turno_2`). D4: la tabella da approvare elenca solo i blocchi che restano fuori su qualche timeframe da M1 a D1, con il motivo. D5 = B: solo la config versione 2, una strada sola; le ricerche vecchie restano su disco e nel conto, e le celle 4–7 su una di esse si fermano come «ricerca non trovata» con la riga che dice di rilanciare la cella 2. D6: il tetto del budget è il massimo nuovo arrotondato in su ai 10.000. La stima del tempo della cella 1 usa la velocità vera delle ricerche del 9 e del 10/11 (146–167 prove al secondo con 3 processi), in C2. Proposta in §11, nessun codice prima del via. Quando il codice sarà unito, questa voce prende il posto di «Lista dei blocchi di P-L2 approvata», di «Budget: 100.000 prove» e del numero di teorie (1.176) di «Famiglie (06/11)».
 
 ---
 
@@ -640,56 +640,85 @@ Un ramo e una PR per ciascuno, in quest'ordine. Il via è di Mattia, lavoro per 
 
 ---
 
-## §11 · Catalogo intero e ricerca in due giri (proposta dell'11/11)
+## §11 · Catalogo intero e ricerca in due turni (proposta dell'11/11)
 
-**Stato:** proposta, solo testo, nessun codice. Decisioni di Mattia dell'11/11 in §8 («Catalogo intero e due giri»). Il codice
-parte con il via, lavoro per lavoro (§11.9). Le domande aperte, ognuna con un consiglio, sono in §11.10.
+**Stato:** proposta, solo testo, nessun codice. Rivista con Mattia la sera dell'11/11 (PR #112); decisioni in §8
+(«Catalogo intero e due turni»). Il codice parte con il via, lavoro per lavoro (§11.9).
 
-**Indice:** §11.1 In breve · §11.2 I blocchi · §11.3 Un blocco per famiglia · §11.4 I due giri · §11.5 Budget e tempo ·
-§11.6 Cosa cambia, file per file · §11.7 I collaudi · §11.8 Come si vede nel notebook · §11.9 I lavori · §11.10 Domande
-aperte · §11.11 Visto a parte
+**Parole.** Le due ricerche del passo 1 si chiamano **turno 1** e **turno 2**, ovunque: testo, celle, config, file, scheda.
+«Giro» resta solo dell'ottimizzatore e dello zoom (§2).
 
-I numeri su BINANCE_PERP_BTCUSDT M15 vengono dalla diagnosi dell'11/11: pezzo di ricerca della config standard (dal
-02/01/2020 al 12/07/2023, 123.254 barre), **solo segnali**, nessuna prova, nessun conto. Sono un esempio di cosa farebbe la
+**Indice:** §11.1 In breve · §11.2 I blocchi · §11.3 Un blocco per famiglia · §11.4 I due turni · §11.5 Budget e tempo ·
+§11.6 Cosa cambia, file per file · §11.7 I collaudi · §11.8 Come si vede nel notebook · §11.9 I lavori · §11.10 Le
+decisioni sulle domande · §11.11 Visto a parte
+
+I numeri su BINANCE_PERP_BTCUSDT M15 vengono dalla misura dell'11/11 sera: pezzo di ricerca della config standard (dal
+02/01/2020 al 12/07/2023, 123.254 barre), **solo segnali**, nessuna prova, nessun conto. Sono un esempio di cosa fa la
 regola, non un esito: all'avvio di ogni ricerca la misura si rifà sul suo pezzo di ricerca.
 
 ### §11.1 · In breve
 
-- **Blocchi:** tutto il catalogo (trigger e filtri) più RSI, Donchian, ADX e ATR relativo; E21, E39 ed E45 inclusi; F36
-  escluso. Uscite: X0, X3, X1, come oggi.
+- **Blocchi:** tutto il catalogo dei trigger; i filtri dei due file del catalogo, `filter_conditions.py` e
+  `vwap_regime_filter_conditions.py`, come li carica il Lab; più RSI, Donchian, ADX e ATR relativo. E21, E39 ed E45 inclusi;
+  F36 escluso. Uscite: X0, X3, X1, come oggi.
 - **Un blocco per famiglia,** all'avvio di ogni ricerca, sul pezzo di ricerca: prima i valori degeneri (come oggi), poi le
-  famiglie con `famiglie.py` (soglia 60%), trigger e filtri lato per lato, ADX e ATR relativo famiglia dichiarata. In ogni
-  famiglia resta un blocco: quello fra i 14 di oggi se c'è, altrimenti quello che scatta più spesso.
-- **Due giri al passo 1:** giro 1 tutte le teorie T+U e T+F+U; giro 2 le 150 teorie T+F con il t più alto, ognuna con un
-  secondo filtro (tutti quelli compatibili). Poi le teorie dei due giri insieme: le 150 migliori vanno allo zoom, come oggi.
-  Ogni prova dei due giri entra nel conto.
-- **Su BTC perp M15:** 36 famiglie di trigger e 19 di filtri per lato → **4.320 teorie al giro 1**, al massimo **2.700 al
-  giro 2**; budget massimo **330.600 prove**; tempo stimato **30–40 minuti**, fino a circa **55** nel caso pesante (§11.5).
+  famiglie **misurate** con `famiglie.py` (soglia 60%), trigger e filtri lato per lato. In ogni famiglia resta un blocco:
+  quello fra i 14 di oggi se c'è, altrimenti quello che scatta più spesso. ADX e ATR relativo restano tutti e due: la loro
+  famiglia dichiarata vale solo nel generatore, mai nella stessa teoria.
+- **Due turni al passo 1:** turno 1 tutte le teorie T+U e T+F+U; turno 2 le 150 teorie T+F con il t più alto, ognuna con un
+  secondo filtro (tutti quelli compatibili). Poi le teorie dei due turni insieme: le 150 migliori vanno allo zoom, come oggi.
+  Ogni prova dei due turni entra nel conto.
+- **Su BTC perp M15:** 36 trigger e 21 filtri tenuti sul long, 36 e 22 sullo short → **4.860 teorie al turno 1**, al
+  massimo **3.150 al turno 2**; budget massimo **370.200 prove**, tetto **380.000**; tempo stimato **33–41 minuti**, fino a
+  circa **61** nel caso pesante (§11.5).
 
 ### §11.2 · I blocchi
 
 | tipo | oggi | con la proposta |
 |---|---|---|
-| trigger | 7: E5, E36, E47, E49, E51, RSI, Donchian | **45**: i 43 del catalogo (E19 c'è solo long) più RSI e Donchian |
-| filtri | 7: F2_MID, F3, TREND_CONTEXT, F25_CHOP_TREND, F20_OVERLAP, ADX, ATR relativo | **28**: 19 neutri, 7 coppie long/short, ADX e ATR relativo |
+| trigger | 7: E5, E36, E47, E49, E51, RSI, Donchian | **45**: i 43 del catalogo più RSI e Donchian. Sono 45 blocchi sul long e 44 sullo short, perché E19 c'è solo long |
+| filtri | 7: F2_MID, F3, TREND_CONTEXT, F25_CHOP_TREND, F20_OVERLAP, ADX, ATR relativo | **30**: 20 neutri, 8 coppie long/short, ADX e ATR relativo |
 | uscite | X0, X3, X1 | le stesse |
 
+**I trigger del catalogo** (registro di main; nella fabbrica il blocco ha il nome corto, per esempio «E12»). Sono **43
+long e 42 short**, cioè le 85 entry del catalogo di `docs/00`; lo short ha gli stessi numeri tranne E19.
+- E1 RSI_CROSS_OVERSOLD (short: RSI_CROSS_OVERBOUGHT) · E2 ZLEMA_CROSS · E3 INTRABAR_WEAKNESS_FADE (short: STRENGTH_FADE) ·
+  E4 EMA_CROSS · E5 QUICK_PULLBACK · E6 BACK_IN_STYLE · E7 BIG_TAIL_BARS · E8 CLOSING_PATTERN_ONLY · E9
+  CLOSING_PATTERN_ONLY_II
+- E10 HAMMER (short: HANGING_MAN) · E11 INVERTED_HAMMER (short: SHOOTING_STAR) · E12 ENGULFING · E13 HARAMI · E16
+  MORNING_STAR (short: EVENING_STAR) · E19 THREE_WHITE_SOLDIERS (solo long) · E21 BELT_HOLD
+- E22 ASIAN_RANGE_BREAKOUT · E23 PREV_DAY_HIGH_BREAKOUT (short: LOW_BREAKDOWN) · E24 CYCLE_TURN · E25 ATC_PVO_SETUP · E26
+  SUPERTREND_IIX_SETUP · E27 VSA_BULLISH (short: BEARISH) · E28 VFI_CROSS · E29 SQUEEZE_RELEASE · E30 WAVETREND_CROSS
+- E31 TRIPLE_SCREEN · E32 ALGOX_CAREFUL · E33 ALGOX_NOVOL_CAREFUL · E34 VSA_TREND_GO · E35 VSA_STOP_REVERSE · E36
+  INTRADAY_MOMENTUM · E37 INTRADAY_MOMENTUM_COMBO · E38 HOUR_MOMENTUM · E39 HOUR_REVERSAL · E40 JUMP_MOMENTUM · E41
+  DAILY_QUINTILE
+- E45 RENDIMENTO_4H_ENTRA_Q1 (short: Q5) · E46 CANALE_24H_IMPULSO · E47 COMPRESSIONE_ROTTURA · E48 MASSIMI_UGUALI_ROTTURA
+  (short: MINIMI_UGUALI) · E49 SWEEP_RECLAIM_MINIMO (short: MASSIMO) · E51 MOVIMENTO_VOLUME_CALO · E52 AREA_RUMORE
+
+**I filtri.**
+- **20 neutri:** F1_ADX_ABOVE, F2_MID_VOLATILITY, F2_HIGH_VOLATILITY, F3_VOLUME_ABOVE_AVG, F14_LOW_DRIFT_REGIME,
+  F15_SHORT_TERM_CONSISTENCY, F20_SESSION_ASIA, F20_SESSION_EUROPE, F20_SESSION_US, F20_SESSION_OVERLAP, F22_FAR_FROM_ROLLOVER,
+  F23_CYCLE_STRENGTH, F25_CHOP_TREND, F25_CHOP_RANGE, F26_VARIANCE_RATIO_TREND, F29_RVOL_LOW, F32_KER_RANGE,
+  F35_JDH_REGIME_TREND, F39_INSIDE_DAY, VWAP_GAP_WIDENING.
+- **8 coppie con un verso, un blocco ciascuna** come TREND_CONTEXT oggi: il membro long sul lato long, quello short sullo
+  short. Il nome del blocco è l'etichetta della coppia nel registro: MACD_SIGNAL (F4), TREND_CONTEXT (F8/F9),
+  TREND_CONVICTION (F10/F11), OVERNIGHT_RETURN (F21), TWO_BARS (F24), VFI_SIGN (F28), ALGOX_STATE (F40), VWAP_SESSION_CLOSE
+  (VWAP_PREVIOUS_SESSION_CLOSED_ABOVE / BELOW). SENTIMENT (F36) resta fuori.
+- **Il caricamento:** la fabbrica registra anche `vwap_regime_filter_conditions.py` (`registra_filtri_vwap`), come
+  `vetrina._registra_condizioni` del Lab; oggi registra solo `filter_conditions.py`.
+
+**Regole comuni.**
 - **I blocchi del catalogo restano senza parametri**, come oggi: la maschera è la condizione del catalogo, letta dal
-  registro. I dizionari del catalogo non cambiano, quindi Lab e Grid Search restano identici.
-- **I filtri con un verso** diventano un blocco solo per coppia, come TREND_CONTEXT oggi: il membro long sul lato long, quello
-  short sullo short. Le 7 coppie, con l'etichetta che hanno già nel registro: MACD_SIGNAL (F4), TREND_CONTEXT (F8/F9),
-  TREND_CONVICTION (F10/F11), OVERNIGHT_RETURN (F21), TWO_BARS (F24), VFI_SIGN (F28), ALGOX_STATE (F40). SENTIMENT (F36) resta
-  fuori.
+  registro. I file del catalogo non cambiano, quindi Lab e Grid Search restano identici.
 - **Un trigger con un lato solo** (E19, solo long) sta solo sul lato long.
-- **Famiglia dichiarata:** solo ADX e ATR relativo ne condividono una. Ogni altro blocco ha un'etichetta sua; altrimenti due
-  filtri con la stessa parola (per esempio «volatilità» per F2_MID e F2_HIGH) finirebbero insieme per dichiarazione e non per
-  misura.
+- **Famiglia dichiarata:** solo ADX e ATR relativo ne condividono una, e vale solo nel generatore (§11.3). Ogni altro
+  blocco ha un'etichetta sua; altrimenti due filtri con la stessa parola (per esempio «volatilità» per F2_MID e F2_HIGH)
+  non potrebbero mai stare nella stessa teoria.
 - **Timeframe:** la fabbrica va da M1 a D1, e ogni blocco del catalogo è ammesso solo dove scatta davvero, con il motivo
-  quando resta fuori (`MOTIVI_ESCLUSIONE`, decisione dell'08/11). Il catalogo non dice su quali timeframe scatta ogni
-  condizione: serve una diagnosi blocco per blocco (domanda D4). Su M15 scattano tutti: nessun degenere nella diagnosi
-  dell'11/11.
-- **Regole in parole:** ogni blocco nuovo ha bisogno del suo testo, long e short (`TESTI_TRIGGER`, `TESTI_FILTRI` in
-  `schede.py`), scritto leggendo il codice: 38 trigger e 21 filtri. Senza testo la scheda non si scrive (il collaudo
+  quando resta fuori (`MOTIVI_ESCLUSIONE`, decisione dell'08/11). La diagnosi è il primo passo di C1 (§11.10, D4). Su M15
+  scattano tutti: nessun degenere nella misura dell'11/11.
+- **Regole in parole:** ogni blocco nuovo ha il suo testo, long e short (`TESTI_TRIGGER`, `TESTI_FILTRI` in `schede.py`),
+  scritto leggendo il codice: 38 trigger e 23 filtri. Senza testo la scheda non si scrive (il collaudo
   `blocchi_senza_testo` lo controlla già).
 
 ### §11.3 · Un blocco per famiglia
@@ -700,74 +729,79 @@ segnali: non è una prova e non entra nel conto.
 **In che ordine:**
 1. **Valori degeneri,** come oggi (P3): per lato, per ogni combinazione della griglia dei blocchi con parametri; un blocco
    del catalogo degenere su un lato esce da quel lato.
-2. **Famiglie,** come oggi (`misura_famiglie`): per lato, i trigger fra loro e i filtri fra loro, ai valori centrali,
-   `famiglie.py` con soglia 60% e lift 1,3, più la dichiarazione di ADX e ATR relativo.
+2. **Famiglie misurate:** per lato, i trigger fra loro e i filtri fra loro, ai valori centrali, `famiglie.py` con soglia 60%
+   e lift 1,3. **La dichiarazione non unisce le famiglie** (D1 = B): ADX sta con F1, ATR relativo con F2_HIGH, ognuna con il
+   suo tenuto.
 3. **In ogni famiglia di ogni lato resta un blocco:**
    - se la famiglia contiene uno dei 14 blocchi di oggi, resta quello;
-   - se ne contiene due o più, resta quello che scatta più spesso (domanda D1);
+   - se ne contiene due o più, resta quello che scatta più spesso (§11.11: caso da confermare);
    - altrimenti resta quello che scatta più spesso: per i trigger il numero di segnali, per i filtri le barre in cui sono veri
-     (domanda D2);
+     (D2);
    - a parità, il nome più piccolo, così l'esito non cambia da un lancio all'altro.
 
 «Scatta più spesso» si legge dal controllo dei degeneri, che conta già le barre vere di ogni blocco: non serve un calcolo
 nuovo. Un blocco con parametri conta ai valori centrali, come nella misura delle famiglie.
 
-**Lato per lato:** lo stesso blocco può restare sul long e uscire sullo short. Per esempio E3 sul long sta con E1, sullo short
-con E27.
+**Lato per lato:** lo stesso blocco può restare su un lato e uscire sull'altro. Per esempio TWO_BARS esce sul long (sta con
+VWAP_GAP_WIDENING) e resta sullo short (è solo); E3 sul long sta con E1, sullo short con E27.
+
+**Il generatore** usa solo i blocchi tenuti. La famiglia dichiarata vale lì, come oggi: ADX e ATR relativo **mai nella stessa
+teoria**, nemmeno al turno 2.
 
 **Cosa resta scritto:** una tabella dei tenuti e dei tolti, una riga per blocco e lato: famiglia, blocco, tenuto o tolto,
 motivo, quanto scatta (segnali o quota di barre), blocco più simile e quanto gli somiglia. Va nell'evento di avvio del
 registro, in `riepilogo.json`, nella cella 1 e sulla scheda.
 
-**Esempi su BTC perp M15, lato long** (diagnosi dell'11/11, solo segnali):
+**Su BTC perp M15, lato long** (misura dell'11/11 sera, solo segnali): le famiglie con più di un blocco.
 
 | famiglia | tenuto | tolti | motivo |
 |---|---|---|---|
-| Donchian, E21, E23, E46 | Donchian | E21, E23, E46 | Donchian è uno dei 14 di oggi |
-| E12 (11.241 segnali), E8 (5.305) | E12 | E8 | scatta più spesso |
+| Donchian (1.347 segnali), E21 (9.621), E46 (1.338), E23 (553) | Donchian | E21, E46, E23 | Donchian è uno dei 14 di oggi |
+| E12 (11.241), E8 (5.305) | E12 | E8 | scatta più spesso |
 | E3 (5.798), E1 (1.498) | E3 | E1 | scatta più spesso |
 | E2 (3.748), E25 (778) | E2 | E25 | scatta più spesso |
-| RSI, E30 | RSI | E30 | uno dei 14 |
+| RSI (174), E30 (1.520) | RSI | E30 | uno dei 14 |
 | E33 (1.047), E32 (727) | E33 | E32 | scatta più spesso |
-| E36, E37 | E36 | E37 | uno dei 14 |
-| TREND_CONTEXT, TREND_CONVICTION, VFI_SIGN, ALGOX_STATE | TREND_CONTEXT | gli altri 3 | uno dei 14 |
-| F20_OVERLAP, F20 Europa, F20 USA | F20_OVERLAP | gli altri 2 | uno dei 14 |
-| F3, F35 | F3 | F35 | uno dei 14 |
-| ADX e F1, ATR relativo e F2_HIGH (unite dalla dichiarazione) | con D1: ADX (32% delle barre) | F1, ATR relativo (19%), F2_HIGH | due dei 14: resta quello che scatta più spesso |
+| E36 (665), E37 (336) | E36 | E37 | uno dei 14 |
+| TREND_CONTEXT (52% delle barre), ALGOX_STATE (54%), VFI_SIGN (50%), TREND_CONVICTION (36%) | TREND_CONTEXT | gli altri 3 | uno dei 14 |
+| F20_OVERLAP (12%), F20 Europa (27%), F20 USA (27%) | F20_OVERLAP | gli altri 2 | uno dei 14 |
+| ADX (32%), F1 (66%) | ADX | F1 | uno dei 14 |
+| VWAP_GAP_WIDENING (51%), TWO_BARS (24%) | VWAP_GAP_WIDENING | TWO_BARS | scatta più spesso |
+| ATR relativo (19%), F2_HIGH (25%) | ATR relativo | F2_HIGH | uno dei 14 |
+| F3 (35%), F35 (32%) | F3 | F35 | uno dei 14 |
 
-Gli altri 29 trigger e 15 filtri del lato long sono soli nella loro famiglia e restano tutti. Risultato: **36 trigger e 19
-filtri per lato**.
+Gli altri 29 trigger e 15 filtri del lato long sono soli nella loro famiglia e restano tutti: **36 trigger e 21 filtri**.
+Sullo short le famiglie sono le stesse, con tre differenze: E3 sta con E27, E1 ed E25 sono soli, TWO_BARS è solo:
+**36 trigger e 22 filtri**. La tabella completa, con i due lati, è in `dati/prove/famiglie_catalogo_20261111_v2/`.
 
-**Il generatore** usa solo i blocchi tenuti. La regola di oggi «mai due filtri della stessa famiglia» resta e conta solo per la
-famiglia dichiarata, se con D1 restano sia ADX sia ATR relativo.
+### §11.4 · I due turni
 
-### §11.4 · I due giri
+**Turno 1.** Per ogni lato, tutte le teorie T+U e T+F+U con i blocchi tenuti: trigger × (1 + filtri) × 3 uscite. Su BTC perp
+M15: long 36 × 22 × 3 = 2.376, short 36 × 23 × 3 = 2.484, **4.860** in tutto (216 T+U e 4.644 T+F+U). Il passo 1 è quello di
+oggi (P4): al massimo 40 prove per teoria, griglia completa o genetico; la condizione di qualità 1 decide solo alla fine; il
+t della teoria è quello della sua migliore strategia che passa.
 
-**Giro 1.** Per ogni lato, tutte le teorie T+U e T+F+U con i blocchi tenuti: trigger × (1 + filtri) × 3 uscite. Su BTC perp
-M15, 36 × 20 × 3 = 2.160 per lato, **4.320** in tutto (216 T+U e 4.104 T+F+U). Il passo 1 è quello di oggi (P4): al massimo
-40 prove per teoria, griglia completa o genetico; la condizione di qualità 1 decide solo alla fine; il t della teoria è quello
-della sua migliore strategia che passa.
-
-**Giro 2.**
-- Fra le teorie T+F del giro 1 tenute (almeno una strategia passa la condizione 1), le **150 con il t più alto**, i due lati
-  insieme, a parità l'id più piccolo: la stessa regola con cui oggi si scelgono le 150 del passo 2 (domanda D3).
-- A ognuna si aggiunge **un secondo filtro, tutti quelli compatibili:** i filtri tenuti dello stesso lato, tranne il suo e
-  quelli della sua famiglia. Stesso trigger, stessa uscita. Su BTC perp M15 fanno 18 filtri per teoria, quindi al massimo 150 ×
-  18 = **2.700** teorie.
-- Una teoria che nasce da due teorie del giro 1 (T+F1 e T+F2 entrambe fra le 150 danno T+F1+F2) si prova una volta sola. I
+**Turno 2.**
+- Fra le teorie T+F del turno 1 tenute (almeno una strategia passa la condizione 1), le **150 con il t più alto**: il t
+  della migliore strategia che passa, i due lati insieme, a parità l'id più piccolo. È la stessa regola con cui oggi si
+  scelgono le 150 del passo 2 (D3). Se le T+F tenute sono meno di 150, vanno tutte.
+- A ognuna si aggiunge **un secondo filtro, tutti quelli compatibili:** i filtri tenuti dello stesso lato, tranne il suo; con
+  ADX mai ATR relativo, e viceversa. Stesso trigger, stessa uscita. Su BTC perp M15 fanno da 19 a 21 filtri per teoria,
+  quindi al massimo 150 × 21 = **3.150** teorie.
+- Una teoria che nasce da due teorie del turno 1 (T+F1 e T+F2 entrambe fra le 150 danno T+F1+F2) si prova una volta sola. I
   filtri stanno nell'ordine della config, così l'id della teoria è uno.
-- Il passo 1 del giro 2 è identico a quello del giro 1.
+- Il passo 1 del turno 2 è identico a quello del turno 1.
 
-**Dopo i due giri.** Tutte le teorie tenute dei due giri insieme: le 150 con il t più alto vanno allo zoom e all'altopiano, come
-oggi (P5). Selezione, cassaforte, MM e schede non cambiano.
+**Dopo i due turni.** Tutte le teorie tenute dei due turni insieme: le 150 con il t più alto vanno allo zoom e all'altopiano,
+come oggi (P5). Selezione, cassaforte, MM e schede non cambiano.
 
-**Il conto.** Ogni prova dei due giri è una riga nel file delle prove: fase `passo_1` per il giro 1, `passo_1_giro_2` per il
-giro 2. La scelta delle 150 del giro 2 guarda i t del pezzo di ricerca: fa parte della ricerca, e ogni teoria del giro 1 è già
-nel conto.
+**Il conto.** Ogni prova dei due turni è una riga nel file delle prove: fase `passo_1` per il turno 1, `passo_1_turno_2` per
+il turno 2. La scelta delle 150 del turno 2 guarda i t del pezzo di ricerca: fa parte della ricerca, e ogni teoria del turno
+1 è già nel conto.
 
-**Ripresa.** Le teorie del giro 2 nascono solo dai risultati del giro 1, che sono su disco: alla ripresa si ricalcolano
-uguali. Il giro 2 si scrive in un file suo (`giro_2.jsonl`), una teoria alla volta come il giro 1. Fermata a metà e ripresa
-danno lo stesso risultato, bit per bit, e 1 processo dà lo stesso risultato di 3.
+**Ripresa.** Le teorie del turno 2 nascono solo dai risultati del turno 1, che sono su disco: alla ripresa si ricalcolano
+uguali. Il turno 2 si scrive in un file suo (`turno_2.jsonl`), una teoria alla volta come il turno 1. Fermata a metà e
+ripresa danno lo stesso risultato, bit per bit, e 1 processo dà lo stesso risultato di 3.
 
 ### §11.5 · Budget e tempo
 
@@ -775,24 +809,24 @@ danno lo stesso risultato, bit per bit, e 1 processo dà lo stesso risultato di 
 
 | voce | conto | prove al massimo |
 |---|---|---|
-| giro 1 | 4.320 teorie × 40 | 172.800 |
-| giro 2 | 150 × 18 filtri × 40 | 108.000 |
+| turno 1 | 4.860 teorie × 40 | 194.400 |
+| turno 2 | 150 × 21 filtri × 40 | 126.000 |
 | zoom | 150 × 270 | 40.500 |
 | altopiano | 150 × 60 | 9.000 |
 | selezione e cassaforte | 150 + 150 | 300 |
-| **totale** | | **330.600** |
+| **totale** | | **370.200** |
 
-**Proposta:** budget totale **350.000** (domanda D6). Copre anche il caso in cui con D1 restano sia ADX sia ATR relativo:
-4.536 teorie al giro 1, 2.850 al giro 2, 345.240 prove al massimo. Il massimo si calcola prima di partire: giro 1 × 40, più
-teorie del giro 2 × (filtri del lato più largo − 1) × 40, più zoom, altopiano, selezione e cassaforte come oggi. Se supera il
-totale, la cella 1 si ferma, come oggi.
+**Tetto (D6):** il massimo arrotondato in su ai 10.000, quindi **380.000**. Il massimo si calcola prima di partire: turno 1
+× 40, più `teorie_turno_2` × (filtri tenuti del lato più largo − 1) × 40, più zoom, altopiano, selezione e cassaforte come
+oggi. Se supera il tetto, la cella 1 si ferma, come oggi.
 
 **Prove attese**, sotto il massimo:
-- **Giro 1:** circa **142.000**, cioè 4.320 × 32,8 in media. Una teoria con soli blocchi del catalogo ha 32 punti, 4 durate × 4
-  stop × 2 target, e li prova tutti; con RSI, Donchian o ADX ne prova 40.
-- **Giro 2:** da 86.000 a 108.000, secondo quante delle 150 hanno blocchi con parametri.
-- **Zoom, altopiano e selezione:** circa 39.000, perché oggi sono circa 260 per teoria.
-- **Totale:** da circa **267.000 a 289.000**.
+- **Turno 1:** circa **161.000**, in media 33,1 per teoria. Una teoria con soli blocchi del catalogo ha 32 punti (4 durate
+  × 4 stop × 2 target) e li prova tutti; con RSI, Donchian, ADX o ATR relativo ne prova 40.
+- **Turno 2:** da circa **101.000 a 126.000**, secondo quante delle 150 hanno blocchi con parametri (3.150 teorie da 32 a 40
+  prove).
+- **Zoom, altopiano e selezione:** circa **39.000** (oggi circa 260 per teoria).
+- **Totale:** da circa **301.000 a 326.000**.
 
 **Velocità.**
 - **Quella vera** delle due ricerche del 9 e del 10/11 sul PC (3 processi): **146–167 prove al secondo** (circa 78.000 prove
@@ -806,41 +840,47 @@ totale, la cella 1 si ferma, come oggi.
 
 | caso | prove al secondo | prove | tempo |
 |---|---|---|---|
-| tipico (1,1 volte oggi) | 133–152 | 267.000–289.000 | **29–36 minuti** |
-| budget pieno | 133 | 330.600 | circa 41 minuti |
-| pesante (tutti i trigger come E12, 1,45 volte oggi) | 101–115 | 289.000–330.600 | **42–55 minuti** |
+| tipico (1,1 volte oggi) | 133–152 | 301.000–326.000 | **33–41 minuti** |
+| budget pieno | 133 | 370.200 | circa **46 minuti** |
+| pesante (tutti i trigger come E12, 1,45 volte oggi) | 101–115 | 301.000–370.200 | **44–61 minuti** |
 
-Più la preparazione (degeneri e famiglie su 73 blocchi), stimata in 1–2 minuti. Le ore non servono.
+Più la preparazione (degeneri e famiglie su 75 blocchi sul long e 74 sullo short), stimata in 1–2 minuti.
 
-**Il conto da leggere** cresce con la ricerca: circa 300.000 prove danno una soglia da leggere di 5,23 (oggi 5,02 con
-97.000); con le 155.661 prove già fatte su BTC perp M15 l'asset arriverebbe a circa 455.000, soglia 5,31. Il conto non decide
+**Il conto da leggere** cresce con la ricerca: circa 315.000 prove danno una soglia da leggere di 5,24 (oggi 5,02 con
+97.000); con le 155.661 prove già fatte su BTC perp M15 l'asset arriverebbe a circa 470.000, soglia 5,31. Il conto non decide
 (P7).
 
 ### §11.6 · Cosa cambia, file per file
 
-**Non si toccano:** il motore, il catalogo (dizionari e condizioni), `famiglie.py`, `collaudo_catalogo.py`, il Lab e la Grid
-Search. Quindi niente prove d'identità: bastano le suite (`CLAUDE.md`).
+**Non si toccano:** il motore, i file del catalogo (`entry_long.py`, `entry_short.py`, `filter_conditions.py`,
+`vwap_regime_filter_conditions.py`, uscite), `famiglie.py`, `collaudo_catalogo.py`, il Lab e la Grid Search. Quindi niente
+prove d'identità: bastano le suite (`CLAUDE.md`).
 
 | file | cosa cambia | additivo? |
 |---|---|---|
-| `engine/fabbrica/blocchi.py` | `TRIGGER_CATALOGO` e `FILTRI_CATALOGO` con tutto il catalogo (F36 escluso), con i timeframe di D4 e i loro motivi in `MOTIVI_ESCLUSIONE`; un trigger può avere un lato solo (E19); un'etichetta di famiglia diversa per ogni blocco nuovo | sì, righe nuove; i 10 blocchi del catalogo di oggi restano come sono |
-| `engine/fabbrica/generatore.py` | nuove: `un_blocco_per_famiglia(blocchi, misura, controllo, lati) -> (tenuti, tabella)`, `teorie_giro_1(...)`, `teorie_giro_2(scelte, ...)`; `genera_teorie` resta per le config della versione 1 | sì |
-| `engine/fabbrica/config.py` | versione 2 della config: in `budget` la chiave nuova `teorie_giro_2` (150) e il totale 350.000; `BLOCCHI_STANDARD` con tutto il catalogo; `budget_massimo` con il giro 2. La versione 1 si legge ancora e vuol dire un giro solo (D5) | no: `config_standard` cambia, quindi le ricerche nuove hanno un'impronta nuova |
-| `engine/fabbrica/ricerca.py` | `prepara`: un blocco per famiglia dopo la misura delle famiglie; `lancia`: il giro 2 dopo il giro 1, il file `giro_2.jsonl`, le 150 dello zoom scelte dai due giri; tenuti e tolti nell'evento di avvio e nel riepilogo | no, `lancia` cambia; con una config della versione 1 fa esattamente quello di oggi |
-| `engine/fabbrica/schede.py` | i testi dei blocchi nuovi; sulla scheda il giro da cui viene la teoria e la tabella dei tenuti e dei tolti | sì |
-| `engine/vetrina_fabbrica.py` | cella 1: tenuti e tolti, teorie dei due giri, prove massime; cella 2: avanzamento per giro; cella 3: imbuto con i due giri | modifica delle celle 1–3 |
-| `Fabbrica_Strategie_Crypto.ipynb` | i testi sopra le celle 1, 2 e 3, con gli esempi nuovi | testi |
+| `engine/fabbrica/blocchi.py` | `TRIGGER_CATALOGO` e `FILTRI_CATALOGO` con tutto il catalogo (F36 escluso, i due VWAP dentro), con i timeframe di D4 e i loro motivi in `MOTIVI_ESCLUSIONE`; un trigger può avere un lato solo (E19); un'etichetta di famiglia diversa per ogni blocco nuovo; `_registra_catalogo` registra anche `registra_filtri_vwap` | sì, righe nuove; i 10 blocchi del catalogo di oggi restano come sono |
+| `engine/fabbrica/generatore.py` | nuove: `un_blocco_per_famiglia(blocchi, misura, controllo, lati) -> (tenuti, tabella)`, `teorie_turno_1(...)`, `teorie_turno_2(scelte, ...)`; `misura_famiglie` dà le famiglie misurate per scegliere i tenuti e, a parte, la dichiarata per il generatore; `genera_teorie` lascia il posto ai due turni | no: il generatore cambia |
+| `engine/fabbrica/config.py` | solo la versione 2 (D5): in `budget` la chiave nuova `teorie_turno_2` (150) e il tetto calcolato (D6); `BLOCCHI_STANDARD` con tutto il catalogo; `budget_massimo` con il turno 2 | no: le ricerche nuove hanno un'impronta nuova |
+| `engine/fabbrica/ricerca.py` | una strada sola: `prepara` con un blocco per famiglia; `lancia` con il turno 2 dopo il turno 1, il file `turno_2.jsonl`, la fase `passo_1_turno_2`, le 150 dello zoom scelte dai due turni; tenuti e tolti nell'evento di avvio e nel riepilogo | no, `lancia` cambia |
+| `engine/fabbrica/schede.py` | i testi dei blocchi nuovi; sulla scheda il turno da cui viene la teoria e la tabella dei tenuti e dei tolti | sì |
+| `engine/vetrina_fabbrica.py` | cella 1: tenuti e tolti, teorie dei due turni, prove massime; la stima del tempo con la velocità vera delle ricerche del 9 e del 10/11 (146–167 prove al secondo con 3 processi) al posto di quella di L3b; cella 2: avanzamento per turno; cella 3: imbuto con i due turni; celle 4–7: una ricerca della versione 1 si ferma come «ricerca non trovata» (D5) | modifica delle celle 1–7 |
+| `Fabbrica_Strategie_Crypto.ipynb` | glossario con «Turno»; i testi sopra le celle 1, 2 e 3, con gli esempi nuovi | testi |
+| `docs/81_FABBRICA_STRATEGIE.md` | §2 glossario con «Turno»; §3 punto 4 (la scrematura in due turni); §7 L2 senza «lista corta» | testo |
 | `test_fabbrica_blocchi.py`, `test_fabbrica_generatore.py`, `test_fabbrica_ricerca.py`, `test_fabbrica_schede.py`, `test_vetrina_fabbrica.py`, `test_notebook_fabbrica.py` | i collaudi di §11.7 | sì |
-| `docs/00`, `docs/82` | a lavoro finito: lo stato e il «come è scritto» | testo |
+| `docs/00`, `docs/82` | a lavoro finito: lo stato, il «come è scritto», e in P-L2 E21, E39 ed E45 non più tenuti fuori | testo |
 
 **Si riusa:** `misura_famiglie` e quindi `famiglie.famiglie`; `ControlloDegenerazione.esiti` per sapere quanto scatta ogni
-blocco; il registro delle condizioni per le maschere del catalogo; il passo 1 di oggi (`_Lavoro.passo_1`) per i due giri,
+blocco; il registro delle condizioni per le maschere del catalogo; il passo 1 di oggi (`_Lavoro.passo_1`) per i due turni,
 senza cambiarlo; `_in_ordine_di_t` per scegliere le 150; zoom, altopiano, selezione, cassaforte, sessione e MM così come sono.
+
+**Le ricerche vecchie (D5 = B).** Le ricerche della versione 1 (quelle del 9 e del 10/11) restano su disco e nel conto delle
+prove. Se le celle 4–7 ne aprono una, si fermano con «ricerca non trovata» e una riga: «è una ricerca della versione 1:
+rilancia la cella 2 per una ricerca nuova».
 
 ### §11.7 · I collaudi
 
 - **Blocchi** (`test_fabbrica_blocchi.py`):
-  - ogni trigger e filtro del catalogo, tranne F36, è un blocco;
+  - ogni trigger e filtro del catalogo, tranne F36, è un blocco, VWAP compresi;
   - la maschera di un blocco del catalogo è quella della condizione, sui due lati;
   - E19 non ha teorie short;
   - su ogni timeframe un blocco è ammesso solo dove scatta, e ogni blocco tolto ha il suo motivo;
@@ -849,43 +889,49 @@ senza cambiarlo; `_in_ordine_di_t` per scegliere le 150; zoom, altopiano, selezi
 - **Un blocco per famiglia** (`test_fabbrica_generatore.py`), con maschere fatte a mano dall'esito noto:
   - una famiglia con uno dei 14 tiene quello;
   - una famiglia senza i 14 tiene quello che scatta più spesso;
-  - due dei 14 nella stessa famiglia: la regola D1;
+  - due dei 14 nella stessa famiglia misurata tengono quello che scatta più spesso;
+  - ADX e ATR relativo molto simili ma in famiglie misurate diverse: restano tutti e due;
   - a parità di frequenza, il nome più piccolo;
   - lo stesso blocco tenuto su un lato e tolto sull'altro;
   - la tabella dei tenuti e dei tolti con il motivo giusto;
   - il registro delle condizioni identico prima e dopo.
-- **I due giri** (`test_fabbrica_generatore.py`):
-  - giro 1 con il conto esatto, trigger × (1 + filtri) × uscite;
-  - giro 2 da un elenco dato di teorie T+F: il conto esatto, nessuna teoria con due filtri della stessa famiglia, stesso lato,
-    trigger e uscita, i doppi tolti, lo stesso ordine a ogni giro;
+- **I due turni** (`test_fabbrica_generatore.py`):
+  - turno 1 con il conto esatto, trigger × (1 + filtri) × uscite;
+  - turno 2 da un elenco dato di teorie T+F: il conto esatto, mai ADX con ATR relativo, stesso lato, trigger e uscita, i
+    doppi tolti, lo stesso ordine a ogni lancio;
   - sullo spot solo long.
 - **La ricerca** (`test_fabbrica_ricerca.py`, dati sintetici):
-  - una ricerca piccola in due giri: le prove del giro 2 nel conto, le 150 dello zoom scelte dai due giri;
-  - fermata a metà del giro 2 e ripresa = stesso risultato, bit per bit;
-  - 1 processo = 3 processi; budget mai superato; il budget massimo con la formula nuova;
-  - una config della versione 1 dà lo stesso risultato di oggi, bit per bit, così le ricerche del 9 e del 10/11 restano
-    leggibili alle celle 4–7;
+  - una ricerca piccola in due turni: le prove del turno 2 nel conto con la fase `passo_1_turno_2`, le 150 dello zoom scelte
+    dai due turni;
+  - fermata a metà del turno 2 e ripresa = stesso risultato, bit per bit;
+  - 1 processo = 3 processi; budget mai superato; il budget massimo con la formula nuova e il tetto arrotondato;
   - il vantaggio piantato e il test del veleno restano verdi.
-- **Schede e celle** (`test_fabbrica_schede.py`, `test_vetrina_fabbrica.py`, `test_notebook_fabbrica.py`): tenuti e tolti e
-  il giro sulla scheda `.md` e `.json`, e in `riepilogo.json`; la cella 1 li mostra; il notebook intero gira due volte su dati
-  sintetici.
+- **Schede e celle** (`test_fabbrica_schede.py`, `test_vetrina_fabbrica.py`, `test_notebook_fabbrica.py`):
+  - tenuti e tolti e il turno sulla scheda `.md` e `.json`, e in `riepilogo.json`;
+  - la cella 1 li mostra, con la stima del tempo dalla velocità vera;
+  - una ricerca della versione 1 aperta dalle celle 4–7 si ferma con «ricerca non trovata»;
+  - il notebook intero gira due volte su dati sintetici.
 - **Prima della PR:** la suite completa, `python suite_rapida.py --tutte`.
 
 ### §11.8 · Come si vede nel notebook
 
-Numeri qui sotto: per le celle 1 e 2 gli esempi di BTC perp M15 di §11.3 e §11.5; quelli dell'imbuto sono inventati,
-solo per il testo.
+Numeri qui sotto: per le celle 1 e 2 gli esempi di BTC perp M15 di §11.3 e §11.5; quelli dell'imbuto sono inventati, solo
+per il testo.
 
-- **1 · Configura:** dopo le date dei tre pezzi, una riga per lato, per esempio «long: 45 trigger → 36 tenuti, 28 filtri → 19
+- **Glossario:** una riga nuova, «**Turno:** una delle due ricerche del passo 1. Il turno 1 prova le teorie con al massimo un
+  filtro; il turno 2 aggiunge un secondo filtro alle 150 migliori».
+- **1 · Configura:** dopo le date dei tre pezzi, una riga per lato, per esempio «long: 45 trigger → 36 tenuti, 30 filtri → 21
   tenuti (un blocco per famiglia)». Poi la tabella dei tolti, una riga per blocco: «E23 · tolto · stessa famiglia di Donchian
   (simile all'85%), che è uno dei 14 di oggi» oppure «E8 · tolto · stessa famiglia di E12, che scatta più spesso (11.241
-  segnali contro 5.305)». La tabella completa, con i tenuti, in una sezione chiusa. Poi: «giro 1: 4.320 teorie; giro 2: al
-  massimo 2.700; al massimo 330.600 prove, circa 30–40 minuti».
-- **2 · La ricerca:** la riga di avanzamento dice il giro, per esempio «giro 1: teoria 2.000 di 4.320 · 66.000 prove», poi
-  «giro 2: teoria 300 di 2.700», poi «zoom: teoria 50 di 150».
-- **3 · L'imbuto:** per esempio «giro 1: 4.320 teorie → 600 tenute · giro 2: 2.700 → 400 tenute · zoom: 150 → altopiano: 90 →
-  selezione → scelte».
-- **Scheda:** «Da dove viene» dice il giro (1 o 2); una sezione «Blocchi tenuti e tolti» con la stessa tabella della cella 1.
+  segnali contro 5.305)». La tabella completa, con i tenuti, in una sezione chiusa. Poi: «turno 1: 4.860 teorie; turno 2: al
+  massimo 3.150; al massimo 370.200 prove, circa 33–41 minuti».
+- **2 · La ricerca:** la riga di avanzamento dice il turno, per esempio «turno 1: teoria 2.000 di 4.860 · 66.000 prove»,
+  poi «turno 2: teoria 300 di 3.150», poi «zoom: teoria 50 di 150».
+- **3 · L'imbuto:** per esempio «turno 1: 4.860 teorie → 600 tenute · turno 2: 3.150 → 400 tenute · zoom: 150 → altopiano:
+  90 → selezione → scelte».
+- **4–7:** come oggi. Su una ricerca della versione 1: «ricerca non trovata: è una ricerca della versione 1, rilancia la cella
+  2 per una ricerca nuova».
+- **Scheda:** «Da dove viene» dice il turno (1 o 2); una sezione «Blocchi tenuti e tolti» con la stessa tabella della cella 1.
 
 Il testo sopra le celle 1, 2 e 3 cambia solo negli esempi; formato e lunghezza restano quelli di `docs/81` §5.
 
@@ -895,35 +941,29 @@ Un ramo e una PR ciascuno, in quest'ordine; il via è di Mattia, lavoro per lavo
 
 | lavoro | contenuto | sessioni | cosa vedrà Mattia |
 |---|---|---|---|
-| **C1** | prima la diagnosi dei timeframe (D4), una tabella da approvare; poi i blocchi del catalogo, i timeframe con i motivi, i testi delle regole, i collaudi | 1–2 | la tabella dei timeframe, poi l'ultima riga delle suite |
-| **C2** | un blocco per famiglia, i due giri, config versione 2, budget, celle 1–3, scheda, notebook, collaudi; tempo misurato solo su dati sintetici | 1–2 | il notebook su dati sintetici; su dati veri solo con il tuo via |
+| **C1** | prima la diagnosi dei timeframe (D4), una tabella da approvare; poi i blocchi del catalogo (VWAP compresi), i timeframe con i motivi, i testi delle regole, i collaudi | 1–2 | la tabella dei blocchi esclusi, poi l'ultima riga delle suite |
+| **C2** | un blocco per famiglia, i due turni, config versione 2, budget e tetto, stima del tempo dalla velocità vera, celle 1–7, scheda, notebook e glossario, `docs/81`, collaudi; tempo misurato solo su dati sintetici | 1–2 | il notebook su dati sintetici; su dati veri solo con il tuo via |
 
-### §11.10 · Domande aperte
+### §11.10 · Le decisioni sulle domande (Mattia, 11/11 sera)
 
-- **D1 · Due dei 14 nella stessa famiglia.** Succede subito con ADX e ATR relativo (famiglia dichiarata), e può succedere con
-  altri su altri asset o timeframe. **Consiglio:** resta quello che scatta più spesso, la stessa regola degli altri casi. Su
-  BTC perp M15 resterebbe ADX (32% delle barre contro 19%). In alternativa restano tutti e due, e la famiglia vieta solo di
-  metterli nella stessa teoria, come oggi.
-- **D2 · «Scatta più spesso» per i filtri.** La decisione dice «il trigger che scatta più spesso»; per una famiglia di filtri
-  senza nessuno dei 14 serve la regola. **Consiglio:** il filtro vero sul maggior numero di barre del pezzo di ricerca, a parità
-  il nome più piccolo.
-- **D3 · Quali 150 al giro 2.** **Consiglio:** come la scelta del passo 2 di oggi: fra le teorie T+F tenute, il t della
-  migliore strategia che passa la condizione 1, i due lati insieme. Se le T+F tenute sono meno di 150, vanno tutte.
-- **D4 · I timeframe dei blocchi del catalogo.** **Consiglio:** come per E36, E47, E49 ed E51 l'08/11. Per ogni blocco nuovo e
-  ogni timeframe da M1 a D1, si legge il codice (finestre in minuti o in ore, orari fissi) e si controlla che scatti su barre
-  sintetiche del timeframe. La tabella con i motivi (limite logico, approssimazione esclusa, escluso solo dall'elenco) arriva a
-  Mattia prima del codice di C1.
-- **D5 · Le ricerche già fatte.** **Consiglio:** la config passa alla versione 2; la versione 1 si legge ancora e vuol dire un
-  giro solo, così le ricerche del 9 e del 10/11 restano leggibili e riprendibili alle celle 4–7.
-- **D6 · Il budget totale.** **Consiglio:** 350.000, sopra il massimo di 330.600 (345.240 se con D1 restano ADX e ATR
-  relativo), come oggi 100.000 sta sopra 96.840.
+- **D1 = B.** ADX e ATR relativo restano tutti e due. Per scegliere i tenuti contano solo le famiglie misurate; la
+  dichiarazione vale solo nel generatore: mai nella stessa teoria, anche al turno 2.
+- **D2:** per i filtri, «scatta più spesso» vuol dire vero sul maggior numero di barre del pezzo di ricerca; a parità il nome
+  più piccolo.
+- **D3:** le 150 del turno 2 si scelgono come quelle del passo 2: fra le T+F tenute, il t della migliore strategia che passa
+  la condizione 1, i due lati insieme. Se sono meno di 150, vanno tutte.
+- **D4:** per ogni blocco nuovo e ogni timeframe da M1 a D1, si legge il codice (finestre in minuti o in ore, orari fissi) e
+  si controlla che scatti su barre sintetiche del timeframe. La tabella da approvare elenca **solo i blocchi che restano fuori
+  su qualche timeframe**, con il motivo (`MOTIVI_ESCLUSIONE`: limite logico, approssimazione esclusa, escluso solo
+  dall'elenco). Arriva a Mattia prima del codice di C1.
+- **D5 = B.** Solo la config versione 2: nella ricerca una strada sola. Le ricerche vecchie restano su disco e nel conto;
+  le celle 4–7 su una di esse si fermano come «ricerca non trovata», con la riga che dice di rilanciare la cella 2.
+- **D6:** il tetto del budget è il massimo nuovo arrotondato in su ai 10.000: 380.000 su BTC perp M15 (§11.5).
 
 ### §11.11 · Visto a parte (non entra nel lavoro, si decide insieme)
 
-- La stima della cella 1 (`stima_minuti`) usa la velocità delle barre sintetiche di L3b: sulle due ricerche vere era 2,2–2,5
-  volte più veloce del vero.
+- **Due dei 14 nella stessa famiglia misurata:** la decisione D1 = B riguarda ADX e ATR relativo, che stanno in famiglie
+  misurate diverse. Su un altro asset o timeframe due dei 14 potrebbero finire nella stessa famiglia misurata: in §11.3 resta
+  quello che scatta più spesso, da confermare.
 - F22_FAR_FROM_ROLLOVER conta le ore al rollover delle 17:00 di New York del broker: sulle crypto è solo un filtro d'orario.
-- P-L2 dice che E21, E39 ed E45 sono stati tenuti fuori di proposito: con la decisione dell'11/11 il testo va aggiornato a
-  lavoro finito.
-- `docs/81` §7 (L2) parla ancora di «una lista corta» di blocchi.
 - La famiglia di un blocco con parametri si misura ai valori centrali anche quando proprio quella combinazione è degenere.
