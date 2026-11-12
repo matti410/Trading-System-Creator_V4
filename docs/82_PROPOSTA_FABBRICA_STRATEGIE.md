@@ -650,7 +650,7 @@ Un ramo e una PR per ciascuno, in quest'ordine. Il via è di Mattia, lavoro per 
 
 **Indice:** §11.1 In breve · §11.2 I blocchi · §11.3 Un blocco per famiglia · §11.4 I due turni · §11.5 Budget e tempo ·
 §11.6 Cosa cambia, file per file · §11.7 I collaudi · §11.8 Come si vede nel notebook · §11.9 I lavori · §11.10 Le
-decisioni sulle domande · §11.11 Visto a parte
+decisioni sulle domande · §11.11 Visto a parte · §11.12 D4: i blocchi esclusi per timeframe
 
 I numeri su BINANCE_PERP_BTCUSDT M15 vengono dalla misura dell'11/11 sera: pezzo di ricerca della config standard (dal
 02/01/2020 al 12/07/2023, 123.254 barre), **solo segnali**, nessuna prova, nessun conto. Sono un esempio di cosa fa la
@@ -967,3 +967,75 @@ Un ramo e una PR ciascuno, in quest'ordine; il via è di Mattia, lavoro per lavo
 
 - F22_FAR_FROM_ROLLOVER conta le ore al rollover delle 17:00 di New York del broker: sulle crypto è solo un filtro d'orario.
 - La famiglia di un blocco con parametri si misura ai valori centrali anche quando proprio quella combinazione è degenere.
+
+### §11.12 · D4: i blocchi del catalogo esclusi per timeframe (diagnosi del 12/11)
+
+**Come.** Per ogni blocco del catalogo che oggi non è nella fabbrica (38 trigger, 23 filtri compresi i due VWAP) e per ogni
+timeframe da M1 a D1:
+- ho letto il codice: finestre in barre, minuti od ore, orari fissi, colonne di `aggiungi_indicatori`, e le liste dei
+  timeframe ammessi che E46, E48 ed E52 hanno già in `engine/indicatori.py`;
+- ho controllato che il blocco scatti su barre sintetiche di quel timeframe (`sintetici.mercato`, lunghe come il pezzo di
+  ricerca; M1 tagliato a circa 417 giorni), con `verifica_degenerazione`. Nessun dato vero, nessuna prova.
+
+Script ed esiti in `dati/prove/d4_timeframe_20261112/`, fuori dal repo.
+
+**Da approvare: le coppie (blocco, timeframe) che restano fuori**, con il motivo nello stile di `MOTIVI_ESCLUSIONE`.
+
+| blocco | timeframe | tipo di motivo | motivo |
+|---|---|---|---|
+| E22 | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00: le aperture di Tokyo e di Londra non sono l'inizio di una barra |
+| E23 | D1 | limite logico | la giornata è una barra sola: «la prima rottura del giorno» è ogni barra che chiude sopra il massimo di ieri, e due giorni di fila fanno uno stato, non un evento |
+| E31 | H4, D1 | limite logico | le candele H4 e H1 dei tre schermi non sono più larghe della barra |
+| E37 | H1, H4, D1 | limite logico | le 09:30, le 16:00 e le 16:30 di New York non sono la fine di una candela di questo timeframe |
+| E38 | H4, D1 | limite logico | l'ora dalle 07:00 alle 08:00 UTC e la candela che finisce alle 21:00 sono più corte di una barra |
+| E39 | H4, D1 | limite logico | l'ora dalle 11:00 alle 12:00 UTC è più corta di una barra |
+| E40 | H1, H4, D1 | limite logico | i controlli di mezz'ora sono più corti di una barra |
+| E45 | D1 | limite logico | le 4 ore del rendimento sono più corte di una barra |
+| E46 | M1 | escluso solo dall'elenco | la regola in minuti sarebbe la stessa; l'elenco dei timeframe del catalogo parte da M5 (aprire M1 è un lavoro futuro, separato) |
+| E46 | M30 | approssimazione esclusa per scelta | l'impulso di 45 minuti diventerebbe di 60 (2 barre): una variante della regola |
+| E46 | H1, H4, D1 | limite logico | i 45 minuti dell'impulso sono più corti di una barra |
+| E48 | M1 | escluso solo dall'elenco | la regola in minuti sarebbe la stessa; l'elenco dei timeframe del catalogo parte da M5 (aprire M1 è un lavoro futuro, separato) |
+| E48 | M30, H1, H4, D1 | limite logico | i 15 minuti per lato del massimo locale sono più corti di una barra |
+| E52 | M1 | escluso solo dall'elenco | la regola in minuti sarebbe la stessa; l'elenco dei timeframe del catalogo parte da M5 (aprire M1 è un lavoro futuro, separato) |
+| E52 | H1, H4 | approssimazione esclusa per scelta | i controlli di mezz'ora diventerebbero ogni ora (ogni 4 ore su H4): una variante della regola |
+| E52 | D1 | limite logico | la giornata è una barra sola: nessun controllo dentro la giornata |
+| F20_SESSION_ASIA | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00, sempre dentro la sessione di Tokyo nei giorni feriali: il filtro direbbe solo «giorno feriale» |
+| F20_SESSION_EUROPE | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00: Londra non è mai aperta |
+| F20_SESSION_US | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00: New York non è mai aperta |
+| OVERNIGHT_RETURN (F21) | D1 | limite logico | le aperture di New York non sono l'inizio di una barra giornaliera |
+| F22_FAR_FROM_ROLLOVER | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00 UTC, sempre a più di 4 ore dal rollover: il filtro è sempre vero |
+| VWAP_GAP_WIDENING | D1 | limite logico | la sessione è una barra sola: la regressione intraday della sessione non esiste |
+| VWAP_SESSION_CLOSE | D1 | limite logico | la sessione è una barra sola: la regressione intraday della sessione non esiste |
+
+**Scattano su tutti i timeframe, da M1 a D1:**
+- **trigger:** E1, E2, E3, E4, E6, E7, E8, E9, E10, E11, E12, E13, E16, E19, E21, E24, E25, E26, E27, E28, E29, E30, E32,
+  E33, E34, E35, E41;
+- **filtri:** F1, F2_HIGH, F14, F15, F23, F25_CHOP_RANGE, F26, F29, F32, F35, F39, e le coppie MACD_SIGNAL,
+  TREND_CONVICTION, TWO_BARS, VFI_SIGN, ALGOX_STATE.
+
+Gli altri (E22, E23, E31, E37–E40, E45, E46, E48, E52, F20, OVERNIGHT_RETURN, F22, i due VWAP) scattano su tutti i
+timeframe che non sono in tabella.
+
+**Casi dubbi, ognuno con il mio consiglio.**
+- **Finestre in barre lunghe su H4 e D1.** Sui sintetici di D1 (circa 1.000 barre utili) alcuni blocchi non scattano mai:
+  F10, F14, F23, F26, E7, E30 short. Molti altri scattano meno di 30 volte su H4 e D1 (esito «RARA»). Dipende dalla storia
+  disponibile, non dalla regola: le loro finestre sono in barre (fino a 2.000), e su D1 il pezzo di ricerca ha circa 1.290
+  barre. **Consiglio:** nessuna esclusione in tabella. Il controllo dei degeneri a ogni avvio li toglie dove non scattano
+  abbastanza, e il motivo va nella tabella dei tenuti e dei tolti (§11.3).
+- **E23 come stato su M1–H4.** Se la prima rottura di un giorno cade sull'ultima barra e la prima barra del giorno dopo
+  rompe subito il massimo nuovo, E23 è vero su due barre di fila. Sui sintetici succede su M15 (una volta in 3,5 anni), su
+  M30, H1 e H4; sui dati veri di BTC perp M15 no (diagnosi dell'11/11). Oggi la fabbrica, davanti a un blocco «STATO», ferma
+  la ricerca (`ControlloDegenerazione`: «è un errore del blocco»). **Consiglio:** un blocco del catalogo che sul pezzo di
+  ricerca risulta «STATO» esce da quel lato con il motivo, come un degenere, e la ricerca prosegue; il catalogo non cambia.
+- **E31 su H1.** L'ingresso su H1 coincide con lo schermo H1: lo schermo 3 diventa «chiusura sopra il massimo della barra
+  prima», e i tre schermi diventano due. **Consiglio:** escluderlo come «approssimazione esclusa per scelta»: «l'ingresso su
+  H1 coincide con lo schermo H1: i tre schermi diventano due». Su M1, M5, M15 e M30 i tre schermi restano tre.
+- **Orari di sessione su H4.** Su H4 le aperture di Londra (07:00 o 08:00 UTC) e di New York (13:30 o 14:30 UTC) e il
+  rollover delle 17:00 di New York cadono dentro una barra: i confini si spostano fino a 4 ore. Riguarda E22, F20_SESSION_ASIA,
+  F20_SESSION_EUROPE, F20_SESSION_US, OVERNIGHT_RETURN e F22. **Consiglio:** tenerli su H4, come F20_SESSION_OVERLAP, ammesso
+  fino a H4 dall'08/11.
+- **VWAP su H4.** La sessione ha 6 barre: la regressione intraday si fa su al massimo 6 punti, ma la regola è la stessa.
+  **Consiglio:** tenerli su H4.
+- **M1 con le finestre di giornate.** Sui sintetici di M1, tagliati a circa 417 giorni, E40 ed E41 scattano meno di 30 volte,
+  perché servono 250 e 300 giornate di storia. Sul pezzo di ricerca vero di M1 (circa 1.290 giornate) il limite non c'è.
+  **Consiglio:** nessuna esclusione.
