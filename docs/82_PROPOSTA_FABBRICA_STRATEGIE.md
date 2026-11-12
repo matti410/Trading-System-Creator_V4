@@ -598,7 +598,7 @@ Vuoto = nessun ingresso: la cella mostra l'esito delle strategie già entrate, s
 - Cassaforte senza limiti di ingresso (10/11): tolto il blocco «una strategia già entrata non rientra» (stesso tratto e tratti sovrapposti): ogni strategia della 4 può entrare in cassaforte quante volte si vuole. Tolti dalla cella 5 la frase di conferma e l'avviso «una volta sola»: il campo resta solo per i numeri. Resta tutto il sigillo (la cassaforte non si legge prima della cella 5, test del veleno invariato) e il registro degli ingressi, solo come annotazione da leggere. Il conto delle prove non cambia (P8, §7).
 - Registro senza catena di impronte (10/11, scelta B): `registro_<macchina>.jsonl` resta un file di annotazioni, solo in aggiunta, che non ferma più nulla se una riga è cambiata o tolta; i registri già scritti con l'impronta si leggono come gli altri. Non cambiano il file e il conto delle prove, il sigillo della cassaforte e il test del veleno (P7, P8, §6).
 - Selezione (08/11, scelte di L4a): famiglie misurate sui segnali finali di ricerca + selezione, lato per lato; P(EV<0) con il bootstrap di `p_ev_negativo` (10.000 ricampionamenti, seme 0) sui bp di selezione; il pezzo passato alla selezione finisce all'ultima barra della selezione, senza barre della cassaforte (P6).
-- Catalogo intero e due turni (11/11, dopo la diagnosi delle famiglie; rivista la sera dell'11/11 sulla PR #112): blocchi = tutto il catalogo dei trigger, i filtri di `filter_conditions.py` e di `vwap_regime_filter_conditions.py` (VWAP_GAP_WIDENING neutro e la coppia VWAP_SESSION_CLOSE in un blocco solo, come TREND_CONTEXT), più RSI, Donchian, ADX e ATR relativo; E21, E39 ed E45 inclusi; F36 (Fear & Greed) escluso per ora; uscite le 3 di oggi (X0, X3, X1). I trigger del catalogo sono 43 long e 42 short (E19 solo long). Un blocco per famiglia, in automatico all'avvio di ogni ricerca sul pezzo di ricerca, solo sui segnali (`famiglie.py`, stessa soglia, trigger e filtri lato per lato): si tiene il blocco fra i 14 di oggi se c'è, altrimenti quello che scatta più spesso (D2: per i filtri, vero sul maggior numero di barre); l'elenco dei tenuti e dei tolti, con il motivo, va nel riepilogo della cella 1 e sulla scheda. D1 = B: per scegliere i tenuti contano solo le famiglie misurate; ADX e ATR relativo restano tutti e due, e la loro famiglia dichiarata vale solo nel generatore (mai nella stessa teoria, anche al turno 2). Se due dei 14 finiscono nella stessa famiglia misurata, resta quello che scatta più spesso; a parità, il nome più piccolo (Mattia, 12/11, scelta A). Ricerca in due turni (la parola «giro» resta solo dell'ottimizzatore e dello zoom), tutta sul pezzo di ricerca: turno 1 tutte le teorie T+U e T+F+U; turno 2 alle 150 teorie T+F con il t più alto (D3: come la scelta del passo 2) si aggiunge un secondo filtro, tutti quelli compatibili; poi le teorie dei due turni insieme e le 150 migliori allo zoom come oggi; ogni prova dei due turni entra nel conto (fase `passo_1_turno_2`, file `turno_2.jsonl`, chiave `teorie_turno_2`). D4: la tabella da approvare elenca solo i blocchi che restano fuori su qualche timeframe da M1 a D1, con il motivo. D5 = B: solo la config versione 2, una strada sola; le ricerche vecchie restano su disco e nel conto, e le celle 4–7 su una di esse si fermano come «ricerca non trovata» con la riga che dice di rilanciare la cella 2. D6: il tetto del budget è il massimo nuovo arrotondato in su ai 10.000. La stima del tempo della cella 1 usa la velocità vera delle ricerche del 9 e del 10/11 (146–167 prove al secondo con 3 processi), in C2. Proposta in §11, nessun codice prima del via. Quando il codice sarà unito, questa voce prende il posto di «Lista dei blocchi di P-L2 approvata», di «Budget: 100.000 prove» e del numero di teorie (1.176) di «Famiglie (06/11)».
+- Catalogo intero e due turni (11/11, dopo la diagnosi delle famiglie; rivista la sera dell'11/11 sulla PR #112): blocchi = tutto il catalogo dei trigger, i filtri di `filter_conditions.py` e di `vwap_regime_filter_conditions.py` (VWAP_GAP_WIDENING neutro e la coppia VWAP_SESSION_CLOSE in un blocco solo, come TREND_CONTEXT), più RSI, Donchian, ADX e ATR relativo; E21, E39 ed E45 inclusi; F36 (Fear & Greed) escluso per ora; uscite le 3 di oggi (X0, X3, X1). I trigger del catalogo sono 43 long e 42 short (E19 solo long). Un blocco per famiglia, in automatico all'avvio di ogni ricerca sul pezzo di ricerca, solo sui segnali (`famiglie.py`, stessa soglia, trigger e filtri lato per lato): si tiene il blocco fra i 14 di oggi se c'è, altrimenti quello che scatta più spesso (D2: per i filtri, vero sul maggior numero di barre); l'elenco dei tenuti e dei tolti, con il motivo, va nel riepilogo della cella 1 e sulla scheda. D1 = B: per scegliere i tenuti contano solo le famiglie misurate; ADX e ATR relativo restano tutti e due, e la loro famiglia dichiarata vale solo nel generatore (mai nella stessa teoria, anche al turno 2). Se due dei 14 finiscono nella stessa famiglia misurata, resta quello che scatta più spesso; a parità, il nome più piccolo (Mattia, 12/11, scelta A). Ricerca in due turni (la parola «giro» resta solo dell'ottimizzatore e dello zoom), tutta sul pezzo di ricerca: turno 1 tutte le teorie T+U e T+F+U; turno 2 alle 150 teorie T+F con il t più alto (D3: come la scelta del passo 2) si aggiunge un secondo filtro, tutti quelli compatibili; poi le teorie dei due turni insieme e le 150 migliori allo zoom come oggi; ogni prova dei due turni entra nel conto (fase `passo_1_turno_2`, file `turno_2.jsonl`, chiave `teorie_turno_2`). D4: la tabella da approvare elenca solo i blocchi che restano fuori su qualche timeframe da M1 a D1, con il motivo. D5 = B: solo la config versione 2, una strada sola; le ricerche vecchie restano su disco e nel conto, e le celle 4–7 su una di esse si fermano come «ricerca non trovata» con la riga che dice di rilanciare la cella 2. D6: il tetto del budget è il massimo nuovo arrotondato in su ai 10.000. La stima del tempo della cella 1 usa la velocità vera delle ricerche del 9 e del 10/11 (146–167 prove al secondo con 3 processi), in C2. D4 (12/11 sera, §11.12): le coppie (blocco, timeframe) escluse sono nella tabella di §11.12, con il motivo; in più E41 su D1 (limite logico), E31 su H1, E22 e OVERNIGHT_RETURN su H4 (approssimazioni escluse per scelta); F20_SESSION_ASIA, F20_SESSION_EUROPE, F20_SESSION_US e F22 restano su H4 (scelta B); nessuna esclusione per le finestre in barre lunghe (ci pensa il controllo dei degeneri), VWAP tenuti su H4, E40 ed E41 tenuti su M1. Un blocco del catalogo che sul pezzo di ricerca risulta «STATO» esce da quel lato con il motivo «vero su due barre di fila: non è un evento su questi dati» e la ricerca prosegue, come un degenere (scelta A); il catalogo non cambia; per i blocchi con parametri della fabbrica «STATO» resta un errore che ferma la ricerca. Il ricontrollo degli eventi su H4 e D1 non aggiunge righe. Proposta in §11, nessun codice prima del via. Quando il codice sarà unito, questa voce prende il posto di «Lista dei blocchi di P-L2 approvata», di «Budget: 100.000 prove» e del numero di teorie (1.176) di «Famiglie (06/11)».
 
 ---
 
@@ -727,8 +727,13 @@ long e 42 short**, cioè le 85 entry del catalogo di `docs/00`; lo short ha gli 
 segnali: non è una prova e non entra nel conto.
 
 **In che ordine:**
-1. **Valori degeneri,** come oggi (P3): per lato, per ogni combinazione della griglia dei blocchi con parametri; un blocco
-   del catalogo degenere su un lato esce da quel lato.
+1. **Valori degeneri e STATO:**
+   - i valori degeneri come oggi (P3): per lato, per ogni combinazione della griglia dei blocchi con parametri; un blocco del
+     catalogo degenere su un lato esce da quel lato;
+   - un blocco del catalogo che sul pezzo di ricerca risulta «STATO» (vero su due barre di fila) esce da quel lato con il
+     motivo «vero su due barre di fila: non è un evento su questi dati», come un degenere, e la ricerca prosegue; il catalogo
+     non cambia (Mattia, 12/11, scelta A). Per i blocchi con parametri della fabbrica resta com'è oggi: «STATO» è un errore
+     del blocco e la ricerca si ferma.
 2. **Famiglie misurate:** per lato, i trigger fra loro e i filtri fra loro, ai valori centrali, `famiglie.py` con soglia 60%
    e lift 1,3. **La dichiarazione non unisce le famiglie** (D1 = B): ADX sta con F1, ATR relativo con F2_HIGH, ognuna con il
    suo tenuto.
@@ -896,6 +901,9 @@ rilancia la cella 2 per una ricerca nuova».
   - lo stesso blocco tenuto su un lato e tolto sull'altro;
   - la tabella dei tenuti e dei tolti con il motivo giusto;
   - il registro delle condizioni identico prima e dopo.
+- **STATO** (`test_fabbrica_generatore.py`): un trigger del catalogo vero su due barre di fila esce da quel lato con il
+  motivo «vero su due barre di fila: non è un evento su questi dati» e la ricerca prosegue; un blocco con parametri della
+  fabbrica in «STATO» ferma ancora la ricerca.
 - **I due turni** (`test_fabbrica_generatore.py`):
   - turno 1 con il conto esatto, trigger × (1 + filtri) × uscite;
   - turno 2 da un elenco dato di teorie T+F: il conto esatto, mai ADX con ATR relativo, stesso lato, trigger e uscita, i
@@ -983,13 +991,16 @@ Script ed esiti in `dati/prove/d4_timeframe_20261112/`, fuori dal repo.
 
 | blocco | timeframe | tipo di motivo | motivo |
 |---|---|---|---|
+| E22 | H4 | approssimazione esclusa per scelta | in estate l'apertura di Londra cade dentro una barra e il range asiatico si allunga di un'ora: una variante della regola |
 | E22 | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00: le aperture di Tokyo e di Londra non sono l'inizio di una barra |
 | E23 | D1 | limite logico | la giornata è una barra sola: «la prima rottura del giorno» è ogni barra che chiude sopra il massimo di ieri, e due giorni di fila fanno uno stato, non un evento |
+| E31 | H1 | approssimazione esclusa per scelta | l'ingresso su H1 coincide con lo schermo H1: i tre schermi diventano due |
 | E31 | H4, D1 | limite logico | le candele H4 e H1 dei tre schermi non sono più larghe della barra |
 | E37 | H1, H4, D1 | limite logico | le 09:30, le 16:00 e le 16:30 di New York non sono la fine di una candela di questo timeframe |
 | E38 | H4, D1 | limite logico | l'ora dalle 07:00 alle 08:00 UTC e la candela che finisce alle 21:00 sono più corte di una barra |
 | E39 | H4, D1 | limite logico | l'ora dalle 11:00 alle 12:00 UTC è più corta di una barra |
 | E40 | H1, H4, D1 | limite logico | i controlli di mezz'ora sono più corti di una barra |
+| E41 | D1 | limite logico | su D1 due giornate di fila nel quintile sono due barre vicine, e `_evento` ne tiene una sola; su M15 sono due segnali |
 | E45 | D1 | limite logico | le 4 ore del rendimento sono più corte di una barra |
 | E46 | M1 | escluso solo dall'elenco | la regola in minuti sarebbe la stessa; l'elenco dei timeframe del catalogo parte da M5 (aprire M1 è un lavoro futuro, separato) |
 | E46 | M30 | approssimazione esclusa per scelta | l'impulso di 45 minuti diventerebbe di 60 (2 barre): una variante della regola |
@@ -1002,6 +1013,7 @@ Script ed esiti in `dati/prove/d4_timeframe_20261112/`, fuori dal repo.
 | F20_SESSION_ASIA | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00, sempre dentro la sessione di Tokyo nei giorni feriali: il filtro direbbe solo «giorno feriale» |
 | F20_SESSION_EUROPE | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00: Londra non è mai aperta |
 | F20_SESSION_US | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00: New York non è mai aperta |
+| OVERNIGHT_RETURN (F21) | H4 | approssimazione esclusa per scelta | in inverno l'apertura di New York cade dentro la barra delle 12:00 UTC e la fotografia passa alla barra delle 16:00, 3 ore dopo: una variante della regola |
 | OVERNIGHT_RETURN (F21) | D1 | limite logico | le aperture di New York non sono l'inizio di una barra giornaliera |
 | F22_FAR_FROM_ROLLOVER | D1 | limite logico | la barra giornaliera è sempre quella delle 00:00 UTC, sempre a più di 4 ore dal rollover: il filtro è sempre vero |
 | VWAP_GAP_WIDENING | D1 | limite logico | la sessione è una barra sola: la regressione intraday della sessione non esiste |
@@ -1009,33 +1021,40 @@ Script ed esiti in `dati/prove/d4_timeframe_20261112/`, fuori dal repo.
 
 **Scattano su tutti i timeframe, da M1 a D1:**
 - **trigger:** E1, E2, E3, E4, E6, E7, E8, E9, E10, E11, E12, E13, E16, E19, E21, E24, E25, E26, E27, E28, E29, E30, E32,
-  E33, E34, E35, E41;
+  E33, E34, E35;
 - **filtri:** F1, F2_HIGH, F14, F15, F23, F25_CHOP_RANGE, F26, F29, F32, F35, F39, e le coppie MACD_SIGNAL,
   TREND_CONVICTION, TWO_BARS, VFI_SIGN, ALGOX_STATE.
 
-Gli altri (E22, E23, E31, E37–E40, E45, E46, E48, E52, F20, OVERNIGHT_RETURN, F22, i due VWAP) scattano su tutti i
+Gli altri (E22, E23, E31, E37–E41, E45, E46, E48, E52, F20, OVERNIGHT_RETURN, F22, i due VWAP) scattano su tutti i
 timeframe che non sono in tabella.
 
-**Casi dubbi, ognuno con il mio consiglio.**
-- **Finestre in barre lunghe su H4 e D1.** Sui sintetici di D1 (circa 1.000 barre utili) alcuni blocchi non scattano mai:
-  F10, F14, F23, F26, E7, E30 short. Molti altri scattano meno di 30 volte su H4 e D1 (esito «RARA»). Dipende dalla storia
-  disponibile, non dalla regola: le loro finestre sono in barre (fino a 2.000), e su D1 il pezzo di ricerca ha circa 1.290
-  barre. **Consiglio:** nessuna esclusione in tabella. Il controllo dei degeneri a ogni avvio li toglie dove non scattano
-  abbastanza, e il motivo va nella tabella dei tenuti e dei tolti (§11.3).
-- **E23 come stato su M1–H4.** Se la prima rottura di un giorno cade sull'ultima barra e la prima barra del giorno dopo
-  rompe subito il massimo nuovo, E23 è vero su due barre di fila. Sui sintetici succede su M15 (una volta in 3,5 anni), su
-  M30, H1 e H4; sui dati veri di BTC perp M15 no (diagnosi dell'11/11). Oggi la fabbrica, davanti a un blocco «STATO», ferma
-  la ricerca (`ControlloDegenerazione`: «è un errore del blocco»). **Consiglio:** un blocco del catalogo che sul pezzo di
-  ricerca risulta «STATO» esce da quel lato con il motivo, come un degenere, e la ricerca prosegue; il catalogo non cambia.
-- **E31 su H1.** L'ingresso su H1 coincide con lo schermo H1: lo schermo 3 diventa «chiusura sopra il massimo della barra
-  prima», e i tre schermi diventano due. **Consiglio:** escluderlo come «approssimazione esclusa per scelta»: «l'ingresso su
-  H1 coincide con lo schermo H1: i tre schermi diventano due». Su M1, M5, M15 e M30 i tre schermi restano tre.
-- **Orari di sessione su H4.** Su H4 le aperture di Londra (07:00 o 08:00 UTC) e di New York (13:30 o 14:30 UTC) e il
-  rollover delle 17:00 di New York cadono dentro una barra: i confini si spostano fino a 4 ore. Riguarda E22, F20_SESSION_ASIA,
-  F20_SESSION_EUROPE, F20_SESSION_US, OVERNIGHT_RETURN e F22. **Consiglio:** tenerli su H4, come F20_SESSION_OVERLAP, ammesso
-  fino a H4 dall'08/11.
-- **VWAP su H4.** La sessione ha 6 barre: la regressione intraday si fa su al massimo 6 punti, ma la regola è la stessa.
-  **Consiglio:** tenerli su H4.
-- **M1 con le finestre di giornate.** Sui sintetici di M1, tagliati a circa 417 giorni, E40 ed E41 scattano meno di 30 volte,
-  perché servono 250 e 300 giornate di storia. Sul pezzo di ricerca vero di M1 (circa 1.290 giornate) il limite non c'è.
-  **Consiglio:** nessuna esclusione.
+**Il ricontrollo su H4 e D1 (12/11 sera).** Per ogni trigger nuovo tenuto su H4 (29: E1, E2, E3, E4, E6–E13, E16, E19,
+E21, E23–E30, E32–E35, E41, E45) e su D1 (26: gli stessi senza E23, E41 ed E45), lato long e short, sulle stesse barre
+sintetiche e con M15 come riferimento:
+- gli eventi del trigger contro i segnali della regola prima di `_evento`: su barre sintetiche la dinamica per barra non
+  dipende dal timeframe, quindi una regola scritta in barre perde la stessa quota su M15, H4 e D1, e una quota che cresce su
+  H4 o D1 segnala una regola scritta in tempo;
+- per le regole scritte in giornate, gli eventi attesi contati dalla regola: E41 (le giornate nel quintile), E23 (le giornate
+  con una rottura), E45 (le barre in cui il rendimento a 4 ore entra nel quintile).
+
+Esito: su H4 e D1 nessun trigger perde eventi più che su M15. E41 ed E45 su H4 hanno tutti gli eventi della regola (E41
+253 e 157, E45 637 e 809); le quote perse di E3, E7, E21 ed E34 sono vicine a quelle di M15 (regole scritte in barre: per esempio
+E7 74% su M15 e su H4, E3 long 9,4% su M15 e 8,3% su D1). Nessuna riga nuova in tabella dal ricontrollo. Da sapere: E23 su H4 ha tutte le
+giornate della regola (434 su 434), ma nel 2,8% delle giornate la rottura cade sull'ultima barra e quella del giorno dopo
+sulla prima, cioè su due barre di fila (su M15 lo 0,2%): con la decisione A (§11.3) E23 esce da quel lato, con il motivo,
+sui dati dove succede.
+
+Script ed esiti in `dati/prove/d4_timeframe_20261112/` (`d4_sintetici.py`, `d4_ricontrollo_eventi.py`).
+
+**Deciso il 12/11 sera (Mattia):**
+- **Finestre in barre lunghe su H4 e D1** (F10, F14, F23, F26, E7, E30 short mai veri sui sintetici di D1; molti blocchi
+  «RARA» su H4 e D1): nessuna esclusione. Il controllo dei degeneri a ogni avvio li toglie dove non scattano abbastanza, con
+  il motivo nella tabella dei tenuti e dei tolti (§11.3).
+- **STATO:** scelta A, in §11.3 e §11.7.
+- **E31 su H1:** esce, in tabella.
+- **Orari di sessione su H4:** scelta B. F20_SESSION_ASIA, F20_SESSION_EUROPE, F20_SESSION_US e F22 restano su H4, come
+  F20_SESSION_OVERLAP; OVERNIGHT_RETURN ed E22 escono su H4, in tabella.
+- **VWAP su H4:** restano.
+- **E40 ed E41 su M1:** restano (sui sintetici di M1, tagliati a circa 417 giorni, mancava la storia di 250 e 300
+  giornate).
+- **E41 su D1:** esce, in tabella.
