@@ -107,6 +107,174 @@ TESTI_USCITE = {                       # la regola d'uscita; None = nessuna rego
 }
 
 
+# C1 (docs/82 §11.2, 12/11): i testi dei blocchi del catalogo entrati nella fabbrica, scritti leggendo il codice di ogni
+# condizione (entry_long.py, entry_short.py, filter_conditions.py, vwap_regime_filter_conditions.py). Le finestre in barre
+# del catalogo restano in barre: d() le dice anche in ore sul timeframe della strategia.
+def _cdl(nome_long, nome_short, funzione_long, funzione_short):
+    return lambda v, d, l: ("la barra chiude la figura " + _su(l, nome_long, nome_short) + " (TA-Lib "
+                            + _su(l, funzione_long, funzione_short) + "; la prima di più barre di fila)")
+
+
+TESTI_TRIGGER.update({
+    "E1": lambda v, d, l: (f"l'RSI di {d(14)} " + _su(l, "scende sotto 30 da sopra (entra in ipervenduto)",
+                                                     "sale sopra 70 da sotto (entra in ipercomprato)")),
+    "E2": lambda v, d, l: (f"il Close della barra prima ha attraversato la ZLEMA di {d(50)} "
+                           + _su(l, "dal basso verso l'alto", "dall'alto verso il basso") + ", e la barra chiude "
+                           + _su(l, "sopra", "sotto") + " l'apertura, " + _su(l, "sopra", "sotto")
+                           + " il Close della barra prima e ancora " + _su(l, "sopra", "sotto") + " la ZLEMA"),
+    "E3": lambda v, d, l: ("il Close è " + _su(l, "nel 15% più basso", "nel 15% più alto") + f" dei Close delle ultime "
+                           f"{d(10)} e il rapporto Close / Open della barra è "
+                           + _su(l, "nel 15% più basso", "nel 15% più alto") + f" delle ultime {d(20)}"),
+    "E4": lambda v, d, l: (f"la media esponenziale di {d(20)} attraversa quella di {d(50)} "
+                           + _su(l, "dal basso verso l'alto", "dall'alto verso il basso")),
+    "E6": lambda v, d, l: _su(l, "il Low della barra è sopra l'High di tre barre fa e sotto l'High della barra prima, e "
+                                 "l'High della barra e quello della barra prima sono sotto l'High di due barre fa",
+                              "l'High della barra è sotto il Low di tre barre fa e sopra il Low della barra prima, e il "
+                              "Low della barra e quello della barra prima sono sopra il Low di due barre fa"),
+    "E7": lambda v, d, l: (f"nelle ultime {d(10)} le barre " + _su(l, "rialziste", "ribassiste") + " a coda lunga "
+                           + _su(l, "(chiusura sopra l'apertura, coda sotto più lunga del corpo, nuovo massimo)",
+                                 "(chiusura sotto l'apertura, coda sopra più lunga del corpo, nuovo minimo)")
+                           + " sono più di quelle " + _su(l, "ribassiste", "rialziste")
+                           + f", e il loro numero supera il 90° percentile delle ultime {d(2000)}"),
+    "E8": lambda v, d, l: ("il Close della barra prima è " + _su(l, "sopra", "sotto") + " quello di tre barre fa, il "
+                           "Close di due barre fa è " + _su(l, "sopra", "sotto") + " quello della barra prima e il "
+                           "Close della barra è " + _su(l, "sopra", "sotto") + " quello di due barre fa"),
+    "E9": lambda v, d, l: ("il Close della barra prima è " + _su(l, "sotto", "sopra") + " quello di due barre fa, che è "
+                           + _su(l, "sotto", "sopra") + " quello di cinque barre fa, che è " + _su(l, "sotto", "sopra")
+                           + " quello di tre barre fa, che è " + _su(l, "sotto", "sopra") + " quello di quattro barre fa"),
+    "E10": _cdl("hammer", "hanging man", "CDLHAMMER", "CDLHANGINGMAN"),
+    "E11": _cdl("inverted hammer", "shooting star", "CDLINVERTEDHAMMER", "CDLSHOOTINGSTAR"),
+    "E12": _cdl("engulfing rialzista", "engulfing ribassista", "CDLENGULFING", "CDLENGULFING"),
+    "E13": _cdl("harami rialzista", "harami ribassista", "CDLHARAMI", "CDLHARAMI"),
+    "E16": _cdl("morning star", "evening star", "CDLMORNINGSTAR", "CDLEVENINGSTAR"),
+    "E19": _cdl("three white soldiers", "three white soldiers", "CDL3WHITESOLDIERS", "CDL3WHITESOLDIERS"),
+    "E21": _cdl("belt hold rialzista", "belt hold ribassista", "CDLBELTHOLD", "CDLBELTHOLD"),
+    "E22": lambda v, d, l: ("fra l'apertura di Londra e la chiusura di New York il Close "
+                            + _su(l, "supera il massimo", "scende sotto il minimo") + " del range asiatico (dalle 09:00 "
+                            "di Tokyo alle 08:00 di Londra); la prima volta nella giornata"),
+    "E23": lambda v, d, l: ("il Close " + _su(l, "supera il massimo", "scende sotto il minimo") + " della giornata "
+                            "precedente (da 00:00 a 00:00 UTC); la prima volta nella giornata"),
+    "E24": lambda v, d, l: (f"la pendenza del ciclo dominante (trasformata di Fourier sulle ultime {d(300)}) passa da "
+                            + _su(l, "negativa a positiva", "positiva a negativa")),
+    "E25": lambda v, d, l: ("il canale di trend adattivo passa da " + _su(l, "ribassista a rialzista",
+                                                                          "rialzista a ribassista")
+                            + ", la barra e quella prima chiudono " + _su(l, "sopra", "sotto") + " l'apertura e "
+                            "l'istogramma del PVO (12/26/9 sul volume) è " + _su(l, "sopra", "sotto") + " zero"),
+    "E26": lambda v, d, l: ("il Supertrend (ATR 10, moltiplicatore 3) passa da " + _su(l, "ribassista a rialzista",
+                                                                                       "rialzista a ribassista")
+                            + ", la barra prima chiude " + _su(l, "sopra", "sotto") + f" l'apertura e l'Intraday "
+                            f"Intensity di {d(21)} è " + _su(l, "sopra", "sotto") + " zero"),
+    "E27": lambda v, d, l: ("la barra è una figura VSA " + _su(l, "rialzista: stopping volume o no supply",
+                                                               "ribassista: climax di vendita o no demand")
+                            + " (il volume confrontato con l'ampiezza della barra)"),
+    "E28": lambda v, d, l: f"il Volume Flow Indicator di {d(130)} passa " + _su(l, "sopra", "sotto") + " lo zero",
+    "E29": lambda v, d, l: ("le Bande di Bollinger escono dal canale di Keltner (fine dello squeeze) e il momentum dello "
+                            "squeeze è " + _su(l, "sopra", "sotto") + " zero"),
+    "E30": lambda v, d, l: ("la linea WT1 del WaveTrend incrocia la WT2 " + _su(l, "dal basso verso l'alto",
+                                                                                "dall'alto verso il basso")
+                            + " mentre WT1 è " + _su(l, "nel 10% più basso", "nel 10% più alto")
+                            + f" dei suoi valori delle ultime {d(500)}"),
+    "E31": lambda v, d, l: ("Triple Screen di Elder: la pendenza del MACD-Histogram dell'ultima H4 chiusa è "
+                            + _su(l, "in salita", "in discesa") + ", il Force Index dell'ultima H1 chiusa è "
+                            + _su(l, "sotto", "sopra") + " zero e il Close " + _su(l, "supera il massimo",
+                                                                                 "scende sotto il minimo")
+                            + " dell'ultima H1 chiusa"),
+    "E32": lambda v, d, l: ("AlgoXplorer, ingresso careful: dopo un segnale " + _su(l, "Buy", "Sell") + " (candela PVSRA "
+                            "climax, Heikin Ashi " + _su(l, "sopra la media esponenziale di 50 barre dei massimi",
+                                                         "sotto la media esponenziale di 50 barre dei minimi")
+                            + "), la prima barra il cui " + _su(l, "massimo Heikin Ashi supera il massimo",
+                                                               "minimo Heikin Ashi scende sotto il minimo")
+                            + " della candela del segnale"),
+    "E33": lambda v, d, l: ("AlgoXplorer, ingresso careful senza la candela PVSRA: dopo un segnale "
+                            + _su(l, "Buy", "Sell") + " (Heikin Ashi " + _su(l, "sopra la media esponenziale di 50 barre "
+                                                                            "dei massimi",
+                                                                            "sotto la media esponenziale di 50 barre "
+                                                                            "dei minimi")
+                            + "), la prima barra il cui " + _su(l, "massimo Heikin Ashi supera il massimo",
+                                                               "minimo Heikin Ashi scende sotto il minimo")
+                            + " della candela del segnale"),
+    "E34": lambda v, d, l: ("VSA trend following: asta " + _su(l, "rialzista", "ribassista") + " confermata da almeno 2 "
+                            "BOS, gamba più forte dell'altra di almeno il 20%, una candela di incongruenza VSA nelle 3 "
+                            "barre prima vicina a uno swing, e una candela di conferma " + _su(l, "rialzista", "ribassista")
+                            + " con corpo almeno al 50° percentile"),
+    "E35": lambda v, d, l: ("VSA stop and reverse: il primo BOS " + _su(l, "rialzista dopo un'asta ribassista",
+                                                                        "ribassista dopo un'asta rialzista")
+                            + " confermata (CHoCH), chiuso da una candela " + _su(l, "rialzista", "ribassista")
+                            + " con corpo almeno al 65° percentile"),
+    "E37": lambda v, d, l: ("sulla candela che finisce alle 16:30 di New York, il prezzo è " + _su(l, "salito", "sceso")
+                            + " dalle 17:00 di New York del giorno prima alle 09:30 di oggi ed è "
+                            + _su(l, "sceso", "salito") + " dalle 16:00 alle 16:30"),
+    "E38": lambda v, d, l: ("sulla candela che finisce alle 21:00 UTC, il prezzo è " + _su(l, "salito", "sceso")
+                            + " dalle 07:00 alle 08:00 UTC dello stesso giorno"),
+    "E39": lambda v, d, l: ("sulla candela che finisce alle 12:00 UTC, il prezzo è " + _su(l, "sceso", "salito")
+                            + " dalle 11:00 alle 12:00 UTC"),
+    "E40": lambda v, d, l: ("al primo controllo di mezz'ora della giornata (candela che finisce alle :00 o alle :30 di "
+                            "New York) in cui il rendimento dalla chiusura di ieri, alle 17:00 di New York, "
+                            + _su(l, "supera il 90°", "scende sotto il 10°") + " percentile dei rendimenti giornalieri "
+                            "delle ultime 250 giornate"),
+    "E41": lambda v, d, l: ("sulla candela che chiude la giornata (mezzanotte UTC), il rendimento della giornata è "
+                            + _su(l, "sopra l'80°", "sotto il 20°") + " percentile delle 300 giornate prima"),
+    "E45": lambda v, d, l: ("il rendimento delle ultime 4 ore entra nel quintile " + _su(l, "più basso", "più alto")
+                            + " dei rendimenti a 4 ore dei 365 giorni prima (la barra prima era in un altro quintile)"),
+    "E46": lambda v, d, l: ("il Close " + _su(l, "supera il massimo degli High", "scende sotto il minimo dei Low")
+                            + " delle 24 ore prima e il rendimento degli ultimi 45 minuti è "
+                            + _su(l, "sopra il 60°", "sotto il 40°") + " percentile delle 24 ore (finestre in minuti, "
+                            "convertite nelle barre)"),
+    "E48": lambda v, d, l: ("gli ultimi 3 " + _su(l, "massimi", "minimi") + " locali dei Close (15 minuti per lato), "
+                            "dentro 500 minuti, stanno entro lo 0,2% e il Close è almeno lo 0,1% "
+                            + _su(l, "sopra", "sotto") + " la loro media (finestre in minuti, convertite nelle barre)"),
+    "E52": lambda v, d, l: ("a un controllo di mezz'ora (barra che finisce alle :00 o alle :30 UTC) il Close esce "
+                            + _su(l, "sopra l'apertura della giornata più", "sotto l'apertura della giornata meno")
+                            + " sigma, la media sui 14 giorni prima del movimento assoluto dall'apertura alla stessa ora; "
+                            "al controllo prima della stessa giornata non era fuori"),
+})
+TESTI_FILTRI.update({
+    "F1_ADX_ABOVE": lambda v, d, l: f"l'ADX di {d(14)} è sopra 20",
+    "F2_HIGH_VOLATILITY": lambda v, d, l: (f"l'ATR di {d(14)} è sopra il 75° percentile dei suoi valori delle ultime "
+                                           f"{d(500)}"),
+    "F14_LOW_DRIFT_REGIME": lambda v, d, l: (f"quanto si è mossa la media dei Close di {d(100)} nelle ultime {d(100)}, "
+                                             f"in rapporto al prezzo, è nel 30% più basso delle ultime {d(500)}"),
+    "F15_SHORT_TERM_CONSISTENCY": lambda v, d, l: ("le ultime 3 variazioni del Close vanno nello stesso verso (una può "
+                                                   "essere zero)"),
+    "F20_SESSION_ASIA": lambda v, d, l: ("la barra si apre dentro la sessione di Tokyo (dalle 09:00 alle 18:00 di Tokyo, "
+                                         "nei giorni feriali)"),
+    "F20_SESSION_EUROPE": lambda v, d, l: ("la barra si apre dentro la sessione di Londra (dalle 08:00 alle 17:00 di "
+                                           "Londra, nei giorni feriali)"),
+    "F20_SESSION_US": lambda v, d, l: ("la barra si apre dentro la sessione di New York (dalle 08:00 alle 17:00 di New "
+                                       "York, nei giorni feriali)"),
+    "F22_FAR_FROM_ROLLOVER": lambda v, d, l: "mancano almeno 4 ore alle 17:00 di New York (il rollover del forex)",
+    "F23_CYCLE_STRENGTH": lambda v, d, l: (f"la quota di energia del ciclo dominante (su {d(300)}) è sopra il 70° "
+                                           f"percentile delle ultime {d(2000)}"),
+    "F25_CHOP_RANGE": lambda v, d, l: (f"il mercato è laterale: il Choppiness Index di {d(14)} è salito sopra il 75° "
+                                       f"percentile delle ultime {d(500)} e non è ancora sceso sotto il 50°"),
+    "F26_VARIANCE_RATIO_TREND": lambda v, d, l: (f"i rendimenti tendono a ripetersi: il variance ratio a 4 barre su "
+                                                 f"{d(192)} è salito sopra il 75° percentile delle ultime {d(1000)} e non "
+                                                 "è ancora sceso sotto il 50°"),
+    "F29_RVOL_LOW": lambda v, d, l: f"il volume relativo (su {d(30)}) è nel 25% più basso delle ultime {d(500)}",
+    "F32_KER_RANGE": lambda v, d, l: (f"il mercato è poco efficiente: l'efficiency ratio di Kaufman di {d(10)}, senza "
+                                      f"segno, è sceso sotto il 25° percentile delle ultime {d(500)} e non è ancora "
+                                      "risalito sopra il 50°"),
+    "F35_JDH_REGIME_TREND": lambda v, d, l: ("la pendenza della curva lisciata (regime di jdehorty) non è scesa più del "
+                                             f"10% sotto la sua media esponenziale di {d(200)}"),
+    "F39_INSIDE_DAY": lambda v, d, l: ("la giornata chiusa più recente è rimasta dentro il massimo e il minimo di quella "
+                                       "prima (inside day)"),
+    "VWAP_GAP_WIDENING": lambda v, d, l: ("lo scarto fra il fair value della sessione (regressione dei Close "
+                                          "dall'inizio della giornata UTC) e il VWAP della sessione è più grande che "
+                                          "sulla barra prima"),
+    "MACD_SIGNAL": lambda v, d, l: "il MACD (12/26/9) è " + _su(l, "sopra", "sotto") + " la sua signal",
+    "TREND_CONVICTION": lambda v, d, l: (f"la somma dei rendimenti delle ultime {d(350)} è "
+                                         + _su(l, "sopra il 70°", "sotto il 30°") + f" percentile delle ultime {d(500)}"),
+    "OVERNIGHT_RETURN": lambda v, d, l: ("la notte ha portato il prezzo " + _su(l, "su", "giù") + ": l'apertura di New "
+                                         "York di oggi è " + _su(l, "sopra", "sotto") + " la chiusura della sessione di "
+                                         "New York precedente"),
+    "TWO_BARS": lambda v, d, l: "la barra e quella prima chiudono entrambe " + _su(l, "sopra", "sotto") + " l'apertura",
+    "VFI_SIGN": lambda v, d, l: f"il Volume Flow Indicator di {d(130)} è " + _su(l, "sopra", "sotto") + " zero",
+    "ALGOX_STATE": lambda v, d, l: "l'ultimo segnale di AlgoXplorer è un " + _su(l, "Buy", "Sell"),
+    "VWAP_SESSION_CLOSE": lambda v, d, l: ("la sessione precedente (giornata UTC) ha chiuso con il fair value "
+                                           + _su(l, "sopra", "sotto") + " il VWAP"),
+})
+
+
 def _ore(barre: int, minuti: int) -> str:
     tot = int(barre) * int(minuti)
     return ("1 minuto" if tot == 1 else f"{tot} minuti") if tot < 60 else ("1 ora" if tot == 60
@@ -460,8 +628,10 @@ def trade_da_scheda(sc: dict, cartella_dati) -> dict:
 
 # controlli di coerenza dei testi, usati dai collaudi
 def blocchi_senza_testo() -> list[str]:
-    """I blocchi di P-L2 senza testo in parole (deve essere vuota)."""
+    """I blocchi senza testo in parole (deve essere vuota): quelli di P-L2 e, dal 12/11 (C1), tutto il catalogo."""
+    from .blocchi import CALCOLI_NUOVI, FILTRI_CATALOGO, TRIGGER_CATALOGO, USCITE_CATALOGO
     from .config import BLOCCHI_STANDARD
     testi = {**TESTI_TRIGGER, **TESTI_FILTRI, **TESTI_USCITE}
-    return [n for n in BLOCCHI_STANDARD if n not in testi]
+    tutti = dict.fromkeys((*BLOCCHI_STANDARD, *TRIGGER_CATALOGO, *FILTRI_CATALOGO, *CALCOLI_NUOVI, *USCITE_CATALOGO))
+    return [n for n in tutti if n not in testi]
 

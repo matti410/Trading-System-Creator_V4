@@ -26,8 +26,7 @@ import os
 
 from engine.exchange import simboli_exchange, solo_long
 
-from .blocchi import (FILTRI_CATALOGO, GRIGLIE_NUOVI, GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE,
-                      TRIGGER_CATALOGO, USCITE_CATALOGO, blocchi_da_config)
+from .blocchi import GRIGLIE_NUOVI, GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, USCITE_CATALOGO, blocchi_da_config
 from .dati import Confini
 
 VERSIONE = 1
@@ -46,8 +45,10 @@ FILTRI_MAX = 2                         # i modelli di docs/82 P3: T+U, T+F+U, T+
 # la cella 1 calcola i confini con confini_standard, fino all'ultima mezzanotte UTC chiusa del CSV.
 CONFINI_STANDARD = {"inizio": "2020-01-02 00:00", "ricerca_ore": 30624, "selezione_ore": 17177.75,
                     "cassaforte_ore": 11779.5}
-BLOCCHI_STANDARD = (*TRIGGER_CATALOGO, "RSI_RIENTRO", "DONCHIAN", *FILTRI_CATALOGO, "ADX", "ATR_RELATIVO",
-                    *USCITE_CATALOGO)
+# I blocchi della config standard, scritti per intero (C1, 12/11): dal 12/11 i dizionari di blocchi.py hanno tutto il
+# catalogo, ma la config standard resta quella di P-L2 finché C2 non la cambia (docs/82 §11.9). Stesso ordine di prima.
+BLOCCHI_STANDARD = ("E5", "E36", "E47", "E49", "E51", "RSI_RIENTRO", "DONCHIAN", "F2_MID_VOLATILITY", "F3_VOLUME_ABOVE_AVG",
+                    "TREND_CONTEXT", "F25_CHOP_TREND", "F20_SESSION_OVERLAP", "ADX", "ATR_RELATIVO", "X0", "X3", "X1")
 
 
 def _errore(testo: str):

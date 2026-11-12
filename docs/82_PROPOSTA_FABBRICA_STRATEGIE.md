@@ -953,6 +953,23 @@ Un ramo e una PR ciascuno, in quest'ordine; il via è di Mattia, lavoro per lavo
 | **C1** | prima la diagnosi dei timeframe (D4), una tabella da approvare; poi i blocchi del catalogo (VWAP compresi), i timeframe con i motivi, i testi delle regole, i collaudi | 1–2 | la tabella dei blocchi esclusi, poi l'ultima riga delle suite |
 | **C2** | un blocco per famiglia, i due turni, config versione 2, budget e tetto, stima del tempo dalla velocità vera, celle 1–7, scheda, notebook e glossario, `docs/81`, collaudi; tempo misurato solo su dati sintetici | 1–2 | il notebook su dati sintetici; su dati veri solo con il tuo via |
 
+**Stato (12/11): C1 scritto** (ramo `fabbrica-C1-catalogo`, PR #113), con il via di Mattia sulla tabella D4.
+- `engine/fabbrica/blocchi.py`, righe aggiunte: `TRIGGER_CATALOGO` con i 43 trigger del catalogo (E19 solo long: la
+  condizione short è `None`, `Blocco.lati` è `(1,)` e la maschera short si ferma con un errore), `FILTRI_CATALOGO` con 28
+  filtri (20 neutri, 8 coppie; F36 escluso; i due VWAP dentro), i timeframe e i motivi della tabella di §11.12 in
+  `MOTIVI_ESCLUSIONE` e `FILTRI_MAI_VERI`, un'etichetta di famiglia per ogni blocco nuovo; `_registra_catalogo` registra
+  anche `registra_filtri_vwap`. I 10 blocchi del catalogo di prima non cambiano.
+- `engine/fabbrica/schede.py`: i testi long e short dei 38 trigger e dei 23 filtri nuovi; `blocchi_senza_testo` controlla
+  tutto il catalogo.
+- `engine/fabbrica/config.py`, **non additivo, dichiarato:** `BLOCCHI_STANDARD` è scritto per intero, con gli stessi 17
+  blocchi nello stesso ordine; prima si costruiva dai dizionari del catalogo e sarebbe cresciuto con loro. La config
+  standard resta quella di main finché C2 non la cambia.
+- Collaudi: `test_fabbrica_blocchi.py` n. 115–123 (§11.7 «Blocchi»; i collaudi di L2 restano sui 10 blocchi di P-L2);
+  `test_fabbrica_schede.py` n. 1b; `test_fabbrica_ricerca.py` n. 41, una ricerca piccola con la config standard su dati
+  sintetici identica a main, bit per bit (impronta, teorie, prove).
+- Per C2: il generatore deve saltare il lato short di un blocco che non lo ha (`Blocco.lati`, oggi solo E19); con il
+  generatore di oggi una config scritta a mano con E19 e lo short si ferma all'avvio con l'errore del blocco.
+
 ### §11.10 · Le decisioni sulle domande (Mattia, 11/11 sera)
 
 - **D1 = B.** ADX e ATR relativo restano tutti e due. Per scegliere i tenuti contano solo le famiglie misurate; la
