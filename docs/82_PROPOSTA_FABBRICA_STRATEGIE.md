@@ -1,11 +1,11 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via.
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard), solo testo, in attesa del via.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
-§10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11)
+§10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11) · §12 I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera)
 
 ---
 
@@ -1112,3 +1112,266 @@ Script ed esiti in `dati/prove/d4_timeframe_20261112/` (`d4_sintetici.py`, `d4_r
 - **E40 ed E41 su M1:** restano (sui sintetici di M1, tagliati a circa 417 giorni, mancava la storia di 250 e 300
   giornate).
 - **E41 su D1:** esce, in tabella.
+
+---
+
+## §12 · I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera)
+
+**Stato:** proposta, solo testo, in attesa del via di Mattia. Nessun codice.
+
+**L'idea (Mattia, 14/11 sera).** RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO non si ottimizzano più.
+- Nel passo 1 (tutti e due i turni) e nello zoom restano fermi sul loro **valore standard**, come i blocchi del catalogo. Lo
+  zoom cerca solo i valori delle uscite.
+- Nell'altopiano si muovono di **±15%** intorno al valore standard: la strategia deve reggere anche con i valori vicini.
+
+Scopo: meno adattamento ai dati, tutti i trigger trattati allo stesso modo, zoom veloce anche su M5 e M1, meno prove.
+
+**Indice:** §12.1 I valori standard · §12.2 Barre al posto delle ore · §12.3 Cosa cambia e cosa resta · §12.4 Passo 1:
+griglia e genetico · §12.5 Prove e tetto · §12.6 Il tempo su M5 e M1 · §12.7 File e funzioni · §12.8 I collaudi · §12.9 Le
+domande per Mattia · §12.10 Visto a parte
+
+**Da dove vengono i numeri.** Le tre ricerche vere del 14/11 (BINANCE_PERP_BTCUSDT M15, BINANCE_PERP_ETHUSDT H1,
+BINANCE_PERP_XRPUSDT M5, config standard, 3 processi) e una misura sugli stessi pezzi di ricerca con i quattro blocchi fermi
+sui valori di §12.1: la preparazione (solo segnali, nessuna prova) sui tre symbol, e una ricerca intera su XRP perp M5 fatta
+su una **copia** dei dati in `dati/prove/valori_standard_20261114/`, con il suo registro e il suo conto: il conto vero in
+`dati/fabbrica/` non è toccato. Per la misura ho scritto i valori come griglie di un valore solo nella config, senza
+cambiare il codice: è quello che farà la config standard (§12.7), salvo le soglie nell'altopiano (vedi sotto). Sono numeri di
+tempo e di conteggio, non un giudizio sulle strategie.
+
+### §12.1 · I valori standard
+
+In **barre**, gli stessi su ogni timeframe.
+
+| blocco | parametro | valore standard | perché |
+|---|---|---|---|
+| RSI_RIENTRO | periodo | **14 barre** | il valore d'uso comune (Wilder); è anche l'RSI del catalogo (`df["rsi"]` di `aggiungi_indicatori`) |
+| RSI_RIENTRO | soglia | **30** (long); lo short usa 100 − 30 = **70** | la zona estrema d'uso comune |
+| DONCHIAN | canale | **20 barre** | il valore d'uso comune |
+| ADX | periodo | **14 barre** | il valore d'uso comune (Wilder); è anche l'ADX del catalogo (`df["adx"]`) |
+| ADX | soglia | **25** | la soglia d'uso comune per «c'è un trend» |
+| ATR_RELATIVO | breve | **14 barre** | proposta mia: l'ATR d'uso comune, lo stesso del catalogo (`df["atr"]`) e dello stesso periodo di RSI e ADX |
+| ATR_RELATIVO | lungo | **100 barre** | proposta mia: un livello «normale» circa 7 volte più lungo del breve; su M15 sono 25 ore, il valore più basso della griglia di oggi (24 ore), su H1 100 ore, vicino al più alto (96) |
+| ATR_RELATIVO | soglia | **1,0** | proposta mia: l'unico valore che ha un senso senza guardare i dati, «la volatilità recente è sopra quella solita» (è la frase della docstring di `indicatori.atr_relativo`) |
+
+Per ATR relativo non c'è un valore d'uso comune come per RSI, Donchian e ADX: 14 / 100 / 1,0 è una scelta a priori, da
+decidere (D1, §12.9).
+
+**Cosa si vede già dalla misura (solo segnali, sul pezzo di ricerca).** RSI 14 e ADX 14 sono gli stessi periodi del catalogo,
+quindi i quattro blocchi si avvicinano a blocchi del catalogo:
+- ADX 14 sopra 25 è sempre contenuto in F1_ADX_ABOVE (ADX 14 sopra 20): stessa famiglia misurata, somiglianza 100%; resta
+  ADX (uno dei 14) e F1_ADX_ABOVE esce, su tutti e tre i symbol.
+- RSI_RIENTRO 14 / 30 è l'evento speculare di E1 (l'RSI 14 che scende sotto 30): su BTC perp M15 finiscono nella stessa
+  famiglia (somiglianza 71–74%) ed E1 esce, sui due lati.
+- I blocchi scattano più spesso dei valori centrali di oggi: su XRP perp M5 RSI_RIENTRO da 12 a 4.214 segnali sul long,
+  DONCHIAN da 2.050 a 12.371, ADX vero su 157.118 barre invece di 24.478. Su XRP M5 ATR relativo finisce nella famiglia di ADX
+  e, fra i due dei 14, resta ADX che scatta più spesso (scelta A del 12/11).
+
+| | BTC perp M15 | ETH perp H1 | XRP perp M5 |
+|---|---|---|---|
+| tenuti oggi (long trigger / filtri; short trigger / filtri) | 36 / 21; 36 / 22 | 28 / 21; 30 / 22 | 36 / 24; 36 / 25 |
+| tenuti con i valori standard | 36 / 21; 36 / 22 | 28 / 20; 31 / 21 | 36 / 22; 36 / 23 |
+| blocchi che cambiano esito | 6 (E3 ed E30 sul long; E1, E21, E22 ed E30 sullo short) | 9 | 12 |
+| teorie del turno 1 | 4.860 → **4.860** | 3.918 → **3.810** | 5.508 → **5.076** |
+| teorie del turno 2, al massimo | 3.150 → **3.150** | 3.150 → **3.000** | 3.600 → **3.300** |
+
+L'elenco completo dei cambi di esito è nel resoconto della PR; sono la regola «un blocco per famiglia» che lavora sui
+segnali nuovi, non una regola nuova.
+
+### §12.2 · Barre al posto delle ore
+
+**La regola di oggi** (P-L2, 06/11 e 07/11): i parametri dei quattro blocchi si scrivono in **ore** nella config e diventano
+barre secondo il timeframe (la barra più vicina, minimo 1 barra, 5 per periodo di RSI e ADX e ATR lungo; i doppi si tolgono).
+Così una finestra dura lo stesso tempo su ogni timeframe.
+
+**Con i valori standard:** i quattro blocchi si scrivono in **barre**, senza conversione: 14 barre sono 14 barre su ogni
+timeframe, e il tempo cambia con il timeframe. È come fanno già i blocchi del catalogo (RSI, ADX e ATR a 14 barre, F2 e F3 con
+finestre di 500 barre, i trend in barre). Restano in ore le **uscite** (1, 2, 4, 8 ore) e la finestra delle soglie adattive
+(125 ore): le ore valgono solo dove si parla di quanto dura il trade. Il minimo di 5 barre resta nel codice ma non tocca più
+nulla (14 e 100 sono sopra, e anche i vicini dell'altopiano, 12 e 85).
+
+| | M1 | M5 | M15 | M30 | H1 | H4 | D1 | oggi (ore) |
+|---|---|---|---|---|---|---|---|---|
+| RSI, ADX, ATR breve: 14 barre | 14 min | 1 h 10 | 3 h 30 | 7 h | 14 h | 2,3 giorni | 14 giorni | RSI 2–12, ADX 4–9, ATR breve 2–4 |
+| Donchian: 20 barre | 20 min | 1 h 40 | 5 h | 10 h | 20 h | 3,3 giorni | 20 giorni | 4–96 |
+| ATR lungo: 100 barre | 1 h 40 | 8 h 20 | 25 h | 50 h | 4,2 giorni | 16,7 giorni | 100 giorni | 24–96 |
+| uscita (resta in ore): 1–8 ore | 60–480 barre | 12–96 | 4–32 | 2–16 | 1–8 | 1–2 | 1 | |
+
+**Dove un valore in barre crea problemi.**
+- **M1:** il segnale guarda 14–20 minuti, il trade dura da 1 a 8 ore (da 60 a 480 barre): la finestra del blocco è da 3 a 34
+  volte più corta del trade. ATR relativo confronta gli ultimi 14 minuti con l'ultima ora e 40. È il caso più lontano dalla
+  regola di oggi (in ore, RSI su M1 andrebbe da 120 a 720 barre).
+- **M5:** in parte lo stesso: finestre da 1 a 2 ore, trade da 1 a 8 ore; l'ATR lungo dura 8 ore, meno di una giornata.
+- **H4 e D1:** il contrario: finestre di giorni o settimane, trade di 1 o 2 barre. Oggi su H4 e D1 i periodi salivano già al
+  minimo di 5 barre (20 e 120 ore), quindi erano già lunghi; con 14 e 20 barre lo diventano di più. Su D1 l'ATR lungo chiede
+  100 giornate prima di dare un valore: circa l'8% del pezzo di ricerca di D1 resta senza filtro (falso), come il resto del
+  riscaldamento.
+- **M15, M30, H1:** i valori in barre cadono dentro o vicino agli intervalli in ore di oggi.
+
+Non è un errore di calcolo su nessun timeframe: tutti i valori sono calcolabili e passano gli stessi controlli. È una
+questione di significato, da decidere (D5, §12.9).
+
+### §12.3 · Cosa cambia e cosa resta
+
+**Cambia.**
+- **Passo 1, turni 1 e 2:** i quattro blocchi hanno un valore solo per parametro; si provano solo le uscite (§12.4).
+- **Zoom:** si muovono solo durata, stop e target delle uscite. Uno zoom sui soli numeri delle uscite c'è già oggi: è quello
+  delle teorie con soli blocchi del catalogo. Non serve codice: un parametro con un valore solo dà un asse di un punto (buco
+  0, `passi_zoom` dà 1, lo spazio del giro ha un punto), quindi resta fermo da solo. La misura su XRP M5 lo ha confermato.
+- **Altopiano:** i parametri dei quattro blocchi si muovono di ±15% intorno al valore standard, uno alla volta, come oggi.
+  - Periodi, in barre: la regola di oggi, invariata (±15% alla barra più vicina, spostamento minimo 1 barra): RSI, ADX e ATR
+    breve 14 → 12 e 16; Donchian 20 → 17 e 23; ATR lungo 100 → 85 e 115.
+  - Soglie: **qui la regola cambia.** Oggi una soglia ha per vicini i valori adiacenti della griglia di P-L2; con un valore
+    solo non avrebbe vicini. Con l'idea: ±15% arrotondato al passo della soglia (1, o 0,1 per ATR relativo). RSI 30 → 25,5 e
+    34,5; ADX 25 → 21,25 e 28,75; ATR 1,0 → 0,85 e 1,15. Come arrotondare le metà è la domanda D2.
+  - Le uscite restano come oggi: durata ±15% in barre, percentile dello stop al valore adiacente della griglia (70, 80, 90,
+    95), target senza vicini. Nell'idea c'è «come oggi per gli altri parametri»: oggi il ±15% vale solo per le durate; per lo
+    stop vale il valore adiacente, e resta così.
+  - Vicini al massimo per candidata: trigger RSI (4) + filtro ATR relativo (6) + un filtro del catalogo (0) + uscita (4) =
+    14, per 3 candidate 42: sotto il tetto di 60, che non cambia.
+- **Valori degeneri all'avvio:** la misura riguarda una combinazione sola per blocco, quella standard. Se è degenere su un
+  lato, il blocco esce da quel lato con il motivo, come oggi esce un blocco che resta senza valori. Nelle tre misure non è
+  successo.
+- **Famiglie:** si misurano come oggi ai valori «centrali» della griglia, che ora sono il valore standard (§12.1).
+- **Scheda:** i quattro blocchi si scrivono in barre, con le ore del timeframe fra parentesi, per esempio «Donchian 20 barre
+  (5 ore)».
+
+**Resta uguale.** Uscite (griglia, spazio dello zoom, finestra delle soglie); il controllo dei degeneri nello zoom e
+nell'altopiano; le famiglie misurate e la regola dei tenuti, con la precedenza dei 14; i due turni e la scelta delle 150;
+le 150 dello zoom, i 3 giri da 90; le soglie dell'altopiano (0,7, 0,4, EV > 0, 3 candidate, 60 prove); selezione,
+cassaforte, money management e stress; il conto delle prove (ogni strategia valutata è una riga, una volta sola).
+
+### §12.4 · Passo 1: griglia e genetico
+
+Oggi una teoria con soli blocchi del catalogo ha i 32 punti delle uscite (4 durate × 4 stop × 2 target), sotto il tetto di
+40: **griglia completa**. Una teoria con RSI, Donchian, ADX o ATR relativo ne ha di più: **genetico** con 40 prove.
+
+Con i valori standard **tutte** le teorie sono come quelle del catalogo:
+
+| timeframe | durate distinte | punti per teoria | modo |
+|---|---|---|---|
+| M1, M5, M15, M30, H1 | 4 | 32 | griglia completa |
+| H4 | 2 (1 e 2 barre) | 16 | griglia completa |
+| D1 | 1 (1 barra) | 8 | griglia completa |
+
+- Ogni teoria prova tutti i suoi punti; nessun punto è degenere (le uscite non passano dal controllo, e il valore standard
+  dei blocchi o è buono o il blocco è uscito all'avvio).
+- Con la config standard il **genetico non si usa più al passo 1**, e il seme non cambia il passo 1. Il genetico resta nel
+  codice: lo usano lo zoom (quando il giro ha più di 90 punti) e le config scritte a mano.
+- `per_teoria_passo_1` (40) resta il tetto per teoria; con la config standard non si raggiunge mai (D3).
+
+### §12.5 · Prove e tetto
+
+**Il massimo** con la formula di oggi (`budget_massimo`, 40 prove per teoria al passo 1) e, fra parentesi, contando i 32
+punti veri delle uscite:
+
+| | BTC perp M15 | ETH perp H1 | XRP perp M5 |
+|---|---|---|---|
+| massimo oggi (14/11) | 370.200 | 332.520 | 414.120 |
+| massimo con i valori standard | 370.200 (306.120) | 322.200 (267.720) | 384.840 (317.832) |
+| tetto oggi → con i valori standard | 380.000 → 380.000 (310.000) | 340.000 → 330.000 (270.000) | 420.000 → 390.000 (320.000) |
+
+**Le prove attese.** Turno 1 esatto: teorie × 32. Turno 2: teorie × 32, con le teorie nella stessa quota del massimo delle
+ricerche del 14/11 (86%, 88%, 82%). Zoom: le prove medie per teoria delle teorie con soli blocchi del catalogo il 14/11 (175,
+100, 192). XRP M5: misurate.
+
+| | BTC perp M15 | ETH perp H1 | XRP perp M5 |
+|---|---|---|---|
+| turno 1 | 155.520 (oggi 160.944) | 121.920 (oggi 128.832) | 162.432 (oggi 181.968) |
+| turno 2 | circa 87.000 (oggi 95.376) | circa 84.000 (oggi 93.224) | 84.640 (oggi 109.184) |
+| zoom e altopiano | circa 27.000 (oggi 32.455) | circa 15.500 (oggi 23.769) | 29.492 (oggi 38.363) |
+| selezione | al massimo 150 | al massimo 150 | 140 |
+| **totale** | **circa 270.000** (oggi 288.920, −7%) | **circa 222.000** (oggi 245.970, −10%) | **276.704** (oggi 329.653, −16%) |
+
+Il calo è piccolo al passo 1, perché già il 14/11 l'83–86% delle teorie del turno 1 aveva soli blocchi del catalogo; è
+grande nello zoom, dove il 14/11 le teorie con i quattro blocchi erano 58 su 150 (BTC), 60 (ETH), 117 (XRP).
+
+### §12.6 · Il tempo su M5 e M1
+
+**XRP perp M5, misurato** (copia dei dati, 3 processi, stessi pezzi del 14/11):
+
+| fase | 14/11, parametri ottimizzati | valori standard |
+|---|---|---|
+| preparazione | 41 s | 38 s |
+| turno 1 | 1.061 s (17,7 min) | 862 s (14,4 min) |
+| turno 2 | 640 s (10,7 min) | 435 s (7,3 min) |
+| zoom e altopiano | 4.464 s (74,4 min) | 4.185 s (69,8 min) |
+| selezione | 174 s | 171 s |
+| **cella 2 intera** | **106,4 min** | **94,9 min** |
+
+**Lo zoom resta lento: −6% invece di molto più veloce.** Il passo 1 guadagna il 19–32% (meno prove, nessuna maschera nuova dei quattro blocchi); lo zoom quasi niente, anche se le sue prove scendono da 38.363 a 29.492 (−23%). Nello zoom i quattro blocchi sono rimasti fermi in ogni prova (controllato su `passo_2.jsonl`): il tempo non viene da loro. Viene dalle **uscite**:
+- ogni coppia nuova di durata e percentile dello stop chiede una chiamata a `soglie_adattive`: misurata, **0,5 secondi** sul pezzo di ricerca di XRP M5 (370.515 barre, finestra di 1.500), 0,15 su quello di BTC M15;
+- su M5 lo spazio delle uscite è largo (durata da 12 a 96 barre, stop da 70 a 95: 2.210 coppie), e zoom e altopiano ne hanno usate **2.221** diverse (l'altopiano esce un po' dal bordo): se ogni processo le incontra tutte, sono fino a circa 1.100 secondi per processo, già circa un quarto del tempo dello zoom;
+- ogni soglia occupa circa 6 MB per processo (3 MB per lato): 2.221 coppie sono circa 13 GB, molto oltre il tetto della cache (1.500 MB per processo). Le soglie buttate si ricalcolano quando servono di nuovo: è la causa probabile del resto (non l'ho misurata a parte).
+
+Quindi l'idea toglie l'adattamento sui quattro blocchi e circa il 16% delle prove, ma **da sola non rende veloce lo zoom su M5**: lo zoom delle uscite costa come prima. Lo scrivo perché era uno degli scopi; non propongo rimedi qui (§12.10).
+
+**BTC perp M15 ed ETH perp H1, stimati** dalla velocità di ogni fase il 14/11 (prove al secondo del turno 1 e del turno 2;
+nello zoom la quota delle teorie con i quattro blocchi): BTC perp M15 circa 11 minuti (14/11: 11,9); ETH perp H1 circa 3 minuti (14/11: 3,1). Sui due il guadagno è piccolo: il passo 1 era già fatto per l'86% di teorie del catalogo, e lo zoom di M15 e H1 costa poco.
+
+**M1, stimato** (non ci sono dati M1 in `dati/`, e scaricarli non era nell'incarico). Un pezzo di ricerca M1 ha circa 5 volte
+le barre di M5 (circa 1,85 milioni). Al passo 1 la velocità va con le barre: circa 5 volte più lenta di M5. Ordine di grandezza, non una misura: i due turni circa 1,5–2 ore (5 volte i 21,6 minuti di XRP M5). Lo zoom è il problema: su M1 la durata va da 60 a 480 barre (circa 11.000 coppie con lo stop, 5 volte M5), una soglia costa almeno 5 volte quella di M5 (circa 2,5 secondi) e pesa 15 MB per lato; i 70 minuti di zoom di XRP M5 diventano almeno circa 6 ore con 3 processi. In tutto **circa 8 ore o più**, quasi tutte di zoom delle uscite: con o senza i valori standard.
+Su M1 c'è anche la memoria: il 14/11 su XRP M5 ogni processo arrivava a circa 2 GB; su M1 una maschera o una soglia è 5 volte
+più grande, e il tetto della cache per processo (1.500 MB) si riempirebbe prima. Va misurato prima di lanciare una ricerca
+M1.
+
+### §12.7 · File e funzioni
+
+Il motore, il catalogo, `famiglie.py`, il Lab e la Grid Search non si toccano: niente prove d'identità, bastano le suite.
+
+| file | cosa cambia | additivo? |
+|---|---|---|
+| `engine/fabbrica/blocchi.py` | `GRIGLIE_NUOVI` diventa `VALORI_STANDARD`, un valore per parametro, periodi in barre (`periodo_barre`, `canale_barre`, `breve_barre`, `lungo_barre`); `_parametro` accetta anche le chiavi in barre, senza conversione; le chiavi in ore restano per le config scritte a mano | **no:** cambiano i valori predefiniti dei quattro blocchi |
+| `engine/fabbrica/config.py` | `config_standard` scrive i valori standard; `VERSIONE = 3` se Mattia lo decide (D4); `budget_massimo` uguale (D3) | **no:** cambia l'impronta della config standard |
+| `engine/fabbrica/ricerca.py` | `vicini`: le soglie dei quattro blocchi a ±15% (D2) al posto del valore adiacente della griglia; periodi e uscite come oggi. Passo 1 e zoom: nessuna riga (un valore solo resta fermo da sé) | **no:** cambiano i vicini delle soglie |
+| `engine/fabbrica/schede.py` | `nome_breve` e il testo dei quattro blocchi: barre, con le ore fra parentesi; al posto della griglia del passo 1, «valore standard» | testo |
+| `engine/vetrina_fabbrica.py` | `RICERCHE_VERE` con le ricerche vere dopo il cambio, solo il numero (D6); su una ricerca della versione 2 le celle 4–7 si fermano come oggi per la versione 1 (D4) | numero, e una riga se D4 |
+| `Fabbrica_Strategie_Crypto.ipynb` | glossario: «Zoom: il passo 2, che cerca i valori migliori delle uscite attorno a quelli del passo 1»; una riga «Valore standard» | testo |
+| `test_fabbrica_*.py`, `test_vetrina_fabbrica.py`, `test_notebook_fabbrica.py` | §12.8; il vantaggio piantato si pianta a 20 barre (`sintetici.mercato_piantato(canale_barre=20)`, il parametro c'è già) | collaudi |
+| `docs/82` (P-L2, P5, §8), `docs/81`, `docs/00` | a lavoro finito: le righe superate e lo stato | testo |
+
+### §12.8 · I collaudi
+
+- **Blocchi:** con la config standard, su ogni timeframe da M1 a D1, i quattro blocchi hanno un valore per parametro e sono
+  gli stessi in barre (14 e 30; 20; 14 e 25; 14, 100 e 1,0); `verifica_lookahead` e `verifica_degenerazione` al valore
+  standard su barre sintetiche di ogni timeframe; una config scritta a mano con le ore converte ancora come oggi.
+- **Passo 1:** ogni teoria della config standard è a griglia completa, con 32 punti da M1 a H1, 16 su H4, 8 su D1; prove per
+  teoria = punti; mai il genetico.
+- **Zoom:** in ogni prova dello zoom i quattro blocchi hanno il valore standard; si muovono solo durata, stop e target.
+- **Altopiano:** i vicini fatti a mano (RSI 14 → 12 e 16, soglia 30 → i due vicini di D2; Donchian 20 → 17 e 23; ADX; ATR
+  breve, lungo e soglia; le uscite come oggi); al massimo 60 prove; un vicino degenere si scarta e non conta, come oggi.
+- **Degeneri:** un valore standard degenere su un lato fa uscire il blocco da quel lato, con il motivo.
+- **Vantaggio piantato:** piantato a 20 barre, DONCHIAN long arriva oltre la selezione con la durata vicina a quella giusta;
+  piantato a 40 barre, nessuna strategia ha un canale diverso da 20.
+- **Come oggi:** fermata e ripresa = corsa unica, bit per bit; 1 processo = 3; budget mai superato; conto delle prove;
+  test del veleno sulla cassaforte; se D4, una config della versione 2 si ferma con il messaggio.
+- **Prima della PR:** la suite completa.
+
+### §12.9 · Le domande per Mattia
+
+- **D1 · I valori di ATR relativo.** Proposta: breve 14, lungo 100, soglia 1,0 (§12.1). *Consiglio:* questi. Alternativa:
+  lungo 50, più vicino al breve; la soglia 1,0 la terrei comunque, perché è l'unica che si spiega senza i dati.
+- **D2 · Le soglie nell'altopiano: come arrotondare.** ±15% dà metà esatte: RSI 25,5 e 34,5; ADX 21,25 e 28,75; ATR 0,85 e
+  1,15.
+  - A: alla più vicina, a metà verso l'alto, come le barre oggi: RSI 26 e 35, ADX 21 e 29, ATR 0,9 e 1,2 (vicini storti:
+    −4 e +5, −0,1 e +0,2);
+  - B: alla più vicina, a metà lontano dal valore standard: RSI 25 e 35, ADX 21 e 29, ATR 0,8 e 1,2 (vicini simmetrici, mai
+    più vicini del 15%).
+  *Consiglio:* B. I vicini sono simmetrici, e per RSI e ATR coincidono con i vicini di oggi.
+- **D3 · Il tetto per teoria del passo 1.** Con i valori standard ogni teoria prova 32 punti (meno su H4 e D1), sotto i 40 di
+  oggi. A: lasciare 40 e la formula di oggi (il massimo resta più alto del vero di circa il 20%, e così la stima della cella
+  1); B: contare nel massimo i punti veri di ogni teoria (tetto 310.000 su BTC M15 invece di 380.000). *Consiglio:* A,
+  nessuna riga di codice; il tempo vero si vede alla cella 2 e il numero di `RICERCHE_VERE` (D6) corregge la stima.
+- **D4 · La versione della config.** Le ricerche del 14/11 (versione 2) hanno i parametri ottimizzati. A: `VERSIONE = 3`,
+  una strada sola come D5 = B del 12/11: le ricerche della versione 2 restano su disco e nel conto, le celle 4–7 su una di esse
+  si fermano con «rilancia la cella 2»; B: restano tutte e due le strade. *Consiglio:* A.
+- **D5 · I timeframe lontani da M15.** Su M1 (e in parte M5) le finestre dei blocchi sono molto più corte del trade; su H4 e
+  D1 molto più lunghe (§12.2). A: valori in barre su ogni timeframe, come il catalogo; B: valori in barre, ma i quattro
+  blocchi fuori su M1 con il motivo, come i blocchi del catalogo esclusi per timeframe. *Consiglio:* A. È l'idea («tutti i
+  trigger trattati allo stesso modo»), e il catalogo su M1 ha già finestre di poche barre.
+- **D6 · La stima della cella 1.** La velocità di riferimento (`RICERCHE_VERE`) viene dalle ricerche del 14/11, con i
+  parametri ottimizzati. *Consiglio:* dopo il cambio, rifare due ricerche vere (BTC perp M15 ed ETH perp H1) e mettere il loro
+  numero, come il 14/11.
+
+### §12.10 · Visto a parte (non entra nella proposta, si decide insieme)
+
+- La lentezza dello zoom su M5 (e, stimata, su M1) viene dalle soglie adattive delle uscite al passo fine, non dai quattro blocchi (§12.6): se Mattia vuole, se ne parla a parte, con una misura dedicata.
