@@ -1,13 +1,14 @@
 """
-Suite di collaudo della ricerca della fabbrica (docs/82 P4, P5, P7, lavoro L3b): passo 1, zoom, altopiano, ripresa.
+Suite di collaudo della ricerca della fabbrica (docs/82 P4, P5, P7, lavoro L3b; C2, docs/82 §11.7): passo 1 in due
+turni, zoom, altopiano, ripresa.
 
 Si lancia da terminale, dalla cartella del progetto:
 
     python test_fabbrica_ricerca.py
 
 Solo dati sintetici (engine/fabbrica/sintetici.py), scritti in cartelle temporanee: non servono i file in dati/,
-MetaTrader 5 o internet. Usa 3 processi per un collaudo. Stampa una riga per collaudo e alla fine
-«RISULTATO: n/n test superati». Dura circa un minuto e mezzo.
+MetaTrader 5 o internet. Usa 3 processi per alcuni collaudi. Stampa una riga per collaudo e alla fine
+«RISULTATO: n/n test superati». Dura qualche minuto.
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ import pandas as pd
 
 from engine.fabbrica import registro, sintetici
 from engine.fabbrica.blocchi import blocchi_da_config
-from engine.fabbrica.config import cartella_asset, config_standard, impronta_config
+from engine.fabbrica.config import budget_massimo, cartella_asset, config_standard, impronta_config
 from engine.fabbrica.dati import Confini, carica_pezzi
 from engine.fabbrica.generatore import Teoria, stato_registro
 from engine.fabbrica.ottimizzatore import Categoria, Intero, Spazio
@@ -40,7 +41,7 @@ PERP, SPOT = "BINANCE_PERP_BTCUSDT", "BYBIT_SPOT_ETHUSDT"
 CONFINI = {"inizio": "2024-01-01 00:00", "ricerca_ore": 4000, "selezione_ore": 1000, "cassaforte_ore": 500}
 BARRE = 22_100
 DATA = "20260101"
-BLOCCHI_PICCOLI = ("E47", "DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "X0")
+BLOCCHI_PICCOLI = ("E47", "DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "ATR_RELATIVO", "X0")
 SOGLIE_ALT = {"mediana_min": 0.7, "peggiore_min": 0.4}
 
 
@@ -55,7 +56,7 @@ def _config(processi=1, seme=0):
     cfg["confini"] = dict(CONFINI)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in BLOCCHI_PICCOLI}
     cfg["qualita_1"]["trade_min"] = 30
-    cfg["budget"].update({"teorie_passo_2": 4, "prove_per_giro": 30})
+    cfg["budget"].update({"teorie_turno_2": 3, "teorie_passo_2": 4, "prove_per_giro": 30})
     return cfg
 
 
@@ -70,7 +71,7 @@ def _jsonl(percorso):
 
 
 def _file(esito):
-    return {n: _leggi(os.path.join(esito.cartella, n)) for n in ("passo_1.jsonl", "passo_2.jsonl")} | {
+    return {n: _leggi(os.path.join(esito.cartella, n)) for n in ("passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl")} | {
         "prove": _leggi(registro.FileProve(esito.cartella).percorso)}
 
 
@@ -270,88 +271,120 @@ def esegui() -> int:
         prima = _fotografia(F)
 
         # ------------------------------------------------------------------ una ricerca piccola
-        print("\nUna ricerca piccola: 24 teorie, 4 al passo 2, giri da 30 prove")
+        print("\nUna ricerca piccola in due turni: turno 1 di 16 teorie, turno 2 dalle 3 T+F migliori, 4 allo zoom")
         cfg = _config()
         e = lancia(cfg, F, verbose=False, data=DATA)
         r1, r2 = _jsonl(os.path.join(e.cartella, "passo_1.jsonl")), _jsonl(os.path.join(e.cartella, "passo_2.jsonl"))
+        rt2 = _jsonl(os.path.join(e.cartella, "turno_2.jsonl"))
         csv_f = pd.read_csv(registro.FileProve(e.cartella).percorso, dtype=str, keep_default_na=False)
-        check("14. finita: config, passo 1, passo 2, prove e stato su disco",
+        check("14. finita: config, turno 1, turno 2, passo 2, prove e stato su disco",
               e.finita and all(os.path.exists(os.path.join(e.cartella, n)) for n in
-                               ("config.json", "passo_1.jsonl", "passo_2.jsonl", "stato.json"))
+                               ("config.json", "passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl", "stato.json"))
               and json.load(open(os.path.join(e.cartella, "stato.json"), encoding="utf-8"))["fase"] == "finita",
               f"imbuto {e.imbuto}, {e.prove} prove, {e.durata_s:.0f} s")
-        somma = sum(len(r["prove"]) for r in r1 + r2) + len(e.selezione.tabella)
-        check("15. conteggio esatto: righe del file = prove dei passi e della selezione = conto dell'asset",
+        somma = sum(len(r["prove"]) for r in r1 + rt2 + r2) + len(e.selezione.tabella)
+        check("15. conteggio esatto: righe del file = prove dei due turni, del passo 2 e della selezione = conto dell'asset",
               len(csv_f) == somma == e.prove == registro.conto_prove(F, PERP, "M15"), f"{len(csv_f)}, {somma}, {e.prove}")
-        check("16. ogni strategia una riga sola per pezzo (passo 1, giri e altopiano insieme; poi la selezione)",
-              csv_f["id_strategia"][csv_f["pezzo"] == "ricerca"].is_unique
-              and sorted(csv_f.loc[csv_f["pezzo"] == "selezione", "id_strategia"]) == sorted(e.sopravvissute["id_strategia"]))
-        check("17. passo 1: al massimo 40 prove per teoria, esattamente min(40, punti ammessi)",
-              all(len(r["prove"]) == min(40, r["punti_ammessi"]) for r in r1))
+        fasi = csv_f["fase"].value_counts().to_dict()
+        check("16. ogni prova del turno 2 nel conto con la fase «passo_1_turno_2», quelle del turno 1 con «passo_1»; ogni "
+              "strategia una riga sola per pezzo", fasi.get("passo_1_turno_2") == sum(len(r["prove"]) for r in rt2) > 0
+              and fasi.get("passo_1") == sum(len(r["prove"]) for r in r1)
+              and all(p["fase"] == "passo_1_turno_2" for r in rt2 for p in r["prove"])
+              and csv_f["id_strategia"][csv_f["pezzo"] == "ricerca"].is_unique
+              and sorted(csv_f.loc[csv_f["pezzo"] == "selezione", "id_strategia"]) == sorted(e.sopravvissute["id_strategia"]),
+              str(fasi))
+        check("17. passo 1, nei due turni: al massimo 40 prove per teoria, esattamente min(40, punti ammessi)",
+              all(len(r["prove"]) == min(40, r["punti_ammessi"]) for r in r1 + rt2))
         giri_ok = all(g["prove"] <= 30 for r in r2 for g in r["giri"]) and all(r["prove_altopiano"] <= 60 for r in r2)
-        check("18. budget mai superato: ogni giro ≤ 30, altopiano ≤ 60, totale ≤ budget massimo meno selezione e cassaforte",
-              giri_ok and e.prove <= e.budget_massimo - 2 * 4, f"{e.prove} ≤ {e.budget_massimo - 8}")
+        check("18. budget mai superato: ogni giro ≤ 30, altopiano ≤ 60, totale ≤ budget massimo meno selezione e "
+              "cassaforte; il budget massimo con la formula nuova (turno 2 compreso)",
+              giri_ok and e.prove <= e.budget_massimo - 2 * 4
+              and e.budget_massimo == budget_massimo(16, cfg, 12, 3) == (16 + 3 * 2) * 40 + 4 * 90 + 4 * 60 + 8,
+              f"{e.prove} ≤ {e.budget_massimo - 8}")
         gia = sum(g["gia_viste"] for r in r2 for g in r["giri"])
         check("19. la stessa strategia in due giri: non si rivaluta e non si conta (già viste nei giri)", gia > 0
               and all(sum(1 for p in r["prove"] if p["fase"].startswith("zoom")) == r["prove_zoom"] for r in r2), f"{gia}")
-        tenute = sorted((r for r in r1 if r["migliore"]), key=lambda r: (-r["t"], r["teoria"]))
-        check("20. al passo 2 le 4 teorie tenute con il t più alto della migliore che passa la condizione 1",
+        tf = sorted((r for r in r1 if r["migliore"] and r["teoria"].split("|")[2] not in ("-",)),
+                    key=lambda r: (-r["t"], r["teoria"]))
+        attese_t2 = []
+        for r in tf[:3]:
+            lato, trig, f1, u = r["teoria"].split("|")
+            for f2 in ("F3_VOLUME_ABOVE_AVG", "ADX", "ATR_RELATIVO"):
+                if f2 != f1 and {f1, f2} != {"ADX", "ATR_RELATIVO"}:
+                    filtri = [x for x in ("F3_VOLUME_ABOVE_AVG", "ADX", "ATR_RELATIVO") if x in (f1, f2)]
+                    attese_t2.append(f"{lato}|{trig}|{'+'.join(filtri)}|{u}")
+        attese_t2 = list(dict.fromkeys(attese_t2))
+        check("20. turno 2: le 3 teorie T+F tenute con il t più alto (i due lati insieme), ognuna con tutti i secondi filtri "
+              "compatibili, mai ADX con ATR relativo, i doppi tolti", [r["teoria"] for r in rt2] == attese_t2
+              and len(tf) > 3, f"{[r['teoria'] for r in rt2]}")
+        tenute = sorted((r for r in r1 + rt2 if r["migliore"]), key=lambda r: (-r["t"], r["teoria"]))
+        check("21. allo zoom le 4 teorie tenute dei due turni con il t più alto della migliore che passa la condizione 1",
               [r["teoria"] for r in r2] == [r["teoria"] for r in tenute[:4]]
-              and all(next(p for p in r["prove"] if p["id"] == r["migliore"])["passa"] for r in tenute))
+              and all(next(p for p in r["prove"] if p["id"] == r["migliore"])["passa"] for r in tenute),
+              f"{[r['teoria'] for r in r2]}")
         bene = True
         for r in r2:
-            storia = next(x for x in r1 if x["teoria"] == r["teoria"])["prove"]
+            storia = next(x for x in r1 + rt2 if x["teoria"] == r["teoria"])["prove"]
             for g in r["giri"]:
                 bene &= g["partenza"] == [x["id"] for x in _in_ordine(storia, 5)]
                 storia = storia + [p for p in r["prove"] if p["fase"] == f"zoom_{g['giro']}"]
-        check("21. ogni giro riparte dalle 5 strategie con il t più alto fra tutte quelle calcolabili fin lì", bene)
+        check("22. ogni giro riparte dalle 5 strategie con il t più alto fra tutte quelle calcolabili fin lì", bene)
         bene = all(r["scelta"] is None or (r["scelta"]["passa"] and qualita_1_passa(r["scelta"], cfg)) for r in r2)
         prima_cand = all(not r["altopiano"] or r["altopiano"][0]["candidata"] == _in_ordine(
-            next(x for x in r1 if x["teoria"] == r["teoria"])["prove"]
+            next(x for x in r1 + rt2 if x["teoria"] == r["teoria"])["prove"]
             + [p for p in r["prove"] if p["fase"].startswith("zoom")], 1, True)[0]["id"] for r in r2)
-        check("22. altopiano: la prima candidata è la migliore che passa la condizione 1 dopo lo zoom; la scelta passa "
-              "la condizione 1",
-              bene and prima_cand)
+        check("23. altopiano: la prima candidata è la migliore che passa la condizione 1 dopo lo zoom; la scelta passa "
+              "la condizione 1", bene and prima_cand)
         t_sel = e.selezione.tabella
-        check("23. imbuto e tabelle coerenti", e.imbuto == {"teorie": 24, "passo_1_tenute": len(tenute), "passo_2": 4,
-                                                            "altopiano": int((e.passo_2["esito"] == "regge").sum()),
-                                                            "selezione": int((t_sel["esito"] != "scartata").sum()),
-                                                            "scelte": int((t_sel["esito"] == "scelta").sum())}
-              and len(e.sopravvissute) == e.imbuto["altopiano"], str(e.imbuto))
+        check("24. imbuto e tabelle coerenti, con i due turni",
+              e.imbuto == {"turno_1": 16, "turno_1_tenute": sum(1 for r in r1 if r["migliore"]), "turno_2": len(rt2),
+                           "turno_2_tenute": sum(1 for r in rt2 if r["migliore"]), "passo_2": 4,
+                           "altopiano": int((e.passo_2["esito"] == "regge").sum()),
+                           "selezione": int((t_sel["esito"] != "scartata").sum()),
+                           "scelte": int((t_sel["esito"] == "scelta").sum())}
+              and len(e.sopravvissute) == e.imbuto["altopiano"]
+              and list(e.passo_1["turno"]) == [1] * 16 + [2] * len(rt2), str(e.imbuto))
         eventi = registro.leggi_registro(cartella_asset(F, PERP, "M15"))
         avvio = [x for x in eventi if x["tipo"] == "avvio_ricerca"]
         fine = [x for x in eventi if x["tipo"] == "fine_ricerca"]
-        check("24. registro: avvio con impronta della config, teorie e perché, famiglie misurate e dichiarate, degeneri "
+        tt = {(x["lato"], x["blocco"]): x for x in e.tenuti_tolti}
+        check("25. registro: avvio con impronta della config, teorie e perché, famiglie misurate, tenuti e tolti, degeneri "
               "all'avvio, budget", len(avvio) == 1 and avvio[0]["impronta_config"] == impronta_config(cfg)
-              and avvio[0]["teorie"]["teorie"] == 24 and {"dichiarata", "gruppo_misurato", "famiglia"} <= set(avvio[0]["famiglie"][0])
+              and avvio[0]["teorie"]["teorie"] == 16 and {"dichiarata", "gruppo_misurato", "famiglia"} <= set(avvio[0]["famiglie"][0])
+              and avvio[0]["tenuti_tolti"] == json.loads(registro.json_riga(e.tenuti_tolti))
+              and tt[("long", "E47")]["esito"] == "tolto" and tt[("long", "DONCHIAN")]["esito"] == "tenuto"
               and avvio[0]["degeneri_avvio"] == e.degeneri_avvio and avvio[0]["budget_massimo"] == e.budget_massimo)
-        check("25. registro: fine con imbuto, degeneri dello zoom, prove contate e soglia da leggere",
+        check("26. registro: fine con imbuto, degeneri dello zoom, prove contate e soglia da leggere",
               len(fine) == 1 and fine[0]["imbuto"] == e.imbuto and fine[0]["prove"]["questa_ricerca"] == e.prove
               and fine[0]["prove"]["asset"] == e.prove and fine[0]["prove"]["soglia_da_leggere"] > 1.96
               and fine[0]["degeneri_zoom"] == e.degeneri_zoom)
 
         # ------------------------------------------------------------------ ripresa
-        print("\nFermata a metà e ripresa")
+        print("\nFermata a metà e ripresa: nel turno 1, nel turno 2, nello zoom")
         a = lancia(cfg, R, ferma_dopo=7, verbose=False, data=DATA)
         p1 = os.path.join(a.cartella, "passo_1.jsonl")
         with open(p1, "a", encoding="utf-8") as f:
             f.write('{"teoria": "L|DONCHIAN|-')                        # il PC si spegne a metà riga
         with open(registro.FileProve(a.cartella).percorso, "a", encoding="utf-8") as f:
             f.write(f"{a.id_ricerca},ricerca,passo_1,L|E47")
-        b = lancia(cfg, R, ferma_dopo=19, verbose=False, data=DATA)
+        b = lancia(cfg, R, ferma_dopo=10, verbose=False, data=DATA)    # 9 del turno 1 e la prima del turno 2
+        with open(os.path.join(b.cartella, "turno_2.jsonl"), "a", encoding="utf-8") as f:
+            f.write('{"teoria": "S|DONCHIAN|F3')                        # anche nel turno 2
+        b2 = lancia(cfg, R, ferma_dopo=4, verbose=False, data=DATA)    # il resto del turno 2 e il primo dello zoom
         c = lancia(cfg, R, verbose=False, data=DATA)
-        check("26. fermata dopo 7 teorie, poi dopo altre 19 (dentro il passo 2), poi fino in fondo",
-              not a.finita and len(a.passo_1) == 7 and not b.finita and len(b.passo_1) == 24 and len(b.passo_2) == 2
-              and c.finita)
-        check("27. ripresa = corsa unica, bit per bit: passo 1, passo 2 e file delle prove (righe a metà comprese)",
+        check("27. fermata dopo 7 teorie, poi dentro il turno 2, poi dentro lo zoom, poi fino in fondo",
+              not a.finita and len(a.passo_1) == 7 and not b.finita and len(b.passo_1) == 16 + 1
+              and not b2.finita and len(b2.passo_2) == 2 and c.finita,
+              f"{len(a.passo_1)}, {len(b.passo_1)}, {len(b2.passo_1)} e {len(b2.passo_2)}")
+        check("28. ripresa = corsa unica, bit per bit: turno 1, turno 2, passo 2 e file delle prove (righe a metà comprese)",
               _file(c) == _file(e))
-        check("28. stesse tabelle e stesso conto delle prove", c.passo_1.equals(e.passo_1) and c.passo_2.equals(e.passo_2)
-              and c.prove == e.prove and registro.conto_prove(R, PERP, "M15") == e.prove)
+        check("29. stesse tabelle e stesso conto delle prove", c.passo_1.equals(e.passo_1) and c.passo_2.equals(e.passo_2)
+              and c.prove == e.prove and registro.conto_prove(R, PERP, "M15") == e.prove and c.imbuto == e.imbuto)
         ev_r = registro.leggi_registro(cartella_asset(R, PERP, "M15"))
-        check("29. la ripresa non scrive un secondo avvio né una seconda fine",
+        check("30. la ripresa non scrive un secondo avvio né una seconda fine",
               [x["tipo"] for x in ev_r] == ["avvio_ricerca", "fine_ricerca"])
         d = lancia(cfg, R, verbose=False, data=DATA)
-        check("30. rilanciare una ricerca finita non aggiunge niente", _file(d) == _file(e)
+        check("31. rilanciare una ricerca finita non aggiunge niente", _file(d) == _file(e)
               and len(registro.leggi_registro(cartella_asset(R, PERP, "M15"))) == 2)
 
         # ------------------------------------------------------------------ processi
@@ -362,11 +395,11 @@ def esegui() -> int:
         cfg3 = _config(processi=3)
         tre = lancia(cfg3, P, verbose=False, data=DATA)
         f3, f1 = _file(tre), _file(e)
-        stesse = f3["passo_1.jsonl"] == f1["passo_1.jsonl"] and f3["passo_2.jsonl"] == f1["passo_2.jsonl"]
-        check("31. 3 processi = 1 processo: passo 1, passo 2 e prove identici, stesso id (i processi non stanno "
+        stesse = all(f3[n] == f1[n] for n in ("passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl"))
+        check("32. 3 processi = 1 processo: turno 1, turno 2, passo 2 e prove identici, stesso id (i processi non stanno "
               "nell'impronta)", stesse and tre.id_ricerca == e.id_ricerca and f3["prove"] == f1["prove"]
               and tre.passo_2.equals(e.passo_2))
-        check("32. con il conto alterato (5 prove di un'altra ricerca) gli esiti non cambiano: cambia solo il numero",
+        check("33. con il conto alterato (5 prove di un'altra ricerca) gli esiti non cambiano: cambia solo il numero",
               stesse and registro.conto_prove(P, PERP, "M15") == tre.prove + 5)
 
         # ------------------------------------------------------------------ seme e due ricerche
@@ -377,15 +410,15 @@ def esegui() -> int:
         q1 = {r["teoria"]: [p["id"] for p in r["prove"]] for r in r1}
         q2 = {r["teoria"]: [p["id"] for p in r["prove"]] for r in _jsonl(os.path.join(e1.cartella, "passo_1.jsonl"))}
         genetiche = [r["teoria"] for r in r1 if r["modo"] == "genetico"]
-        check("33. seme diverso: il genetico prova altri punti; la griglia completa resta uguale",
+        check("34. seme diverso: il genetico prova altri punti; la griglia completa resta uguale",
               any(q1[t] != q2[t] for t in genetiche) and all(q1[r["teoria"]] == q2[r["teoria"]] for r in r1
                                                            if r["modo"] == "griglia completa"))
-        check("34. due ricerche sullo stesso asset si sommano", registro.conto_prove(F, PERP, "M15") == e.prove + e1.prove,
+        check("35. due ricerche sullo stesso asset si sommano", registro.conto_prove(F, PERP, "M15") == e.prove + e1.prove,
               f"{e.prove} + {e1.prove}")
-        check("35. registro delle condizioni identico prima e dopo una ricerca", stato_registro() == istantanea)
+        check("36. registro delle condizioni identico prima e dopo una ricerca", stato_registro() == istantanea)
         dopo = _fotografia(F)
         nuovi = {tuple(os.path.relpath(os.path.join(r, n), F).split(os.sep)[:2]) for r, _, ns in os.walk(F) for n in ns}
-        check("36. separazione: la cartella dello studio e i dati restano identici al bit; si scrive solo in "
+        check("37. separazione: la cartella dello studio e i dati restano identici al bit; si scrive solo in "
               "fabbrica/<SYMBOL>_<TIMEFRAME>/", dopo == prima and all(x[0] != "fabbrica" or x[1] == f"{PERP}_M15"
                                                                        for x in nuovi), str(sorted(set(dopo) ^ set(prima))))
 
@@ -408,18 +441,18 @@ def esegui() -> int:
         pt = _ProveTeoria(lav, teoria_rsi)
         uscita = {"durata_barre": 16, "perc_stop": 90, "target": None}
         t_deg, contata = pt.valuta({"RSI_RIENTRO": dict(trovata or {}), "X0": dict(uscita)}, "zoom_2") if trovata else (0, True)
-        check("37. una combinazione nuova (fuori dalla griglia) degenere: si scarta, si annota, non conta",
+        check("38. una combinazione nuova (fuori dalla griglia) degenere: si scarta, si annota, non conta",
               trovata is not None and math.isnan(t_deg) and not contata and not pt.nuove and len(pt.degeneri) == 1
               and next(iter(pt.degeneri.values()))["esito"] in ("RARA", "SEMPRE_FALSA"), str(trovata))
         t_ok, contata_ok = pt.valuta({"RSI_RIENTRO": {"periodo_barre": 25, "soglia": 26}, "X0": dict(uscita)}, "zoom_2")
-        check("38. una combinazione nuova buona passa da verifica_degenerazione e conta una prova",
+        check("39. una combinazione nuova buona passa da verifica_degenerazione e conta una prova",
               contata_ok and len(pt.nuove) == 1 and (rsi.nome, 1, (("periodo_barre", 25), ("soglia", 26)))
               in lav.controllo._esiti)
         tolte = {(n, l): (c[1:] if n == "RSI_RIENTRO" and l == 1 else c) for (n, l), c in prep.rimaste.items()}
         lav_t = _Lavoro(cfg, prep.df, prep.costi, tolte, cache=prep.lavoro.cache, controllo=prep.lavoro.controllo)
         ris = lav_t.passo_1(teoria_rsi)
         via = prep.rimaste[("RSI_RIENTRO", 1)][0]
-        check("39. passo 1: un punto tolto all'avvio come degenere non consuma una delle 40 prove",
+        check("40. passo 1: un punto tolto all'avvio come degenere non consuma una delle 40 prove",
               len(ris["prove"]) == 40 and ris["degeneri_proposti"] > 0
               and all(p["valori"]["RSI_RIENTRO"] != via for p in ris["prove"]), f"{ris['degeneri_proposti']} proposti")
 
@@ -433,39 +466,48 @@ def esegui() -> int:
         cfg_v["blocchi"] = {k: v for k, v in cfg_v["blocchi"].items() if k in ("E47", "DONCHIAN", "RSI_RIENTRO",
                                                                                 "F3_VOLUME_ABOVE_AVG", "X0")}
         cfg_v["qualita_1"]["trade_min"] = 30
-        cfg_v["budget"].update({"teorie_passo_2": 2, "prove_per_giro": 60})
+        cfg_v["budget"].update({"teorie_turno_2": 2, "teorie_passo_2": 2, "prove_per_giro": 60})
         ev = lancia(cfg_v, V, verbose=False, data=DATA)
         primo = ev.sopravvissute.iloc[0] if len(ev.sopravvissute) else None
         valori_v = json.loads(primo["valori"]) if primo is not None else {}
         canale_v = valori_v.get("DONCHIAN", {}).get("canale_barre")
         durata_v = valori_v.get("X0", {}).get("durata_barre")
-        check("40. la teoria in cima è DONCHIAN long; lo zoom porta canale e durata vicino a 40 e 12, fuori dalla griglia "
+        check("41. la teoria in cima è DONCHIAN long; lo zoom porta canale e durata vicino a 40 e 12, fuori dalla griglia "
               "larga", primo is not None and primo["teoria"].startswith("L|DONCHIAN|") and canale_v is not None
               and abs(canale_v - 40) <= 8 and canale_v not in (32, 48) and abs(durata_v - 12) <= 2,
               f"{primo['teoria'] if primo is not None else '-'}: canale {canale_v}, durata {durata_v}")
 
-        # ------------------------------------------------------------------ C1: la config standard non cambia
-        # (12/11, docs/82 §11.9) I dizionari di blocchi.py hanno tutto il catalogo, ma la ricerca con la config standard
-        # deve restare quella di main, bit per bit. I tre numeri sono quelli di main (commit e98e193), misurati il 12/11.
-        print("\nC1: la config standard dà la stessa ricerca di main")
-        S = os.path.join(radice, "S")
+        # ------------------------------------------------------------------ C2: la config standard, tutto il catalogo
+        print("\nC2: la config standard, tutto il catalogo, con budget ridotti")
+        S2 = os.path.join(radice, "S2")
         df_s = sintetici.mercato(BARRE, seme=3, minuti=15, inizio="2024-01-01", prezzo=30_000.0)
-        sintetici.scrivi_storico(S, PERP, "M15", df_s)
-        sintetici.scrivi_funding(S, PERP, df_s, seme=3)
+        sintetici.scrivi_storico(S2, PERP, "M15", df_s)
+        sintetici.scrivi_funding(S2, PERP, df_s, seme=3)
         cfg_s = config_standard(PERP, "M15", seme=0, processi=1)
         cfg_s["confini"] = dict(CONFINI)
         cfg_s["qualita_1"]["trade_min"] = 30
-        cfg_s["budget"].update({"per_teoria_passo_1": 2, "teorie_passo_2": 2, "giri_zoom": 1, "prove_per_giro": 5})
+        cfg_s["budget"].update({"per_teoria_passo_1": 2, "teorie_turno_2": 3, "teorie_passo_2": 2, "giri_zoom": 1,
+                                "prove_per_giro": 5})
         cfg_s["altopiano"]["prove_max"] = 4
-        es = lancia(cfg_s, S, verbose=False, data=DATA)
-        with open(os.path.join(cartella_asset(S, PERP, "M15"), es.id_ricerca, "prove_pc.csv"), "rb") as f:
-            impronta_prove = hashlib.sha256(f.read()).hexdigest()
-        check("41. config standard, tutti i 17 blocchi: stessa impronta, stesse teorie, stesse prove di main, bit per bit",
-              impronta_config(cfg_s) == "4d5e134f10e920fd853eba3c585aff0daba255c827e016a58da86c3f4669eb6c"
-              and es.imbuto["teorie"] == 1092 and es.prove == 2202
-              and impronta_prove == "456c6fce6603c1b8b23bd1f7919f7ca8118a59f6c3de64e5c3d1627292e325e8",
-              f"impronta {impronta_config(cfg_s)[:12]}, teorie {es.imbuto['teorie']}, prove {es.prove}, "
-              f"file delle prove {impronta_prove[:12]}")
+        es = lancia(cfg_s, S2, verbose=False, data=DATA)
+        res = es.resoconto["blocchi"]
+        filtri_max = max(res[x]["filtro"]["tenuti"] for x in res)
+        tf_s = sum(1 for t in es.passo_1.itertuples() if t.turno == 1 and "|-|" not in t.teoria)
+        check("42. config standard con tutto il catalogo (45 trigger e 30 filtri sul long, 44 e 30 sullo short): un blocco "
+              "per famiglia, turno 1 = trigger × (1 + filtri) × 3 per lato, budget massimo con la formula nuova, tetto "
+              "rispettato, prove sotto il massimo", es.finita
+              and res["long"]["trigger"]["blocchi"] == 45 and res["short"]["trigger"]["blocchi"] == 44
+              and es.imbuto["turno_1"] == sum(res[x]["trigger"]["tenuti"] * (1 + res[x]["filtro"]["tenuti"]) * 3
+                                              for x in res)
+              and es.budget_massimo == budget_massimo(es.imbuto["turno_1"], cfg_s, tf_s, filtri_max)
+              and es.budget_massimo <= cfg_s["budget"]["totale"] and es.prove <= es.budget_massimo
+              and 0 < es.imbuto["turno_2"] <= 3 * (filtri_max - 1),
+              f"imbuto {es.imbuto}, prove {es.prove} di {es.budget_massimo}, tetto {cfg_s['budget']['totale']}")
+
+        # ------------------------------------------------------------------ C2 su più timeframe (docs/82 §11.7)
+        n = 43
+        for symbol, tf, minuti, confini in CASI_TF:
+            n = _caso_timeframe(check, radice, symbol, tf, minuti, confini, n)
 
     print("\n" + "=" * 70)
     print(f"Durata: {time.perf_counter() - t0:.0f} s")
@@ -480,6 +522,125 @@ def qualita_1_passa(riga, cfg) -> bool:
     m = Misure(*(riga[k] for k in ("trade", "totale_bp", "ev_bp", "t", "dd_bp", "peso_max", "totale_su_dd")))
     return qualita_1(m, cfg["qualita_1"])[0]
 
+
+# ------------------------------------------------------------------ C2 su più timeframe (docs/82 §11.7)
+# Barre sintetiche su M15, M5 e H1 (perpetual) e uno spot (solo long), con la config standard intera (tutto il catalogo
+# ammesso sul timeframe) e budget ridotti. Su ogni caso: esclusioni per timeframe con il motivo, famiglie e tenuti,
+# turno 1 e turno 2, conto delle prove, ripresa dopo una fermata = corsa unica, 1 processo = 3, cassaforte sigillata.
+CASI_TF = (
+    (PERP, "M15", 15, {"inizio": "2024-01-01 00:00", "ricerca_ore": 3000, "selezione_ore": 1200, "cassaforte_ore": 600}),
+    (PERP, "M5", 5, {"inizio": "2024-01-01 00:00", "ricerca_ore": 1500, "selezione_ore": 700, "cassaforte_ore": 300}),
+    (PERP, "H1", 60, {"inizio": "2024-01-01 00:00", "ricerca_ore": 9000, "selezione_ore": 4000, "cassaforte_ore": 2000}),
+    (SPOT, "M15", 15, {"inizio": "2024-01-01 00:00", "ricerca_ore": 3000, "selezione_ore": 1200, "cassaforte_ore": 600}),
+)
+
+
+def _cfg_tf(symbol, tf, confini, processi=1):
+    cfg = config_standard(symbol, tf, seme=0, processi=processi)
+    cfg["confini"] = dict(confini)
+    cfg["qualita_1"]["trade_min"] = 30
+    cfg["budget"].update({"per_teoria_passo_1": 1, "teorie_turno_2": 3, "teorie_passo_2": 2, "giri_zoom": 1,
+                          "prove_per_giro": 5})
+    cfg["altopiano"]["prove_max"] = 4
+    return cfg
+
+
+def _scrivi_tf(cartella, symbol, tf, minuti, confini, veleno=False):
+    n = int(sum(confini[k] for k in ("ricerca_ore", "selezione_ore", "cassaforte_ore")) * 60 / minuti) + 100
+    df = sintetici.mercato_piantato(n, seme=5, minuti=minuti, inizio="2024-01-01", prezzo=30_000.0)
+    if veleno:                       # la cassaforte avvelenata: prezzi × 3, volume 1
+        dentro = df.index >= Confini.da_config(confini).tratto_cassaforte[0]
+        df.loc[dentro, ["Open", "High", "Low", "Close"]] *= 3.0
+        df.loc[dentro, "Volume"] = 1.0
+    sintetici.scrivi_storico(cartella, symbol, tf, df)
+    if "_PERP_" in symbol:
+        sintetici.scrivi_funding(cartella, symbol, df, seme=5)
+
+
+def _file_ricerca(esito) -> dict:
+    """{nome: sha256} di ogni file nella cartella della ricerca (config, turni, passo 2, prove, selezione, stato)."""
+    return {n: hashlib.sha256(_leggi(os.path.join(esito.cartella, n))).hexdigest() for n in sorted(os.listdir(esito.cartella))}
+
+
+def _caso_timeframe(check, radice, symbol, tf, minuti, confini, n) -> int:
+    from engine.fabbrica.blocchi import MOTIVI_ESCLUSIONE
+    from engine.fabbrica.config import BLOCCHI_STANDARD, blocchi_esclusi
+    from engine.fabbrica.generatore import QUATTORDICI, teorie_turno_2
+    from engine.fabbrica.schede import esclusi_dalla_config
+    nome = f"{symbol} {tf}"
+    print(f"\nC2 su {nome}: config standard intera, budget ridotti")
+    cartelle = {k: os.path.join(radice, f"tf_{symbol}_{tf}_{k}") for k in ("A", "R", "P", "W")}
+    for k, c in cartelle.items():
+        _scrivi_tf(c, symbol, tf, minuti, confini, veleno=(k == "W"))
+    cfg = _cfg_tf(symbol, tf, confini)
+    e = lancia(cfg, cartelle["A"], verbose=False, data=DATA)
+
+    esclusi = blocchi_esclusi(tf)
+    fuori = {x["blocco"] for x in esclusi}
+    righe = pd.DataFrame(e.tenuti_tolti)
+    check(f"{n}. {nome}: i blocchi esclusi sul timeframe ({len(esclusi)}) stanno fuori dalla config, ognuno con il suo "
+          "motivo; la scheda li elenca uguali; nessuno di loro nella tabella dei tenuti",
+          set(cfg["blocchi"]) == set(BLOCCHI_STANDARD) - fuori
+          and all((x["blocco"], tf) in MOTIVI_ESCLUSIONE and x["motivo"] for x in esclusi)
+          and esclusi_dalla_config(cfg) == esclusi and not (set(righe["blocco"]) & fuori),
+          ", ".join(sorted(fuori)) or "nessuno")
+    vivi = righe[righe["famiglia"].notna()]
+    regola = []
+    for _, g in vivi.groupby(["lato", "tipo", "famiglia"]):
+        pool = g[g["blocco"].isin(QUATTORDICI)]
+        pool = pool if len(pool) else g
+        regola.append(list(g[g["esito"] == "tenuto"]["blocco"]) == [sorted(zip(-pool["scatta"], pool["blocco"]))[0][1]])
+    res = e.resoconto["blocchi"]
+    lati = ["long"] if symbol == SPOT else ["long", "short"]
+    check(f"{n + 1}. {nome}: famiglie e tenuti: un blocco per famiglia misurata, con la regola; i tolti hanno il motivo; "
+          f"lati {lati}; E19 solo long", all(regola) and sorted(set(righe["lato"])) == sorted(lati)
+          and list(res) == lati and all(righe["motivo"].str.len() > 0)
+          and not len(righe[(righe["blocco"] == "E19") & (righe["lato"] == "short")])
+          and all(res[x][t]["tenuti"] == int(((righe["lato"] == x) & (righe["tipo"] == t)
+                                              & (righe["esito"] == "tenuto")).sum()) for x in lati
+                  for t in ("trigger", "filtro")),
+          "; ".join(f"{x}: {res[x]['trigger']['blocchi']} trigger → {res[x]['trigger']['tenuti']}, "
+                    f"{res[x]['filtro']['blocchi']} filtri → {res[x]['filtro']['tenuti']}" for x in lati))
+    p1 = e.passo_1
+    t1 = p1[p1["turno"] == 1]
+    tf_tenute = t1[t1["tenuta"] & ~t1["teoria"].str.contains(r"\|-\|") & ~t1["teoria"].str.contains(r"\+")]
+    scelte = [Teoria(1 if t.startswith("L") else -1, t.split("|")[1], (t.split("|")[2],), t.split("|")[3])
+              for t in tf_tenute.sort_values(["t", "teoria"], ascending=[False, True])["teoria"][:3]]
+    attese = [t.id for t in teorie_turno_2(scelte, cfg, blocchi_da_config(cfg), {
+        (1 if x == "long" else -1): list(righe[(righe["lato"] == x) & (righe["esito"] == "tenuto")]["blocco"])
+        for x in lati})]
+    t2 = list(p1[p1["turno"] == 2]["teoria"])
+    check(f"{n + 2}. {nome}: turno 1 = trigger tenuti × (1 + filtri tenuti) × 3 uscite; turno 2 = le 3 T+F migliori con "
+          "tutti i secondi filtri compatibili, mai ADX con ATR relativo; tutte dei lati della ricerca",
+          e.imbuto["turno_1"] == len(t1) == sum(res[x]["trigger"]["tenuti"] * (1 + res[x]["filtro"]["tenuti"]) * 3
+                                                for x in lati)
+          and t2 == attese and len(t2) > 0 and not any("ADX" in t and "ATR_RELATIVO" in t for t in t2)
+          and all(t[0] in "".join(x[0].upper() for x in lati) for t in p1["teoria"]),
+          f"turno 1 {len(t1)} teorie, turno 2 {len(t2)}")
+    csv_f = pd.read_csv(registro.FileProve(e.cartella).percorso, dtype=str, keep_default_na=False)
+    fasi = csv_f["fase"].value_counts().to_dict()
+    check(f"{n + 3}. {nome}: conto delle prove esatto (turno 1, turno 2 con la sua fase, zoom, altopiano, selezione) = "
+          "conto dell'asset; sotto il budget massimo, che sta sotto il tetto",
+          e.finita and len(csv_f) == e.prove == registro.conto_prove(cartelle["A"], symbol, tf)
+          and fasi.get("passo_1") == int(t1["prove"].sum())
+          and fasi.get("passo_1_turno_2", 0) == int(p1[p1["turno"] == 2]["prove"].sum())
+          and e.prove <= e.budget_massimo <= cfg["budget"]["totale"], f"{e.prove} prove, {fasi}")
+    a = lancia(cfg, cartelle["R"], ferma_dopo=e.imbuto["turno_1"] + max(1, e.imbuto["turno_2"] // 2), verbose=False,
+               data=DATA)
+    b = lancia(cfg, cartelle["R"], verbose=False, data=DATA)
+    tre = lancia(_cfg_tf(symbol, tf, confini, processi=3), cartelle["P"], verbose=False, data=DATA)
+    check(f"{n + 4}. {nome}: fermata a metà del turno 2 e ripresa = corsa unica, bit per bit; 3 processi = 1 processo "
+          "(turni, zoom, prove, selezione, stato)",
+          not a.finita and len(a.passo_1) < e.imbuto["turno_1"] + e.imbuto["turno_2"] and b.finita
+          and _file_ricerca(b) == _file_ricerca(e) and tre.id_ricerca == e.id_ricerca
+          and {k: v for k, v in _file_ricerca(tre).items() if k != "config.json"}
+          == {k: v for k, v in _file_ricerca(e).items() if k != "config.json"},
+          f"fermata dopo {len(a.passo_1)} teorie; con 3 processi diverso solo config.json, che scrive «processi»")
+    w = lancia(cfg, cartelle["W"], verbose=False, data=DATA)
+    check(f"{n + 5}. {nome}: cassaforte avvelenata (prezzi × 3, volume 1): ogni file della ricerca identico al bit, "
+          "turni compresi: la cassaforte resta sigillata", w.id_ricerca == e.id_ricerca
+          and _file_ricerca(w) == _file_ricerca(e) and w.tenuti_tolti == e.tenuti_tolti)
+    return n + 6
 
 if __name__ == "__main__":
     sys.exit(esegui())

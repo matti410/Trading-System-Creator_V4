@@ -13,7 +13,11 @@ stanno in `00_ARCHIVIO.md`: si apre solo se il lavoro lo richiede. Le proposte d
 `Fabbrica_Strategie_Crypto.ipynb` (L5b), è lanciato sui dati veri dal 09/11. Stato al 10/11 (PR #109, #110 e
 registro senza catena): la cella 1 aggiorna i dati dall'exchange a ogni avvio, pezzi fino all'ultima mezzanotte UTC
 chiusa; la cassaforte non ha limiti di ingresso e la cella 5 non chiede frasi; il registro è un file di annotazioni,
-senza catena di impronte. Regola di progetto: la pipeline il più semplice possibile (`CLAUDE.md`). **Eccezione: in
+senza catena di impronte. Dal 14/11 (C1, PR #113; C2, `82` §11): la config standard ha tutto il catalogo (45 trigger,
+30 filtri, 3 uscite; versione 2, le ricerche della versione 1 restano su disco e nel conto); all'avvio un blocco per
+famiglia misurata; il passo 1 in due turni (turno 1: al massimo un filtro; turno 2: un secondo filtro alle 150 migliori);
+tetto del budget = il massimo arrotondato in su ai 10.000; la cella 1 stima il tempo dalla velocità delle ricerche vere.
+Regola di progetto: la pipeline il più semplice possibile (`CLAUDE.md`). **Eccezione: in
 `engine/fabbrica/` i parametri si ottimizzano (`docs/81_FABBRICA`).** Il catalogo dei trigger intraday (`78`, `79`) è unito (PR #97): 12 trigger nuovi
 E46–E52, E50 spento come doppione di E3.
 

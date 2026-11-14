@@ -88,7 +88,7 @@ def _cfg(timeframe="M15", confini=CONFINI, blocchi=BLOCCHI):
     cfg["confini"] = dict(confini)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in blocchi}
     cfg["qualita_1"]["trade_min"] = 30
-    cfg["budget"].update({"teorie_passo_2": 4, "prove_per_giro": 60})
+    cfg["budget"].update({"teorie_turno_2": 4, "teorie_passo_2": 4, "prove_per_giro": 60})
     return cfg
 
 
