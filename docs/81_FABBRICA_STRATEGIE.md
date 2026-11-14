@@ -46,6 +46,8 @@ e indicatore TradingView sono fuori da questo incarico.
 - **Teoria:** un modello riempito con blocchi, senza valori.
 - **Strategia:** una teoria con tutti i valori.
 - **Giro:** una passata dell'ottimizzatore su una teoria, con intervalli e passo dati (la *SubTheory* del libro).
+- **Turno:** una delle due ricerche del passo 1 (C2, 14/11). Il turno 1 prova le teorie con al massimo un filtro; il turno 2
+  aggiunge un secondo filtro alle 150 migliori teorie con un filtro. «Giro» resta solo dell'ottimizzatore e dello zoom.
 - **Condizione di qualità:** regole sì/no che una strategia deve passare (trade minimi, drawdown, peso massimo di un
   singolo trade, costi inclusi).
 - **Budget:** il numero massimo di strategie provate. Ogni strategia provata è una **prova**.
@@ -61,9 +63,13 @@ e indicatore TradingView sono fuori da questo incarico.
 2. **Config scritta e salvata prima del lancio**, con impronta (hash): blocchi ammessi, intervalli, modelli,
    condizioni di qualità, budget, seed. Un rilancio con config diversa è una ricerca nuova: le prove si sommano nel
    conto.
-3. **Generatore:** teorie da modelli × blocchi; scarta le teorie con due blocchi della stessa famiglia (`famiglie.py`).
-4. **Passo 1, scrematura:** passo largo (circa N valori per parametro), ottimizzatore tarato in ampiezza, sui soli
-   dati di ricerca; condizione di qualità 1 → teoria tenuta o scartata.
+3. **Generatore:** all'avvio, sul pezzo di ricerca e solo sui segnali, un blocco per famiglia misurata (`famiglie.py`):
+   resta uno dei 14 blocchi di P-L2 se c'è, altrimenti quello che scatta più spesso (`docs/82` §11.3); poi le teorie dai
+   blocchi tenuti. ADX e ATR relativo, che hanno la stessa famiglia dichiarata, non stanno mai nella stessa teoria.
+4. **Passo 1, scrematura in due turni:** passo largo (circa N valori per parametro), ottimizzatore tarato in ampiezza,
+   sui soli dati di ricerca; condizione di qualità 1 → teoria tenuta o scartata. Turno 1: le teorie con al massimo un
+   filtro; turno 2: alle 150 teorie con un filtro dal t più alto si aggiunge un secondo filtro. Ogni prova dei due turni
+   entra nel conto; allo zoom vanno le migliori dei due turni insieme (`docs/82` §11.4).
 5. **Passo 2, zoom:** giri successivi, intervalli stretti attorno alle migliori, passo che cala; stop per numero di
    giri, o forza bruta quando lo spazio è piccolo. **Altopiano:** la strategia scelta deve reggere anche con i valori
    vicini (proporre la misura).
@@ -107,8 +113,8 @@ e indicatore TradingView sono fuori da questo incarico.
   rimaste · 5 La cassaforte · 6 MM, stress test e verifica dei trade · 7 Le schede (versione approvata in `docs/82` §7).
 - **1 Configura:** timeframe da M1 a D1; i blocchi tolti su quel timeframe si mostrano con il motivo e la cella
   prosegue; si ferma solo se mancano i dati o se non resta un trigger o un'uscita.
-- **L'imbuto è la figura principale:** teorie generate → passo 1 → passo 2 → altopiano → selezione → scelte →
-  cassaforte, con il numero a ogni passo.
+- **L'imbuto è la figura principale:** teorie del turno 1 → tenute → teorie del turno 2 → tenute → zoom → altopiano →
+  selezione → scelte → cassaforte, con il numero a ogni passo.
 - **Testi per un novizio del trading:**
   - in testa un glossario di circa 10 righe (§2, più long/short, bp, costo, funding, drawdown, t, MM);
   - ogni cella di codice è preceduta da una cella di massimo 6 righe: **Cosa fa** (una frase), **Come leggere**
@@ -126,8 +132,8 @@ con i tempi stimati.
 ## §7 · Lavori (un ramo e una PR ciascuno, in quest'ordine)
 
 - **L1** ottimizzatore (griglia a passo largo e algoritmo genetico), collaudo sulle funzioni di prova.
-- **L2** blocchi parametrici e cache degli indicatori, per una lista corta da proporre (es. 5 trigger, 5 filtri,
-  3 uscite del catalogo, più RSI, ATR, ADX, Donchian).
+- **L2** blocchi parametrici e cache degli indicatori: RSI, ATR, ADX, Donchian, più i blocchi del catalogo (dal C1 e C2,
+  `docs/82` §11, tutto il catalogo dei trigger e dei filtri, e le 3 uscite).
 - **L3** generatore, passi 1–2, config e registro delle ricerche.
 - **L4a** selezione, famiglie, conto delle prove.
 - **L4b** cassaforte e adattatore della Sessione.

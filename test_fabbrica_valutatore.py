@@ -27,9 +27,10 @@ from engine.exit_search_bt import run_exit_search_bt
 from engine.fabbrica import sintetici
 from engine.fabbrica.blocchi import blocchi_da_config
 from engine.fabbrica.cache import ORE_FINESTRA_SOGLIE, Cache, barre_da_ore
-from engine.fabbrica.config import config_standard
+from engine.fabbrica.config import BLOCCHI_P_L2, config_standard
 from engine.fabbrica.dati import Confini, carica_pezzi
-from engine.fabbrica.generatore import (Teoria, genera_teorie, lati_config, misura_famiglie, togli_degeneri)
+from engine.fabbrica.generatore import (ControlloDegenerazione, Teoria, lati_config, misura_famiglie, teorie_turno_1,
+                                        teorie_turno_2, togli_degeneri, un_blocco_per_famiglia)
 from engine.fabbrica.ottimizzatore import Categoria
 from engine.fabbrica.valutatore import (Costi, Misure, Strategia, Valutatore, id_strategia, misure_da_bp, obiettivo,
                                         qualita_1, trade_completi)
@@ -53,15 +54,19 @@ def _prepara(cartella, symbol, prezzo, seme):
         sintetici.scrivi_funding(cartella, symbol, df, seme=seme)
     cfg = config_standard(symbol, "M15")
     cfg["confini"] = dict(CONFINI)
+    cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in BLOCCHI_P_L2}   # i blocchi di P-L2, come prima
     pezzi = carica_pezzi(symbol, "M15", Confini.da_config(cfg["confini"]), cartella)
     costi = pezzi.costi("ricerca")
     dfi = aggiungi_indicatori(pezzi.ricerca)
     cache = Cache(dfi, 800)
     blocchi = blocchi_da_config(cfg)
     lati = lati_config(cfg)
-    rimaste, _ = togli_degeneri(blocchi, cache, lati)
-    famiglie, _ = misura_famiglie(blocchi, cache, lati)
-    teorie = genera_teorie(cfg, blocchi, famiglie, rimaste)
+    controllo = ControlloDegenerazione(cache)
+    rimaste, _ = togli_degeneri(blocchi, cache, lati, controllo)
+    _, misura = misura_famiglie(blocchi, cache, lati, rimaste)
+    tenuti, _ = un_blocco_per_famiglia(blocchi, misura, controllo, lati, rimaste)
+    teorie = teorie_turno_1(cfg, blocchi, tenuti)                  # C2: le teorie dei due turni
+    teorie += teorie_turno_2([t for t in teorie if len(t.filtri) == 1], cfg, blocchi, tenuti)
     return {"cfg": cfg, "costi": costi, "df": dfi, "cache": cache, "blocchi": blocchi, "teorie": teorie,
             "valutatore": Valutatore(blocchi, cache, Costi(dfi, costi))}
 

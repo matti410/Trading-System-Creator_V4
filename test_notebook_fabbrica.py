@@ -1,5 +1,5 @@
 """
-Suite di collaudo del notebook della fabbrica, Fabbrica_Strategie_Crypto.ipynb (docs/82 §7, lavoro L5b).
+Suite di collaudo del notebook della fabbrica, Fabbrica_Strategie_Crypto.ipynb (docs/82 §7, lavoro L5b; C2, §11.8).
 
 Si lancia da terminale, dalla cartella del progetto:
 
@@ -106,7 +106,7 @@ def _file(nb):
           "numerico, Poi", not lunghi, f"da rivedere: {lunghi}")
     glossario = next(c.source for c in nb.cells if c.cell_type == "markdown" and c.source.startswith("## Glossario"))
     sigle = ("**bp", "**EV:**", "**MM", "**t:**", "**Drawdown:**", "**Funding:**", "**Zoom:**", "**In-sample",
-             "**Asset:**", "**Cassaforte:**", "**Famiglia:**", "**Altopiano:**", "**Imbuto:**")
+             "**Asset:**", "**Cassaforte:**", "**Famiglia:**", "**Altopiano:**", "**Imbuto:**", "**Turno:**")
     check("4. il glossario in testa spiega le sigle e le parole usate nelle celle", all(s in glossario for s in sigle),
           f"mancano: {[s for s in sigle if s not in glossario]}")
     chiamate = []
@@ -151,7 +151,7 @@ def _copia_di_collaudo(nb, dati: str):
     cfg["confini"] = dict(CONFINI)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in BLOCCHI}
     cfg["qualita_1"]["trade_min"] = 30
-    cfg["budget"].update({"teorie_passo_2": 4, "prove_per_giro": 60})
+    cfg["budget"].update({"teorie_turno_2": 4, "teorie_passo_2": 4, "prove_per_giro": 60})
     nb = copy.deepcopy(nb)
     per = {_titolo(c): c for c in nb.cells if c.cell_type == "code"}
     a = per["Avvio"]
@@ -222,13 +222,16 @@ def _esecuzione(nb):
               not any("ERRORE" in x for x in t.values()))
         check("8. Avvio: fabbrica pronta con la macchina scritta nel campo, il file sintetico trovato",
               "Fabbrica pronta" in t["Avvio"] and "collaudo" in t["Avvio"] and SPOT in t["Avvio"])
-        check("9. 1 · Configura: ricerca nuova, i tre pezzi, la cassaforte chiusa, i blocchi tolti",
-              "(nuova)" in t["1 · Configura"] and "chiusa" in t["1 · Configura"]
-              and "Blocchi tolti" in t["1 · Configura"])
+        check("9. 1 · Configura: ricerca nuova, i tre pezzi, la cassaforte chiusa, i blocchi tolti, i tenuti per lato "
+              "(un blocco per famiglia) e le teorie dei due turni", "(nuova)" in t["1 · Configura"]
+              and "chiusa" in t["1 · Configura"] and "Blocchi tolti" in t["1 · Configura"]
+              and "tenuti (un blocco per famiglia)" in t["1 · Configura"] and "Turno 1:" in t["1 · Configura"]
+              and "turno 2: al massimo" in t["1 · Configura"])
         check("10. 2 · La ricerca: finita, con le prove e i valori degeneri", "finita" in t["2 · La ricerca"]
               and "prove in questa ricerca" in t["2 · La ricerca"])
         immagine = any("image/png" in o.get("data", {}) for o in uscite["3 · L'imbuto"].get("outputs", []))
-        check("11. 3 · L'imbuto: la figura e la tabella dei passi", immagine and "cassaforte: entrate" in t["3 · L'imbuto"])
+        check("11. 3 · L'imbuto: la figura e la tabella dei passi, con i due turni", immagine
+              and "cassaforte: entrate" in t["3 · L'imbuto"] and "turno 2: tenute" in t["3 · L'imbuto"])
         check("12. 4 · Le strategie rimaste: la tabella con le regole in parole",
               "Le strategie rimaste" in t["4 · Le strategie rimaste"] and "Entra long" in t["4 · Le strategie rimaste"])
         check("13. 5 · La cassaforte: le scelte entrano e si vede l'esito", "La cassaforte · tratto" in t["5 · La cassaforte"]

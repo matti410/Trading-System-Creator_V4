@@ -15,6 +15,8 @@ Le schede della fabbrica (docs/82 P10 e §6, lavoro L5a): un .json e un .md per 
   pezzi devono essere quelle della scheda. La cassaforte si rilegge solo per una strategia già entrata nel suo tratto.
 - La scheda porta anche i blocchi tolti su quel timeframe, con il motivo (08/11), e l'esito delle regole della verifica
   dei trade (schermata 8 del Lab) quando la cella 6 del notebook è stata eseguita per quella strategia.
+- C2 (docs/82 §11.8): «Da dove viene» dice il turno del passo 1 da cui viene la teoria (1 o 2), e la sezione «Blocchi
+  tenuti e tolti» ha la tabella della cella 1 (un blocco per famiglia); nel .json la tabella intera.
 - In fondo al .md sempre la frase FRASE_FINALE (Mattia, 08/11).
 """
 from __future__ import annotations
@@ -344,7 +346,7 @@ def regole_in_parole(strategia: Strategia, timeframe: str) -> dict:
 # ------------------------------------------------------------------ i blocchi tolti
 def esclusi_dalla_config(config: dict) -> list[dict]:
     """
-    I blocchi di P-L2 che non sono nella config, con il motivo (08/11): quelli tolti sul timeframe hanno il motivo di
+    I blocchi standard che non sono nella config, con il motivo (08/11): quelli tolti sul timeframe hanno il motivo di
     blocchi.MOTIVI_ESCLUSIONE (limite logico, approssimazione esclusa per scelta, escluso solo dall'elenco); gli altri
     sono «tolto dalla config». Sulla config standard è config.blocchi_esclusi(timeframe).
     """
@@ -431,12 +433,13 @@ def componi_scheda(esito_ricerca, esito_cas, id_strat: str, mm: dict | None = No
 
     p1 = _riga(esito_ricerca.passo_1, "teoria", teoria) or {}
     p2 = _riga(esito_ricerca.passo_2, "teoria", teoria) or {}
+    turno = p1.get("turno")
     sel = _riga(esito_ricerca.selezione.tabella, "id_strategia", id_strat) or {}
     cas = _riga(esito_cas.tabella, "id_strategia", id_strat) or {}
     esiti = [
-        {"passo": "passo 1", "pezzo": "ricerca", "trade": None, "ev_bp": None, "t": p1.get("t"), "dd_bp": None,
-         "condizione": "qualità 1", "esito": "tenuta" if p1.get("tenuta") else "fuori",
-         "motivo": f"la migliore della teoria al passo 1 ({p1.get('prove')} prove)"},
+        {"passo": f"passo 1, turno {turno}", "pezzo": "ricerca", "trade": None, "ev_bp": None, "t": p1.get("t"),
+         "dd_bp": None, "condizione": "qualità 1", "esito": "tenuta" if p1.get("tenuta") else "fuori",
+         "motivo": f"la migliore della teoria al turno {turno} ({p1.get('prove')} prove)"},
         {"passo": "zoom e altopiano", "pezzo": "ricerca", "trade": p2.get("trade"), "ev_bp": p2.get("ev_bp"),
          "t": p2.get("t"), "dd_bp": None, "condizione": "qualità 1 e altopiano", "esito": p2.get("esito"),
          "motivo": p2.get("motivo") or f"{p2.get('prove_zoom')} prove di zoom, {p2.get('prove_altopiano')} di altopiano"},
@@ -452,7 +455,7 @@ def componi_scheda(esito_ricerca, esito_cas, id_strat: str, mm: dict | None = No
         "versione_scheda": VERSIONE_SCHEDA,
         "id_strategia": id_strat, "id_ricerca": esito_ricerca.id_ricerca, "impronta_config": impronta_config(config),
         "impronte_dati": impronte, "symbol": symbol, "timeframe": timeframe,
-        "lato": "long" if st.lato == 1 else "short",
+        "lato": "long" if st.lato == 1 else "short", "turno": turno,
         "blocchi": [{"nome": n, "tipo": _tipo(n), "valori": st.valori_di(n)} for n in st.blocchi],
         "uscita": {"nome": st.uscita, **st.valori_di(st.uscita)},
         "regole": regole_in_parole(st, timeframe)["righe"],
@@ -468,6 +471,7 @@ def componi_scheda(esito_ricerca, esito_cas, id_strat: str, mm: dict | None = No
         "cassaforte": {"data": ingresso.get("quando"), "tratto": esito_cas.tratto, "esito": cas.get("esito"),
                        "entrate_nel_tratto": esito_cas.conto.get("entrate_nel_tratto")},
         "blocchi_esclusi": esclusi_dalla_config(config),
+        "blocchi_tenuti_tolti": list(getattr(esito_ricerca, "tenuti_tolti", []) or []),
         "mm": (mm or {}).get("mm"), "stress": (mm or {}).get("stress"), "verifica": (mm or {}).get("verifica"),
         "parametri_mm": (mm or {}).get("parametri"),
         "software": commit_software(),
@@ -516,7 +520,7 @@ def _quando(iso) -> str:
 
 def testo_md(sc: dict) -> str:
     """La scheda in parole (§6): Regole · Da dove viene · Il cammino · Da leggere · Verifica, MM e stress test ·
-    Blocchi tolti; in fondo la frase finale."""
+    Blocchi tolti sul timeframe · Blocchi tenuti e tolti (C2); in fondo la frase finale."""
     t = sc["test_individuale"]
     pr, cas = sc["prove"], sc["cassaforte"]
     da, a = cas["tratto"]["da"], cas["tratto"]["a"]
@@ -524,6 +528,8 @@ def testo_md(sc: dict) -> str:
              "## Regole", *[f"- {r}" for r in sc["regole"]], "",
              "## Da dove viene",
              f"- Ricerca {sc['id_ricerca']}, config {sc['impronta_config'][:12]}.",
+             f"- Turno {_f(sc.get('turno'))} del passo 1 (turno 1: al massimo un filtro; turno 2: un secondo filtro "
+             "aggiunto alle migliori teorie con un filtro).",
              f"- Dati: dal {_quando(sc['config_strategia']['confini']['inizio'])}; ricerca "
              f"{_numero(float(sc['config_strategia']['confini']['ricerca_ore']))} ore, selezione "
              f"{_numero(float(sc['config_strategia']['confini']['selezione_ore']))} ore, cassaforte dal {_quando(da)} "
@@ -564,6 +570,17 @@ def testo_md(sc: dict) -> str:
         righe += [f"- {e['blocco']} ({e['tipo']}): {e['motivo']}." for e in sc["blocchi_esclusi"]]
     else:
         righe.append("Nessuno: c'erano tutti i blocchi della lista.")
+    righe += ["", "## Blocchi tenuti e tolti (un blocco per famiglia)"]
+    tab = sc.get("blocchi_tenuti_tolti") or []
+    for lato in dict.fromkeys(r["lato"] for r in tab):
+        for tipo, nome in (("trigger", "trigger"), ("filtro", "filtri")):
+            mie = [r for r in tab if r["lato"] == lato and r["tipo"] == tipo]
+            righe.append(f"- {lato}: {len(mie)} {nome} → {sum(r['esito'] == 'tenuto' for r in mie)} tenuti.")
+    tolti = [r for r in tab if r["esito"] == "tolto"]
+    if tolti:
+        righe += ["", *_tabella_md(tolti, ["lato", "tipo", "blocco", "motivo", "scatta"])]
+    elif not tab:
+        righe.append("Non registrati in questa scheda.")
     righe += ["", FRASE_FINALE, ""]
     return "\n".join(righe)
 

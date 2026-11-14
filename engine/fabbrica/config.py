@@ -14,6 +14,11 @@ La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
 - I campi sono quelli di §6, né uno di più né uno di meno. Timeframe da M1 a D1. Sullo spot solo long.
 - Il budget non si supera mai: budget_massimo è il conto dei massimi per teoria (§5), e controlla_budget si ferma se
   supera il totale prima di partire. Così non dipende dall'ordine delle teorie.
+- C2 (docs/82 §11, D5 = B): solo la versione 2, una strada sola. In `budget` la chiave `teorie_turno_2` (le teorie T+F
+  del turno 1 a cui il turno 2 aggiunge un secondo filtro). Il totale della config standard è il tetto (D6): il
+  massimo arrotondato in su ai 10.000 (tetto_budget). La cella 1 lo calcola sui blocchi tenuti del pezzo di ricerca;
+  senza dati, config_standard usa il massimo con tutti i blocchi (mai più piccolo). I blocchi standard sono tutto il
+  catalogo (C1), più RSI, Donchian, ADX e ATR relativo, e le tre uscite.
 """
 from __future__ import annotations
 
@@ -29,7 +34,7 @@ from engine.exchange import simboli_exchange, solo_long
 from .blocchi import GRIGLIE_NUOVI, GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, USCITE_CATALOGO, blocchi_da_config
 from .dati import Confini
 
-VERSIONE = 1
+VERSIONE = 2                           # C2 (D5 = B): le ricerche della versione 1 restano su disco e nel conto
 CAMPI = ("versione", "symbol", "timeframe", "confini", "lati", "blocchi", "modelli", "qualita_1", "qualita_2",
          "altopiano", "test_individuale", "budget", "seme", "processi")
 SOTTOCAMPI = {
@@ -38,17 +43,31 @@ SOTTOCAMPI = {
     "altopiano": ("variazione_ore", "spostamento_min_barre", "mediana_min", "peggiore_min", "candidati_max",
                   "prove_max"),
     "test_individuale": ("alfa",),
-    "budget": ("totale", "per_teoria_passo_1", "teorie_passo_2", "giri_zoom", "prove_per_giro"),
+    "budget": ("totale", "per_teoria_passo_1", "teorie_turno_2", "teorie_passo_2", "giri_zoom", "prove_per_giro"),
 }
 FILTRI_MAX = 2                         # i modelli di docs/82 P3: T+U, T+F+U, T+F+F+U
 # La prima finestra (docs/82 P1 e §6). Dal 09/11 dà solo l'inizio fisso e le proporzioni dei tre pezzi:
 # la cella 1 calcola i confini con confini_standard, fino all'ultima mezzanotte UTC chiusa del CSV.
 CONFINI_STANDARD = {"inizio": "2020-01-02 00:00", "ricerca_ore": 30624, "selezione_ore": 17177.75,
                     "cassaforte_ore": 11779.5}
-# I blocchi della config standard, scritti per intero (C1, 12/11): dal 12/11 i dizionari di blocchi.py hanno tutto il
-# catalogo, ma la config standard resta quella di P-L2 finché C2 non la cambia (docs/82 §11.9). Stesso ordine di prima.
-BLOCCHI_STANDARD = ("E5", "E36", "E47", "E49", "E51", "RSI_RIENTRO", "DONCHIAN", "F2_MID_VOLATILITY", "F3_VOLUME_ABOVE_AVG",
-                    "TREND_CONTEXT", "F25_CHOP_TREND", "F20_SESSION_OVERLAP", "ADX", "ATR_RELATIVO", "X0", "X3", "X1")
+# La lista di P-L2 (docs/82 §8), la config standard fino a C1: i 14 trigger e filtri più le tre uscite.
+BLOCCHI_P_L2 = ("E5", "E36", "E47", "E49", "E51", "RSI_RIENTRO", "DONCHIAN", "F2_MID_VOLATILITY", "F3_VOLUME_ABOVE_AVG",
+                "TREND_CONTEXT", "F25_CHOP_TREND", "F20_SESSION_OVERLAP", "ADX", "ATR_RELATIVO", "X0", "X3", "X1")
+# I blocchi della config standard (C2, docs/82 §11.2), scritti per intero: tutti i trigger del catalogo in ordine di
+# numero, RSI e Donchian; i filtri del catalogo (F36 escluso; le coppie con un verso nel posto del loro primo numero, i
+# due VWAP in fondo), ADX e ATR relativo; le tre uscite. L'ordine è quello delle teorie e dei filtri nell'id della teoria.
+BLOCCHI_STANDARD = (
+    "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10", "E11", "E12", "E13", "E16", "E19", "E21", "E22", "E23",
+    "E24", "E25", "E26", "E27", "E28", "E29", "E30", "E31", "E32", "E33", "E34", "E35", "E36", "E37", "E38", "E39", "E40",
+    "E41", "E45", "E46", "E47", "E48", "E49", "E51", "E52", "RSI_RIENTRO", "DONCHIAN",
+    "F1_ADX_ABOVE", "F2_MID_VOLATILITY", "F2_HIGH_VOLATILITY", "F3_VOLUME_ABOVE_AVG", "MACD_SIGNAL", "TREND_CONTEXT",
+    "TREND_CONVICTION", "F14_LOW_DRIFT_REGIME", "F15_SHORT_TERM_CONSISTENCY", "F20_SESSION_ASIA", "F20_SESSION_EUROPE",
+    "F20_SESSION_US", "F20_SESSION_OVERLAP", "OVERNIGHT_RETURN", "F22_FAR_FROM_ROLLOVER", "F23_CYCLE_STRENGTH", "TWO_BARS",
+    "F25_CHOP_TREND", "F25_CHOP_RANGE", "F26_VARIANCE_RATIO_TREND", "VFI_SIGN", "F29_RVOL_LOW", "F32_KER_RANGE",
+    "F35_JDH_REGIME_TREND", "F39_INSIDE_DAY", "ALGOX_STATE", "VWAP_GAP_WIDENING", "VWAP_SESSION_CLOSE", "ADX",
+    "ATR_RELATIVO",
+    "X0", "X3", "X1")
+TETTO_ARROTONDA = 10_000               # D6: il tetto è il massimo arrotondato in su ai 10.000
 
 
 def _errore(testo: str):
@@ -83,7 +102,8 @@ def controlla_config(config: dict) -> dict:
     """Controlla campi e intervalli; si ferma con un errore che dice cosa manca o cosa è fuori posto."""
     _campi(config, CAMPI, "la config")
     if config["versione"] != VERSIONE:
-        _errore(f"versione {config['versione']!r}: questa fabbrica legge la versione {VERSIONE}")
+        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §11, "
+                "D5): una ricerca della versione 1 resta su disco e nel conto, rilancia la cella 2 per una ricerca nuova")
     if config["symbol"] not in simboli_exchange():
         _errore(f"symbol {config['symbol']!r} fuori da SIMBOLI_EXCHANGE (engine/simboli.py)")
     if config["timeframe"] not in MINUTI_TIMEFRAME:
@@ -135,21 +155,52 @@ def controlla_config(config: dict) -> dict:
     return config
 
 
-def budget_massimo(n_teorie: int, config: dict) -> int:
-    """Il conto dei massimi per teoria (docs/82 §5): passo 1, zoom, altopiano, selezione, cassaforte."""
+def budget_massimo(n_teorie: int, config: dict, teorie_tf: int = 0, filtri_lato_max: int = 0) -> int:
+    """
+    Il conto dei massimi per teoria (docs/82 §5 e §11.5): turno 1 (`n_teorie` × prove per teoria), turno 2
+    (min(`teorie_turno_2`, `teorie_tf`) × (`filtri_lato_max` − 1) × prove per teoria, se i modelli ammettono due
+    filtri), poi zoom, altopiano, selezione e cassaforte sulle `teorie_passo_2` (non più delle teorie dei due turni).
+    `teorie_tf` = le teorie T+F del turno 1; `filtri_lato_max` = i filtri tenuti del lato che ne ha di più.
+    """
     b, alt = config["budget"], config["altopiano"]
-    t2 = min(b["teorie_passo_2"], n_teorie)
-    return (n_teorie * b["per_teoria_passo_1"] + t2 * b["giri_zoom"] * b["prove_per_giro"] + t2 * alt["prove_max"]
-            + 2 * t2)
+    due = any(m["filtri"][1] >= 2 for m in config["modelli"])
+    turno_2 = min(b["teorie_turno_2"], teorie_tf) * max(filtri_lato_max - 1, 0) if due else 0
+    t2 = min(b["teorie_passo_2"], n_teorie + turno_2)
+    return ((n_teorie + turno_2) * b["per_teoria_passo_1"] + t2 * b["giri_zoom"] * b["prove_per_giro"]
+            + t2 * alt["prove_max"] + 2 * t2)
 
 
-def controlla_budget(n_teorie: int, config: dict) -> int:
+def tetto_budget(massimo: int) -> int:
+    """D6: il massimo arrotondato in su ai 10.000 (370.200 → 380.000)."""
+    return int(math.ceil(int(massimo) / TETTO_ARROTONDA) * TETTO_ARROTONDA)
+
+
+def controlla_budget(n_teorie: int, config: dict, teorie_tf: int = 0, filtri_lato_max: int = 0) -> int:
     """Si ferma prima di partire se i massimi superano il totale: così il budget non si supera mai."""
-    massimo = budget_massimo(n_teorie, config)
+    massimo = budget_massimo(n_teorie, config, teorie_tf, filtri_lato_max)
     if massimo > config["budget"]["totale"]:
-        _errore(f"con {n_teorie} teorie i massimi fanno {massimo} prove, oltre il totale di "
+        _errore(f"con {n_teorie} teorie al turno 1 i massimi fanno {massimo} prove, oltre il totale di "
                 f"{config['budget']['totale']}: riduci blocchi o prove per teoria")
     return massimo
+
+
+def massimo_senza_dati(config: dict) -> int:
+    """
+    Il massimo con tutti i blocchi della config, come se nessuno uscisse per i valori degeneri o per le famiglie: non
+    è mai più piccolo di quello della ricerca vera. Serve a config_standard quando non ha i dati.
+    """
+    from .generatore import _filtri_modelli, lati_config
+    blocchi = blocchi_da_config(config)
+    k = _filtri_modelli(config) & {0, 1}
+    uscite = sum(1 for b in blocchi if b.tipo == "uscita")
+    n1 = tf = f_max = 0
+    for lato in lati_config(config):
+        t = sum(1 for b in blocchi if b.tipo == "trigger" and lato in b.lati)
+        f = sum(1 for b in blocchi if b.tipo == "filtro")
+        n1 += t * ((0 in k) + (f if 1 in k else 0)) * uscite
+        tf += t * (f if 1 in k else 0) * uscite
+        f_max = max(f_max, f)
+    return budget_massimo(n1, config, tf, f_max)
 
 
 def leggi_config(percorso) -> dict:
@@ -239,11 +290,12 @@ def confini_standard(timeframe: str, ultima_barra) -> dict:
 
 
 def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi: int = 3,
-                    confini: dict | None = None) -> dict:
+                    confini: dict | None = None, totale: int | None = None) -> dict:
     """
-    La config di §6 con tutti i blocchi di P-L2 ammessi sul timeframe e le loro griglie. I blocchi del catalogo che
-    su quel timeframe non scattano restano fuori (blocchi.py li fermerebbe). `confini` (09/11): quelli calcolati da
-    confini_standard sui dati; senza, la prima finestra (CONFINI_STANDARD).
+    La config di §6, versione 2 (C2), con tutti i blocchi di BLOCCHI_STANDARD ammessi sul timeframe e le loro griglie. I
+    blocchi del catalogo che su quel timeframe non scattano restano fuori (blocchi.py li fermerebbe). `confini` (09/11):
+    quelli calcolati da confini_standard sui dati; senza, la prima finestra (CONFINI_STANDARD). `totale`: il tetto del
+    budget calcolato dalla cella 1 sui blocchi tenuti (D6); senza, il tetto del massimo con tutti i blocchi.
     """
     blocchi = {}
     for nome in BLOCCHI_STANDARD:
@@ -254,7 +306,7 @@ def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi
         # griglie scritte per intero: se un giorno cambia una griglia nel codice, cambia anche l'impronta
         griglie = GRIGLIE_NUOVI.get(nome, GRIGLIE_USCITA if nome in USCITE_CATALOGO else {})
         blocchi[nome] = copy.deepcopy({k: list(v) for k, v in griglie.items()})
-    return {
+    config = {
         "versione": VERSIONE, "symbol": symbol, "timeframe": timeframe,
         "confini": dict(CONFINI_STANDARD if confini is None else confini),
         "lati": ["long"] if solo_long(symbol) else ["long", "short"],
@@ -265,15 +317,17 @@ def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi
         "altopiano": {"variazione_ore": 0.15, "spostamento_min_barre": 1, "mediana_min": 0.7, "peggiore_min": 0.4,
                       "candidati_max": 3, "prove_max": 60},
         "test_individuale": {"alfa": 0.05},
-        "budget": {"totale": 100000, "per_teoria_passo_1": 40, "teorie_passo_2": 150, "giri_zoom": 3,
-                   "prove_per_giro": 90},
+        "budget": {"totale": 0, "per_teoria_passo_1": 40, "teorie_turno_2": 150, "teorie_passo_2": 150,
+                   "giri_zoom": 3, "prove_per_giro": 90},
         "seme": seme, "processi": processi,
     }
+    config["budget"]["totale"] = int(totale) if totale is not None else tetto_budget(massimo_senza_dati(config))
+    return config
 
 
 def blocchi_esclusi(timeframe: str) -> list[dict]:
     """
-    I blocchi di P-L2 che config_standard lascia fuori su `timeframe`, con il motivo (L5a, 08/11): blocco, tipo del
+    I blocchi standard che config_standard lascia fuori su `timeframe`, con il motivo (L5a, 08/11): blocco, tipo del
     motivo (limite logico, approssimazione esclusa per scelta, escluso solo dall'elenco) e spiegazione. Si ferma se un
     blocco tolto non ha il suo motivo in blocchi.MOTIVI_ESCLUSIONE: nessun blocco esce in silenzio.
     """

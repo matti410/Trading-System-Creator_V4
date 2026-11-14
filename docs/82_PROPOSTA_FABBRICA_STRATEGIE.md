@@ -132,7 +132,7 @@ per i blocchi parametrici è dichiarata nel blocco e controllata sui valori cent
 
 ### P-L2 · I blocchi (lista approvata, §8)
 
-Scelti **per meccanismo diverso, senza guardare i risultati**. Tenuti fuori di proposito i trigger che `74` §2 segna come già visti in cima alla rosa (E21, E39) e quello nato da una scheda della mappa (E45).
+Scelti **per meccanismo diverso, senza guardare i risultati**. Tenuti fuori di proposito i trigger che `74` §2 segna come già visti in cima alla rosa (E21, E39) e quello nato da una scheda della mappa (E45). Dal C2 (14/11, §11) la config standard ha tutto il catalogo: E21, E39 ed E45 non sono più tenuti fuori.
 Il meccanismo qui sotto è stato **confermato in L2 leggendo le condizioni**: E5 e X3 erano diversi da come li avevo dedotti dai nomi e sono stati rietichettati (§8), le liste non cambiano. Il controllo con `famiglie.py`, che guarda solo i segnali e non conta prove, non ha trovato doppioni.
 
 **Timeframe da M1 a D1.** Intervalli in **ore**, convertiti in barre secondo il timeframe: niente costanti da M15.
@@ -570,8 +570,8 @@ Vuoto = nessun ingresso: la cella mostra l'esito delle strategie già entrate, s
 
 - Parametri ottimizzati solo in `engine/fabbrica/`, stop e target compresi.
 - Condizioni di qualità e soglie dell'altopiano come scritti, fissati prima del primo lancio.
-- Lista dei blocchi di P-L2 approvata.
-- Budget: 100.000 prove.
+- Lista dei blocchi di P-L2 approvata. Superata con C2 (14/11): vedi Catalogo intero e due turni; i 14 trigger e filtri di P-L2 restano quelli che in una famiglia misurata hanno la precedenza.
+- Budget: 100.000 prove. Superato con C2 (14/11): il tetto è il massimo arrotondato in su ai 10.000 (D6).
 - Lati separati.
 - Nomi dei file invariati; si cita sempre `81_FABBRICA`.
 - Confini (06/11): finestra scorrevole di durata fissa, spostamento ≥ durata della cassaforte, un conto delle strategie entrate per ogni tratto (P1). Superata il 09/11: vedi Dati e confini a ogni avvio.
@@ -579,7 +579,7 @@ Vuoto = nessun ingresso: la cella mostra l'esito delle strategie già entrate, s
 - Zoom (06/11): al passo di 1 barra, 1 per le soglie intere, 0,1 per la soglia di ATR relativo; minimo e massimo sono quelli della griglia (P-L2, P5).
 - Timeframe (06/11): da M1 a D1, parametri arrotondati alla barra più vicina, minimo 1 barra, valori doppi tolti; vale anche per la finestra delle soglie (P-L2).
 - Etichette (06/11): E5 è «rottura dopo inside bar», X3 è «MACD sotto la signal (stato)»; le liste non cambiano (P-L2).
-- Famiglie (06/11): ADX e ATR relativo nella stessa famiglia, decisa dalla misura; le teorie sono 1.176 (P3).
+- Famiglie (06/11): ADX e ATR relativo nella stessa famiglia, decisa dalla misura; le teorie sono 1.176 (P3). Il numero di teorie è superato con C2 (14/11): dipende dai blocchi tenuti sul pezzo di ricerca (§11.4).
 - Minimo di barre (07/11): almeno 5 barre per periodo di RSI, periodo di ADX e ATR lungo; ATR breve con minimo 1. Su M15 le griglie non cambiano; dove un valore sale a 5, i doppi si tolgono (P-L2, P5).
 - F20 su D1 (07/11): ferma la config, come i trigger (P-L2). Superata l'08/11: vedi Timeframe nella cella 1.
 - Valori degeneri (07/11): all'avvio di ogni ricerca le combinazioni della griglia di ogni blocco con parametri passano da `verifica_degenerazione` sul solo pezzo di ricerca (solo segnali, non è una prova); le degeneri escono dalla griglia, lo spazio dello zoom segue la griglia rimasta, un blocco senza valori esce dalla config; l'elenco va nel registro e su ogni scheda (P3, P-L2).
@@ -598,7 +598,7 @@ Vuoto = nessun ingresso: la cella mostra l'esito delle strategie già entrate, s
 - Cassaforte senza limiti di ingresso (10/11): tolto il blocco «una strategia già entrata non rientra» (stesso tratto e tratti sovrapposti): ogni strategia della 4 può entrare in cassaforte quante volte si vuole. Tolti dalla cella 5 la frase di conferma e l'avviso «una volta sola»: il campo resta solo per i numeri. Resta tutto il sigillo (la cassaforte non si legge prima della cella 5, test del veleno invariato) e il registro degli ingressi, solo come annotazione da leggere. Il conto delle prove non cambia (P8, §7).
 - Registro senza catena di impronte (10/11, scelta B): `registro_<macchina>.jsonl` resta un file di annotazioni, solo in aggiunta, che non ferma più nulla se una riga è cambiata o tolta; i registri già scritti con l'impronta si leggono come gli altri. Non cambiano il file e il conto delle prove, il sigillo della cassaforte e il test del veleno (P7, P8, §6).
 - Selezione (08/11, scelte di L4a): famiglie misurate sui segnali finali di ricerca + selezione, lato per lato; P(EV<0) con il bootstrap di `p_ev_negativo` (10.000 ricampionamenti, seme 0) sui bp di selezione; il pezzo passato alla selezione finisce all'ultima barra della selezione, senza barre della cassaforte (P6).
-- Catalogo intero e due turni (11/11, dopo la diagnosi delle famiglie; rivista la sera dell'11/11 sulla PR #112): blocchi = tutto il catalogo dei trigger, i filtri di `filter_conditions.py` e di `vwap_regime_filter_conditions.py` (VWAP_GAP_WIDENING neutro e la coppia VWAP_SESSION_CLOSE in un blocco solo, come TREND_CONTEXT), più RSI, Donchian, ADX e ATR relativo; E21, E39 ed E45 inclusi; F36 (Fear & Greed) escluso per ora; uscite le 3 di oggi (X0, X3, X1). I trigger del catalogo sono 43 long e 42 short (E19 solo long). Un blocco per famiglia, in automatico all'avvio di ogni ricerca sul pezzo di ricerca, solo sui segnali (`famiglie.py`, stessa soglia, trigger e filtri lato per lato): si tiene il blocco fra i 14 di oggi se c'è, altrimenti quello che scatta più spesso (D2: per i filtri, vero sul maggior numero di barre); l'elenco dei tenuti e dei tolti, con il motivo, va nel riepilogo della cella 1 e sulla scheda. D1 = B: per scegliere i tenuti contano solo le famiglie misurate; ADX e ATR relativo restano tutti e due, e la loro famiglia dichiarata vale solo nel generatore (mai nella stessa teoria, anche al turno 2). Se due dei 14 finiscono nella stessa famiglia misurata, resta quello che scatta più spesso; a parità, il nome più piccolo (Mattia, 12/11, scelta A). Ricerca in due turni (la parola «giro» resta solo dell'ottimizzatore e dello zoom), tutta sul pezzo di ricerca: turno 1 tutte le teorie T+U e T+F+U; turno 2 alle 150 teorie T+F con il t più alto (D3: come la scelta del passo 2) si aggiunge un secondo filtro, tutti quelli compatibili; poi le teorie dei due turni insieme e le 150 migliori allo zoom come oggi; ogni prova dei due turni entra nel conto (fase `passo_1_turno_2`, file `turno_2.jsonl`, chiave `teorie_turno_2`). D4: la tabella da approvare elenca solo i blocchi che restano fuori su qualche timeframe da M1 a D1, con il motivo. D5 = B: solo la config versione 2, una strada sola; le ricerche vecchie restano su disco e nel conto, e le celle 4–7 su una di esse si fermano come «ricerca non trovata» con la riga che dice di rilanciare la cella 2. D6: il tetto del budget è il massimo nuovo arrotondato in su ai 10.000. La stima del tempo della cella 1 usa la velocità vera delle ricerche del 9 e del 10/11 (146–167 prove al secondo con 3 processi), in C2. D4 (12/11 sera, §11.12): le coppie (blocco, timeframe) escluse sono nella tabella di §11.12, con il motivo; in più E41 su D1 (limite logico), E31 su H1, E22 e OVERNIGHT_RETURN su H4 (approssimazioni escluse per scelta); F20_SESSION_ASIA, F20_SESSION_EUROPE, F20_SESSION_US e F22 restano su H4 (scelta B); nessuna esclusione per le finestre in barre lunghe (ci pensa il controllo dei degeneri), VWAP tenuti su H4, E40 ed E41 tenuti su M1. Un blocco del catalogo che sul pezzo di ricerca risulta «STATO» esce da quel lato con il motivo «vero su due barre di fila: non è un evento su questi dati» e la ricerca prosegue, come un degenere (scelta A); il catalogo non cambia; per i blocchi con parametri della fabbrica «STATO» resta un errore che ferma la ricerca. Il ricontrollo degli eventi su H4 e D1 non aggiunge righe. Proposta in §11, nessun codice prima del via. Quando il codice sarà unito, questa voce prende il posto di «Lista dei blocchi di P-L2 approvata», di «Budget: 100.000 prove» e del numero di teorie (1.176) di «Famiglie (06/11)».
+- Catalogo intero e due turni (11/11, dopo la diagnosi delle famiglie; rivista la sera dell'11/11 sulla PR #112): blocchi = tutto il catalogo dei trigger, i filtri di `filter_conditions.py` e di `vwap_regime_filter_conditions.py` (VWAP_GAP_WIDENING neutro e la coppia VWAP_SESSION_CLOSE in un blocco solo, come TREND_CONTEXT), più RSI, Donchian, ADX e ATR relativo; E21, E39 ed E45 inclusi; F36 (Fear & Greed) escluso per ora; uscite le 3 di oggi (X0, X3, X1). I trigger del catalogo sono 43 long e 42 short (E19 solo long). Un blocco per famiglia, in automatico all'avvio di ogni ricerca sul pezzo di ricerca, solo sui segnali (`famiglie.py`, stessa soglia, trigger e filtri lato per lato): si tiene il blocco fra i 14 di oggi se c'è, altrimenti quello che scatta più spesso (D2: per i filtri, vero sul maggior numero di barre); l'elenco dei tenuti e dei tolti, con il motivo, va nel riepilogo della cella 1 e sulla scheda. D1 = B: per scegliere i tenuti contano solo le famiglie misurate; ADX e ATR relativo restano tutti e due, e la loro famiglia dichiarata vale solo nel generatore (mai nella stessa teoria, anche al turno 2). Se due dei 14 finiscono nella stessa famiglia misurata, resta quello che scatta più spesso; a parità, il nome più piccolo (Mattia, 12/11, scelta A). Ricerca in due turni (la parola «giro» resta solo dell'ottimizzatore e dello zoom), tutta sul pezzo di ricerca: turno 1 tutte le teorie T+U e T+F+U; turno 2 alle 150 teorie T+F con il t più alto (D3: come la scelta del passo 2) si aggiunge un secondo filtro, tutti quelli compatibili; poi le teorie dei due turni insieme e le 150 migliori allo zoom come oggi; ogni prova dei due turni entra nel conto (fase `passo_1_turno_2`, file `turno_2.jsonl`, chiave `teorie_turno_2`). D4: la tabella da approvare elenca solo i blocchi che restano fuori su qualche timeframe da M1 a D1, con il motivo. D5 = B: solo la config versione 2, una strada sola; le ricerche vecchie restano su disco e nel conto, e le celle 4–7 su una di esse si fermano come «ricerca non trovata» con la riga che dice di rilanciare la cella 2. D6: il tetto del budget è il massimo nuovo arrotondato in su ai 10.000. La stima del tempo della cella 1 usa la velocità vera delle ricerche del 9 e del 10/11 (146–167 prove al secondo con 3 processi), in C2. D4 (12/11 sera, §11.12): le coppie (blocco, timeframe) escluse sono nella tabella di §11.12, con il motivo; in più E41 su D1 (limite logico), E31 su H1, E22 e OVERNIGHT_RETURN su H4 (approssimazioni escluse per scelta); F20_SESSION_ASIA, F20_SESSION_EUROPE, F20_SESSION_US e F22 restano su H4 (scelta B); nessuna esclusione per le finestre in barre lunghe (ci pensa il controllo dei degeneri), VWAP tenuti su H4, E40 ed E41 tenuti su M1. Un blocco del catalogo che sul pezzo di ricerca risulta «STATO» esce da quel lato con il motivo «vero su due barre di fila: non è un evento su questi dati» e la ricerca prosegue, come un degenere (scelta A); il catalogo non cambia; per i blocchi con parametri della fabbrica «STATO» resta un errore che ferma la ricerca. Il ricontrollo degli eventi su H4 e D1 non aggiunge righe. Proposta in §11. Codice: C1 (PR #113) e C2 (ramo `fabbrica-C2-turni`, §11.9); con C2 questa voce prende il posto di «Lista dei blocchi di P-L2 approvata», di «Budget: 100.000 prove» e del numero di teorie (1.176) di «Famiglie (06/11)».
 
 ---
 
@@ -642,7 +642,7 @@ Un ramo e una PR per ciascuno, in quest'ordine. Il via è di Mattia, lavoro per 
 
 ## §11 · Catalogo intero e ricerca in due turni (proposta dell'11/11)
 
-**Stato:** proposta, solo testo, nessun codice. Rivista con Mattia la sera dell'11/11 (PR #112); decisioni in §8
+**Stato:** proposta approvata; C1 unito (PR #113), C2 scritto (§11.9). Rivista con Mattia la sera dell'11/11 (PR #112); decisioni in §8
 («Catalogo intero e due turni»). Il codice parte con il via, lavoro per lavoro (§11.9).
 
 **Parole.** Le due ricerche del passo 1 si chiamano **turno 1** e **turno 2**, ovunque: testo, celle, config, file, scheda.
@@ -969,6 +969,42 @@ Un ramo e una PR ciascuno, in quest'ordine; il via è di Mattia, lavoro per lavo
   sintetici identica a main, bit per bit (impronta, teorie, prove).
 - Per C2: il generatore deve saltare il lato short di un blocco che non lo ha (`Blocco.lati`, oggi solo E19); con il
   generatore di oggi una config scritta a mano con E19 e lo short si ferma all'avvio con l'errore del blocco.
+
+**Stato (14/11): C2 scritto** (ramo `fabbrica-C2-turni`), come in §11.3–§11.8 e §11.10–§11.12.
+- `engine/fabbrica/generatore.py`, **non additivo, dichiarato:** `togli_degeneri` controlla anche i blocchi del catalogo
+  (degenere su un lato: esce da quel lato; «STATO»: esce con il motivo `STATO_CATALOGO`, la ricerca prosegue; per i blocchi
+  con parametri «STATO» resta un errore); `misura_famiglie(blocchi, cache, lati, rimaste)` dà solo le famiglie misurate,
+  fra i blocchi rimasti dopo i degeneri (prima univa anche quella dichiarata); nuove `un_blocco_per_famiglia`,
+  `teorie_turno_1`, `teorie_turno_2`, `filtri_compatibili`; `genera_teorie` è tolta; `resoconto_teorie` riceve i tenuti e
+  dice, per lato, quanti trigger e filtri c'erano e quanti sono tenuti. La famiglia dichiarata (ADX e ATR relativo) vale
+  solo in `filtri_compatibili`. E19 sta solo sul long (`Blocco.lati`).
+- `engine/fabbrica/config.py`, **non additivo, dichiarato:** `VERSIONE = 2` (una config della versione 1 si ferma con un
+  messaggio che dice di rilanciare la cella 2); `budget.teorie_turno_2` (150); `BLOCCHI_STANDARD` con tutto il catalogo,
+  scritto per intero (45 trigger, 30 filtri, 3 uscite; la lista di prima resta come `BLOCCHI_P_L2`);
+  `budget_massimo(n_teorie, config, teorie_tf, filtri_lato_max)` con il turno 2; nuove `tetto_budget` (D6) e
+  `massimo_senza_dati` (il totale di `config_standard` quando non ha i dati: il massimo con tutti i blocchi, mai più piccolo
+  di quello vero); `config_standard(..., totale=None)`.
+- `engine/fabbrica/ricerca.py`, **non additivo, dichiarato:** `prepara` fa un blocco per famiglia e le teorie del turno 1
+  (`controlla=False` per la cella 1, che calcola il tetto dal massimo); `lancia` fa turno 1 (`passo_1.jsonl`, fase
+  `passo_1`), turno 2 (`turno_2.jsonl`, fase `passo_1_turno_2`), poi lo zoom sulle `teorie_passo_2` migliori dei due turni;
+  l'imbuto ha le chiavi `turno_1`, `turno_1_tenute`, `turno_2`, `turno_2_tenute`, `passo_2`, `altopiano` (prima `teorie` e
+  `passo_1_tenute`); la tabella `passo_1` ha la colonna `turno`; l'avanzamento dice «turno 1», «turno 2», «zoom»; tenuti e
+  tolti nell'evento di avvio (controllati alla ripresa), in `EsitoRicerca.tenuti_tolti` e nel riepilogo. `_Lavoro.passo_1`
+  ha in più solo il parametro della fase.
+- `engine/vetrina_fabbrica.py`: cella 1 con una riga per lato («long: 45 trigger → 36 tenuti, …»), la tabella dei tolti e
+  quella completa in una sezione chiusa, le teorie dei due turni, le prove massime, il tetto e la stima in minuti «da–a»
+  dalla velocità vera delle ricerche del 9 e del 10/11 (`RICERCHE_VERE`: 167 e 146 prove al secondo con 3 processi, in
+  proporzione alle barre del pezzo di ricerca; su BTC perp M15, 370.200 prove fanno circa 37–42 minuti); cella 2 per turno;
+  cella 3 con i due turni; celle 4–7 su una ricerca della versione 1: «ricerca non trovata: è una ricerca della versione 1,
+  rilancia la cella 2 per una ricerca nuova». **Non additivo:** `Configurazione.stima_minuti` è una coppia (da, a).
+- `engine/fabbrica/schede.py`: sulla scheda il turno («Da dove viene» e il cammino) e la sezione «Blocchi tenuti e tolti»;
+  nel .json `turno` e `blocchi_tenuti_tolti`.
+- Notebook: la riga «Turno» nel glossario, gli esempi sopra le celle 1, 2 e 3.
+- Collaudi: `test_fabbrica_generatore.py` riscritto (turno 1 e turno 2 a mano, un blocco per famiglia con maschere fatte a
+  mano dall'esito noto, STATO, E19, spot); `test_fabbrica_ricerca.py` n. 14–42 sulla ricerca in due turni (ripresa a metà
+  del turno 1, del turno 2 e dello zoom) e n. 43–66 su barre sintetiche M15, M5, H1 e uno spot con la config standard
+  intera: esclusioni per timeframe, famiglie e tenuti, turni, conto, ripresa, 1 processo = 3, test del veleno;
+  `test_vetrina_fabbrica.py` n. 32–35; le altre suite della fabbrica adattate (budget e imbuto nuovi).
 
 ### §11.10 · Le decisioni sulle domande (Mattia, 11/11 sera)
 
