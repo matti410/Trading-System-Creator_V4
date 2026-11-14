@@ -456,11 +456,13 @@ def _dati_e_confini(radice):
 
 def _c2(radice, r, conf):
     print("\nC2: un blocco per famiglia e i due turni nelle celle; la stima del tempo; le ricerche della versione 1")
-    da, a = vf.stima_minuti(370_200, 123_254, 3)
-    check("32. la stima della cella 1 viene dalla velocità vera delle ricerche del 9 e del 10/11 (167 e 146 prove al "
-          "secondo con 3 processi): 370.200 prove su 123.254 barre fanno circa 37–42 minuti; con 1 processo di più, "
-          "con meno barre di meno", round(da) == 37 and round(a) == 42
-          and vf.stima_minuti(370_200, 123_254, 1)[0] > da and vf.stima_minuti(370_200, 123_254 // 4, 3)[1] < a / 3,
+    da, a = vf.stima_minuti(370_200, 123_752, 3)
+    check("32. (14/11) la stima della cella 1 viene dalla velocità vera delle ricerche del 14/11 (BTC perp M15: 405 "
+          "prove al secondo; ETH perp H1: 1.339, con 3 processi, in proporzione alle barre): 370.200 prove su 123.752 "
+          "barre fanno circa 15–18 minuti; con 1 processo di più, con meno barre di meno",
+          vf.RICERCHE_VERE == ((288_920, 713.819, 123_752), (245_970, 183.719, 30_938))
+          and round(da) == 15 and round(a) == 18
+          and vf.stima_minuti(370_200, 123_752, 1)[0] > da and vf.stima_minuti(370_200, 123_752 // 4, 3)[1] < a / 3,
           f"{da:.1f}–{a:.1f} minuti")
     d = os.path.join(radice, "M15")
     _, testo = _parlato(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, _cfg(), DATA)
@@ -486,6 +488,30 @@ def _c2(radice, r, conf):
     from engine.fabbrica.config import controlla_config
     check("35. la config versione 1 non si rilancia: la ricerca ha una strada sola (D5 = B)",
           errore(lambda: controlla_config(cfg_v1), ValueError, "versione 1"))
+
+    print("\n1 · Configura: un symbol con i dati che partono dopo il 02/01/2020 (14/11, scelta B)")
+    tardi = os.path.join(radice, "H4_tardi")
+    inizio = pd.Timestamp("2020-01-06 08:00", tz="UTC")
+    ultima = pd.Timestamp("2026-11-05 16:00", tz="UTC")
+    n = int((ultima - inizio) / pd.Timedelta(hours=4)) + 1
+    sintetici.scrivi_storico(tardi, SPOT, "H4", sintetici.mercato_piantato(n, seme=13, minuti=240,
+                                                                            inizio="2020-01-06 08:00", prezzo=2_000.0))
+    conf_t, testo_t = _parlato(vf.configura, tardi, "BYBIT", "SPOT", "ETH", "H4", 1, None, DATA)
+    ok = isinstance(conf_t, vf.Configurazione)
+    lim = conf_t.limiti if ok else {}
+    ore = [(lim[p][1] - lim[p][0]) / pd.Timedelta(hours=1) for p in ("ricerca", "selezione", "cassaforte")] if ok else []
+    check("36. dati dal 06/01/2020 08:00: la ricerca parte dalla prima mezzanotte UTC con i dati (07/01/2020), i tre "
+          "pezzi nelle proporzioni della config standard (51% / 29% / 20% circa); la cella scrive l'inizio usato e il "
+          "perché, e prosegue", ok and conf_t.config["confini"]["inizio"] == "2020-01-07 00:00"
+          and lim["ricerca"][0] == pd.Timestamp("2020-01-07", tz="UTC")
+          and abs(ore[0] / sum(ore) - 30624 / 59581.25) < 0.001 and abs(ore[2] / sum(ore) - 11779.5 / 59581.25) < 0.001
+          and "Inizio della ricerca: 07/01/2020 00:00 UTC. BYBIT_SPOT_ETHUSDT: dati dal 06/01/2020 08:00 UTC, la "
+              "ricerca parte dal 07/01/2020" in testo_t,
+          testo_t[testo_t.find("Inizio"):][:200] if ok else repr(conf_t)[:300])
+    d1 = os.path.join(radice, "D1_standard")
+    _, testo_d1 = _parlato(vf.configura, d1, "BYBIT", "SPOT", "ETH", "D1", 1, None, DATA)
+    check("37. dati dal 02/01/2020: la cella scrive «Inizio della ricerca: 02/01/2020 00:00 UTC.» e nient'altro",
+          "Inizio della ricerca: 02/01/2020 00:00 UTC.\n" in testo_d1 and "la prima mezzanotte" not in testo_d1)
 
 
 if __name__ == "__main__":

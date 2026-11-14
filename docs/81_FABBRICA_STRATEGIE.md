@@ -58,7 +58,7 @@ e indicatore TradingView sono fuori da questo incarico.
 ## §3 · La pipeline
 
 1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte. A ogni avvio i dati si aggiornano
-   dall'exchange; i pezzi vanno dall'inizio fisso all'ultima mezzanotte UTC chiusa, nelle proporzioni della config
+   dall'exchange; i pezzi vanno dall'inizio (il 02/01/2020, o la prima mezzanotte UTC con i dati se il symbol parte dopo, 14/11) all'ultima mezzanotte UTC chiusa, nelle proporzioni della config
    standard (circa 51% / 29% / 20%).
 2. **Config scritta e salvata prima del lancio**, con impronta (hash): blocchi ammessi, intervalli, modelli,
    condizioni di qualità, budget, seed. Un rilancio con config diversa è una ricerca nuova: le prove si sommano nel

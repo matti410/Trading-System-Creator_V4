@@ -637,6 +637,7 @@ Un ramo e una PR per ciascuno, in quest'ordine. Il via è di Mattia, lavoro per 
 - in `engine/vetrina.py` una ricerca per nome delle scritture nel diario e nel conto, per controllare che le funzioni riusate non le facciano; la conferma vera è il collaudo di separazione in P7.
 
 **Non letti:** `engine/studio.py` salvo il nome della cartella, il libro, `GUIDA_AVVIO_FABBRICA.md` e `REVISORE_FABBRICA.md`. I risultati nei giornali non sono stati letti.
+- Inizio dei dati e velocità della stima (14/11, revisione della PR #114). Inizio, scelta B: ogni symbol parte dalla prima mezzanotte UTC che ha già i dati, se viene dopo il 02/01/2020; altrimenti resta il 02/01/2020 (BTC ed ETH non cambiano: stessi pezzi, stessa config, stessa impronta). Le proporzioni dei tre pezzi (circa 51% / 29% / 20%) si calcolano dal nuovo inizio (`config.inizio_dati`, `confini_standard(timeframe, ultima_barra, prima_barra)`). La cella 1 scrive l'inizio usato e, se non è il 02/01/2020, il perché in una riga (per esempio «BINANCE_PERP_XRPUSDT: dati dal 06/01/2020 08:15 UTC, la ricerca parte dal 07/01/2020»). Nessuna fermata nuova: resta solo quella se mancano i dati. Stima del tempo della cella 1: la velocità di riferimento è quella delle due ricerche vere del 14/11 con 3 processi, BTC perp M15 (405 prove al secondo) ed ETH perp H1 (1.339), in proporzione alle barre (`vetrina_fabbrica.RICERCHE_VERE`); cambia solo il numero, nessun meccanismo nuovo. Su BTC perp M15, 370.200 prove fanno circa 15–18 minuti.
 
 ---
 
@@ -994,7 +995,7 @@ Un ramo e una PR ciascuno, in quest'ordine; il via è di Mattia, lavoro per lavo
 - `engine/vetrina_fabbrica.py`: cella 1 con una riga per lato («long: 45 trigger → 36 tenuti, …»), la tabella dei tolti e
   quella completa in una sezione chiusa, le teorie dei due turni, le prove massime, il tetto e la stima in minuti «da–a»
   dalla velocità vera delle ricerche del 9 e del 10/11 (`RICERCHE_VERE`: 167 e 146 prove al secondo con 3 processi, in
-  proporzione alle barre del pezzo di ricerca; su BTC perp M15, 370.200 prove fanno circa 37–42 minuti); cella 2 per turno;
+  proporzione alle barre del pezzo di ricerca; su BTC perp M15, 370.200 prove fanno circa 37–42 minuti; dal 14/11 la velocità è quella delle ricerche vere del 14/11, circa 15–18 minuti, vedi §8); cella 2 per turno;
   cella 3 con i due turni; celle 4–7 su una ricerca della versione 1: «ricerca non trovata: è una ricerca della versione 1,
   rilancia la cella 2 per una ricerca nuova». **Non additivo:** `Configurazione.stima_minuti` è una coppia (da, a).
 - `engine/fabbrica/schede.py`: sulla scheda il turno («Da dove viene» e il cammino) e la sezione «Blocchi tenuti e tolti»;

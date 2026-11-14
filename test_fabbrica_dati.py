@@ -326,6 +326,36 @@ def esegui() -> int:
         check("45. un'ultima barra fuori dalla griglia del timeframe, o troppo poche barre: errore",
               errore(lambda: confini_standard("H4", "2026-11-09 05:00"))
               and errore(lambda: confini_standard("D1", "2020-01-03 00:00")))
+
+        # ------------------------------------------------------------------ l'inizio dai dati (14/11, scelta B)
+        print("\nL'inizio della ricerca: il 02/01/2020, o la prima mezzanotte UTC con i dati se viene dopo (14/11)")
+        ultima = "2026-11-14 13:15"
+        prima_btc = confini_standard("M15", ultima)
+        stessi = [confini_standard("M15", ultima, p) for p in ("2019-09-08 17:45", "2020-01-01 00:00",
+                                                               "2020-01-02 00:00")]
+        cfg_a = config_standard(PERP, "M15", confini=prima_btc)
+        cfg_b = config_standard(PERP, "M15", confini=stessi[0])
+        check("46. BTC, dati dal 02/01/2020 o da prima: confini e impronta della config uguali a prima (senza la prima "
+              "barra)", all(x == prima_btc for x in stessi) and prima_btc["inizio"] == "2020-01-02 00:00"
+              and impronta_config(cfg_a) == impronta_config(cfg_b), str(prima_btc))
+        giusti = []
+        for tf, minuti, prima, attesa in (("M5", 5, "2020-01-06 08:15", "2020-01-07 00:00"),
+                                          ("M15", 15, "2020-01-06 00:00", "2020-01-06 00:00"),
+                                          ("H4", 240, "2021-03-10 20:00", "2021-03-11 00:00"),
+                                          ("D1", 1440, "2020-02-01 00:00", "2020-02-01 00:00")):
+            ultima_tf = {"M5": "2026-11-14 13:35", "M15": ultima, "H4": "2026-11-14 08:00", "D1": "2026-11-13 00:00"}[tf]
+            c = confini_standard(tf, ultima_tf, prima)
+            lim = Confini.da_config(c).limiti()
+            passo = pd.Timedelta(minutes=minuti)
+            fine = (_utc(ultima_tf) + passo).floor("D")
+            barre = (fine - _utc(attesa)) / passo
+            pezzi = np.array([(lim[p][1] - lim[p][0]) / passo for p in ("ricerca", "selezione", "cassaforte")])
+            giusti.append(c["inizio"] == attesa and lim["ricerca"][0] == _utc(attesa) and lim["cassaforte"][1] == fine
+                          and pezzi.sum() == barre
+                          and np.all(np.abs(np.cumsum(pezzi)[:2] - np.cumsum(quote)[:2] * barre) <= 0.5))
+        check("47. dati che partono dopo il 02/01/2020: la ricerca parte dalla prima mezzanotte UTC con i dati (06/01 "
+              "08:15 → 07/01; una mezzanotte con i dati resta quella) e i tre pezzi stanno nelle proporzioni di oggi, "
+              "calcolate dal nuovo inizio", all(giusti), str(giusti))
     finally:
         shutil.rmtree(base, ignore_errors=True)
 

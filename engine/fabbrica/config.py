@@ -5,7 +5,7 @@ La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
     impronta_config(config)                       # sha256 del contenuto in forma ordinata, seme compreso, processi esclusi
     id_ricerca = salva_config(config, "dati")     # dati/fabbrica/<SYMBOL>_<TIMEFRAME>/<id>/config.json
     config_standard("BINANCE_PERP_BTCUSDT", "M15")
-    confini_standard("M15", ultima_barra)         # (09/11) i confini fino all'ultima mezzanotte UTC chiusa
+    confini_standard("M15", ultima_barra, prima_barra)   # (09/11) fino all'ultima mezzanotte UTC chiusa; (14/11) inizio
 
 - Stessa impronta = stessa ricerca, che si può riprendere: salva_config ritorna la cartella che c'è già. Impronta
   diversa = ricerca nuova. Un file già scritto non si sovrascrive mai.
@@ -253,7 +253,23 @@ def salva_config(config: dict, cartella_dati, data: str | None = None) -> str:
     return id_ricerca
 
 
-def confini_standard(timeframe: str, ultima_barra) -> dict:
+def inizio_dati(prima_barra=None) -> str:
+    """
+    (14/11, Mattia, scelta B) L'inizio della ricerca: il 02/01/2020 00:00 UTC (CONFINI_STANDARD), oppure la prima
+    mezzanotte UTC che ha già i dati, se viene dopo (un symbol nato dopo, per esempio XRP perp: dati dal 06/01/2020
+    08:15, la ricerca parte dal 07/01/2020). `prima_barra` = l'inizio della prima barra del CSV (UTC).
+    """
+    import pandas as pd
+    if prima_barra is None:
+        return CONFINI_STANDARD["inizio"]
+    fisso = pd.Timestamp(CONFINI_STANDARD["inizio"], tz="UTC")
+    t = pd.Timestamp(prima_barra)
+    t = t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+    mezzanotte = t.ceil("D")
+    return CONFINI_STANDARD["inizio"] if mezzanotte <= fisso else mezzanotte.strftime("%Y-%m-%d %H:%M")
+
+
+def confini_standard(timeframe: str, ultima_barra, prima_barra=None) -> dict:
     """
     (09/11, decisioni di Mattia) I confini standard sui dati di oggi: inizio fisso (CONFINI_STANDARD), fine = l'ultima
     mezzanotte UTC chiusa, cioè la mezzanotte alla chiusura dell'ultima barra chiusa del CSV o quella prima
@@ -261,17 +277,21 @@ def confini_standard(timeframe: str, ultima_barra) -> dict:
     stessa ricerca anche con barre nuove. I tre pezzi stanno nelle proporzioni di CONFINI_STANDARD (30624 : 17177,75 :
     11779,5 ore); ogni confine cade all'inizio di una barra del timeframe, la più vicina (a metà strada verso l'alto).
     Ritorna il dizionario «confini» della config, con le ore risultanti.
+    (14/11, scelta B) Con `prima_barra` (la prima barra del CSV) l'inizio è inizio_dati(prima_barra): il 02/01/2020, o la
+    prima mezzanotte UTC con i dati se viene dopo; le proporzioni dei tre pezzi si calcolano da lì. Senza, o con dati dal
+    02/01/2020 o prima, tutto come prima: stessi confini, stessa impronta.
     """
     import pandas as pd
     if timeframe not in MINUTI_TIMEFRAME:
         raise ValueError(f"timeframe {timeframe!r} non previsto: {list(MINUTI_TIMEFRAME)}")
     passo = pd.Timedelta(minutes=MINUTI_TIMEFRAME[timeframe])
-    inizio = pd.Timestamp(CONFINI_STANDARD["inizio"], tz="UTC")
+    testo_inizio = inizio_dati(prima_barra)
+    inizio = pd.Timestamp(testo_inizio, tz="UTC")
     t = pd.Timestamp(ultima_barra)
     chiusura = (t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")) + passo
     if (chiusura - inizio) % passo != pd.Timedelta(0):
         raise ValueError(f"l'ultima barra ({t}) non cade all'inizio di una barra {timeframe} contata dal "
-                         f"{CONFINI_STANDARD['inizio']} UTC.")
+                         f"{testo_inizio} UTC.")
     fine = chiusura.floor("D")                   # l'ultima mezzanotte UTC chiusa (09/11)
     barre = (fine - inizio) // passo
     ore = [float(CONFINI_STANDARD[k]) for k in ("ricerca_ore", "selezione_ore", "cassaforte_ore")]
@@ -279,13 +299,13 @@ def confini_standard(timeframe: str, ultima_barra) -> dict:
     b1 = math.floor(barre * ore[0] / totale + 0.5)
     b2 = math.floor(barre * (ore[0] + ore[1]) / totale + 0.5)
     if not 0 < b1 < b2 < barre:
-        raise ValueError(f"dal {CONFINI_STANDARD['inizio']} UTC all'ultima barra ci sono {barre} barre {timeframe}: "
+        raise ValueError(f"dal {testo_inizio} UTC all'ultima barra ci sono {barre} barre {timeframe}: "
                          "troppo poche per tre pezzi.")
     def in_ore(n):        # intere come intero (30624, non 30624.0): stessa config, stessa impronta di CONFINI_STANDARD
         v = round(n * MINUTI_TIMEFRAME[timeframe] / 60.0, 6)
         return int(v) if v == int(v) else v
 
-    return {"inizio": CONFINI_STANDARD["inizio"], "ricerca_ore": in_ore(b1), "selezione_ore": in_ore(b2 - b1),
+    return {"inizio": testo_inizio, "ricerca_ore": in_ore(b1), "selezione_ore": in_ore(b2 - b1),
             "cassaforte_ore": in_ore(barre - b2)}
 
 

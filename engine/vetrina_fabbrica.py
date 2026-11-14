@@ -14,7 +14,8 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
 - Come il Lab, le celle non hanno codice: chiamano queste funzioni. Nessuna ricalcola niente che la fabbrica non abbia
   già fatto: le regole sono quelle di engine/fabbrica/ (ricerca, selezione, cassaforte, sessione, schede).
 - Cella 1 (09/11): a ogni avvio aggiorna i CSV dall'exchange (senza rete: avviso e i CSV che ci sono); confini dal
-  02/01/2020 all'ultima mezzanotte UTC chiusa, nelle proporzioni della config standard. Timeframe da M1 a D1. I blocchi tolti
+  02/01/2020 (14/11: o dalla prima mezzanotte UTC con i dati, se il symbol parte dopo) all'ultima mezzanotte UTC chiusa,
+  nelle proporzioni della config standard. Timeframe da M1 a D1. I blocchi tolti
   su quel timeframe si elencano con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo
   dall'elenco) e la cella prosegue; si ferma solo se mancano i dati o se non resta un trigger o un'uscita (Mattia,
   08/11). Lo stesso elenco va nel riepilogo della 2 (riepilogo.json) e nelle schede.
@@ -43,10 +44,11 @@ from engine.fabbrica.sessione import apri_sessione
 
 ORDINE_ESITI = {"scelta": 0, "stessa famiglia": 1, "scartata": 2}
 FILE_RIEPILOGO = "riepilogo.json"
-# C2 (docs/82 §11.5, D6): la velocità vera delle due ricerche del 9 e del 10/11 su BINANCE_PERP_BTCUSDT M15, con 3
-# processi, preparazione compresa (riepilogo.json): (prove, secondi, barre del pezzo di ricerca). Fanno 167 e 146 prove
-# al secondo. Serve solo per la stima della cella 1: il tempo vero si vede alla 2.
-RICERCHE_VERE = ((78_296, 469.446, 122_496), (77_365, 531.016, 123_554))
+# La velocità vera di due ricerche C2 del 14/11, config standard, 3 processi, cella 2 intera (preparazione e selezione
+# comprese): (prove, secondi, barre del pezzo di ricerca). BINANCE_PERP_BTCUSDT M15, ricerca 20261114_dbb3724dbe5b: 405
+# prove al secondo; BINANCE_PERP_ETHUSDT H1, ricerca 20261114_2bd65fa4db60: 1.339 prove al secondo (Mattia, 14/11; prima
+# erano le ricerche del 9 e del 10/11). Serve solo per la stima della cella 1: il tempo vero si vede alla 2.
+RICERCHE_VERE = ((288_920, 713.819, 123_752), (245_970, 183.719, 30_938))
 PROCESSI_VERI = 3
 FATTORE_PROCESSI = {1: 0.7, 2: 0.85}         # docs/82 §5: 380 / 543 valutazioni al secondo con 1 e 3 processi
 VERSIONE_1 = "ricerca non trovata: è una ricerca della versione 1, rilancia la cella 2 per una ricerca nuova"
@@ -102,6 +104,17 @@ def _data(t) -> str:
 
 
 # ------------------------------------------------------------------ Avvio
+def _prima_data_csv(percorso: str) -> pd.Timestamp | None:
+    """(14/11) La data della prima barra di un CSV di scarica_dati_crypto.py, leggendo solo l'inizio del file."""
+    with open(percorso, encoding="utf-8", errors="replace") as f:
+        f.readline()                                    # l'intestazione
+        riga = f.readline()
+    try:
+        return pd.Timestamp(riga.split(",")[0], tz="UTC") if riga.strip() else None
+    except ValueError:
+        return None
+
+
 def _ultima_data_csv(percorso: str) -> pd.Timestamp | None:
     """La data dell'ultima riga di un CSV di scarica_dati_crypto.py, leggendo solo la coda del file."""
     with open(percorso, "rb") as f:
@@ -192,9 +205,8 @@ class Configurazione:
 
 def stima_minuti(budget: int, barre_ricerca: int, processi: int) -> tuple[float, float]:
     """
-    (da, a) minuti per `budget` prove, dalla velocità vera delle ricerche del 9 e del 10/11 (RICERCHE_VERE, 146–167
-    prove al secondo con 3 processi), in proporzione alle barre del pezzo di ricerca; con 1 o 2 processi più lenta
-    (FATTORE_PROCESSI).
+    (da, a) minuti per `budget` prove, dalla velocità vera delle due ricerche di RICERCHE_VERE (3 processi), in
+    proporzione alle barre del pezzo di ricerca; con 1 o 2 processi più lenta (FATTORE_PROCESSI).
     """
     fattore = FATTORE_PROCESSI.get(int(processi), 1.0)
     minuti = [budget / (prove / secondi * barre / max(int(barre_ricerca), 1) * fattore) / 60.0
@@ -226,7 +238,8 @@ def aggiorna_dati(cartella_dati, symbol: str, timeframe: str) -> dict:
     (09/11) Cella 1, prima della config: aggiorna i CSV dall'exchange e dice fin dove arrivano i dati. Nessun
     interruttore. Se l'exchange non risponde o ccxt manca: un avviso e si usano i CSV fino all'ultimo salvataggio. Si
     ferma (ValueError «La cella si ferma») solo se il CSV non c'è e il download non riesce. Crea la cartella se manca.
-    Ritorna {"aggiornati": bool, "ultima_barra": inizio dell'ultima barra chiusa, "fine": la sua chiusura, "esito"}.
+    Ritorna {"aggiornati": bool, "ultima_barra": inizio dell'ultima barra chiusa, "fine": la sua chiusura, "esito",
+    "prima_barra": inizio della prima barra del CSV (14/11)}.
     """
     from engine.fabbrica.blocchi import MINUTI_TIMEFRAME
     cartella = str(cartella_dati)
@@ -253,7 +266,8 @@ def aggiorna_dati(cartella_dati, symbol: str, timeframe: str) -> dict:
     else:
         _avviso(f"Exchange non raggiungibile: uso i dati fino a {_data(fine)} UTC.")
         _nota(f"Motivo: {candele.get('errore')}")
-    return {"aggiornati": aggiornati, "ultima_barra": ultima, "fine": fine, "esito": esito}
+    return {"aggiornati": aggiornati, "ultima_barra": ultima, "fine": fine, "esito": esito,
+            "prima_barra": _prima_data_csv(percorso)}
 
 
 def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe: str, processi: int = 3,
@@ -281,7 +295,7 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
     dati = aggiorna_dati(cartella_dati, symbol, timeframe)
     standard = config is None
     if standard:
-        confini_std = confini_standard(timeframe, dati["ultima_barra"])
+        confini_std = confini_standard(timeframe, dati["ultima_barra"], dati["prima_barra"])
         config = config_standard(symbol, timeframe, processi=int(processi), confini=confini_std)
     config = controlla_config(config)
     if (config["symbol"], config["timeframe"]) != (symbol, timeframe):
@@ -306,6 +320,7 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
     lim = conf.limiti
     _titolo(f"{config['symbol']} {config['timeframe']} · ricerca {id_ricerca} "
             f"({'nuova' if nuova else 'già esiste: riprende'})")
+    _nota(_riga_inizio(config, dati.get("prima_barra")))
     _mostra(("I tre pezzi (UTC)", pd.DataFrame([
         {"pezzo": "ricerca", "da": _data(lim["ricerca"][0]), "a": _data(lim["ricerca"][1]), "stato": "aperto"},
         {"pezzo": "selezione", "da": _data(lim["selezione"][0]), "a": _data(lim["selezione"][1]), "stato": "aperto"},
@@ -316,15 +331,26 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
     _nota(f"Turno 1: {_f(conf.teorie)} teorie; turno 2: al massimo {_f(conf.turno_2_massimo)}; al massimo "
           f"{_f(conf.budget_massimo)} prove (tetto {_f(config['budget']['totale'])}), {_minuti_da_a(da, a)} con "
           f"{config['processi']} {'processo' if config['processi'] == 1 else 'processi'} se servono tutte (stima dalla "
-          f"velocità delle ricerche del 9 e del 10/11: il tempo vero si vede alla 2). Impronta "
+          f"velocità delle ricerche vere del 14/11: il tempo vero si vede alla 2). Impronta "
           f"{impronta_config(config)[:12]}.")
     _blocchi_esclusi(esclusi, config["timeframe"])
     _nota("Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.")
     return conf
 
 
+def _riga_inizio(config: dict, prima_barra) -> str:
+    """(14/11) L'inizio usato; se non è il 02/01/2020, il perché in una riga (i dati del symbol partono dopo)."""
+    from engine.fabbrica.config import CONFINI_STANDARD
+    inizio = pd.Timestamp(config["confini"]["inizio"], tz="UTC")
+    testo = f"Inizio della ricerca: {inizio:%d/%m/%Y %H:%M} UTC."
+    if config["confini"]["inizio"] != CONFINI_STANDARD["inizio"] and prima_barra is not None:
+        testo += (f" {config['symbol']}: dati dal {_data(prima_barra)} UTC, la ricerca parte dal {inizio:%d/%m/%Y}, la "
+                  "prima mezzanotte UTC con i dati.")
+    return testo
+
+
 def _minuti_da_a(da: float, a: float) -> str:
-    """«circa 37–42 minuti»; se arrotondati sono uguali, come _minuti."""
+    """«circa 15–18 minuti»; se arrotondati sono uguali, come _minuti."""
     if round(da) == round(a) or a < 1.5:
         return _minuti(a)
     return f"circa {_f(da, 0)}–{_f(a, 0)} minuti"
