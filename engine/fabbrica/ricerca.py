@@ -1,17 +1,25 @@
 """
-La ricerca della fabbrica (docs/82 P4, P5, P6, P7, lavori L3b e L4a): passo 1, zoom, altopiano, selezione, ripresa.
+La ricerca della fabbrica (docs/82 P4, P5, P6, P7, lavori L3b e L4a; C2, docs/82 §11): un blocco per famiglia, passo 1
+in due turni, zoom, altopiano, selezione, ripresa.
 
     esito = lancia(config, cartella_dati)     # salva la config, legge i pezzi, prova, scrive; se interrotta riprende
-    esito.imbuto                              # teorie → passo 1 → passo 2 → altopiano → selezione → scelte
+    esito.imbuto                              # turno 1 → turno 2 → passo 2 → altopiano → selezione → scelte
+    esito.tenuti_tolti                        # un blocco per famiglia: una riga per blocco e lato, con il motivo
     esito.sopravvissute                       # una riga per teoria che regge l'altopiano
     esito.selezione.tabella                   # una riga per sopravvissuta sul pezzo di selezione (selezione.py)
     esito.conto                               # le prove di questa ricerca, dell'asset e la soglia, solo da leggere
 
+Avvio (prepara, C2). Sul solo pezzo di ricerca, solo segnali: valori degeneri e «STATO» (generatore.togli_degeneri),
+famiglie misurate, un blocco per famiglia (generatore.un_blocco_per_famiglia), teorie del turno 1, budget massimo.
+
 Passo 1 (P4). Sul solo pezzo di ricerca, una teoria alla volta, al massimo `per_teoria_passo_1` prove sui valori larghi:
 griglia completa se i punti ammessi ci stanno, altrimenti il genetico tarato in ampiezza (AMPIEZZA). L'obiettivo è il t
 netto di ogni strategia calcolabile; la condizione di qualità 1 decide solo alla fine (07/11): la teoria è tenuta se
-almeno una strategia passa e vale il t della migliore fra quelle che passano. Al passo 2 vanno le `teorie_passo_2`
-teorie tenute con quel t più alto (a parità, l'id più piccolo).
+almeno una strategia passa e vale il t della migliore fra quelle che passano. C2 (docs/82 §11.4): il passo 1 si fa in
+due turni. Turno 1: le teorie T+U e T+F+U (passo_1.jsonl, fase «passo_1»). Turno 2: alle `teorie_turno_2` teorie T+F
+tenute con quel t più alto (i due lati insieme, a parità l'id più piccolo) si aggiunge un secondo filtro, tutti quelli
+compatibili (turno_2.jsonl, fase «passo_1_turno_2»); stesso passo 1. Al passo 2 vanno le `teorie_passo_2` teorie
+tenute dei due turni insieme con quel t più alto (a parità, l'id più piccolo).
 
 Passo 2, lo zoom (P5). `giri_zoom` giri da `prove_per_giro` prove. Ogni giro riparte dalle 5 strategie con il t più
 alto fra tutte quelle calcolabili della teoria provate fin lì, passo 1 compreso (07/11). Per ogni parametro l'intervallo
@@ -35,7 +43,8 @@ corrisponde stanno accanto al test individuale, solo da leggere (P7).
 
 Ripresa e processi. Il seme di una teoria nasce da seme della ricerca + id della teoria (e del giro): il risultato non
 dipende dall'ordine né dal numero di processi. Ogni teoria finita si scrive su disco, nell'ordine delle teorie; alla
-ripresa si saltano quelle già scritte, e il risultato è identico bit per bit. Ogni processo imposta da sé il mercato
+ripresa si saltano quelle già scritte, e il risultato è identico bit per bit. Le teorie del turno 2 nascono solo dai
+risultati del turno 1, che sono su disco: alla ripresa si ricalcolano uguali. Ogni processo imposta da sé il mercato
 crypto (dati.imposta_mercato_crypto). Nessuna lettura o scrittura fuori da dati/fabbrica/<SYMBOL>_<TIMEFRAME>/.
 """
 from __future__ import annotations
@@ -59,10 +68,12 @@ from . import registro
 from . import selezione as sel_mod
 from .blocchi import BARRE_MINIME, blocchi_da_config
 from .cache import Cache
-from .config import cartella_asset, controlla_budget, controlla_config, impronta_config, salva_config
+from .config import (budget_massimo, cartella_asset, controlla_budget, controlla_config, impronta_config,
+                     salva_config)
 from .dati import Confini, carica_pezzi, imposta_mercato_crypto
-from .generatore import (NOME_LATO, ControlloDegenerazione, SpazioTeoria, Teoria, genera_teorie, lati_config,
-                         misura_famiglie, resoconto_teorie, seme_teoria, togli_degeneri)
+from .generatore import (NOME_LATO, ControlloDegenerazione, SpazioTeoria, Teoria, lati_config, misura_famiglie,
+                         resoconto_teorie, seme_teoria, teorie_turno_1, teorie_turno_2, togli_degeneri,
+                         un_blocco_per_famiglia)
 from .ottimizzatore import AMPIEZZA, PREDEFINITE, Categoria, Intero, Reale, Spazio, genetico
 from .valutatore import Costi, Strategia, Valutatore, id_strategia, obiettivo, qualita_1
 
@@ -70,6 +81,8 @@ LIMITE_CACHE_MB = 1500          # per processo: indicatori, maschere e soglie gi
 MIGLIORI_ZOOM = 5               # le strategie da cui riparte ogni giro (P5)
 PEZZO = "ricerca"
 FILE_PASSO_1, FILE_PASSO_2, FILE_STATO = "passo_1.jsonl", "passo_2.jsonl", "stato.json"
+FILE_TURNO_2 = "turno_2.jsonl"                 # C2: il turno 2 del passo 1, una teoria alla volta come il turno 1
+FASE_TURNO_1, FASE_TURNO_2 = "passo_1", "passo_1_turno_2"
 FILE_SELEZIONE = "selezione.json"
 
 
@@ -390,7 +403,8 @@ class _Lavoro:
         self.rimaste = rimaste
 
     # -------------------------------------------------------------- passo 1
-    def passo_1(self, teoria: Teoria) -> dict:
+    def passo_1(self, teoria: Teoria, fase: str = FASE_TURNO_1) -> dict:
+        """Il passo 1 di una teoria; `fase` è quella scritta su ogni prova (C2: «passo_1» o «passo_1_turno_2»)."""
         st = SpazioTeoria(teoria, self.blocchi, self.rimaste)
         pt = _ProveTeoria(self, teoria)
         seme = seme_teoria(self.config["seme"], teoria.id)
@@ -402,7 +416,7 @@ class _Lavoro:
             if not st.ammesso(valori):           # tolta all'avvio come degenere: non consuma una prova
                 degeneri[0] += 1
                 return math.nan, False
-            return pt.valuta(valori, "passo_1", controlla=False)
+            return pt.valuta(valori, fase, controlla=False)
 
         ammessi = st.quanti_ammessi()
         if ammessi <= budget:
@@ -504,6 +518,10 @@ def _fai_passo_1(teoria):
     return _LAVORO.passo_1(teoria)
 
 
+def _fai_turno_2(teoria):
+    return _LAVORO.passo_1(teoria, FASE_TURNO_2)
+
+
 def _fai_passo_2(compito):
     return _LAVORO.passo_2(compito)
 
@@ -524,7 +542,10 @@ def _in_ordine(funzione, compiti: list, prep: "Preparazione", processi: int):
 # ------------------------------------------------------------------ la preparazione
 @dataclass
 class Preparazione:
-    """Indicatori, valori degeneri, famiglie, teorie e budget: tutto quello che si fa prima della prima prova."""
+    """
+    Indicatori, valori degeneri, famiglie, un blocco per famiglia, teorie del turno 1 e budget: tutto quello che si fa
+    prima della prima prova. `teorie` = quelle del turno 1; `turno_2_massimo` = le teorie del turno 2 al massimo.
+    """
     config: dict
     df: pd.DataFrame
     costi: dict
@@ -539,13 +560,27 @@ class Preparazione:
     budget_massimo: int
     lavoro: _Lavoro
     durata_s: float
+    tenuti: dict = field(default_factory=dict)
+    tenuti_tolti: list = field(default_factory=list)
+    turno_2_massimo: int = 0
 
     def per_processi(self) -> tuple:
         return (self.config, self.df, self.costi, self.rimaste, dict(self.lavoro.controllo._esiti))
 
 
-def prepara(config: dict, pezzi) -> Preparazione:
-    """Sul solo pezzo di ricerca: niente prove, solo segnali (valori degeneri, famiglie)."""
+def massimo_turno_2(config: dict, teorie_tf: int, filtri_lato_max: int) -> int:
+    """Le teorie del turno 2 al massimo (docs/82 §11.5): min(teorie_turno_2, T+F del turno 1) × (filtri − 1)."""
+    if not any(m["filtri"][1] >= 2 for m in config["modelli"]):
+        return 0
+    return min(config["budget"]["teorie_turno_2"], teorie_tf) * max(filtri_lato_max - 1, 0)
+
+
+def prepara(config: dict, pezzi, controlla: bool = True) -> Preparazione:
+    """
+    Sul solo pezzo di ricerca: niente prove, solo segnali (valori degeneri e «STATO», famiglie misurate, un blocco per
+    famiglia), poi le teorie del turno 1 e il budget massimo. `controlla`=False (cella 1, config standard): il massimo
+    non si confronta con il totale, perché il totale (il tetto, D6) si calcola da questo massimo.
+    """
     t0 = time.perf_counter()
     imposta_mercato_crypto()
     df = aggiungi_indicatori(pezzi.ricerca)
@@ -554,16 +589,21 @@ def prepara(config: dict, pezzi) -> Preparazione:
     lati = lati_config(config)
     controllo = ControlloDegenerazione(cache)
     rimaste, tolte = togli_degeneri(blocchi, cache, lati, controllo)
-    famiglie, misura = misura_famiglie(blocchi, cache, lati)
-    teorie = genera_teorie(config, blocchi, famiglie, rimaste)
+    famiglie, misura = misura_famiglie(blocchi, cache, lati, rimaste)
+    tenuti, tabella = un_blocco_per_famiglia(blocchi, misura, controllo, lati, rimaste)
+    teorie = teorie_turno_1(config, blocchi, tenuti)
     if not teorie:
         raise ValueError("nessuna teoria: tutti i blocchi sono usciti o la config non ne forma nessuna.")
-    resoconto = resoconto_teorie(config, blocchi, famiglie, rimaste, teorie)
-    massimo = controlla_budget(len(teorie), config)
+    resoconto = resoconto_teorie(config, blocchi, tenuti, rimaste, teorie)
+    per_nome = {b.nome: b for b in blocchi}
+    teorie_tf = sum(1 for t in teorie if len(t.filtri) == 1)
+    filtri_max = max(sum(1 for n in tenuti[lato] if per_nome[n].tipo == "filtro") for lato in lati)
+    massimo = (controlla_budget if controlla else budget_massimo)(len(teorie), config, teorie_tf, filtri_max)
     costi = pezzi.costi(PEZZO)
     lavoro = _Lavoro(config, df, costi, rimaste, cache=cache, controllo=controllo)
     return Preparazione(config, df, costi, blocchi, lati, rimaste, tolte, famiglie, misura, teorie, resoconto, massimo,
-                        lavoro, time.perf_counter() - t0)
+                        lavoro, time.perf_counter() - t0, tenuti, tabella,
+                        massimo_turno_2(config, teorie_tf, filtri_max))
 
 
 # ------------------------------------------------------------------ i file della ricerca
@@ -606,6 +646,7 @@ def _evento_avvio(id_ricerca, config, pezzi, prep: Preparazione) -> dict:
             "symbol": config["symbol"], "timeframe": config["timeframe"], "impronte_dati": dict(pezzi.impronte),
             "barre": {"ricerca": len(pezzi.ricerca), "selezione": len(pezzi.selezione)},
             "teorie": prep.resoconto, "famiglie": misura, "degeneri_avvio": prep.tolte,
+            "tenuti_tolti": prep.tenuti_tolti, "turno_2_massimo": prep.turno_2_massimo,
             "budget_massimo": prep.budget_massimo}
 
 
@@ -613,7 +654,7 @@ def _registra_avvio(base: str, evento: dict) -> None:
     """Scrive l'avvio una volta sola; a una ripresa controlla che dati e teorie siano gli stessi."""
     for e in registro.leggi_registro(base):
         if e.get("tipo") == "avvio_ricerca" and e.get("id_ricerca") == evento["id_ricerca"]:
-            for k in ("impronta_config", "impronte_dati", "teorie", "degeneri_avvio"):
+            for k in ("impronta_config", "impronte_dati", "teorie", "degeneri_avvio", "tenuti_tolti"):
                 if (json.dumps(e.get(k), sort_keys=True, default=registro.nativo)
                         != json.dumps(json.loads(registro.json_riga(evento[k])), sort_keys=True)):
                     raise ValueError(f"ripresa di {evento['id_ricerca']}: «{k}» è cambiato dall'avvio "
@@ -642,14 +683,19 @@ class EsitoRicerca:
     tempi: dict = field(default_factory=dict)
     selezione: "sel_mod.Selezione | None" = None
     conto: dict = field(default_factory=dict)
+    tenuti_tolti: list = field(default_factory=list)       # C2: un blocco per famiglia, una riga per blocco e lato
 
 
-def _tabelle(ris_1: list[dict], ris_2: list[dict], al_passo_2: list[str]):
+def _tabelle(ris_1: list[dict], ris_2: list[dict], al_passo_2: list[str], ris_t2: list[dict] = ()):
+    """passo_1: una riga per teoria dei due turni (colonna «turno»: 1 o 2); passo_2; le sopravvissute."""
     entrano = set(al_passo_2)
-    p1 = pd.DataFrame([{"teoria": r["teoria"], "modo": r["modo"], "punti_ammessi": r["punti_ammessi"],
+    p1 = pd.DataFrame([{"teoria": r["teoria"], "turno": turno, "modo": r["modo"], "punti_ammessi": r["punti_ammessi"],
                         "prove": len(r["prove"]), "degeneri_proposti": r["degeneri_proposti"],
                         "tenuta": r["migliore"] is not None, "t": r["t"] if r["t"] is not None else math.nan,
-                        "id_strategia": r["migliore"], "al_passo_2": r["teoria"] in entrano} for r in ris_1])
+                        "id_strategia": r["migliore"], "al_passo_2": r["teoria"] in entrano}
+                       for turno, ris in ((1, ris_1), (2, ris_t2)) for r in ris],
+                      columns=["teoria", "turno", "modo", "punti_ammessi", "prove", "degeneri_proposti", "tenuta", "t",
+                               "id_strategia", "al_passo_2"])
     righe = []
     for r in ris_2:
         s = r["scelta"] or {}
@@ -684,11 +730,11 @@ def _degeneri_zoom(ris_2: list[dict], tolte: list[dict]) -> list[dict]:
 def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbose: bool = True,
            data: str | None = None, avanzamento: Callable[[dict], None] | None = None) -> EsitoRicerca:
     """
-    La ricerca dei passi 1 e 2 con l'altopiano (vedi la testa del file). Se la stessa config è già stata lanciata,
-    riprende da dove era. `ferma_dopo` = fermati dopo tante teorie (per i collaudi della ripresa).
-    `avanzamento` (L5a, 08/11): chiamata dopo ogni teoria scritta con {fase, numero, totale, prove, prove_ora,
-    secondi, budget_massimo}; prove_ora = le prove di questa chiamata, secondi = da quando è partita. Non cambia nulla
-    della ricerca.
+    La ricerca: turno 1, turno 2, zoom e altopiano, selezione (vedi la testa del file). Se la stessa config è già stata
+    lanciata, riprende da dove era. `ferma_dopo` = fermati dopo tante teorie, contate su turni e passo 2 (per i
+    collaudi della ripresa). `avanzamento` (L5a, 08/11): chiamata dopo ogni teoria scritta con {fase («turno 1»,
+    «turno 2», «zoom»), numero, totale, prove, prove_ora, secondi, budget_massimo}; prove_ora = le prove di questa
+    chiamata, secondi = da quando è partita. Non cambia nulla della ricerca.
     """
     t_inizio = time.perf_counter()
     controlla_config(config)
@@ -702,7 +748,7 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
     prove = registro.FileProve(cartella)
     per_id = {t.id: t for t in prep.teorie}
     tempi = {"preparazione_s": prep.durata_s}
-    fatte_ora = [0]                  # teorie finite in questa chiamata, passo 1 e passo 2
+    fatte_ora = [0]                  # teorie finite in questa chiamata, turni e passo 2
     prove_prima = len(prove)
 
     def scrivi(percorso, ris, nome_fase, numero, totale):
@@ -723,52 +769,72 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
     def stato(fase, **altro):
         _scrivi_stato(cartella, {"id_ricerca": id_ricerca, "fase": fase, "teorie": len(prep.teorie), **altro})
 
-    if verbose:
-        print(f"Ricerca {id_ricerca}: {len(prep.teorie)} teorie, budget massimo {prep.budget_massimo} prove, "
-              f"{processi} processi", flush=True)
+    def turno(percorso, teorie, funzione, nome_fase, nome_file):
+        """Le teorie di un turno (o del passo 2) non ancora scritte, poi tutte quelle su disco."""
+        gia = _leggi_jsonl(percorso)
+        _controlla_gia_fatte(gia, [t if isinstance(t, str) else t.id for t in teorie], nome_file)
+        da_fare = teorie[len(gia):]
+        if da_fare and not basta():
+            for numero, ris in enumerate(_in_ordine(funzione, da_fare, prep, processi), start=len(gia) + 1):
+                scrivi(percorso, ris, nome_fase, numero, len(teorie))
+                if basta():
+                    break
+        return _leggi_jsonl(percorso)
 
-    # ---------------------------------------------------------- passo 1
+    if verbose:
+        print(f"Ricerca {id_ricerca}: turno 1 {len(prep.teorie)} teorie, turno 2 al massimo {prep.turno_2_massimo}, "
+              f"budget massimo {prep.budget_massimo} prove, {processi} processi", flush=True)
+
+    # ---------------------------------------------------------- passo 1, turno 1
     t0 = time.perf_counter()
-    p1 = os.path.join(cartella, FILE_PASSO_1)
-    gia = _leggi_jsonl(p1)
-    _controlla_gia_fatte(gia, [t.id for t in prep.teorie], "passo 1")
-    da_fare = prep.teorie[len(gia):]
-    for numero, ris in enumerate(_in_ordine(_fai_passo_1, da_fare, prep, processi), start=len(gia) + 1):
-        scrivi(p1, ris, "passo 1", numero, len(prep.teorie))
-        if basta():
-            break
-    tempi["passo_1_s"] = time.perf_counter() - t0
-    ris_1 = _leggi_jsonl(p1)
+    ris_1 = turno(os.path.join(cartella, FILE_PASSO_1), prep.teorie, _fai_passo_1, "turno 1", "turno 1")
+    tempi["turno_1_s"] = time.perf_counter() - t0
     if len(ris_1) < len(prep.teorie):
-        stato("passo_1", fatte=len(ris_1))
+        stato("turno_1", fatte_turno_1=len(ris_1))
         return _esito(id_ricerca, cartella, False, prep, ris_1, [], [], prove, t_inizio, tempi)
 
-    tenute = sorted((r for r in ris_1 if r["migliore"] is not None), key=lambda r: (-r["t"], r["teoria"]))
-    al_passo_2 = [r["teoria"] for r in tenute[: config["budget"]["teorie_passo_2"]]]
-    stato("passo_2", fatte_passo_1=len(ris_1), al_passo_2=len(al_passo_2))
-
-    # ---------------------------------------------------------- passo 2 e altopiano
+    # ---------------------------------------------------------- passo 1, turno 2 (docs/82 §11.4)
     t0 = time.perf_counter()
-    p2 = os.path.join(cartella, FILE_PASSO_2)
-    gia = _leggi_jsonl(p2)
+    tf = sorted((r for r in ris_1 if r["migliore"] is not None and len(per_id[r["teoria"]].filtri) == 1),
+                key=lambda r: (-r["t"], r["teoria"]))
+    scelte = [per_id[r["teoria"]] for r in tf[: config["budget"]["teorie_turno_2"]]]
+    teorie_2 = teorie_turno_2(scelte, config, prep.blocchi, prep.tenuti)
+    per_id.update({t.id: t for t in teorie_2})
+    stato("turno_2", fatte_turno_1=len(ris_1), teorie_turno_2=len(teorie_2))
+    ris_t2 = turno(os.path.join(cartella, FILE_TURNO_2), teorie_2, _fai_turno_2, "turno 2", "turno 2")
+    tempi["turno_2_s"] = time.perf_counter() - t0
+    if len(ris_t2) < len(teorie_2):
+        stato("turno_2", fatte_turno_1=len(ris_1), teorie_turno_2=len(teorie_2), fatte_turno_2=len(ris_t2))
+        return _esito(id_ricerca, cartella, False, prep, ris_1, [], [], prove, t_inizio, tempi, ris_t2=ris_t2,
+                      n_turno_2=len(teorie_2))
+
+    # ---------------------------------------------------------- passo 2: zoom e altopiano, dalle teorie dei due turni
+    tenute = sorted((r for r in ris_1 + ris_t2 if r["migliore"] is not None), key=lambda r: (-r["t"], r["teoria"]))
+    al_passo_2 = [r["teoria"] for r in tenute[: config["budget"]["teorie_passo_2"]]]
+    stato("passo_2", fatte_turno_1=len(ris_1), fatte_turno_2=len(ris_t2), al_passo_2=len(al_passo_2))
+    t0 = time.perf_counter()
+    righe_1 = {r["teoria"]: r["prove"] for r in ris_1 + ris_t2}
+    compiti = [(per_id[t], righe_1[t]) for t in al_passo_2]
+    gia = _leggi_jsonl(os.path.join(cartella, FILE_PASSO_2))
     _controlla_gia_fatte(gia, al_passo_2, "passo 2")
-    righe_1 = {r["teoria"]: r["prove"] for r in ris_1}
-    compiti = [(per_id[t], righe_1[t]) for t in al_passo_2[len(gia):]]
-    if compiti and not basta():
-        for numero, ris in enumerate(_in_ordine(_fai_passo_2, compiti, prep, processi), start=len(gia) + 1):
-            scrivi(p2, ris, "passo 2", numero, len(al_passo_2))
+    p2 = os.path.join(cartella, FILE_PASSO_2)
+    if compiti[len(gia):] and not basta():
+        for numero, ris in enumerate(_in_ordine(_fai_passo_2, compiti[len(gia):], prep, processi), start=len(gia) + 1):
+            scrivi(p2, ris, "zoom", numero, len(al_passo_2))
             if basta():
                 break
     tempi["passo_2_s"] = time.perf_counter() - t0
     ris_2 = _leggi_jsonl(p2)
     if len(ris_2) < len(al_passo_2):
-        stato("passo_2", fatte_passo_1=len(ris_1), al_passo_2=len(al_passo_2), fatte_passo_2=len(ris_2))
-        return _esito(id_ricerca, cartella, False, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi)
+        stato("passo_2", fatte_turno_1=len(ris_1), fatte_turno_2=len(ris_t2), al_passo_2=len(al_passo_2),
+              fatte_passo_2=len(ris_2))
+        return _esito(id_ricerca, cartella, False, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi,
+                      ris_t2=ris_t2, n_turno_2=len(teorie_2))
 
     pezzi.verifica_impronte()
     # ---------------------------------------------------------- selezione (P6)
     t0 = time.perf_counter()
-    _, _, vive = _tabelle(ris_1, ris_2, al_passo_2)
+    _, _, vive = _tabelle(ris_1, ris_2, al_passo_2, ris_t2)
     selezione = _selezione(cartella, vive, pezzi, config, id_ricerca, prove)
     pezzi.verifica_impronte()
     tempi["selezione_s"] = time.perf_counter() - t0
@@ -777,7 +843,7 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
              "soglia_da_leggere": soglia_rumore(k, config["test_individuale"]["alfa"]) if k else None}
     selezione = sel_mod.con_conto(selezione, conto)
     esito = _esito(id_ricerca, cartella, True, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi, selezione,
-                   conto)
+                   conto, ris_t2=ris_t2, n_turno_2=len(teorie_2))
     if not any(e.get("tipo") == "fine_ricerca" and e.get("id_ricerca") == id_ricerca
                and e.get("macchina") == registro.macchina() for e in registro.leggi_registro(base)):
         registro.scrivi_evento(base, {
@@ -785,8 +851,8 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
             "imbuto": esito.imbuto, "degeneri_zoom": esito.degeneri_zoom, "prove": conto,
             "sopravvissute": esito.sopravvissute[["teoria", "id_strategia", "t"]].to_dict("records"),
             "selezione": selezione.tabella[["teoria", "id_strategia", "t", "esito", "motivo"]].to_dict("records")})
-    stato("finita", fatte_passo_1=len(ris_1), al_passo_2=len(al_passo_2), fatte_passo_2=len(ris_2),
-          prove=esito.prove)
+    stato("finita", fatte_turno_1=len(ris_1), fatte_turno_2=len(ris_t2), al_passo_2=len(al_passo_2),
+          fatte_passo_2=len(ris_2), prove=esito.prove)
     return esito
 
 
@@ -809,9 +875,13 @@ def _selezione(cartella, vive, pezzi, config, id_ricerca, prove) -> "sel_mod.Sel
 
 
 def _esito(id_ricerca, cartella, finita, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi, selezione=None,
-           conto=None) -> EsitoRicerca:
-    p1, p2, vive = _tabelle(ris_1, ris_2, al_passo_2)
-    imbuto = {"teorie": len(prep.teorie), "passo_1_tenute": int(p1["tenuta"].sum()) if len(p1) else 0,
+           conto=None, ris_t2=(), n_turno_2: int | None = None) -> EsitoRicerca:
+    """L'esito, anche a metà. imbuto (C2): turno_1 (teorie), turno_1_tenute, turno_2 (teorie; 0 finché il turno 1 non
+    è finito), turno_2_tenute, passo_2 (teorie fatte allo zoom), altopiano, e a ricerca finita selezione e scelte."""
+    p1, p2, vive = _tabelle(ris_1, ris_2, al_passo_2, ris_t2)
+    tenute = p1.groupby("turno")["tenuta"].sum() if len(p1) else {}
+    imbuto = {"turno_1": len(prep.teorie), "turno_1_tenute": int(tenute.get(1, 0)) if len(p1) else 0,
+              "turno_2": int(n_turno_2 or 0), "turno_2_tenute": int(tenute.get(2, 0)) if len(p1) else 0,
               "passo_2": len(ris_2), "altopiano": len(vive)}
     if selezione is not None:
         t = selezione.tabella
@@ -820,4 +890,4 @@ def _esito(id_ricerca, cartella, finita, prep, ris_1, ris_2, al_passo_2, prove, 
     return EsitoRicerca(id_ricerca, cartella, finita, imbuto, p1, p2, vive,
                         sum(1 for k in prove.chiavi if k[0] == id_ricerca), prep.budget_massimo, prep.tolte,
                         _degeneri_zoom(ris_2, prep.tolte), prep.resoconto, time.perf_counter() - t_inizio, tempi,
-                        selezione, dict(conto or {}))
+                        selezione, dict(conto or {}), list(prep.tenuti_tolti))

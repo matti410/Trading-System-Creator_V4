@@ -18,6 +18,9 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
   su quel timeframe si elencano con il motivo (limite logico, approssimazione esclusa per scelta, escluso solo
   dall'elenco) e la cella prosegue; si ferma solo se mancano i dati o se non resta un trigger o un'uscita (Mattia,
   08/11). Lo stesso elenco va nel riepilogo della 2 (riepilogo.json) e nelle schede.
+- C2 (docs/82 §11.8): la cella 1 mostra i blocchi tenuti e tolti (un blocco per famiglia), le teorie dei due turni,
+  le prove massime e la stima del tempo dalla velocità vera delle ricerche del 9 e del 10/11; la 2 dice il turno; la 3
+  ha i due turni nell'imbuto. Le celle 4–7 su una ricerca della versione 1 si fermano con «ricerca non trovata» (D5).
 - Cella 5 (10/11): i numeri scritti entrano in cassaforte, ogni volta che la cella si lancia, anche se sono già
   entrati; nessuna frase di conferma. Vuoto = nessun ingresso: la cella mostra l'esito di quelle già entrate, se ce
   ne sono.
@@ -40,10 +43,13 @@ from engine.fabbrica.sessione import apri_sessione
 
 ORDINE_ESITI = {"scelta": 0, "stessa famiglia": 1, "scartata": 2}
 FILE_RIEPILOGO = "riepilogo.json"
-# Il ritmo misurato in L3b (docs/82 §5): 82.343 prove in 222 s, 3 processi, 122.496 barre nel pezzo di ricerca.
-# Serve solo per la stima della cella 1, che si dice «grezza»: il tempo vero si vede alla 2.
-PROVE_AL_SECONDO_L3B, BARRE_L3B = 82_343 / 222.0, 122_496
+# C2 (docs/82 §11.5, D6): la velocità vera delle due ricerche del 9 e del 10/11 su BINANCE_PERP_BTCUSDT M15, con 3
+# processi, preparazione compresa (riepilogo.json): (prove, secondi, barre del pezzo di ricerca). Fanno 167 e 146 prove
+# al secondo. Serve solo per la stima della cella 1: il tempo vero si vede alla 2.
+RICERCHE_VERE = ((78_296, 469.446, 122_496), (77_365, 531.016, 123_554))
+PROCESSI_VERI = 3
 FATTORE_PROCESSI = {1: 0.7, 2: 0.85}         # docs/82 §5: 380 / 543 valutazioni al secondo con 1 e 3 processi
+VERSIONE_1 = "ricerca non trovata: è una ricerca della versione 1, rilancia la cella 2 per una ricerca nuova"
 
 _ESITI_CASSAFORTE: dict = {}                 # id_ricerca -> l'ultimo esito della cassaforte letto in questa sessione
 
@@ -176,16 +182,24 @@ class Configurazione:
     limiti: dict
     teorie: int
     budget_massimo: int
-    stima_minuti: float
+    stima_minuti: tuple
     esclusi: list
     barre_ricerca: int
     resoconto: dict = field(default_factory=dict)
+    tenuti_tolti: list = field(default_factory=list)
+    turno_2_massimo: int = 0
 
 
-def stima_minuti(budget: int, barre_ricerca: int, processi: int) -> float:
-    """Stima grezza del tempo della ricerca dal ritmo di L3b, in proporzione alle barre del pezzo di ricerca."""
-    ritmo = PROVE_AL_SECONDO_L3B * BARRE_L3B / max(int(barre_ricerca), 1) * FATTORE_PROCESSI.get(int(processi), 1.0)
-    return budget / ritmo / 60.0
+def stima_minuti(budget: int, barre_ricerca: int, processi: int) -> tuple[float, float]:
+    """
+    (da, a) minuti per `budget` prove, dalla velocità vera delle ricerche del 9 e del 10/11 (RICERCHE_VERE, 146–167
+    prove al secondo con 3 processi), in proporzione alle barre del pezzo di ricerca; con 1 o 2 processi più lenta
+    (FATTORE_PROCESSI).
+    """
+    fattore = FATTORE_PROCESSI.get(int(processi), 1.0)
+    minuti = [budget / (prove / secondi * barre / max(int(barre_ricerca), 1) * fattore) / 60.0
+              for prove, secondi, barre in RICERCHE_VERE]
+    return min(minuti), max(minuti)
 
 
 def _gia_salvata(config: dict, cartella_dati) -> bool:
@@ -255,7 +269,7 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
     from engine.exchange import simboli_exchange
     from engine.fabbrica.blocchi import MINUTI_TIMEFRAME
     from engine.fabbrica.config import (config_standard, confini_standard, controlla_config, controlla_tipi_rimasti,
-                                        impronta_config, salva_config)
+                                        impronta_config, salva_config, tetto_budget)
     from engine.fabbrica.dati import Confini, carica_pezzi
     from engine.fabbrica.ricerca import prepara
     from engine.fabbrica.schede import esclusi_dalla_config
@@ -265,9 +279,10 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
     if timeframe not in MINUTI_TIMEFRAME:
         raise ValueError(f"timeframe {timeframe!r}: usa uno di {list(MINUTI_TIMEFRAME)}.")
     dati = aggiorna_dati(cartella_dati, symbol, timeframe)
-    if config is None:
-        config = config_standard(symbol, timeframe, processi=int(processi),
-                                 confini=confini_standard(timeframe, dati["ultima_barra"]))
+    standard = config is None
+    if standard:
+        confini_std = confini_standard(timeframe, dati["ultima_barra"])
+        config = config_standard(symbol, timeframe, processi=int(processi), confini=confini_std)
     config = controlla_config(config)
     if (config["symbol"], config["timeframe"]) != (symbol, timeframe):
         raise ValueError(f"la config è di {config['symbol']} {config['timeframe']}, i campi dicono {symbol} {timeframe}.")
@@ -278,13 +293,16 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
         pezzi = carica_pezzi(config["symbol"], config["timeframe"], confini, cartella_dati)
     except (FileNotFoundError, ValueError) as e:
         raise ValueError(f"La cella si ferma: {e}") from e
-    prep = prepara(config, pezzi)
+    prep = prepara(config, pezzi, controlla=not standard)
+    if standard:          # D6: il tetto del budget è il massimo sui blocchi tenuti, arrotondato in su ai 10.000
+        config = controlla_config(config_standard(symbol, timeframe, processi=int(processi), confini=confini_std,
+                                                  totale=tetto_budget(prep.budget_massimo)))
     nuova = not _gia_salvata(config, cartella_dati)
     id_ricerca = salva_config(config, cartella_dati, data)
     conf = Configurazione(str(cartella_dati), config, id_ricerca, nuova, confini.limiti(), len(prep.teorie),
                           prep.budget_massimo, stima_minuti(prep.budget_massimo, len(pezzi.ricerca),
                                                             config["processi"]),
-                          esclusi, len(pezzi.ricerca), prep.resoconto)
+                          esclusi, len(pezzi.ricerca), prep.resoconto, list(prep.tenuti_tolti), prep.turno_2_massimo)
     lim = conf.limiti
     _titolo(f"{config['symbol']} {config['timeframe']} · ricerca {id_ricerca} "
             f"({'nuova' if nuova else 'già esiste: riprende'})")
@@ -293,12 +311,43 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
         {"pezzo": "selezione", "da": _data(lim["selezione"][0]), "a": _data(lim["selezione"][1]), "stato": "aperto"},
         {"pezzo": "cassaforte", "da": _data(lim["cassaforte"][0]), "a": _data(lim["cassaforte"][1]),
          "stato": "chiusa"}])))
-    _nota(f"{_f(conf.teorie)} teorie, al massimo {_f(conf.budget_massimo)} prove, {_minuti(conf.stima_minuti)} con "
-          f"{config['processi']} {'processo' if config['processi'] == 1 else 'processi'} (stima grezza: il tempo vero "
-          f"si vede alla 2). Impronta {impronta_config(config)[:12]}.")
+    _tenuti_tolti(conf.resoconto, conf.tenuti_tolti)
+    da, a = conf.stima_minuti
+    _nota(f"Turno 1: {_f(conf.teorie)} teorie; turno 2: al massimo {_f(conf.turno_2_massimo)}; al massimo "
+          f"{_f(conf.budget_massimo)} prove (tetto {_f(config['budget']['totale'])}), {_minuti_da_a(da, a)} con "
+          f"{config['processi']} {'processo' if config['processi'] == 1 else 'processi'} se servono tutte (stima dalla "
+          f"velocità delle ricerche del 9 e del 10/11: il tempo vero si vede alla 2). Impronta "
+          f"{impronta_config(config)[:12]}.")
     _blocchi_esclusi(esclusi, config["timeframe"])
     _nota("Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.")
     return conf
+
+
+def _minuti_da_a(da: float, a: float) -> str:
+    """«circa 37–42 minuti»; se arrotondati sono uguali, come _minuti."""
+    if round(da) == round(a) or a < 1.5:
+        return _minuti(a)
+    return f"circa {_f(da, 0)}–{_f(a, 0)} minuti"
+
+
+def _tenuti_tolti(resoconto: dict, tabella: list) -> None:
+    """Cella 1 (docs/82 §11.8): una riga per lato, poi la tabella dei tolti; quella completa in una sezione chiusa."""
+    for lato, b in resoconto.get("blocchi", {}).items():
+        t, f = b["trigger"], b["filtro"]
+        _nota(f"{lato}: {t['blocchi']} trigger → {t['tenuti']} tenuti, {f['blocchi']} filtri → {f['tenuti']} tenuti "
+              "(un blocco per famiglia).")
+    if not tabella:
+        return
+    tab = pd.DataFrame(tabella)
+    tab["scatta"] = [f"{_f(int(n))} {'segnali' if tipo == 'trigger' else 'barre vere'}"
+                     for n, tipo in zip(tab["scatta"], tab["tipo"])]
+    tolti = tab[tab["esito"] == "tolto"][["lato", "tipo", "blocco", "motivo", "scatta"]]
+    if len(tolti):
+        _mostra((f"Blocchi tolti ({len(tolti)}): un blocco per famiglia, e i blocchi che sul pezzo di ricerca non "
+                 "scattano come serve", tolti.reset_index(drop=True)))
+    _dettaglio(f"Tutti i blocchi, tenuti e tolti ({len(tab)} righe)",
+               ("", tab[["lato", "tipo", "famiglia", "blocco", "esito", "motivo", "scatta", "piu_simile",
+                         "somiglianza"]].astype(str)))
 
 
 def _minuti(m: float) -> str:
@@ -343,7 +392,7 @@ def _stampa_avanzamento():
 
 def ricerca(conf: Configurazione, data: str | None = None):
     """
-    Cella 2. Lancia la ricerca (passi 1 e 2, altopiano, selezione) o la riprende da dove era. Alla fine il
+    Cella 2. Lancia la ricerca (turno 1, turno 2, zoom, altopiano, selezione) o la riprende da dove era. Alla fine il
     riepilogo, che si scrive anche in <ricerca>/riepilogo.json con i blocchi tolti sul timeframe. Interrotta (■),
     dice di rilanciare la cella e ritorna None.
     """
@@ -356,6 +405,7 @@ def ricerca(conf: Configurazione, data: str | None = None):
     riepilogo = {"id_ricerca": r.id_ricerca, "symbol": conf.config["symbol"], "timeframe": conf.config["timeframe"],
                  "finita": r.finita, "durata_s": r.durata_s, "prove": r.prove, "budget_massimo": r.budget_massimo,
                  "imbuto": r.imbuto, "conto": r.conto, "blocchi_esclusi": conf.esclusi,
+                 "tenuti_tolti": r.tenuti_tolti,
                  "valori_degeneri_avvio": len(r.degeneri_avvio), "valori_degeneri_zoom": len(r.degeneri_zoom)}
     with open(os.path.join(r.cartella, FILE_RIEPILOGO + ".tmp"), "w", encoding="utf-8") as f:
         f.write(registro.json_riga(riepilogo) + "\n")
@@ -390,12 +440,13 @@ def imbuto(r) -> pd.DataFrame:
     import matplotlib.pyplot as plt
     i = r.imbuto
     c = _cassaforte_dal_registro(r)
-    passi = [("teorie", i["teorie"]), ("passo 1: teorie tenute", i["passo_1_tenute"]),
-             ("passo 2: teorie allo zoom", i["passo_2"]), ("altopiano: reggono", i["altopiano"]),
+    passi = [("turno 1: teorie", i["turno_1"]), ("turno 1: tenute", i["turno_1_tenute"]),
+             ("turno 2: teorie", i["turno_2"]), ("turno 2: tenute", i["turno_2_tenute"]),
+             ("zoom: teorie", i["passo_2"]), ("altopiano: reggono", i["altopiano"]),
              ("selezione: passano", i.get("selezione", 0)), ("scelte (una per famiglia)", i.get("scelte", 0)),
              ("cassaforte: entrate", len(c["entrate"])), ("cassaforte: passano", len(c["passano"]))]
     tab = pd.DataFrame(passi, columns=["passo", "quante"])
-    fig, ax = plt.subplots(figsize=(8, 3.6))
+    fig, ax = plt.subplots(figsize=(8, 4.2))
     ax.barh(tab["passo"][::-1], tab["quante"][::-1], color="#2b7bba")
     for y, q in enumerate(tab["quante"][::-1]):
         ax.text(q, y, f" {_f(int(q))}", va="center", fontsize=9)
@@ -407,9 +458,11 @@ def imbuto(r) -> pd.DataFrame:
     _mostra(("", tab))
     _nota("Un imbuto che resta vuoto non è un errore: è una risposta.")
     scarti = []
-    if len(r.passo_1):
-        scarti.append({"passo": "passo 1", "motivo": "nessuna strategia passa la condizione 1",
-                       "quante": int((~r.passo_1["tenuta"].astype(bool)).sum())})
+    for turno in (1, 2):
+        p1 = r.passo_1[r.passo_1["turno"] == turno] if len(r.passo_1) else r.passo_1
+        if len(p1):
+            scarti.append({"passo": f"turno {turno}", "motivo": "nessuna strategia passa la condizione 1",
+                           "quante": int((~p1["tenuta"].astype(bool)).sum())})
     if len(r.passo_2):
         for m, n in r.passo_2[r.passo_2["esito"] != "regge"]["motivo"].value_counts().items():
             scarti.append({"passo": "altopiano", "motivo": m, "quante": int(n)})
@@ -422,8 +475,16 @@ def imbuto(r) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------ 4 · Le strategie rimaste
+def _controlla_versione(r) -> None:
+    """Celle 4–7 (D5 = B): una ricerca della versione 1 si ferma con «ricerca non trovata» e dice di rilanciare la 2."""
+    from engine.fabbrica.config import VERSIONE
+    if _config_ricerca(r).get("versione") != VERSIONE:
+        raise ValueError(VERSIONE_1)
+
+
 def numerate(r) -> pd.DataFrame:
     """La tabella della selezione numerata: prima le scelte, poi «stessa famiglia», poi le scartate; t più alto prima."""
+    _controlla_versione(r)
     if r.selezione is None:
         raise ValueError("la ricerca non è finita: rilancia la 2 fino in fondo.")
     t = r.selezione.tabella.copy()
@@ -450,6 +511,7 @@ def strategie_rimaste(r) -> pd.DataFrame:
     Cella 4. Una riga per strategia, numerata (il numero serve alla 5 e alla 6), con la regola in parole e i numeri
     di ricerca e selezione. Le scartate stanno in una sezione chiusa. Accanto, da leggere, il conto delle prove.
     """
+    _controlla_versione(r)
     config = _config_ricerca(r)
     t = numerate(r)
     p2 = r.passo_2.set_index("teoria")
@@ -519,6 +581,7 @@ def cassaforte(r, strategie: str = ""):
     ingresso: si mostra l'esito di quelle già entrate, se ce ne sono. La tabella ha tutte le strategie entrate in
     questa ricerca, una riga ciascuna.
     """
+    _controlla_versione(r)
     cartella = _cartella_dati(r)
     ids = numeri_strategie(r, strategie)
     gia = _cassaforte_dal_registro(r)
@@ -640,6 +703,7 @@ def mm_e_stress(r, numero: int, capitale: float = 10_000.0, drawdown_max_pct: fl
     """
     from engine import vetrina, vetrina_verifica
     from engine.fabbrica import sessione as ses
+    _controlla_versione(r)
     t = numerate(r).set_index("numero")
     if int(numero) not in t.index:
         raise ValueError(f"numero {numero}: la tabella della 4 va da 1 a {len(t)}.")
@@ -708,6 +772,7 @@ def leggi_mm(r, id_s: str) -> dict | None:
 def schede(r) -> list[tuple[str, str]]:
     """Cella 7. Un .md e un .json in <ricerca>/schede/ per ogni strategia entrata in cassaforte; mostra la prima."""
     from engine.fabbrica.schede import componi_scheda, scrivi_scheda, testo_md
+    _controlla_versione(r)
     entrate = _cassaforte_dal_registro(r)["entrate"]
     if not entrate:
         _nota("Nessuna strategia è entrata in cassaforte: nessuna scheda.")

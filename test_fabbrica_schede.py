@@ -43,19 +43,24 @@ CONFINI_H1 = {"inizio": "2024-01-01 00:00", "ricerca_ore": 12000, "selezione_ore
 BLOCCHI = ("DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "X0", "X3")
 ESITI: list[bool] = []
 
-# La tabella decisa da Mattia l'08/11 (diagnosi di E36, E47, E49, E51; F20 su D1)
+# La tabella decisa da Mattia l'08/11 (diagnosi di E36, E47, E49, E51; F20 su D1) e, dal 12/11 sera, la tabella D4 del
+# catalogo intero (docs/82 §11.12): C2 mette tutto il catalogo nella config standard.
+_L, _A, _S = LIMITE_LOGICO, APPROSSIMAZIONE_ESCLUSA, SOLO_ELENCO
 ATTESI = {
-    "M1": {"E47": SOLO_ELENCO, "E49": SOLO_ELENCO, "E51": SOLO_ELENCO},
+    "M1": {"E46": _S, "E47": _S, "E48": _S, "E49": _S, "E51": _S, "E52": _S},
     "M5": {}, "M15": {},
-    "M30": {"E47": APPROSSIMAZIONE_ESCLUSA},
-    "H1": {"E36": LIMITE_LOGICO, "E47": LIMITE_LOGICO},
-    "H4": {"E36": LIMITE_LOGICO, "E47": LIMITE_LOGICO, "E49": LIMITE_LOGICO, "E51": APPROSSIMAZIONE_ESCLUSA},
-    "D1": {"E36": LIMITE_LOGICO, "E47": LIMITE_LOGICO, "E49": LIMITE_LOGICO, "E51": LIMITE_LOGICO,
-           "F20_SESSION_OVERLAP": LIMITE_LOGICO},
+    "M30": {"E46": _A, "E47": _A, "E48": _L},
+    "H1": {"E31": _A, "E36": _L, "E37": _L, "E40": _L, "E46": _L, "E47": _L, "E48": _L, "E52": _A},
+    "H4": {"E22": _A, "E31": _L, "E36": _L, "E37": _L, "E38": _L, "E39": _L, "E40": _L, "E46": _L, "E47": _L, "E48": _L,
+           "E49": _L, "E51": _A, "E52": _A, "OVERNIGHT_RETURN": _A},
+    "D1": {**{b: _L for b in ("E22", "E23", "E31", "E36", "E37", "E38", "E39", "E40", "E41", "E45", "E46", "E47", "E48",
+                              "E49", "E51", "E52", "F20_SESSION_ASIA", "F20_SESSION_EUROPE", "F20_SESSION_US",
+                              "F20_SESSION_OVERLAP", "OVERNIGHT_RETURN", "F22_FAR_FROM_ROLLOVER", "VWAP_GAP_WIDENING",
+                              "VWAP_SESSION_CLOSE")}},
 }
 CAMPI_SCHEDA = ("id_strategia", "id_ricerca", "impronta_config", "impronte_dati", "symbol", "timeframe", "lato",
                 "blocchi", "uscita", "regole", "esiti", "altopiano", "test_individuale", "prove", "cassaforte", "mm",
-                "stress", "software", "blocchi_esclusi", "verifica")
+                "stress", "software", "blocchi_esclusi", "verifica", "turno", "blocchi_tenuti_tolti")
 
 
 def check(nome: str, ok: bool, dettaglio: str = "") -> None:
@@ -81,7 +86,7 @@ def _cfg(symbol, timeframe="M15", confini=CONFINI, blocchi=BLOCCHI):
     cfg["confini"] = dict(confini)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in blocchi}
     cfg["qualita_1"]["trade_min"] = 30
-    cfg["budget"].update({"teorie_passo_2": 4, "prove_per_giro": 60})
+    cfg["budget"].update({"teorie_turno_2": 4, "teorie_passo_2": 4, "prove_per_giro": 60})
     return cfg
 
 
@@ -213,7 +218,8 @@ def _esclusi():
     check("8. sulla config standard l'elenco della scheda è quello del timeframe; un blocco tolto a mano è «tolto "
           "dalla config»", tolti == blocchi_esclusi("D1") and tolti_r.get("ADX") == sch.TOLTO_DALLA_CONFIG
           and tolti_r.get("F20_SESSION_OVERLAP") == LIMITE_LOGICO)
-    senza_t = dict(cfg, blocchi={k: v for k, v in cfg["blocchi"].items() if k not in ("E5", "RSI_RIENTRO", "DONCHIAN")})
+    trigger = {b.nome for b in blocchi_da_config(cfg) if b.tipo == "trigger"}
+    senza_t = dict(cfg, blocchi={k: v for k, v in cfg["blocchi"].items() if k not in trigger})
     senza_u = dict(cfg, blocchi={k: v for k, v in cfg["blocchi"].items() if k not in ("X0", "X1", "X3")})
     check("9. si ferma solo se non resta un trigger o un'uscita; la config standard di D1 parte",
           errore(lambda: controlla_tipi_rimasti(senza_t)) and errore(lambda: controlla_tipi_rimasti(senza_u))
@@ -249,14 +255,19 @@ def _giro(radice, symbol, timeframe, confini):
     check(f"{n + 1}. il .json ha i campi di §6, più i blocchi tolti e la verifica; si rilegge identico",
           all(k in letta for k in CAMPI_SCHEDA) and letta == json.loads(json.dumps(sc)) and letta["mm"] is None
           and letta["verifica"] is None and letta["impronte_dati"]["cassaforte"]
-          and [x["passo"] for x in letta["esiti"]] == ["passo 1", "zoom e altopiano", "selezione", "cassaforte"])
+          and [x["passo"] for x in letta["esiti"]] == [f"passo 1, turno {letta['turno']}", "zoom e altopiano",
+                                                       "selezione", "cassaforte"]
+          and letta["turno"] in (1, 2) and letta["blocchi_tenuti_tolti"] == json.loads(json.dumps(e.tenuti_tolti))
+          and len(letta["blocchi_tenuti_tolti"]) > 0)
     with open(md, encoding="utf-8") as f:
         testo = f.read()
     sezioni = ("## Regole", "## Da dove viene", "## Il cammino", "## Da leggere", "## Verifica dei trade",
-               "## Money management e stress test", "## Blocchi tolti su questo timeframe")
+               "## Money management e stress test", "## Blocchi tolti su questo timeframe",
+               "## Blocchi tenuti e tolti (un blocco per famiglia)")
     check(f"{n + 2}. il .md ha le sezioni, le regole in parole, «non calcolati» senza la 6, e finisce con la frase "
           f"«{sch.FRASE_FINALE}»", all(x in testo for x in sezioni) and testo.rstrip().endswith(sch.FRASE_FINALE)
           and all(r in testo for r in letta["regole"]) and "esegui la 6" in testo
+          and f"- Turno {letta['turno']} del passo 1" in testo and "trigger → " in testo
           and sch.leggi_scheda(md) == letta)
     altra = json.loads(json.dumps(letta))
     chiave = next(iter(altra["strategia"]["valori"][altra["strategia"]["trigger"]]), None)

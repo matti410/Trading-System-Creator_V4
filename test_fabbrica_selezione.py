@@ -350,7 +350,7 @@ def esegui() -> int:
         df_v = sintetici.mercato_piantato(barre_v, seme=5, minuti=15, inizio="2024-01-01", prezzo=2_000.0)
         cfg_v = _cfg(SPOT, ("E47", "DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "X0"), confini_v)
         cfg_v["qualita_1"]["trade_min"] = 30
-        cfg_v["budget"].update({"teorie_passo_2": 4, "prove_per_giro": 60})
+        cfg_v["budget"].update({"teorie_turno_2": 4, "teorie_passo_2": 4, "prove_per_giro": 60})
         V = os.path.join(radice, "V")
         sintetici.scrivi_storico(V, SPOT, "M15", df_v)
         sintetici.scrivi_storico(V, PERP, "M15", df_p)               # un altro dataset accanto
@@ -420,8 +420,10 @@ def esegui() -> int:
         check("33. cassaforte avvelenata (prezzi × 1000): passi 1–2, selezione e prove identici al bit",
               ew.id_ricerca == e.id_ricerca and _leggi(os.path.join(ew.cartella, "selezione.json")) == byte_sel
               and _leggi(registro.FileProve(ew.cartella).percorso) == byte_prove
-              and all(_leggi(os.path.join(ew.cartella, n)) == _leggi(os.path.join(e.cartella, n))
-                      for n in ("passo_1.jsonl", "passo_2.jsonl")))
+              and all(os.path.exists(os.path.join(ew.cartella, n)) == os.path.exists(os.path.join(e.cartella, n))
+                      and (not os.path.exists(os.path.join(e.cartella, n))
+                           or _leggi(os.path.join(ew.cartella, n)) == _leggi(os.path.join(e.cartella, n)))
+                      for n in ("passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl")))
         X = os.path.join(radice, "X")
         sintetici.scrivi_storico(X, SPOT, "M15", df_v)
         registro.aggiungi_prove(os.path.join(cartella_asset(X, SPOT, "M15"), "20250101_altra"),

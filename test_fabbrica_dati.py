@@ -24,7 +24,8 @@ import pandas as pd
 
 from engine.fabbrica import sintetici
 from engine.fabbrica.config import (CAMPI, budget_massimo, cartella_asset, confini_standard, config_standard,
-                                    controlla_budget, controlla_config, impronta_config, leggi_config, salva_config)
+                                    controlla_budget, controlla_config, impronta_config, leggi_config, salva_config,
+                                    tetto_budget)
 from engine.fabbrica.dati import Confini, PermessoCassaforte, Pezzi, carica_pezzi, impronta_pezzo
 from engine.vetrina import carica_storico, costi_storico
 
@@ -209,7 +210,8 @@ def esegui() -> int:
         print("\nLa config (docs/82 P2 e §6)")
         cfg = config_standard(PERP, "M15")
         check("28. la config standard ha i campi di §6 e passa i controlli", tuple(cfg) == CAMPI and controlla_config(cfg) is cfg
-              and len(cfg["blocchi"]) == 17 and cfg["lati"] == ["long", "short"] and cfg["confini"] == STANDARD)
+              and len(cfg["blocchi"]) == 78 and cfg["versione"] == 2 and cfg["lati"] == ["long", "short"]
+              and cfg["confini"] == STANDARD and cfg["budget"]["teorie_turno_2"] == 150)
         rovesciata = json.loads(json.dumps(cfg, sort_keys=True))
         rovesciata = {k: rovesciata[k] for k in reversed(list(rovesciata))}
         check("29. stesso contenuto con le chiavi in altro ordine: stessa impronta", impronta_config(rovesciata) == impronta_config(cfg))
@@ -227,7 +229,7 @@ def esegui() -> int:
             "un campo che manca": {k: v for k, v in cfg.items() if k != "budget"},
             "un campo in più": {**cfg, "commento": "x"},
             "un sottocampo che manca": {**cfg, "qualita_1": {k: v for k, v in cfg["qualita_1"].items() if k != "peso_max"}},
-            "versione": {**cfg, "versione": 2},
+            "versione": {**cfg, "versione": 1},
             "symbol fuori tabella": {**cfg, "symbol": "BINANCE_PERP_DOGEUSDT"},
             "timeframe": {**cfg, "timeframe": "M2"},
             "blocco sconosciuto": {**cfg, "blocchi": {**cfg["blocchi"], "E99": {}}},
@@ -250,12 +252,15 @@ def esegui() -> int:
             ammessi.append((tf, len(c["blocchi"])))
         d1 = config_standard(PERP, "D1")
         check("33. da M1 a D1 la config standard tiene solo i blocchi che scattano sul timeframe",
-              dict(ammessi)["M15"] == 17 and "F20_SESSION_OVERLAP" not in d1["blocchi"] and "E36" not in d1["blocchi"]
+              dict(ammessi)["M15"] == 78 and "F20_SESSION_OVERLAP" not in d1["blocchi"] and "E36" not in d1["blocchi"]
               and "E5" in d1["blocchi"], str(ammessi))
-        check("34. budget: 1.176 teorie fanno 96.840 prove, sotto le 100.000 (§5)", budget_massimo(1176, cfg) == 96_840
-              and controlla_budget(1176, cfg) == 96_840)
-        largo = {**cfg, "budget": {**cfg["budget"], "per_teoria_passo_1": 80}}
-        check("35. massimi oltre il totale: si ferma prima di partire", errore(lambda: controlla_budget(1176, largo)))
+        tetto = {**cfg, "budget": {**cfg["budget"], "totale": tetto_budget(370_200)}}
+        check("34. budget (C2, docs/82 §11.5): turno 1 di 4.860 teorie, 4.644 T+F, 22 filtri sul lato più largo fanno "
+              "370.200 prove; il tetto è 380.000 (D6)", budget_massimo(4860, cfg, 4644, 22) == 370_200
+              and tetto_budget(370_200) == 380_000 and tetto_budget(380_000) == 380_000
+              and controlla_budget(4860, tetto, 4644, 22) == 370_200)
+        largo = {**tetto, "budget": {**tetto["budget"], "per_teoria_passo_1": 80}}
+        check("35. massimi oltre il totale: si ferma prima di partire", errore(lambda: controlla_budget(4860, largo, 4644, 22)))
 
         # ------------------------------------------------------------------ il salvataggio
         print("\nIl salvataggio")

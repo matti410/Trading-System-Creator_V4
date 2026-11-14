@@ -66,7 +66,7 @@ def _cfg(timeframe="M15", confini=CONFINI, blocchi=BLOCCHI):
     cfg["confini"] = dict(confini)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in blocchi}
     cfg["qualita_1"]["trade_min"] = 30
-    cfg["budget"].update({"teorie_passo_2": 4, "prove_per_giro": 60})
+    cfg["budget"].update({"teorie_turno_2": 4, "teorie_passo_2": 4, "prove_per_giro": 60})
     return cfg
 
 
@@ -134,9 +134,10 @@ def esegui() -> int:
     vf._scarica = _con_exchange(_Exchange())          # la suite non va in rete: l'exchange non risponde
     try:
         with tempfile.TemporaryDirectory() as radice:
-            _celle(radice)
+            r, conf = _celle(radice)
             _d1(radice)
             _dati_e_confini(radice)
+            _c2(radice, r, conf)
     finally:
         registro.adesso = registro_adesso
         vf._scarica = scarica_vero
@@ -178,7 +179,8 @@ def _celle(radice):
     conf2 = _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, cfg, "20270101")
     check("5. Configura: ricerca nuova, poi la stessa cella rieseguita (anche un altro giorno) dà la stessa ricerca",
           conf.nuova and not conf2.nuova and conf.id_ricerca == conf2.id_ricerca and conf.teorie > 0
-          and conf.budget_massimo > 0 and conf.stima_minuti > 0 and len(conf.esclusi) == 11)
+          and conf.budget_massimo > 0 and 0 < conf.stima_minuti[0] <= conf.stima_minuti[1]
+          and len(conf.esclusi) == 78 - 6)
     senza_u = dict(cfg, blocchi={k: v for k, v in cfg["blocchi"].items() if k not in ("X0", "X3")})
     check("6. se non resta un'uscita la cella si ferma", errore(
         lambda: _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, senza_u, DATA), ValueError, "un'uscita"))
@@ -202,15 +204,19 @@ def _celle(radice):
         vf._stampa_avanzamento = vero
     with open(os.path.join(r.cartella, vf.FILE_RIEPILOGO), encoding="utf-8") as f:
         riep = json.load(f)
-    check("7. la ricerca finisce; l'avanzamento arriva teoria per teoria (passo 1 e passo 2, prove che crescono)",
-          r.finita and righe and {x["fase"] for x in righe} == {"passo 1", "passo 2"}
+    check("7. la ricerca finisce; l'avanzamento arriva teoria per teoria (turno 1, turno 2, zoom, prove che crescono)",
+          r.finita and righe and [x["fase"] for x in righe] == (["turno 1"] * r.imbuto["turno_1"]
+                                                                + ["turno 2"] * r.imbuto["turno_2"]
+                                                                + ["zoom"] * r.imbuto["passo_2"])
+          and r.imbuto["turno_2"] > 0
           and [x["prove"] for x in righe] == sorted(x["prove"] for x in righe)
           and righe[-1]["prove"] + r.imbuto["altopiano"] == r.prove
-          and max(x["numero"] for x in righe if x["fase"] == "passo 1") == r.imbuto["teorie"],
+          and max(x["numero"] for x in righe if x["fase"] == "turno 1") == r.imbuto["turno_1"],
           "le ultime prove sono quelle della selezione, una per sopravvissuta")
-    check("8. riepilogo.json: imbuto, prove e lo stesso elenco dei blocchi tolti della cella 1",
-          riep["imbuto"] == r.imbuto and riep["prove"] == r.prove and riep["blocchi_esclusi"] == conf.esclusi
-          and riep["finita"])
+    check("8. riepilogo.json: imbuto, prove, lo stesso elenco dei blocchi tolti della cella 1 e la tabella dei tenuti e "
+          "dei tolti", riep["imbuto"] == r.imbuto and riep["prove"] == r.prove and riep["blocchi_esclusi"] == conf.esclusi
+          and riep["finita"] and riep["tenuti_tolti"] == json.loads(registro.json_riga(conf.tenuti_tolti))
+          and len(riep["tenuti_tolti"]) == 2 + 2)
     righe.clear()
     r2 = _zitto(vf.ricerca, conf)
     check("9. rieseguita: riprende da dove era, nessuna prova in più, stesso imbuto",
@@ -223,10 +229,11 @@ def _celle(radice):
 
     print("\n3 · L'imbuto e 4 · Le strategie rimaste")
     imb = _zitto(vf.imbuto, r)
-    check("11. l'imbuto ha i passi della ricerca e la cassaforte ancora a zero",
-          list(imb["quante"])[:6] == [r.imbuto[k] for k in ("teorie", "passo_1_tenute", "passo_2", "altopiano",
-                                                              "selezione", "scelte")]
-          and list(imb["quante"])[6:] == [0, 0])
+    check("11. l'imbuto ha i passi della ricerca, con i due turni, e la cassaforte ancora a zero",
+          list(imb["quante"])[:8] == [r.imbuto[k] for k in ("turno_1", "turno_1_tenute", "turno_2", "turno_2_tenute",
+                                                              "passo_2", "altopiano", "selezione", "scelte")]
+          and list(imb["passo"])[:4] == ["turno 1: teorie", "turno 1: tenute", "turno 2: teorie", "turno 2: tenute"]
+          and list(imb["quante"])[8:] == [0, 0])
     tab = _zitto(vf.strategie_rimaste, r)
     ordine = [vf.ORDINE_ESITI[x] for x in tab["esito"]]
     check("12. le strategie rimaste numerate da 1, prima le scelte; ogni riga ha la regola in parole",
@@ -259,7 +266,7 @@ def _celle(radice):
           and _registro_bytes(d) == dopo and c3.tabella.equals(c.tabella))
     imb2 = _zitto(vf.imbuto, r)
     check("18. l'imbuto legge la cassaforte dal registro: entrate e passate",
-          list(imb2["quante"])[6] == len(scelte) and list(imb2["quante"])[7] == int((c.tabella["esito"] == "passa").sum()))
+          list(imb2["quante"])[8] == len(scelte) and list(imb2["quante"])[9] == int((c.tabella["esito"] == "passa").sum()))
 
     print("\n6 · MM, stress test e verifica dei trade")
     catalogo = stato_registro()
@@ -319,6 +326,7 @@ def _celle(radice):
     check("25. i file di questa macchina hanno il nome scritto nell'Avvio (registro_pc2.jsonl, prove_pc2.csv)",
           os.path.exists(os.path.join(cartella_asset(d, SPOT, "M15"), "registro_pc2.jsonl"))
           and os.path.exists(os.path.join(r.cartella, "prove_pc2.csv")))
+    return r, conf
 
 
 def _testi_lab() -> str:
@@ -359,8 +367,8 @@ def _d1(radice):
     cfg["confini"] = confini
     conf = _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "D1", 1, cfg, DATA)
     tolti = {e["blocco"]: e["tipo"] for e in conf.esclusi}
-    check("26. D1 con la config standard: la cella elenca i 5 blocchi tolti con il motivo (F20 limite logico) e "
-          "prosegue: la ricerca è configurata", conf.teorie > 0 and len(tolti) == 5
+    check("26. D1 con la config standard: la cella elenca i 24 blocchi tolti con il motivo (F20 limite logico) e "
+          "prosegue: la ricerca è configurata", conf.teorie > 0 and len(tolti) == 24
           and tolti.get("F20_SESSION_OVERLAP") == LIMITE_LOGICO and "F20_SESSION_OVERLAP" not in conf.config["blocchi"],
           f"{conf.teorie} teorie")
 
@@ -443,6 +451,41 @@ def _dati_e_confini(radice):
           and secondo.limiti["cassaforte"][1] == pd.Timestamp("2026-11-05", tz="UTC"),
           f"{primo.id_ricerca} e {secondo.id_ricerca}" if ok else f"{primo!r} {secondo!r}"[:300])
     vf._scarica = _con_exchange(_Exchange())
+
+
+
+def _c2(radice, r, conf):
+    print("\nC2: un blocco per famiglia e i due turni nelle celle; la stima del tempo; le ricerche della versione 1")
+    da, a = vf.stima_minuti(370_200, 123_254, 3)
+    check("32. la stima della cella 1 viene dalla velocità vera delle ricerche del 9 e del 10/11 (167 e 146 prove al "
+          "secondo con 3 processi): 370.200 prove su 123.254 barre fanno circa 37–42 minuti; con 1 processo di più, "
+          "con meno barre di meno", round(da) == 37 and round(a) == 42
+          and vf.stima_minuti(370_200, 123_254, 1)[0] > da and vf.stima_minuti(370_200, 123_254 // 4, 3)[1] < a / 3,
+          f"{da:.1f}–{a:.1f} minuti")
+    d = os.path.join(radice, "M15")
+    _, testo = _parlato(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, _cfg(), DATA)
+    check("33. la cella 1 mostra, per lato, quanti trigger e filtri e quanti tenuti (un blocco per famiglia), le teorie "
+          "dei due turni, le prove massime e la stima in minuti", "long: 2 trigger → " in testo
+          and "tenuti (un blocco per famiglia)" in testo and f"Turno 1: {conf.teorie} teorie; turno 2: al massimo" in testo
+          and "minut" in testo and "Tutti i blocchi, tenuti e tolti" in testo and conf.turno_2_massimo > 0,
+          testo[testo.find("long:"):][:160])
+    import dataclasses
+    vecchia = os.path.join(cartella_asset(d, SPOT, "M15"), "20261109_versione1")
+    os.makedirs(vecchia)
+    with open(os.path.join(r.cartella, "config.json"), encoding="utf-8") as f:
+        cfg_v1 = dict(json.load(f), versione=1)
+    with open(os.path.join(vecchia, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(cfg_v1, f)
+    r1 = dataclasses.replace(r, cartella=vecchia, id_ricerca="20261109_versione1")
+    ferme = [errore(lambda f=f: _zitto(f, r1, *a), ValueError, vf.VERSIONE_1)
+             for f, a in ((vf.strategie_rimaste, ()), (vf.cassaforte, ("1",)), (vf.mm_e_stress, (1,)), (vf.schede, ()))]
+    check("34. una ricerca della versione 1 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una ricerca della "
+          "versione 1, rilancia la cella 2 per una ricerca nuova»", all(ferme)
+          and vf.VERSIONE_1 == "ricerca non trovata: è una ricerca della versione 1, rilancia la cella 2 per una "
+                               "ricerca nuova", str(ferme))
+    from engine.fabbrica.config import controlla_config
+    check("35. la config versione 1 non si rilancia: la ricerca ha una strada sola (D5 = B)",
+          errore(lambda: controlla_config(cfg_v1), ValueError, "versione 1"))
 
 
 if __name__ == "__main__":
