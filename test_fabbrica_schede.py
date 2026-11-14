@@ -28,7 +28,7 @@ from engine.fabbrica import sessione as ses
 from engine.fabbrica.blocchi import (APPROSSIMAZIONE_ESCLUSA, LIMITE_LOGICO, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE,
                                      SOLO_ELENCO, blocchi_da_config)
 from engine.fabbrica.cassaforte import entra
-from engine.fabbrica.config import blocchi_esclusi, config_standard, controlla_tipi_rimasti
+from engine.fabbrica.config import BLOCCHI_STANDARD, blocchi_esclusi, config_standard, controlla_tipi_rimasti
 from engine.fabbrica.ricerca import lancia
 from engine.fabbrica.valutatore import Strategia, id_strategia
 
@@ -112,8 +112,23 @@ def esegui() -> int:
 # ------------------------------------------------------------------ i testi dei blocchi
 def _testi():
     print("Le regole in parole (docs/82 P10)")
-    check("1. ogni blocco della lista di P-L2 ha il suo testo in parole", sch.blocchi_senza_testo() == [],
-          f"senza testo: {sch.blocchi_senza_testo()}")
+    check("1. ogni blocco della lista di P-L2 e, dal 12/11 (C1), del catalogo intero ha il suo testo in parole",
+          sch.blocchi_senza_testo() == [], f"senza testo: {sch.blocchi_senza_testo()}")
+    from engine.fabbrica.blocchi import FILTRI_CATALOGO, TRIGGER_CATALOGO
+    frasi, rotti = 0, []
+    for testi, catalogo in ((sch.TESTI_TRIGGER, TRIGGER_CATALOGO), (sch.TESTI_FILTRI, FILTRI_CATALOGO)):
+        for nome, voce in catalogo.items():
+            for lato, cond in zip((1, -1), voce[:2]):
+                if cond is None:
+                    continue
+                for tf, m in (("M15", 15), ("H4", 240)):
+                    frase = testi[nome]({}, lambda b, _m=m: sch.durata(b, _m), lato)
+                    frasi += 1
+                    if not isinstance(frase, str) or len(frase) < 20 or "{" in frase:
+                        rotti.append((nome, lato, tf))
+    breve = sch.nome_breve("E12", {}, "M15")
+    check("1b. C1: ogni blocco del catalogo dà una frase, long e short, su M15 e H4; il nome breve porta la famiglia",
+          not rotti and frasi == 2 * (43 + 42 + 2 * 28) and breve == "E12 · engulfing", f"{frasi} frasi, rotte {rotti[:4]}")
     casi = {(48, 15): "12 ore (48 barre)", (3, 15): "45 minuti (3 barre)", (1, 60): "1 ora (1 barra)",
             (10, 15): "2,5 ore (10 barre)", (5, 1440): "120 ore (5 barre)", (1, 1): "1 minuto (1 barra)"}
     sbagliati = {k: sch.durata(*k) for k, v in casi.items() if sch.durata(*k) != v}
@@ -188,7 +203,8 @@ def _esclusi():
           f"diversi: {[tf for tf in ATTESI if trovati[tf] != ATTESI[tf]]}")
     usati = {(b, tf) for tf, d in ATTESI.items() for b in d}
     check("7. nessun blocco esce in silenzio: ogni blocco tolto dalla config standard ha il motivo, e ogni motivo "
-          "scritto corrisponde a un blocco tolto", set(MOTIVI_ESCLUSIONE) == usati
+          "scritto per un blocco della config standard corrisponde a un blocco tolto (il catalogo intero: "
+          "test_fabbrica_blocchi, n. 119-120)", {k for k in MOTIVI_ESCLUSIONE if k[0] in BLOCCHI_STANDARD} == usati
           and all(len(m) == 2 and m[1] for m in MOTIVI_ESCLUSIONE.values()))
     cfg = config_standard(SPOT, "D1")
     tolti = sch.esclusi_dalla_config(cfg)

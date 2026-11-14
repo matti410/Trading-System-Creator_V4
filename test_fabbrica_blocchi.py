@@ -27,12 +27,15 @@ import entry_short
 import exit_long
 import exit_short
 import filter_conditions
+import vwap_regime_filter_conditions
 from engine import registry as reg
 from engine.collaudo_catalogo import verifica_degenerazione, verifica_lookahead
 from engine.exit_search_bt import soglie_adattive
-from engine.fabbrica.blocchi import (BARRE_MINIME, FILTRI_CATALOGO, GRIGLIE_NUOVI, MINUTI_TIMEFRAME, TRIGGER_CATALOGO,
-                                     USCITE_CATALOGO, Blocco, blocchi_da_config)
+from engine.fabbrica.blocchi import (APPROSSIMAZIONE_ESCLUSA, BARRE_MINIME, FILTRI_CATALOGO, GRIGLIE_NUOVI, LIMITE_LOGICO,
+                                     MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, SOLO_ELENCO, TRIGGER_CATALOGO, USCITE_CATALOGO,
+                                     Blocco, _registra_catalogo, blocchi_da_config)
 from engine.fabbrica.cache import ORE_FINESTRA_SOGLIE, Cache, barre_da_ore
+from engine.fabbrica.dati import imposta_mercato_crypto
 from engine.fabbrica.ottimizzatore import Categoria, Intero, Reale
 from engine.indicatori import aggiungi_indicatori, atr_relativo, donchian_massimo, donchian_minimo, indice_choppiness
 from helpers import _cross_down, _cross_up, _evento
@@ -41,7 +44,39 @@ warnings.simplefilter("ignore")
 
 PREFISSO = "PROVA_FAB_"
 NUOVI = tuple(GRIGLIE_NUOVI)
-TUTTI_CATALOGO = (*TRIGGER_CATALOGO, *FILTRI_CATALOGO, *USCITE_CATALOGO)
+# I 10 blocchi del catalogo di P-L2 (fino all'11/11): i collaudi di L2 restano su questi. Il catalogo intero (C1, 12/11)
+# ha la sua sezione in fondo.
+ORIGINALI_TRIGGER = ("E5", "E36", "E47", "E49", "E51")
+ORIGINALI_FILTRI = ("F2_MID_VOLATILITY", "F3_VOLUME_ABOVE_AVG", "TREND_CONTEXT", "F25_CHOP_TREND", "F20_SESSION_OVERLAP")
+TUTTI_CATALOGO = (*ORIGINALI_TRIGGER, *ORIGINALI_FILTRI, *USCITE_CATALOGO)
+L, A, S = LIMITE_LOGICO, APPROSSIMAZIONE_ESCLUSA, SOLO_ELENCO
+# C1: la tabella D4 di docs/82 §11.12 (approvata da Mattia il 12/11 sera) più le esclusioni dell'08/11:
+# (blocco, timeframe) -> tipo di motivo. Ogni altra coppia (blocco del catalogo, timeframe) è ammessa.
+ESCLUSI_ATTESI = {
+    **{("E36", tf): L for tf in ("H1", "H4", "D1")},
+    ("E47", "M1"): S, ("E47", "M30"): A, **{("E47", tf): L for tf in ("H1", "H4", "D1")},
+    ("E49", "M1"): S, **{("E49", tf): L for tf in ("H4", "D1")},
+    ("E51", "M1"): S, ("E51", "H4"): A, ("E51", "D1"): L,
+    ("F20_SESSION_OVERLAP", "D1"): L,
+    ("E22", "H4"): A, ("E22", "D1"): L, ("E23", "D1"): L,
+    ("E31", "H1"): A, ("E31", "H4"): L, ("E31", "D1"): L,
+    **{("E37", tf): L for tf in ("H1", "H4", "D1")},
+    **{(b, tf): L for b in ("E38", "E39") for tf in ("H4", "D1")},
+    **{("E40", tf): L for tf in ("H1", "H4", "D1")},
+    ("E41", "D1"): L, ("E45", "D1"): L,
+    ("E46", "M1"): S, ("E46", "M30"): A, **{("E46", tf): L for tf in ("H1", "H4", "D1")},
+    ("E48", "M1"): S, **{("E48", tf): L for tf in ("M30", "H1", "H4", "D1")},
+    ("E52", "M1"): S, ("E52", "H1"): A, ("E52", "H4"): A, ("E52", "D1"): L,
+    **{(f, "D1"): L for f in ("F20_SESSION_ASIA", "F20_SESSION_EUROPE", "F20_SESSION_US", "F22_FAR_FROM_ROLLOVER",
+                              "VWAP_GAP_WIDENING", "VWAP_SESSION_CLOSE")},
+    ("OVERNIGHT_RETURN", "H4"): A, ("OVERNIGHT_RETURN", "D1"): L,
+}
+# Ammessi ma muti sui dati del collaudo (9.000 barre, 30.000 su M1), per la lunghezza dei dati e non per la regola: E19 è
+# una figura rara (compare solo sulle 30.000 barre di M1); E40, E41 ed E45 chiedono 250, 300 e 365 giornate di storia.
+# Sui dati veri li toglie, dove serve, il controllo dei degeneri a ogni avvio (docs/82 §11.12, deciso il 12/11 sera).
+NON_SCATTANO_SUL_COLLAUDO = {*(("E19", tf) for tf in ("M5", "M15", "M30", "H1", "H4", "D1")),
+                             *((b, tf) for b in ("E40", "E41") for tf in ("M1", "M5", "M15", "M30")),
+                             *(("E45", tf) for tf in ("M1", "M5", "M15", "M30", "H1"))}
 
 
 def _indice(n: int, minuti: int = 15, inizio: str = "2024-01-01") -> pd.DatetimeIndex:
@@ -167,7 +202,7 @@ def esegui() -> int:
 
     # ------------------------------------------------------------------ la forma dei blocchi
     print("\nLa forma dei blocchi")
-    tutti = blocchi_da_config(_config(*TUTTI_CATALOGO, *NUOVI))
+    tutti = blocchi_da_config(_config(*TUTTI_CATALOGO, *NUOVI))      # i blocchi di P-L2
     check("9. 7 trigger, 7 filtri, 3 uscite", [sum(b.tipo == t for b in tutti) for t in ("trigger", "filtro", "uscita")] == [7, 7, 3])
     check("10. ogni blocco ha nome, tipo, famiglia", all(isinstance(b, Blocco) and b.nome and b.tipo and b.famiglia for b in tutti))
     tipi_ok = all(isinstance(p, (Intero, Reale, Categoria)) for b in tutti for p in b.parametri)
@@ -180,7 +215,7 @@ def esegui() -> int:
           and isinstance(u.parametri[2], Categoria))
     check("13. i parametri in ore sono Intero in barre", all(isinstance(p, Intero) for b in tutti for p in b.parametri
                                                               if p.nome.endswith("_barre")))
-    check("14. il catalogo non ha parametri", all(not b.parametri for b in tutti if b.nome in (*TRIGGER_CATALOGO, *FILTRI_CATALOGO)))
+    check("14. il catalogo non ha parametri", all(not b.parametri for b in blocchi_da_config(_config(*TRIGGER_CATALOGO, *FILTRI_CATALOGO))))
     check("15. blocco sconosciuto, parametro sconosciuto, parametri al catalogo: errore", errore(lambda: _uno("E99"))
           and errore(lambda: _uno("ADX", finto_ore=(1,))) and errore(lambda: _uno("E47", periodo_ore=(1,))))
     check("16. catalogo su un timeframe dove non scatta: errore", errore(lambda: _uno("E47", "H1"))
@@ -372,7 +407,7 @@ def esegui() -> int:
             if not b.neutro:
                 scarti += int((b.maschera(ca, -1, valori) != b.maschera(cb, 1, valori)).sum())
         check(f"47. {b.nome}: maschera long sul mercato = maschera short sullo specchio", scarti == 0, f"{scarti} barre diverse")
-    for nome in (*TRIGGER_CATALOGO, *FILTRI_CATALOGO):
+    for nome in (*ORIGINALI_TRIGGER, *ORIGINALI_FILTRI):
         b = _uno(nome)
         scarti = int((b.maschera(c := Cache(df_ind, 50), 1) != b.maschera(cm, -1)).sum()) + int((b.maschera(c, -1) != b.maschera(cm, 1)).sum())
         check(f"48. {nome}: specchio", scarti == 0, f"{scarti} barre diverse su {len(df_ind)}")
@@ -580,7 +615,7 @@ def esegui() -> int:
         cache_tf = Cache(dfi, 100)
         if cache_tf.minuti_barra != minuti:
             sbagliati.append((tf, "minuti", cache_tf.minuti_barra))
-        for nome in (*TRIGGER_CATALOGO, *FILTRI_CATALOGO):
+        for nome in (*ORIGINALI_TRIGGER, *ORIGINALI_FILTRI):
             ammesso = not errore(lambda: _uno(nome, tf))
             ((lungo, corto), tipo) = (TRIGGER_CATALOGO[nome][:2], "trigger") if nome in TRIGGER_CATALOGO else (FILTRI_CATALOGO[nome][:2], "filtro")
             fonte = {**entry_long.TRIGGER_LONG, **entry_short.TRIGGER_SHORT} if tipo == "trigger" else {k: v_[0] for k, v_ in filter_conditions.FILTRI.items()}
@@ -617,12 +652,13 @@ def esegui() -> int:
     print("\nEtichette e famiglie (decisioni del 06/11)")
     check("100. E5 è «rottura dopo inside bar», X3 è «MACD sotto la signal (stato)»", _uno("E5").famiglia == "rottura dopo inside bar"
           and _uno("X3").famiglia == "MACD sotto la signal (stato)")
-    check("101. le liste non cambiano", tuple(TRIGGER_CATALOGO) == ("E5", "E36", "E47", "E49", "E51") and tuple(USCITE_CATALOGO) == ("X0", "X3", "X1")
-          and tuple(FILTRI_CATALOGO) == ("F2_MID_VOLATILITY", "F3_VOLUME_ABOVE_AVG", "TREND_CONTEXT", "F25_CHOP_TREND", "F20_SESSION_OVERLAP")
+    check("101. le liste di P-L2 non cambiano: in testa ai dizionari, con le stesse condizioni", tuple(TRIGGER_CATALOGO)[:5] == ORIGINALI_TRIGGER and tuple(USCITE_CATALOGO) == ("X0", "X3", "X1")
+          and tuple(FILTRI_CATALOGO)[:5] == ORIGINALI_FILTRI and TRIGGER_CATALOGO["E47"][:2] == ("E47_COMPRESSIONE_ROTTURA_UP", "E47_SHORT_COMPRESSIONE_ROTTURA_DOWN")
+          and FILTRI_CATALOGO["TREND_CONTEXT"][:2] == ("F8_UPTREND_CONTEXT", "F9_DOWNTREND_CONTEXT")
           and TRIGGER_CATALOGO["E5"][:2] == ("E5_QUICK_PULLBACK", "E5_SHORT_QUICK_PULLBACK") and USCITE_CATALOGO["X3"][:2] == ("X3_MACD_BEARISH", "X3_SHORT_MACD_BULLISH"))
-    filtri = [b for b in blocchi_da_config(_config(*FILTRI_CATALOGO, *NUOVI)) if b.tipo == "filtro"]
+    filtri = [b for b in blocchi_da_config(_config(*ORIGINALI_FILTRI, *NUOVI)) if b.tipo == "filtro"]
     coppie = [(x_, y_) for x_, y_ in itertools.combinations(filtri, 2) if x_.famiglia != y_.famiglia]
-    trigger = [b for b in blocchi_da_config(_config(*TRIGGER_CATALOGO, *NUOVI)) if b.tipo == "trigger"]
+    trigger = [b for b in blocchi_da_config(_config(*ORIGINALI_TRIGGER, *NUOVI)) if b.tipo == "trigger"]
     check("102. ADX e ATR relativo stanno nella stessa famiglia; nessun'altra coppia di filtri", _uno("ADX").famiglia == _uno("ATR_RELATIVO").famiglia
           and len({b.famiglia for b in filtri}) == 6 and len(filtri) == 7)
     check("103. le teorie sono 1.176: 7 trigger × (1 + 7 + 20 scelte di filtri) × 3 uscite × 2 lati", len(coppie) == 20 and len(trigger) == 7
@@ -666,6 +702,82 @@ def esegui() -> int:
     non_ok = look.loc[look["esito"] != "OK", ["nome", "esito"]]
     check("114. verifica_lookahead sulla griglia di D1: OK su tutti i blocchi nuovi", len(look) == len(nomi) and non_ok.empty,
           f"{len(nomi)} condizioni" if non_ok.empty else non_ok.to_string(index=False)[:600])
+    reg.clear_registry()
+
+    # ------------------------------------------------------------------ C1: il catalogo intero
+    print("\nC1: il catalogo intero nei blocchi (docs/82 §11.2, §11.7 «Blocchi», §11.12)")
+    lunghi = {v[0] for v in TRIGGER_CATALOGO.values()}
+    corti = {v[1] for v in TRIGGER_CATALOGO.values() if v[1] is not None}
+    filtri_cat = {c for v in FILTRI_CATALOGO.values() for c in v[:2]}
+    attesi_f = (set(filter_conditions.FILTRI) | set(vwap_regime_filter_conditions.FILTRI_VWAP)) - {
+        "F36_SENT_EXTREME_FEAR", "F36_SENT_EXTREME_GREED"}
+    check("115. ogni trigger e filtro del catalogo è un blocco, VWAP compresi, F36 escluso", lunghi == set(entry_long.TRIGGER_LONG)
+          and corti == set(entry_short.TRIGGER_SHORT) and filtri_cat == attesi_f,
+          f"trigger long {len(lunghi)}, short {len(corti)}, condizioni dei filtri {len(filtri_cat)}")
+    tutti_c1 = blocchi_da_config(_config(*TRIGGER_CATALOGO, *FILTRI_CATALOGO, *NUOVI, *USCITE_CATALOGO))
+    tr = [b for b in tutti_c1 if b.tipo == "trigger"]
+    fi = [b for b in tutti_c1 if b.tipo == "filtro"]
+    conti = (len(tr), sum(-1 in b.lati for b in tr), len(fi), sum(b.neutro for b in fi), sum(not b.neutro for b in fi),
+             sum(b.tipo == "uscita" for b in tutti_c1))
+    check("116. su M15: 45 trigger (44 sullo short), 30 filtri (22 neutri compresi ADX e ATR relativo, 8 coppie), 3 uscite",
+          conti == (45, 44, 30, 22, 8, 3), str(conti))
+    e19 = _uno("E19")
+    check("117. E19 esiste solo long: lo short si ferma con un errore; tutti gli altri blocchi hanno i due lati",
+          e19.lati == (1,) and errore(lambda: e19.maschera(Cache(df_ind, 10), -1))
+          and all(b.lati == (1, -1) for b in tutti_c1 if b.nome != "E19"))
+    con = {**entry_long.TRIGGER_LONG, **entry_short.TRIGGER_SHORT, **{k: v[0] for k, v in filter_conditions.FILTRI.items()},
+           **{k: v[0] for k, v in vwap_regime_filter_conditions.FILTRI_VWAP.items()}}
+    c = Cache(df_ind, 200)
+    tot, diversi = 0, []
+    for b in tr + fi:
+        if b._catalogo is None:
+            continue
+        for lato, nome in zip((1, -1), b._catalogo):
+            if nome is None:
+                continue
+            tot += 1
+            if not (b.maschera(c, lato) == pulito(con[nome](df_ind))).all():
+                diversi.append(nome)
+    check("118. ogni blocco del catalogo dà la maschera della sua condizione, sui due lati", not diversi and tot == 43 + 42 + 2 * 28,
+          f"{tot} confronti {diversi[:5]}")
+    trovati, senza_motivo = {}, []
+    for nome in (*TRIGGER_CATALOGO, *FILTRI_CATALOGO):
+        for tf in MINUTI_TIMEFRAME:
+            if errore(lambda: _uno(nome, tf)):
+                if (nome, tf) not in MOTIVI_ESCLUSIONE:
+                    senza_motivo.append((nome, tf))
+                else:
+                    trovati[(nome, tf)] = MOTIVI_ESCLUSIONE[(nome, tf)][0]
+    check("119. le coppie (blocco, timeframe) escluse e il tipo di motivo sono quelli della tabella D4 (§11.12)",
+          trovati == ESCLUSI_ATTESI and not senza_motivo,
+          f"in più {sorted(set(trovati) - set(ESCLUSI_ATTESI))[:4]}, in meno {sorted(set(ESCLUSI_ATTESI) - set(trovati))[:4]}, "
+          f"senza motivo {senza_motivo[:4]}")
+    check("120. ogni motivo scritto corrisponde a una coppia esclusa, con una frase",
+          set(MOTIVI_ESCLUSIONE) == set(trovati) and all(len(m) == 2 and m[1] for m in MOTIVI_ESCLUSIONE.values()))
+    # la fabbrica gira sempre in modalità crypto (nessun rollover, giornata delle 00:00 UTC): i dati del collaudo, anche
+    imposta_mercato_crypto()
+    per_tf_c = {tf: aggiungi_indicatori(_mercato(30_000 if tf == "M1" else 9000, seme=2, minuti=m))
+                for tf, m in MINUTI_TIMEFRAME.items()}
+    non_scattano = []
+    for nome in (*TRIGGER_CATALOGO, *FILTRI_CATALOGO):
+        for tf in MINUTI_TIMEFRAME:
+            if (nome, tf) in ESCLUSI_ATTESI:
+                continue
+            b, ct = _uno(nome, tf), Cache(per_tf_c[tf], 100)
+            if not any(b.maschera(ct, lato).any() for lato in b.lati):
+                non_scattano.append((nome, tf))
+    check("121. ogni blocco ammesso scatta sui dati del collaudo, tranne quelli a cui servono più storia o più barre "
+          "(il controllo dei degeneri li toglie a ogni avvio, §11.12)", set(non_scattano) == NON_SCATTANO_SUL_COLLAUDO,
+          f"diversi: {sorted(set(non_scattano) ^ NON_SCATTANO_SUL_COLLAUDO)}")
+    etichette = [b.famiglia for b in tr + fi if b.nome not in ("ADX", "ATR_RELATIVO")]
+    check("122. ogni blocco nuovo ha la sua etichetta di famiglia: solo ADX e ATR relativo ne condividono una",
+          len(set(etichette)) == len(etichette) and _uno("ADX").famiglia == _uno("ATR_RELATIVO").famiglia
+          and _uno("ADX").famiglia not in etichette)
+    reg.clear_registry()
+    vwap = _uno("VWAP_SESSION_CLOSE").maschera(Cache(df_ind, 10), -1)
+    _registra_catalogo()
+    check("123. la fabbrica registra anche i filtri VWAP, come il Lab", "VWAP_PREVIOUS_SESSION_CLOSED_BELOW" in reg.list_filters()
+          and "VWAP_GAP_WIDENING" in reg.list_filters() and vwap.dtype == bool and len(vwap) == len(df_ind))
     reg.clear_registry()
 
     print("\n" + "=" * 70)

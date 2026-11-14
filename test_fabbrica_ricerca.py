@@ -444,6 +444,29 @@ def esegui() -> int:
               and abs(canale_v - 40) <= 8 and canale_v not in (32, 48) and abs(durata_v - 12) <= 2,
               f"{primo['teoria'] if primo is not None else '-'}: canale {canale_v}, durata {durata_v}")
 
+        # ------------------------------------------------------------------ C1: la config standard non cambia
+        # (12/11, docs/82 §11.9) I dizionari di blocchi.py hanno tutto il catalogo, ma la ricerca con la config standard
+        # deve restare quella di main, bit per bit. I tre numeri sono quelli di main (commit e98e193), misurati il 12/11.
+        print("\nC1: la config standard dà la stessa ricerca di main")
+        S = os.path.join(radice, "S")
+        df_s = sintetici.mercato(BARRE, seme=3, minuti=15, inizio="2024-01-01", prezzo=30_000.0)
+        sintetici.scrivi_storico(S, PERP, "M15", df_s)
+        sintetici.scrivi_funding(S, PERP, df_s, seme=3)
+        cfg_s = config_standard(PERP, "M15", seme=0, processi=1)
+        cfg_s["confini"] = dict(CONFINI)
+        cfg_s["qualita_1"]["trade_min"] = 30
+        cfg_s["budget"].update({"per_teoria_passo_1": 2, "teorie_passo_2": 2, "giri_zoom": 1, "prove_per_giro": 5})
+        cfg_s["altopiano"]["prove_max"] = 4
+        es = lancia(cfg_s, S, verbose=False, data=DATA)
+        with open(os.path.join(cartella_asset(S, PERP, "M15"), es.id_ricerca, "prove_pc.csv"), "rb") as f:
+            impronta_prove = hashlib.sha256(f.read()).hexdigest()
+        check("41. config standard, tutti i 17 blocchi: stessa impronta, stesse teorie, stesse prove di main, bit per bit",
+              impronta_config(cfg_s) == "4d5e134f10e920fd853eba3c585aff0daba255c827e016a58da86c3f4669eb6c"
+              and es.imbuto["teorie"] == 1092 and es.prove == 2202
+              and impronta_prove == "456c6fce6603c1b8b23bd1f7919f7ca8118a59f6c3de64e5c3d1627292e325e8",
+              f"impronta {impronta_config(cfg_s)[:12]}, teorie {es.imbuto['teorie']}, prove {es.prove}, "
+              f"file delle prove {impronta_prove[:12]}")
+
     print("\n" + "=" * 70)
     print(f"Durata: {time.perf_counter() - t0:.0f} s")
     ok, tot = sum(ESITI), len(ESITI)
