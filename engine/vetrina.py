@@ -221,6 +221,19 @@ def _fmt(v, decimali=2):
     return str(v)
 
 
+def _fmt_non_zero(v, decimali=2):
+    """
+    Come _fmt, ma un numero diverso da zero che a `decimali` cifre si leggerebbe «0,00» si scrive con le cifre che
+    servono, due significative senza zeri in coda: 0.0000912 → «0,000091», 0.0001 → «0,0001» (15/11, il valore di 1
+    pip o di 1 bp con 1 lotto su un symbol a prezzo basso). In ogni altro caso il testo è quello di _fmt, identico.
+    """
+    if (isinstance(v, (float, np.floating)) and not isinstance(v, bool) and np.isfinite(v) and v != 0
+            and float(f"{abs(v):.{decimali}f}") == 0):
+        cifre = -int(math.floor(math.log10(abs(float(v))))) + 1
+        return _fmt(float(v), cifre).rstrip("0").rstrip(",")
+    return _fmt(v, decimali)
+
+
 def _tabella_html(df: pd.DataFrame, titolo: str | None = None, decimali=None) -> str:
     decimali = decimali or {}
     righe = []
@@ -5025,7 +5038,7 @@ def money_management_trade(symbol: str, trades_is, df_is, trades_oos, df_oos, pi
     _nota(f"Per il live: lotti = capitale × {_fmt(f * 100)} % ÷ ({nome_misura} in pips × valore di 1 pip con "
           f"1 lotto), arrotondati per difetto al passo di {_fmt(limiti['passo'], cifre)}. Esempio: con "
           f"{_fmt(capitale_live, 0)} $ e {parola} di {_fmt(rischio_tipico, 1)} pips "
-          f"({_fmt(valore_tipico)} $ per pip) sono {_fmt(lotti_es, cifre)} lotti. Sotto {_fmt(limiti['minimo'], cifre)} lotti il "
+          f"({_fmt_non_zero(valore_tipico)} $ per pip) sono {_fmt(lotti_es, cifre)} lotti. Sotto {_fmt(limiti['minimo'], cifre)} lotti il "
           f"trade si salta; il nozionale non supera {limiti['leva']} volte il capitale.")
     _riquadro(
         "Quanto rischiare su ogni trade, in percentuale del conto. Due modi di misurare il rischio: «rischio fisso» "
@@ -5196,7 +5209,7 @@ def stress_test(s: Sessione, drawdown_max_usd: float = 10_000.0,
             "Lotti consigliati"]
     valori_txt = [_fmt(mc["n_trade"]), f"{_fmt(mc['dd_reale'], 0)} {u}", f"{_fmt(mc['dd_p50'], 0)} {u}",
                   f"{_fmt(mc['dd_p95'], 0)} {u}", f"{_fmt(mc['p_pnl_negativo'], 1)} %",
-                  f"{_fmt(valore_unita)} $", f"{_fmt(float(drawdown_max_usd), 0)} $",
+                  f"{_fmt_non_zero(valore_unita)} $", f"{_fmt(float(drawdown_max_usd), 0)} $",
                   _fmt(sz["lotti_consigliati"], cifre_lotti)
                   + (f" ({info_symbol(s.symbol)['valuta']}: 1 lotto = 1 moneta)" if s.da_exchange else "")]
     if s.da_exchange:

@@ -21,6 +21,7 @@ import time
 import warnings
 
 import matplotlib
+import numpy as np
 import pandas as pd
 
 from engine import vetrina
@@ -236,6 +237,42 @@ def _celle(radice):
                                                               "passo_2", "altopiano", "selezione", "scelte")]
           and list(imb["passo"])[:4] == ["turno 1: teorie", "turno 1: tenute", "turno 2: teorie", "turno 2: tenute"]
           and list(imb["quante"])[8:] == [0, 0])
+    # (15/11) i motivi di scarto della 3 raggruppati per tipo: una riga per tipo, con il numero
+    # sul mercato sintetico le scartate possono mancare: la selezione di prova ha i motivi di XRP perp H1 del 15/11
+    import dataclasses
+    from types import SimpleNamespace
+    prova = ["condizione 2: verdetto SCARTATA: EV netto -5.587 bp <= 0"] * 2 + [
+        "condizione 2: verdetto SCARTATA: EV netto -12.533 bp <= 0", "condizione 2: verdetto SCARTATA: P(EV<0) 40.6% >= 5%",
+        "condizione 2: verdetto SCARTATA: P(EV<0) 7.0% >= 5%", "test individuale: t 1.38 sotto 1.96"]
+    finta = pd.concat([r.selezione.tabella, pd.DataFrame({"esito": ["scartata"] * len(prova), "motivo": prova})],
+                      ignore_index=True)
+    r_prova = dataclasses.replace(r, selezione=SimpleNamespace(tabella=finta))
+    visti_dettagli, vero_dettaglio = [], vf._dettaglio
+    vf._dettaglio = lambda titolo, *tabelle: visti_dettagli.append((titolo, tabelle))
+    try:
+        _zitto(vf.imbuto, r_prova)
+    finally:
+        vf._dettaglio = vero_dettaglio
+    scarti = next(t[0][1] for titolo, t in visti_dettagli if titolo == "I motivi di scarto")
+    sel = scarti[scarti["passo"] == "selezione"]
+    scartate = finta[finta["esito"] == "scartata"]
+    casi = {"condizione 2: verdetto SCARTATA: EV netto -5.587 bp <= 0": "condizione 2, EV netto ≤ 0",
+            "condizione 2: verdetto SCARTATA: EV netto -12.533 bp <= 0": "condizione 2, EV netto ≤ 0",
+            "condizione 2: verdetto SCARTATA: P(EV<0) 40.6% >= 5%": "condizione 2, P(EV<0) ≥ 5%",
+            "condizione 2: 40 trade, meno di 50": "condizione 2, meno di 50 trade",
+            "condizione 2: il trade migliore pesa il 17.2% dei guadagni, oltre il 15%":
+                "condizione 2, il trade migliore pesa oltre il 15% dei guadagni",
+            "condizione 2: totale / drawdown 0.31, sotto 0.5": "condizione 2, totale / drawdown sotto 0,5",
+            "test individuale: t 1.38 sotto 1.96": "test individuale, t sotto 1,96",
+            "nessuna delle 3 candidate regge l'altopiano": "nessuna candidata regge l'altopiano",
+            "budget dell'altopiano finito (60 prove)": "budget dell'altopiano finito (60 prove)",
+            "nessuna strategia passa la condizione 1": "nessuna strategia passa la condizione 1"}
+    sbagliati = {k: vf.tipo_motivo(k) for k, v in casi.items() if vf.tipo_motivo(k) != v}
+    check("11b. (15/11) i motivi di scarto della 3 per tipo: una riga per tipo con il numero (per esempio «condizione 2, "
+          "EV netto ≤ 0»), non una per valore; la somma è il numero delle scartate",
+          not sbagliati and sel["motivo"].is_unique and int(sel["quante"].sum()) == len(scartate)
+          and set(sel["motivo"]) == set(scartate["motivo"].map(vf.tipo_motivo)),
+          f"{len(scartate)} scartate in {len(sel)} righe; sbagliati {sbagliati}")
     tab = _zitto(vf.strategie_rimaste, r)
     ordine = [vf.ORDINE_ESITI[x] for x in tab["esito"]]
     check("12. le strategie rimaste numerate da 1, prima le scelte; ogni riga ha la regola in parole",
@@ -306,6 +343,18 @@ def _celle(radice):
     check("22. dopo la 6, anche fermata da un errore a metà, le funzioni del Lab sono le stesse e stampano esattamente "
           "i testi di prima; il catalogo è pulito", fermata and all(getattr(vetrina, n) is f for n, f in aiutanti.items())
           and _testi_lab() == lab_prima and stato_registro() == catalogo)
+    # (15/11) il valore di 1 pip e di 1 bp con 1 lotto mai «0,00 $»; ogni testo che non era zero resta identico
+    fz, f2 = vetrina._fmt_non_zero, vetrina._fmt
+    valori = [float(x) for x in np.concatenate([np.geomspace(1e-9, 1e7, 4001), -np.geomspace(1e-9, 1e7, 401),
+                                                 [0.0, 0.005, 0.0049, 0.015, 0.1, 9.0, 0.91 / 10_000]])]
+    diversi = [v for v in valori if f2(v) not in ("0,00", "-0,00") and fz(v) != f2(v)]
+    altri = [None, float("nan"), 3, True, "testo", np.float64(9.123)]
+    check("22b. (15/11) il valore di 1 pip e di 1 bp con 1 lotto: 0,000091 e 0,0001 invece di «0,00»; ogni numero che "
+          "non si leggeva zero è scritto identico (il Lab e la Grid Search non cambiano); nella 6 nessun «0,00 $»",
+          fz(0.91 / 10_000) == "0,000091" and fz(0.0001) == "0,0001" and fz(-0.0000123) == "-0,000012"
+          and fz(0.0) == "0,00" and not diversi and all(fz(x) == f2(x) for x in altri)
+          and "(0,00 $ per pip)" not in visto and "con 1 lotto                                                    0,00 $"
+          not in visto, f"{len(valori)} valori, diversi {diversi[:3]}")
 
     print("\n7 · Le schede")
     fatte = _zitto(vf.schede, r)
@@ -318,6 +367,20 @@ def _celle(radice):
           "le altre dicono «esegui la 6»", len(fatte) == len(scelte) and "Rischio a ogni trade" in con_mm
           and "esegui la 6" not in con_mm.split("## Blocchi")[0]
           and all("esegui la 6" in t for k, t in testi.items() if k != scelte[0]))
+    import re
+    from engine.fabbrica.schede import _virgola
+    cammino = con_mm.split("## Il cammino")[1].split("Decide il test individuale")[0]
+    motivi = [r_.split("|")[-2].strip() for r_ in cammino.strip().splitlines()[2:]]
+    from engine.fabbrica.schede import leggi_scheda, testo_md
+    sc_mm = leggi_scheda(next(j for m, j in fatte if os.path.basename(m)[:-3] == scelte[0]))
+    due_anni = testo_md({**sc_mm, "parametri_mm": {**(sc_mm.get("parametri_mm") or {}), "anni": 2}})
+    check("23b. (15/11) scheda .md: «1 anno» al singolare (2 anni al plurale)",
+          ", 1 anno, modello" in con_mm and "1 anni" not in con_mm and ", 2 anni, modello" in due_anni)
+    check("23c. (15/11) scheda .md: i numeri dei motivi del cammino con la virgola («t 1,38 sotto 1,96»); il .json "
+          "resta com'è", _virgola("t 1.38 sotto 1.96") == "t 1,38 sotto 1,96"
+          and _virgola("92 prove di zoom, 1 di altopiano") == "92 prove di zoom, 1 di altopiano"
+          and _virgola(None) == "" and motivi and not any(re.search(r"\d\.\d", m_) for m_ in motivi),
+          f"motivi {motivi}")
     a2 = _zitto(vf.avvio, d, "pc2")
     riga = a2["ricerche"].iloc[0]
     check("24. Avvio dopo la cassaforte: la ricerca, le strategie entrate e la fine dell'ultima cassaforte usata "
