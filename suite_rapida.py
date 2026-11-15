@@ -69,7 +69,7 @@ DURATE = {
     "test_fabbrica_dati": 5, "test_fabbrica_generatore": 8, "test_fabbrica_valutatore": 25,
     "test_fabbrica_registro": 3, "test_fabbrica_ricerca": 300,
     "test_fabbrica_selezione": 30, "test_fabbrica_cassaforte": 80, "test_fabbrica_schede": 35,
-    "test_vetrina_fabbrica": 60, "test_notebook_fabbrica": 80
+    "test_vetrina_fabbrica": 60, "test_notebook_fabbrica": 80, "test_generatore": 180
 }
 INSIEME = 3          # suite che girano insieme, nella rapida e nella completa
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")
@@ -98,6 +98,8 @@ def _moduli_python() -> dict[str, Path]:
     moduli = {f"engine.{p.stem}": p for p in (QUI / "engine").glob("*.py") if p.stem != "__init__"}
     moduli.update({f"engine.fabbrica.{p.stem}": p for p in (QUI / "engine" / "fabbrica").glob("*.py")
                    if p.stem != "__init__"})
+    moduli.update({f"engine.generatore.{p.stem}": p for p in (QUI / "engine" / "generatore").glob("*.py")
+                   if p.stem not in ("__init__", "__main__")})
     moduli.update({p.stem: p for p in QUI.glob("*.py")
                    if not p.stem.startswith("test_") and p.stem != "suite_rapida"})
     return moduli
@@ -107,6 +109,10 @@ def _importa(testo: str, modulo: str) -> bool:
     """Il testo importa `modulo`? (engine.x: anche «from engine import x» e «from .x import»)."""
     if modulo.startswith("engine.fabbrica.") and re.search(rf"from\s+\.{modulo.rsplit('.', 1)[1]}\s+import", testo):
         return True
+    if modulo.startswith("engine.generatore."):
+        nome = modulo.rsplit(".", 1)[1]
+        return bool(re.search(rf"engine\.generatore\.{nome}\b|from\s+engine\.generatore\s+import\s+[^\n]*\b{nome}\b"
+                              rf"|from\s+\.{nome}\s+import|from\s+\.\s+import\s+[^\n]*\b{nome}\b", testo))
     if modulo.startswith("engine."):
         nome = modulo.split(".", 1)[1]
         return bool(re.search(rf"engine\.{nome}\b|from\s+engine\s+import\s+[^\n]*\b{nome}\b"
