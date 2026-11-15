@@ -135,6 +135,13 @@ per i blocchi parametrici è dichiarata nel blocco e controllata sui valori cent
 Scelti **per meccanismo diverso, senza guardare i risultati**. Tenuti fuori di proposito i trigger che `74` §2 segna come già visti in cima alla rosa (E21, E39) e quello nato da una scheda della mappa (E45). Dal C2 (14/11, §11) la config standard ha tutto il catalogo: E21, E39 ed E45 non sono più tenuti fuori.
 Il meccanismo qui sotto è stato **confermato in L2 leggendo le condizioni**: E5 e X3 erano diversi da come li avevo dedotti dai nomi e sono stati rietichettati (§8), le liste non cambiano. Il controllo con `famiglie.py`, che guarda solo i segnali e non conta prove, non ha trovato doppioni.
 
+**Dal 15/11 (§12, voce «Valori standard» di §8): i quattro blocchi con parametri sul valore standard.** Nella config standard
+RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO non hanno più le griglie in ore di questo paragrafo: un valore solo per parametro,
+in **barre**, lo stesso su ogni timeframe (`blocchi.VALORI_STANDARD`): RSI 14 barre e soglia 30, Donchian 20 barre, ADX 14
+barre e soglia 25, ATR relativo 14 / 100 barre e soglia 1,0. Restano fermi al passo 1 e nello zoom e si muovono solo
+nell'altopiano (P5). Le griglie in ore qui sotto valgono ancora per le config scritte a mano (periodi in ore o in barre);
+le uscite e la finestra delle soglie restano in ore.
+
 **Timeframe da M1 a D1.** Intervalli in **ore**, convertiti in barre secondo il timeframe: niente costanti da M15.
 - Un valore diventa la **barra più vicina**, a metà strada verso l'alto, **minimo 1 barra**. Ore zero o negative si fermano con un errore.
 - **Minimo di 5 barre (07/11)** per periodo di RSI, periodo di ADX e ATR lungo: i valori sotto salgono a 5. L'ATR breve resta con minimo 1 barra, come durate e canale di Donchian.
@@ -219,6 +226,9 @@ Costi come nel Lab: commissione taker, spread di un passo per trade, funding sui
 
 ### P5 · Passo 2, lo zoom e l'altopiano
 
+**Dal 15/11 (§12):** con la config standard i quattro blocchi con parametri hanno un valore solo e nello zoom restano fermi
+(un asse di un punto): lo zoom cerca solo durata, stop e target delle uscite; i blocchi si muovono solo nell'altopiano.
+
 **Come si fa.** Per ogni teoria tenuta, **3 giri da 90 prove**: ogni giro riparte attorno alle 5 strategie migliori del giro prima, con intervalli più stretti e passo più piccolo, fino al passo più fine dello spazio (P-L2): 1 barra, 1 per le soglie intere, 0,1 per la soglia di ATR relativo. Per esempio il periodo da 8-16-24 barre a 12-14-16 barre, poi a 13-14-15. Se lo spazio ristretto ha meno punti del budget del giro: forza bruta.
 
 **Le 5 da cui riparte un giro (07/11, risposta di Mattia).** Si scelgono per t fra tutte le strategie calcolabili della teoria provate fino a quel giro, passo 1 compreso, che passino o no la condizione di qualità. La condizione di qualità decide solo alla fine: si tiene la migliore fra quelle che passano; se nessuna passa, la teoria esce.
@@ -249,7 +259,9 @@ Costi come nel Lab: commissione taker, spread di un passo per trade, funding sui
 | 4 ore | 16 | 14 e 18 | 4 | 3 e 5 |
 | 8 ore | 32 | 27 e 37 | 8 | 7 e 9 |
 
-- **Altri parametri numerici** (soglie di RSI, ADX, rapporto ATR; percentile dello stop): il valore adiacente nella griglia di P-L2, sopra e sotto. Se lo zoom ha scelto un valore fra due della griglia, i vicini sono quei due. Al bordo della griglia resta un vicino solo. Le griglie delle soglie non cambiano con il timeframe.
+- **Soglie di RSI, ADX e rapporto ATR (dal 15/11, §12, D2 = B):** valore ±15%, arrotondato al passo della soglia (1, o 0,1 per il rapporto ATR); a metà strada, lontano dal valore; spostamento di almeno un passo. Sul valore standard: RSI 30 → 25 e 35, ADX 25 → 21 e 29, ATR 1,0 → 0,8 e 1,2 (`ricerca.soglia_vicina`). Vale anche per le config scritte a mano. *Prima del 15/11:* il valore adiacente nella griglia di P-L2, come il percentile dello stop qui sotto.
+- **Percentile dello stop:** il valore adiacente nella griglia di P-L2, sopra e sotto. Se lo zoom ha scelto un valore fra due della griglia, i vicini sono quei due. Al bordo della griglia resta un vicino solo. La griglia non cambia con il timeframe.
+- **Periodi dei quattro blocchi con parametri, in barre (dal 15/11):** la regola dei parametri in ore qui sopra, ±15% alla barra più vicina: 14 → 12 e 16, 20 → 17 e 23, 100 → 85 e 115.
 - **Target spento o al 90** è un interruttore, non un numero: non ha vicini.
 
 *La strategia regge se:*
@@ -599,6 +611,7 @@ Vuoto = nessun ingresso: la cella mostra l'esito delle strategie già entrate, s
 - Registro senza catena di impronte (10/11, scelta B): `registro_<macchina>.jsonl` resta un file di annotazioni, solo in aggiunta, che non ferma più nulla se una riga è cambiata o tolta; i registri già scritti con l'impronta si leggono come gli altri. Non cambiano il file e il conto delle prove, il sigillo della cassaforte e il test del veleno (P7, P8, §6).
 - Selezione (08/11, scelte di L4a): famiglie misurate sui segnali finali di ricerca + selezione, lato per lato; P(EV<0) con il bootstrap di `p_ev_negativo` (10.000 ricampionamenti, seme 0) sui bp di selezione; il pezzo passato alla selezione finisce all'ultima barra della selezione, senza barre della cassaforte (P6).
 - Catalogo intero e due turni (11/11, dopo la diagnosi delle famiglie; rivista la sera dell'11/11 sulla PR #112): blocchi = tutto il catalogo dei trigger, i filtri di `filter_conditions.py` e di `vwap_regime_filter_conditions.py` (VWAP_GAP_WIDENING neutro e la coppia VWAP_SESSION_CLOSE in un blocco solo, come TREND_CONTEXT), più RSI, Donchian, ADX e ATR relativo; E21, E39 ed E45 inclusi; F36 (Fear & Greed) escluso per ora; uscite le 3 di oggi (X0, X3, X1). I trigger del catalogo sono 43 long e 42 short (E19 solo long). Un blocco per famiglia, in automatico all'avvio di ogni ricerca sul pezzo di ricerca, solo sui segnali (`famiglie.py`, stessa soglia, trigger e filtri lato per lato): si tiene il blocco fra i 14 di oggi se c'è, altrimenti quello che scatta più spesso (D2: per i filtri, vero sul maggior numero di barre); l'elenco dei tenuti e dei tolti, con il motivo, va nel riepilogo della cella 1 e sulla scheda. D1 = B: per scegliere i tenuti contano solo le famiglie misurate; ADX e ATR relativo restano tutti e due, e la loro famiglia dichiarata vale solo nel generatore (mai nella stessa teoria, anche al turno 2). Se due dei 14 finiscono nella stessa famiglia misurata, resta quello che scatta più spesso; a parità, il nome più piccolo (Mattia, 12/11, scelta A). Ricerca in due turni (la parola «giro» resta solo dell'ottimizzatore e dello zoom), tutta sul pezzo di ricerca: turno 1 tutte le teorie T+U e T+F+U; turno 2 alle 150 teorie T+F con il t più alto (D3: come la scelta del passo 2) si aggiunge un secondo filtro, tutti quelli compatibili; poi le teorie dei due turni insieme e le 150 migliori allo zoom come oggi; ogni prova dei due turni entra nel conto (fase `passo_1_turno_2`, file `turno_2.jsonl`, chiave `teorie_turno_2`). D4: la tabella da approvare elenca solo i blocchi che restano fuori su qualche timeframe da M1 a D1, con il motivo. D5 = B: solo la config versione 2, una strada sola; le ricerche vecchie restano su disco e nel conto, e le celle 4–7 su una di esse si fermano come «ricerca non trovata» con la riga che dice di rilanciare la cella 2. D6: il tetto del budget è il massimo nuovo arrotondato in su ai 10.000. La stima del tempo della cella 1 usa la velocità vera delle ricerche del 9 e del 10/11 (146–167 prove al secondo con 3 processi), in C2. D4 (12/11 sera, §11.12): le coppie (blocco, timeframe) escluse sono nella tabella di §11.12, con il motivo; in più E41 su D1 (limite logico), E31 su H1, E22 e OVERNIGHT_RETURN su H4 (approssimazioni escluse per scelta); F20_SESSION_ASIA, F20_SESSION_EUROPE, F20_SESSION_US e F22 restano su H4 (scelta B); nessuna esclusione per le finestre in barre lunghe (ci pensa il controllo dei degeneri), VWAP tenuti su H4, E40 ed E41 tenuti su M1. Un blocco del catalogo che sul pezzo di ricerca risulta «STATO» esce da quel lato con il motivo «vero su due barre di fila: non è un evento su questi dati» e la ricerca prosegue, come un degenere (scelta A); il catalogo non cambia; per i blocchi con parametri della fabbrica «STATO» resta un errore che ferma la ricerca. Il ricontrollo degli eventi su H4 e D1 non aggiunge righe. Proposta in §11. Codice: C1 (PR #113) e C2 (ramo `fabbrica-C2-turni`, §11.9); con C2 questa voce prende il posto di «Lista dei blocchi di P-L2 approvata», di «Budget: 100.000 prove» e del numero di teorie (1.176) di «Famiglie (06/11)».
+- Valori standard (15/11, proposta in §12, D1–D6 come i consigli di §12.9): RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO non si ottimizzano più. Un valore solo per parametro, in **barre**, lo stesso su ogni timeframe da M1 a D1 (D5 = A): RSI 14 barre e soglia 30 (lo short 70), Donchian 20 barre, ADX 14 barre e soglia 25, ATR relativo breve 14, lungo 100, soglia 1,0 (D1). Nel passo 1 (tutti e due i turni) e nello zoom restano fermi: ogni teoria prova solo le uscite (32 punti da M1 a H1, 16 su H4, 8 su D1, sempre griglia completa); lo zoom muove solo durata, stop e target. Nell'altopiano si muovono di ±15%, uno alla volta: i periodi con la regola di oggi (alla barra più vicina, spostamento minimo 1 barra: 14 → 12 e 16, 20 → 17 e 23, 100 → 85 e 115); le soglie al passo della soglia (1, o 0,1 per ATR relativo), a metà lontano dal valore (D2 = B: RSI 30 → 25 e 35, ADX 25 → 21 e 29, ATR 1,0 → 0,8 e 1,2); le uscite come oggi. Tetto di 40 prove per teoria e formula di `budget_massimo` invariati (D3 = A). Config `VERSIONE = 3`, una strada sola (D4 = A): le ricerche della versione 2 restano su disco e nel conto, e le celle 4–7 su una di esse si fermano con «rilancia la cella 2». Una config scritta a mano può ancora dare i periodi dei quattro blocchi in ore (convertiti come P-L2) o in barre. La stima della cella 1 dalle due ricerche vere fatte dopo il cambio (D6). La lentezza dello zoom delle uscite su M5 e M1 (§12.10) è un lavoro a parte, dopo. Con questa voce, per i quattro blocchi, le griglie in ore di P-L2 e «Zoom (06/11)» sui loro parametri valgono solo per le config scritte a mano; i vicini delle loro soglie sono a ±15% anche lì (P5).
 
 ---
 
@@ -1346,7 +1359,14 @@ Il motore, il catalogo, `famiglie.py`, il Lab e la Grid Search non si toccano: n
   test del veleno sulla cassaforte; se D4, una config della versione 2 si ferma con il messaggio.
 - **Prima della PR:** la suite completa.
 
-### §12.9 · Le domande per Mattia
+### §12.9 · Le domande per Mattia (decise il 15/11)
+
+**Decisioni di Mattia del 15/11/2026: D1–D6 come i consigli.** D1: ATR relativo 14 / 100 / 1,0. D2 = B: vicini simmetrici,
+a metà lontano dal valore standard (RSI 25 e 35, ADX 21 e 29, ATR 0,8 e 1,2). D3 = A: tetto di 40 per teoria, formula di
+`budget_massimo` invariata. D4 = A: `VERSIONE = 3`, una strada sola; le ricerche della versione 2 restano su disco e nel
+conto, le celle 4–7 su una di esse si fermano con «rilancia la cella 2». D5 = A: valori in barre su ogni timeframe da M1 a
+D1. D6: due ricerche vere dopo il cambio (BTC perp M15 ed ETH perp H1) e il loro numero in `RICERCHE_VERE`. La lentezza
+dello zoom delle uscite (§12.10) è un lavoro separato, dopo. Voce in §8: «Valori standard (15/11)».
 
 - **D1 · I valori di ATR relativo.** Proposta: breve 14, lungo 100, soglia 1,0 (§12.1). *Consiglio:* questi. Alternativa:
   lungo 50, più vicino al breve; la soglia 1,0 la terrei comunque, perché è l'unica che si spiega senza i dati.

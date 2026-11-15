@@ -344,10 +344,12 @@ def esegui() -> int:
                   SPOT, "M15")))
 
         # ------------------------------------------------------------------ tutta la pipeline
-        print("\nIl vantaggio piantato fino alla selezione: DONCHIAN long a 40 barre, uscita dopo 12")
+        print("\nIl vantaggio piantato fino alla selezione: DONCHIAN long a 20 barre (il valore standard, docs/82 §12), "
+              "uscita dopo 12")
         confini_v = {"inizio": "2024-01-01 00:00", "ricerca_ore": 3000, "selezione_ore": 2000, "cassaforte_ore": 500}
         barre_v = int((3000 + 2000 + 500) * 4) + 100
-        df_v = sintetici.mercato_piantato(barre_v, seme=5, minuti=15, inizio="2024-01-01", prezzo=2_000.0)
+        df_v = sintetici.mercato_piantato(barre_v, seme=5, minuti=15, inizio="2024-01-01", prezzo=2_000.0,
+                                          canale_barre=20)
         cfg_v = _cfg(SPOT, ("E47", "DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "X0"), confini_v)
         cfg_v["qualita_1"]["trade_min"] = 30
         cfg_v["budget"].update({"teorie_turno_2": 4, "teorie_passo_2": 4, "prove_per_giro": 60})
@@ -367,8 +369,9 @@ def esegui() -> int:
         valori_v = json.loads(primo["valori"]) if primo is not None else {}
         canale_v = valori_v.get("DONCHIAN", {}).get("canale_barre")
         durata_v = valori_v.get("X0", {}).get("durata_barre")
-        check("25. la teoria piantata passa la selezione: DONCHIAN long scelta, canale e durata vicini a 40 e 12, t sopra "
-              "1,96", primo is not None and primo["teoria"].startswith("L|DONCHIAN|") and abs(canale_v - 40) <= 8
+        check("25. la teoria piantata passa la selezione: DONCHIAN long scelta, canale 20 (il valore standard, fermo) e "
+              "durata vicina a 12, t sopra 1,96", primo is not None and primo["teoria"].startswith("L|DONCHIAN|")
+              and canale_v == 20
               and abs(durata_v - 12) <= 2 and primo["t"] >= 1.96 and primo["esito"] == "scelta",
               f"{primo['teoria'] if primo is not None else '-'}: canale {canale_v}, durata {durata_v}, "
               f"t {primo['t'] if primo is not None else float('nan'):.1f}; imbuto {e.imbuto}")

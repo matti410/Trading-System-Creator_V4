@@ -19,6 +19,8 @@ La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
   massimo arrotondato in su ai 10.000 (tetto_budget). La cella 1 lo calcola sui blocchi tenuti del pezzo di ricerca;
   senza dati, config_standard usa il massimo con tutti i blocchi (mai più piccolo). I blocchi standard sono tutto il
   catalogo (C1), più RSI, Donchian, ADX e ATR relativo, e le tre uscite.
+- Dal 15/11 (docs/82 §12, D4 = A) solo la versione 3: RSI, Donchian, ADX e ATR relativo sul valore standard
+  (blocchi.VALORI_STANDARD), in barre. budget_massimo non cambia (D3 = A): il tetto per teoria resta 40.
 """
 from __future__ import annotations
 
@@ -31,10 +33,12 @@ import os
 
 from engine.exchange import simboli_exchange, solo_long
 
-from .blocchi import GRIGLIE_NUOVI, GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, USCITE_CATALOGO, blocchi_da_config
+from .blocchi import GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, USCITE_CATALOGO, VALORI_STANDARD, blocchi_da_config
 from .dati import Confini
 
-VERSIONE = 2                           # C2 (D5 = B): le ricerche della versione 1 restano su disco e nel conto
+# 3 dal 15/11 (docs/82 §12, D4 = A): i quattro blocchi con parametri sul valore standard. Una strada sola: le ricerche
+# delle versioni 1 e 2 restano su disco e nel conto, le celle 4–7 su una di esse si fermano con «rilancia la cella 2».
+VERSIONE = 3
 CAMPI = ("versione", "symbol", "timeframe", "confini", "lati", "blocchi", "modelli", "qualita_1", "qualita_2",
          "altopiano", "test_individuale", "budget", "seme", "processi")
 SOTTOCAMPI = {
@@ -102,8 +106,9 @@ def controlla_config(config: dict) -> dict:
     """Controlla campi e intervalli; si ferma con un errore che dice cosa manca o cosa è fuori posto."""
     _campi(config, CAMPI, "la config")
     if config["versione"] != VERSIONE:
-        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §11, "
-                "D5): una ricerca della versione 1 resta su disco e nel conto, rilancia la cella 2 per una ricerca nuova")
+        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §12, "
+                "D4): una ricerca di una versione precedente resta su disco e nel conto, rilancia la cella 2 per una "
+                "ricerca nuova")
     if config["symbol"] not in simboli_exchange():
         _errore(f"symbol {config['symbol']!r} fuori da SIMBOLI_EXCHANGE (engine/simboli.py)")
     if config["timeframe"] not in MINUTI_TIMEFRAME:
@@ -312,7 +317,8 @@ def confini_standard(timeframe: str, ultima_barra, prima_barra=None) -> dict:
 def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi: int = 3,
                     confini: dict | None = None, totale: int | None = None) -> dict:
     """
-    La config di §6, versione 2 (C2), con tutti i blocchi di BLOCCHI_STANDARD ammessi sul timeframe e le loro griglie. I
+    La config di §6, versione 3 (docs/82 §12), con tutti i blocchi di BLOCCHI_STANDARD ammessi sul timeframe e le loro
+    griglie (per RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO un valore solo per parametro, in barre). I
     blocchi del catalogo che su quel timeframe non scattano restano fuori (blocchi.py li fermerebbe). `confini` (09/11):
     quelli calcolati da confini_standard sui dati; senza, la prima finestra (CONFINI_STANDARD). `totale`: il tetto del
     budget calcolato dalla cella 1 sui blocchi tenuti (D6); senza, il tetto del massimo con tutti i blocchi.
@@ -323,8 +329,9 @@ def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi
             blocchi_da_config({"timeframe": timeframe, "blocchi": {nome: {}}})
         except ValueError:
             continue
-        # griglie scritte per intero: se un giorno cambia una griglia nel codice, cambia anche l'impronta
-        griglie = GRIGLIE_NUOVI.get(nome, GRIGLIE_USCITA if nome in USCITE_CATALOGO else {})
+        # griglie scritte per intero: se un giorno cambia una griglia nel codice, cambia anche l'impronta. I quattro
+        # blocchi con parametri hanno il loro valore standard, in barre (docs/82 §12)
+        griglie = VALORI_STANDARD.get(nome, GRIGLIE_USCITA if nome in USCITE_CATALOGO else {})
         blocchi[nome] = copy.deepcopy({k: list(v) for k, v in griglie.items()})
     config = {
         "versione": VERSIONE, "symbol": symbol, "timeframe": timeframe,

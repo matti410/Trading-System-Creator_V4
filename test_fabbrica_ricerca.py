@@ -51,13 +51,31 @@ def _dati(cartella, seme=3):
     sintetici.scrivi_funding(cartella, PERP, df, seme=seme)
 
 
-def _config(processi=1, seme=0):
+# docs/82 §12 (15/11): nella config standard i quattro blocchi con parametri stanno sul valore standard. I collaudi di L3b
+# (genetico del passo 1, zoom sui parametri, altopiano sulla griglia) restano su una config scritta a mano con le griglie
+# in ore di P-L2, che il codice accetta ancora; i collaudi della config standard sono nella sezione «§12».
+GRIGLIE_ORE = {
+    "RSI_RIENTRO": {"periodo_ore": [2, 4, 6, 9, 12], "soglia": [15, 20, 25, 30, 35]},
+    "DONCHIAN": {"canale_ore": [4, 8, 12, 24, 48, 96]},
+    "ADX": {"periodo_ore": [4, 6, 9], "soglia": [15, 20, 25, 30]},
+    "ATR_RELATIVO": {"breve_ore": [2, 4], "lungo_ore": [24, 48, 96], "soglia": [0.8, 1.0, 1.2, 1.5]},
+}
+
+
+def _a_mano(cfg):
+    """I quattro blocchi con le griglie in ore di P-L2, come una config scritta a mano."""
+    cfg["blocchi"] = {k: (json.loads(json.dumps(GRIGLIE_ORE[k])) if k in GRIGLIE_ORE else v)
+                      for k, v in cfg["blocchi"].items()}
+    return cfg
+
+
+def _config(processi=1, seme=0, standard=False):
     cfg = config_standard(PERP, "M15", seme=seme, processi=processi)
     cfg["confini"] = dict(CONFINI)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in BLOCCHI_PICCOLI}
     cfg["qualita_1"]["trade_min"] = 30
     cfg["budget"].update({"teorie_turno_2": 3, "teorie_passo_2": 4, "prove_per_giro": 30})
-    return cfg
+    return cfg if standard else _a_mano(cfg)
 
 
 def _leggi(percorso):
@@ -224,15 +242,20 @@ def esegui() -> int:
     check("8. periodo di RSI al minimo di 5 barre: resta solo il vicino sopra (H4 5 → 6; H1 6 → 5 e 7)",
           vicini_di("H4", "RSI_RIENTRO", {"periodo_barre": 5, "soglia": 25}, "RSI_RIENTRO.periodo_barre") == [6]
           and vicini_di("H1", "RSI_RIENTRO", {"periodo_barre": 6, "soglia": 25}, "RSI_RIENTRO.periodo_barre") == [5, 7])
-    check("9. soglie e percentile: il valore adiacente della griglia; al bordo uno solo; fra due valori, quei due",
-          vicini_di("M15", "RSI_RIENTRO", {"periodo_barre": 24, "soglia": 25}, "RSI_RIENTRO.soglia") == [20, 30]
-          and vicini_di("M15", "RSI_RIENTRO", {"periodo_barre": 24, "soglia": 15}, "RSI_RIENTRO.soglia") == [20]
-          and vicini_di("M15", "RSI_RIENTRO", {"periodo_barre": 24, "soglia": 22}, "RSI_RIENTRO.soglia") == [20, 25]
-          and vicini_di("M15", "ATR_RELATIVO", {"breve_barre": 8, "lungo_barre": 192, "soglia": 1.1},
-                        "ATR_RELATIVO.soglia") == [1.0, 1.2]
+    # docs/82 §12, D2 = B (15/11): le soglie dei quattro blocchi a ±15% al passo della soglia, a metà lontano dal
+    # valore, spostamento di almeno un passo; il percentile dello stop resta al valore adiacente della griglia
+    check("9. soglie dei quattro blocchi a ±15% (D2 = B: RSI 30 → 25 e 35, ADX 25 → 21 e 29, ATR 1,0 → 0,8 e 1,2; "
+          "anche fuori dal valore standard); percentile dello stop: il valore adiacente della griglia, al bordo uno solo",
+          vicini_di("M15", "RSI_RIENTRO", {"periodo_barre": 24, "soglia": 30}, "RSI_RIENTRO.soglia") == [25, 35]
+          and vicini_di("M15", "RSI_RIENTRO", {"periodo_barre": 24, "soglia": 25}, "RSI_RIENTRO.soglia") == [21, 29]
+          and vicini_di("M15", "RSI_RIENTRO", {"periodo_barre": 24, "soglia": 3}, "RSI_RIENTRO.soglia") == [2, 4]
+          and vicini_di("M15", "ADX", {"periodo_barre": 14, "soglia": 25}, "ADX.soglia") == [21, 29]
+          and vicini_di("M15", "ATR_RELATIVO", {"breve_barre": 14, "lungo_barre": 100, "soglia": 1.0},
+                        "ATR_RELATIVO.soglia") == [0.8, 1.2]
           and vicini_di("M15", "ATR_RELATIVO", {"breve_barre": 8, "lungo_barre": 192, "soglia": 1.5},
-                        "ATR_RELATIVO.soglia") == [1.2]
-          and vicini_di("M15", "ADX", {"periodo_barre": 24, "soglia": 30}, "X0.perc_stop") == [80, 95])
+                        "ATR_RELATIVO.soglia") == [1.3, 1.7]
+          and vicini_di("M15", "ADX", {"periodo_barre": 24, "soglia": 30}, "X0.perc_stop") == [80, 95]
+          and all(isinstance(x, int) for x in vicini_di("M15", "ADX", {"periodo_barre": 14, "soglia": 25}, "ADX.soglia")))
     b_x0 = {x.nome: x for x in blocchi_da_config({"timeframe": "M15", "blocchi": {"E5": {}, "X0": {}}})}
     s_x0 = Strategia.da_teoria(Teoria(1, "E5", (), "X0"), {"X0": {"durata_barre": 16, "perc_stop": 85, "target": 90}})
     chiavi = [x[0] for x in vicini(s_x0, b_x0)]
@@ -465,6 +488,7 @@ def esegui() -> int:
         cfg_v["confini"] = dict(CONFINI)
         cfg_v["blocchi"] = {k: v for k, v in cfg_v["blocchi"].items() if k in ("E47", "DONCHIAN", "RSI_RIENTRO",
                                                                                 "F3_VOLUME_ABOVE_AVG", "X0")}
+        _a_mano(cfg_v)                     # §12: lo zoom sul canale si collauda su una config scritta a mano
         cfg_v["qualita_1"]["trade_min"] = 30
         cfg_v["budget"].update({"teorie_turno_2": 2, "teorie_passo_2": 2, "prove_per_giro": 60})
         ev = lancia(cfg_v, V, verbose=False, data=DATA)
@@ -508,6 +532,9 @@ def esegui() -> int:
         n = 43
         for symbol, tf, minuti, confini in CASI_TF:
             n = _caso_timeframe(check, radice, symbol, tf, minuti, confini, n)
+
+        # ------------------------------------------------------------------ §12: i valori standard (15/11)
+        n = _valori_standard(check, radice, n)
 
     print("\n" + "=" * 70)
     print(f"Durata: {time.perf_counter() - t0:.0f} s")
@@ -641,6 +668,118 @@ def _caso_timeframe(check, radice, symbol, tf, minuti, confini, n) -> int:
           "turni compresi: la cassaforte resta sigillata", w.id_ricerca == e.id_ricerca
           and _file_ricerca(w) == _file_ricerca(e) and w.tenuti_tolti == e.tenuti_tolti)
     return n + 6
+
+# ------------------------------------------------------------------ §12: i valori standard (docs/82 §12.8)
+def _valori_standard(check, radice, n) -> int:
+    from engine.fabbrica.blocchi import VALORI_STANDARD
+    from engine.fabbrica.generatore import spazio_teoria
+    print("\n§12 · I quattro blocchi con parametri sul valore standard (docs/82 §12, decisioni del 15/11)")
+    std = {b: {k: v[0] for k, v in g.items()} for b, g in VALORI_STANDARD.items()}
+
+    def fermi(valori: dict) -> bool:
+        return all(valori[b] == std[b] for b in valori if b in std)
+
+    # passo 1: punti per teoria su ogni timeframe, senza dati
+    attesi = {"M1": 32, "M5": 32, "M15": 32, "M30": 32, "H1": 32, "H4": 16, "D1": 8}
+    teorie = (Teoria(1, "RSI_RIENTRO", ("ADX",), "X0"), Teoria(-1, "DONCHIAN", ("ATR_RELATIVO", "F3_VOLUME_ABOVE_AVG"), "X3"),
+              Teoria(1, "E5", (), "X1"))
+    sbagliati = {}
+    for tf, punti in attesi.items():
+        bl = blocchi_da_config(config_standard(PERP, tf))
+        for t in teorie:
+            st = spazio_teoria(t, bl, {})
+            ammessi = st.punti_ammessi()
+            if st.spazio.totale != punti or len(ammessi) != punti or not all(fermi(st.valori(p)) for p in ammessi):
+                sbagliati[(tf, t.id)] = st.spazio.totale
+    check(f"{n}. passo 1 con la config standard: ogni teoria ha 32 punti da M1 a H1, 16 su H4, 8 su D1, solo le uscite; "
+          "i quattro blocchi sempre sul valore standard; sotto il tetto di 40 (griglia completa)", not sbagliati,
+          str(sbagliati))
+
+    # una ricerca piccola con la config standard
+    Z, Z1 = os.path.join(radice, "Z"), os.path.join(radice, "Z1")
+    for c in (Z, Z1):
+        _dati(c)
+    cfg = _config(standard=True)
+    e = lancia(cfg, Z, verbose=False, data=DATA)
+    r1, rt2 = _jsonl(os.path.join(e.cartella, "passo_1.jsonl")), _jsonl(os.path.join(e.cartella, "turno_2.jsonl"))
+    r2 = _jsonl(os.path.join(e.cartella, "passo_2.jsonl"))
+    e1 = lancia(_config(seme=1, standard=True), Z1, verbose=False, data=DATA)
+    q = {r["teoria"]: [(p["id"], p["t"]) for p in r["prove"]] for r in r1 + rt2}
+    q1 = {r["teoria"]: [(p["id"], p["t"]) for p in r["prove"]]
+          for r in _jsonl(os.path.join(e1.cartella, "passo_1.jsonl")) + _jsonl(os.path.join(e1.cartella, "turno_2.jsonl"))}
+    check(f"{n + 1}. passo 1, nei due turni: mai il genetico; prove per teoria = punti = 32; il seme non cambia il passo 1",
+          e.finita and r1 and rt2 and all(r["modo"] == "griglia completa" and r["punti_ammessi"] == 32
+                                          and len(r["prove"]) == 32 for r in r1 + rt2) and q == q1,
+          f"{len(r1)} teorie al turno 1, {len(rt2)} al turno 2")
+    zoom_p = [p for r in r2 for p in r["prove"] if p["fase"].startswith("zoom")]
+    spazi_fermi = all(x["da"] == x["a"] for r in r2 for g in r["giri"] for x in g["spazio"]
+                      if x["parametro"].split(".")[0] in std)
+    check(f"{n + 2}. zoom: in ogni prova i quattro blocchi hanno il valore standard; si muovono solo durata, stop e "
+          "target; nel registro dei giri i loro parametri hanno un punto solo", zoom_p and spazi_fermi
+          and all(fermi(p["valori"]) for p in zoom_p)
+          and len({json.dumps(p["valori"].get("X0") or p["valori"].get("X3") or {}, sort_keys=True)
+                   for p in zoom_p}) > 1, f"{len(zoom_p)} prove dello zoom")
+    attesi_v = {"RSI_RIENTRO.periodo_barre": {12, 16}, "RSI_RIENTRO.soglia": {25, 35}, "DONCHIAN.canale_barre": {17, 23},
+                "ADX.periodo_barre": {12, 16}, "ADX.soglia": {21, 29}, "ATR_RELATIVO.breve_barre": {12, 16},
+                "ATR_RELATIVO.lungo_barre": {85, 115}, "ATR_RELATIVO.soglia": {0.8, 1.2}}
+    visti, fuori, troppi = {}, [], []
+    for r in r2:
+        for g in r["altopiano"]:
+            if len(g["vicini"]) > 14:
+                troppi.append(r["teoria"])
+            for v in g["vicini"]:
+                if v["parametro"] in attesi_v:
+                    visti.setdefault(v["parametro"], set()).add(v["valore"])
+                    if v["valore"] not in attesi_v[v["parametro"]]:
+                        fuori.append((v["parametro"], v["valore"]))
+    # e i vicini calcolati direttamente, su ogni blocco (nella ricerca piccola non tutti sono candidati)
+    bl_m15 = {b.nome: b for b in blocchi_da_config(config_standard(PERP, "M15"))}
+    uscita = {"durata_barre": 16, "perc_stop": 90, "target": None}
+    diretti = {}
+    for t in (Teoria(1, "RSI_RIENTRO", ("ATR_RELATIVO",), "X0"), Teoria(1, "DONCHIAN", ("ADX",), "X0")):
+        s = Strategia.da_teoria(t, {**{b: dict(std[b]) for b in (t.trigger, *t.filtri)}, "X0": dict(uscita)})
+        for chiave, _, valore, _ in vicini(s, bl_m15, 0.15, 1):
+            diretti.setdefault(chiave, set()).add(valore)
+    check(f"{n + 3}. altopiano: i vicini dei quattro blocchi sono quelli fatti a mano (RSI 14 → 12 e 16, soglia 30 → 25 e "
+          "35; Donchian 20 → 17 e 23; ADX 14 → 12 e 16, 25 → 21 e 29; ATR 14 → 12 e 16, 100 → 85 e 115, 1,0 → 0,8 e 1,2; "
+          "uscite come oggi: 16 → 14 e 18, 90 → 80 e 95), uno alla volta, nessun vicino per il target; nella ricerca "
+          "al massimo 14 vicini per candidata e 60 prove per teoria",
+          {k: v for k, v in diretti.items() if k in attesi_v} == attesi_v
+          and diretti["X0.durata_barre"] == {14, 18} and diretti["X0.perc_stop"] == {80, 95}
+          and "X0.target" not in diretti and visti and not fuori and not troppi
+          and all(r["prove_altopiano"] <= 60 for r in r2), f"{ {k: sorted(v) for k, v in visti.items()} }")
+    csv_z = pd.read_csv(registro.FileProve(e.cartella).percorso, dtype=str, keep_default_na=False)
+    check(f"{n + 4}. conto delle prove come oggi: una riga per prova, sotto il budget massimo",
+          len(csv_z) == e.prove == registro.conto_prove(Z, PERP, "M15") and e.prove <= e.budget_massimo
+          and e.budget_massimo == budget_massimo(e.imbuto["turno_1"], cfg, sum(1 for r in r1 if "|-|" not in r["teoria"]),
+                                                 max(e.resoconto["blocchi"][x]["filtro"]["tenuti"]
+                                                     for x in e.resoconto["blocchi"])),
+          f"{e.prove} prove, massimo {e.budget_massimo}")
+
+    # il vantaggio piantato a 40 barre: con la config standard il canale resta 20
+    Q = os.path.join(radice, "Q")
+    sintetici.scrivi_storico(Q, SPOT, "M15", sintetici.mercato_piantato(BARRE, seme=5, minuti=15, inizio="2024-01-01",
+                                                                       prezzo=2_000.0, canale_barre=40))
+    cfg_q = config_standard(SPOT, "M15", seme=0, processi=1)
+    cfg_q["confini"] = dict(CONFINI)
+    cfg_q["blocchi"] = {k: v for k, v in cfg_q["blocchi"].items() if k in ("E47", "DONCHIAN", "RSI_RIENTRO",
+                                                                            "F3_VOLUME_ABOVE_AVG", "X0")}
+    cfg_q["qualita_1"]["trade_min"] = 30
+    cfg_q["budget"].update({"teorie_turno_2": 2, "teorie_passo_2": 2, "prove_per_giro": 60})
+    eq = lancia(cfg_q, Q, verbose=False, data=DATA)
+    tutte = [p for nome in ("passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl")
+             if os.path.exists(os.path.join(eq.cartella, nome))          # senza teorie al turno 2 il file non c'è
+             for r in _jsonl(os.path.join(eq.cartella, nome)) for p in r["prove"]]
+    canali = {p["valori"]["DONCHIAN"]["canale_barre"] for p in tutte if "DONCHIAN" in p["valori"]
+              and p["fase"] != "altopiano"}
+    vicini_c = {p["valori"]["DONCHIAN"]["canale_barre"] for p in tutte if "DONCHIAN" in p["valori"]
+                and p["fase"] == "altopiano"}
+    scelte = {json.loads(v).get("DONCHIAN", {}).get("canale_barre") for v in eq.sopravvissute["valori"]}
+    check(f"{n + 5}. vantaggio piantato a 40 barre: nessuna strategia del passo 1, dello zoom o sopravvissuta ha un canale "
+          "diverso da 20; nell'altopiano solo i vicini 17 e 23", canali == {20} and vicini_c <= {17, 20, 23}
+          and scelte <= {20, None}, f"canali {sorted(canali)}, vicini {sorted(vicini_c)}, scelte {scelte}")
+    return n + 6
+
 
 if __name__ == "__main__":
     sys.exit(esegui())

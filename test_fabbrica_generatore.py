@@ -391,14 +391,34 @@ def esegui() -> int:
           and sorted({v["durata_barre"] for v in valori}) == [4, 8, 16, 32] and {v["target"] for v in valori} == {None, 90}
           and st1.valori(punti[0]) == {"E47": {}, "X0": {"durata_barre": 4, "perc_stop": 70, "target": None}})
     st2 = spazio_teoria(Teoria(-1, "RSI_RIENTRO", ("ATR_RELATIVO",), "X3"), b_std, r_std)
-    check("36. RSI + ATR relativo + X3: 5 × 5 × 2 × 3 × 4 × 4 × 4 × 2 punti, tutti ammessi senza valori degeneri",
-          st2.spazio.totale == 5 * 5 * 2 * 3 * 4 * 4 * 4 * 2 and len(st2.punti_ammessi()) == st2.spazio.totale)
+    check("36. RSI + ATR relativo + X3 sui valori standard (docs/82 §12): 1 × 1 × 1 × 1 × 1 × 4 × 4 × 2 = 32 punti, "
+          "tutti ammessi senza valori degeneri", st2.spazio.totale == 4 * 4 * 2 and len(st2.punti_ammessi()) == 32
+          and all(st2.valori(p)["RSI_RIENTRO"] == {"periodo_barre": 14, "soglia": 30}
+                  and st2.valori(p)["ATR_RELATIVO"] == {"breve_barre": 14, "lungo_barre": 100, "soglia": 1.0}
+                  for p in st2.punti_ammessi()))
     st3 = spazio_teoria(Teoria(1, "E47", ("ADX",), "X0"), b_d, r_d)
     check("37. con una combinazione tolta lo spazio la rifiuta: ammesso dice no", st3.ammesso(
           {"E47": {}, "ADX": {"periodo_barre": 5, "soglia": 30}, "X0": {}}) and not st3.ammesso(
           {"E47": {}, "ADX": {"periodo_barre": 5, "soglia": 15}, "X0": {}}) and len(st3.punti_ammessi()) == 32)
     st4 = spazio_teoria(Teoria(1, "E47", ("ADX",), "X0"), b_d, {})
     check("38. senza valori degeneri: tutti i punti ammessi", len(st4.punti_ammessi()) == 2 * 32)
+
+    # ------------------------------------------------------------------ §12: un valore standard degenere su un lato
+    print("\n§12 · Un valore standard degenere su un lato (docs/82 §12.8)")
+    r_up = np.random.default_rng(4)
+    chiusure = 100.0 * np.exp(np.cumsum(0.002 + 0.001 * r_up.standard_normal(6000)))   # sale sempre: mai sotto il minimo
+    su = pd.DataFrame({"Open": chiusure / 1.0005, "High": chiusure * 1.001, "Low": chiusure / 1.002, "Close": chiusure,
+                       "Volume": 1000.0}, index=pd.date_range("2024-01-01", periods=6000, freq="15min", tz="UTC"))
+    cfg_su = _config(PERP, {"DONCHIAN": {}, "E5": {}, "X0": {}}, modelli=((0, 0),))
+    _, rim_su, tolte_su, _, ten_su, tab_su, teo_su = _tutto(cfg_su, Cache(su, 50))
+    riga_s = next((r for r in tab_su if r["blocco"] == "DONCHIAN" and r["lato"] == "short"), {})
+    check("39b. Donchian 20 (il valore standard) degenere sullo short: esce da quel lato con il motivo, resta sul long",
+          rim_su[("DONCHIAN", 1)] == ({"canale_barre": 20},) and rim_su[("DONCHIAN", -1)] == ()
+          and riga_s.get("esito") == "tolto" and riga_s.get("motivo") == "tutte le combinazioni della griglia sono degeneri"
+          and any(t["blocco"] == "DONCHIAN" and t["lato"] == "short" and t["valori"] == {"canale_barre": 20}
+                  for t in tolte_su)
+          and "DONCHIAN" in ten_su[1] and "DONCHIAN" not in ten_su[-1]
+          and not any(t.trigger == "DONCHIAN" and t.lato == -1 for t in teo_su), str(riga_s))
 
     # ------------------------------------------------------------------ D1, da leggere
     print("\nD1, barre sintetiche: le combinazioni degeneri tolte")

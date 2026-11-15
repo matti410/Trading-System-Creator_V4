@@ -62,6 +62,21 @@ def durata(barre: int, minuti: int) -> str:
     return f"{tempo} ({barre} {'barra' if barre == 1 else 'barre'})"
 
 
+def in_barre(barre: int, minuti: int) -> str:
+    """(docs/82 §12) Un periodo dei quattro blocchi con parametri, in barre con le ore fra parentesi: «20 barre (5 ore)»."""
+    barre = int(barre)
+    return f"{barre} {'barra' if barre == 1 else 'barre'} ({_ore(barre, minuti)})"
+
+
+def _standard(nome: str, valori: dict) -> str:
+    """« (valore standard)» se i valori di RSI_RIENTRO, DONCHIAN, ADX o ATR_RELATIVO sono quelli standard (docs/82 §12)."""
+    from .blocchi import VALORI_STANDARD
+    std = VALORI_STANDARD.get(nome)
+    if std is None or any(len(v) != 1 for v in std.values()):
+        return ""
+    return " (valore standard)" if all(valori.get(k) == v[0] for k, v in std.items()) else ""
+
+
 # ------------------------------------------------------------------ i testi dei blocchi
 # Ogni testo è una funzione (valori, d, lato) -> frase; d(barre) = durata in parole sul timeframe; lato 1 o -1.
 def _su(lato, a, b):
@@ -83,11 +98,11 @@ TESTI_TRIGGER = {
     "E51": lambda v, d, l: ("il prezzo è " + _su(l, "sceso", "salito") + " nelle ultime 5 ore più della deviazione "
                             "standard dei movimenti a 5 ore delle ultime 100 ore, e il volume medio delle ultime 5 ore è "
                             "sotto quello delle 5 ore prima"),
-    "RSI_RIENTRO": lambda v, d, l: (f"l'RSI di {d(v['periodo_barre'])} "
+    "RSI_RIENTRO": lambda v, d, l: (f"l'RSI di {d.in_barre(v['periodo_barre'])} "
                                     + _su(l, f"risale sopra {_numero(v['soglia'])} da sotto",
                                           f"scende sotto {_numero(100 - v['soglia'])} da sopra")),
     "DONCHIAN": lambda v, d, l: ("il Close " + _su(l, "supera il massimo degli High", "scende sotto il minimo dei Low")
-                                 + f" delle {d(v['canale_barre'])} precedenti"),
+                                 + f" delle {d.in_barre(v['canale_barre'])} precedenti"),
 }
 TESTI_FILTRI = {
     "F2_MID_VOLATILITY": lambda v, d, l: (f"l'ATR di {d(14)} non è sopra il 75° percentile dei suoi valori delle "
@@ -98,8 +113,9 @@ TESTI_FILTRI = {
                                        f"percentile delle ultime {d(500)} e non è ancora risalito sopra il 50°"),
     "F20_SESSION_OVERLAP": lambda v, d, l: ("Londra e New York sono aperte insieme (dalle 08:00 alle 17:00, ora locale "
                                             "di ciascuna)"),
-    "ADX": lambda v, d, l: f"l'ADX di {d(v['periodo_barre'])} è sopra {_numero(v['soglia'])}",
-    "ATR_RELATIVO": lambda v, d, l: (f"l'ATR di {d(v['breve_barre'])} diviso l'ATR di {d(v['lungo_barre'])} è sopra "
+    "ADX": lambda v, d, l: f"l'ADX di {d.in_barre(v['periodo_barre'])} è sopra {_numero(v['soglia'])}",
+    "ATR_RELATIVO": lambda v, d, l: (f"l'ATR di {d.in_barre(v['breve_barre'])} diviso l'ATR di "
+                                     f"{d.in_barre(v['lungo_barre'])} è sopra "
                                      f"{_numero(v['soglia'])}"),
 }
 TESTI_USCITE = {                       # la regola d'uscita; None = nessuna regola oltre a durata, stop e target
@@ -285,20 +301,22 @@ def _ore(barre: int, minuti: int) -> str:
 
 def nome_breve(blocco: str, valori: dict, timeframe: str) -> str:
     """
-    Il nome di un blocco con i suoi valori principali, per le tabelle e la lente (L5b, 08/11): «Donchian 12 ore»,
-    «RSI 4 ore, soglia 30», «E47 · rottura dopo compressione». Al posto dei nomi temporanei FAB_SES_… del catalogo.
+    Il nome di un blocco con i suoi valori principali, per le tabelle e la lente (L5b, 08/11): «Donchian 20 barre
+    (5 ore)», «RSI 14 barre (3,5 ore), soglia 30» (dal 15/11 in barre, docs/82 §12), «E47 · rottura dopo compressione».
+    Al posto dei nomi temporanei FAB_SES_… del catalogo.
     """
     from .blocchi import FILTRI_CATALOGO, TRIGGER_CATALOGO, USCITE_CATALOGO
     m = MINUTI_TIMEFRAME[timeframe]
     v = valori or {}
     if blocco == "DONCHIAN":
-        return f"Donchian {_ore(v['canale_barre'], m)}"
+        return f"Donchian {in_barre(v['canale_barre'], m)}"
     if blocco == "RSI_RIENTRO":
-        return f"RSI {_ore(v['periodo_barre'], m)}, soglia {_numero(v['soglia'])}"
+        return f"RSI {in_barre(v['periodo_barre'], m)}, soglia {_numero(v['soglia'])}"
     if blocco == "ADX":
-        return f"ADX {_ore(v['periodo_barre'], m)} sopra {_numero(v['soglia'])}"
+        return f"ADX {in_barre(v['periodo_barre'], m)} sopra {_numero(v['soglia'])}"
     if blocco == "ATR_RELATIVO":
-        return f"ATR {_ore(v['breve_barre'], m)} / {_ore(v['lungo_barre'], m)} sopra {_numero(v['soglia'])}"
+        return (f"ATR {in_barre(v['breve_barre'], m)} / {in_barre(v['lungo_barre'], m)} sopra "
+                f"{_numero(v['soglia'])}")
     for catalogo, i in ((TRIGGER_CATALOGO, 2), (FILTRI_CATALOGO, 2), (USCITE_CATALOGO, 2)):
         if blocco in catalogo:
             return f"{blocco} · {catalogo[blocco][i]}"
@@ -315,14 +333,17 @@ def regole_in_parole(strategia: Strategia, timeframe: str) -> dict:
     def d(barre):
         return durata(barre, minuti)
 
+    d.in_barre = lambda barre: in_barre(barre, minuti)      # i quattro blocchi con parametri (docs/82 §12)
     lato = strategia.lato
     nome_lato = "long" if lato == 1 else "short"
     for nome, testi in [(strategia.trigger, TESTI_TRIGGER), *[(f, TESTI_FILTRI) for f in strategia.filtri],
                         (strategia.uscita, TESTI_USCITE)]:
         if nome not in testi:
             raise ValueError(f"il blocco {nome} non ha il testo in parole (schede.py): la scheda non si scrive.")
-    ingresso = TESTI_TRIGGER[strategia.trigger](strategia.valori_di(strategia.trigger), d, lato)
-    filtri = [TESTI_FILTRI[f](strategia.valori_di(f), d, lato) for f in strategia.filtri]
+    ingresso = (TESTI_TRIGGER[strategia.trigger](strategia.valori_di(strategia.trigger), d, lato)
+                + _standard(strategia.trigger, strategia.valori_di(strategia.trigger)))
+    filtri = [TESTI_FILTRI[f](strategia.valori_di(f), d, lato) + _standard(f, strategia.valori_di(f))
+              for f in strategia.filtri]
     u = strategia.valori_di(strategia.uscita)
     n = int(u["durata_barre"])
     finestra = d(barre_da_ore(ORE_FINESTRA_SOGLIE, minuti))

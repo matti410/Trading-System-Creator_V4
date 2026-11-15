@@ -13,6 +13,9 @@ I blocchi della fabbrica (docs/82 P-L2, lavoro L2): i mattoncini con cui il gene
 - I parametri si scrivono in ORE nella config e diventano barre secondo il timeframe, da M1 a D1: la barra più vicina,
   minimo 1 (2 dove il calcolo la chiede). Nella griglia i valori doppi dopo l'arrotondamento si tolgono. Solo prezzo
   e volume.
+- Dal 15/11 (docs/82 §12): RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO hanno un valore solo per parametro, il valore
+  standard (VALORI_STANDARD), con i periodi in BARRE, gli stessi su ogni timeframe. Le uscite restano in ore. Una
+  config scritta a mano può ancora dare i periodi dei quattro blocchi in ore (convertiti come sopra) o in barre.
 - Spazio di un parametro: stesso minimo e massimo della griglia, passo più fine (1 barra, 1 per le soglie intere, 0,1 per
   la soglia di ATR relativo).
 - I blocchi del catalogo prendono la condizione dal registro (engine.registry): i dizionari non cambiano. Il loro
@@ -235,11 +238,16 @@ USCITE_CATALOGO = {
 }
 # I valori del passo 1 (docs/82 P-L2). Le chiavi che finiscono in _ore si convertono in barre.
 GRIGLIE_USCITA = {"durata_ore": (1, 2, 4, 8), "perc_stop": (70, 80, 90, 95), "target": (None, 90)}
-GRIGLIE_NUOVI = {
-    "RSI_RIENTRO": {"periodo_ore": (2, 4, 6, 9, 12), "soglia": (15, 20, 25, 30, 35)},
-    "DONCHIAN": {"canale_ore": (4, 8, 12, 24, 48, 96)},
-    "ADX": {"periodo_ore": (4, 6, 9), "soglia": (15, 20, 25, 30)},
-    "ATR_RELATIVO": {"breve_ore": (2, 4), "lungo_ore": (24, 48, 96), "soglia": (0.8, 1.0, 1.2, 1.5)},
+# I quattro blocchi con parametri sul valore standard (docs/82 §12, decisioni di Mattia del 15/11, D1 e D5 = A): un
+# valore per parametro, periodi in BARRE, gli stessi su ogni timeframe da M1 a D1, senza conversione. Nel passo 1 e nello
+# zoom restano fermi (un valore solo dà un asse di un punto); si muovono solo nell'altopiano (ricerca.vicini).
+# Una config scritta a mano può ancora dare le chiavi in ore (periodo_ore, canale_ore, breve_ore, lungo_ore): si
+# convertono in barre come prima (P-L2).
+VALORI_STANDARD = {
+    "RSI_RIENTRO": {"periodo_barre": (14,), "soglia": (30,)},
+    "DONCHIAN": {"canale_barre": (20,)},
+    "ADX": {"periodo_barre": (14,), "soglia": (25,)},
+    "ATR_RELATIVO": {"breve_barre": (14,), "lungo_barre": (100,), "soglia": (1.0,)},
 }
 # Il passo delle soglie non intere; tutte le altre soglie sono intere, a passo 1.
 PASSI_REALI = {("ATR_RELATIVO", "soglia"): 0.1}
@@ -425,6 +433,12 @@ def _parametro(blocco: str, chiave: str, valori, minuti: int):
         nome = chiave[: -len("_ore")] + "_barre"
         barre = sorted({barre_da_ore(o, minuti, BARRE_MINIME.get(nome, 1)) for o in valori})
         return Intero(nome, barre[0], barre[-1], 1), tuple(barre)
+    if chiave.endswith("_barre"):                   # docs/82 §12: già in barre, senza conversione
+        minimo = BARRE_MINIME.get(chiave, 1)
+        if not all(float(v).is_integer() and v >= minimo for v in valori):
+            raise ValueError(f"{blocco}: {chiave} vuole numeri interi di barre, almeno {minimo}, non {valori}")
+        barre = sorted({int(v) for v in valori})
+        return Intero(chiave, barre[0], barre[-1], 1), tuple(barre)
     passo = PASSI_REALI.get((blocco, chiave))
     if passo is None:
         if not all(float(v).is_integer() for v in valori):
@@ -437,13 +451,26 @@ def _parametro(blocco: str, chiave: str, valori, minuti: int):
     return Reale(chiave, reali[0], reali[-1], passo), tuple(reali)
 
 
+def _in_ore(chiave: str) -> str | None:
+    """periodo_barre -> periodo_ore: la chiave in ore che una config scritta a mano può dare al posto di quella in barre."""
+    return chiave[: -len("_barre")] + "_ore" if chiave.endswith("_barre") else None
+
+
 def _parametri(nome: str, griglie: dict, config_blocco: dict, minuti: int) -> tuple[tuple, dict]:
-    estranei = set(config_blocco) - set(griglie)
+    ammessi = set(griglie) | {_in_ore(k) for k in griglie if _in_ore(k)}
+    estranei = set(config_blocco) - ammessi
     if estranei:
-        raise ValueError(f"{nome}: parametri sconosciuti {sorted(estranei)}; ammessi {sorted(griglie)}")
+        raise ValueError(f"{nome}: parametri sconosciuti {sorted(estranei)}; ammessi {sorted(ammessi)}")
     parametri, griglia = [], {}
     for chiave, predefiniti in griglie.items():
-        parametro, valori = _parametro(nome, chiave, config_blocco.get(chiave, predefiniti), minuti)
+        ore = _in_ore(chiave)
+        if ore and ore in config_blocco and chiave in config_blocco:
+            raise ValueError(f"{nome}: {chiave} e {ore} sono lo stesso parametro: scrivine uno solo")
+        if ore and ore in config_blocco:
+            chiave, scritti = ore, config_blocco[ore]
+        else:
+            scritti = config_blocco.get(chiave, predefiniti)
+        parametro, valori = _parametro(nome, chiave, scritti, minuti)
         parametri.append(parametro)
         griglia[parametro.nome] = valori
     return tuple(parametri), griglia
@@ -479,14 +506,17 @@ def _blocco(nome: str, config_blocco: dict, timeframe: str) -> Blocco:
         return Blocco(nome, "uscita", famiglia, minuti, parametri, griglia, finestre_barre=finestre, _catalogo=(lungo, corto))
     if nome in CALCOLI_NUOVI:
         tipo, famiglia, calcola = CALCOLI_NUOVI[nome]
-        parametri, griglia = _parametri(nome, GRIGLIE_NUOVI[nome], config_blocco, minuti)
+        parametri, griglia = _parametri(nome, VALORI_STANDARD[nome], config_blocco, minuti)
         return Blocco(nome, tipo, famiglia, minuti, parametri, griglia, neutro=tipo == "filtro", _calcola=calcola)
     noti = sorted([*TRIGGER_CATALOGO, *FILTRI_CATALOGO, *USCITE_CATALOGO, *CALCOLI_NUOVI])
     raise ValueError(f"blocco {nome!r} sconosciuto: {noti}")
 
 
 def blocchi_da_config(config: dict) -> list[Blocco]:
-    """I blocchi di config["blocchi"] ({nome: griglie, {} = quelle di P-L2}), sul timeframe di config["timeframe"]."""
+    """
+    I blocchi di config["blocchi"] ({nome: griglie}), sul timeframe di config["timeframe"]. {} = per le uscite le
+    griglie di P-L2, per RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO i valori standard (VALORI_STANDARD, docs/82 §12).
+    """
     timeframe = config["timeframe"]
     if timeframe not in MINUTI_TIMEFRAME:
         raise ValueError(f"timeframe {timeframe!r} non previsto: {sorted(MINUTI_TIMEFRAME)}")

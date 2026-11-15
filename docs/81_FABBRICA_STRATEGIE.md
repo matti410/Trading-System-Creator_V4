@@ -45,6 +45,9 @@ e indicatore TradingView sono fuori da questo incarico.
 - **Modello:** lo schema di una teoria, es. «1 trigger + fino a 2 filtri + 1 uscita», per lato.
 - **Teoria:** un modello riempito con blocchi, senza valori.
 - **Strategia:** una teoria con tutti i valori.
+- **Valore standard (15/11):** il valore d'uso comune, in barre, dei parametri di RSI, Donchian, ADX e ATR relativo (RSI 14
+  e 30, Donchian 20, ADX 14 e 25, ATR relativo 14, 100 e 1,0). Non si ottimizza: si sposta del 15% solo nell'altopiano
+  (`docs/82` §12).
 - **Giro:** una passata dell'ottimizzatore su una teoria, con intervalli e passo dati (la *SubTheory* del libro).
 - **Turno:** una delle due ricerche del passo 1 (C2, 14/11). Il turno 1 prova le teorie con al massimo un filtro; il turno 2
   aggiunge un secondo filtro alle 150 migliori teorie con un filtro. «Giro» resta solo dell'ottimizzatore e dello zoom.
@@ -72,7 +75,8 @@ e indicatore TradingView sono fuori da questo incarico.
    entra nel conto; allo zoom vanno le migliori dei due turni insieme (`docs/82` §11.4).
 5. **Passo 2, zoom:** giri successivi, intervalli stretti attorno alle migliori, passo che cala; stop per numero di
    giri, o forza bruta quando lo spazio è piccolo. **Altopiano:** la strategia scelta deve reggere anche con i valori
-   vicini (proporre la misura).
+   vicini (proporre la misura). Dal 15/11 (`docs/82` §12) RSI, Donchian, ADX e ATR relativo stanno sul valore standard
+   nei due turni del passo 1 e nello zoom, che cerca solo i valori delle uscite; si muovono di ±15% solo nell'altopiano.
 6. **Selezione:** sui dati di selezione, parametri congelati, condizione di qualità 2 e test individuale; famiglie fra
    le sopravvissute.
 7. **Conto delle prove, da leggere:** ogni strategia valutata è contata; la scheda mostra il totale e la soglia che
@@ -98,6 +102,8 @@ e indicatore TradingView sono fuori da questo incarico.
   (percentili, normalizzazioni) calcolata su tutto il periodo.
 - Nessun valore legato a un timeframe: i parametri si scrivono in ore e diventano barre, arrotondate alla barra più
   vicina (minimo 1; minimo 5 per periodo di RSI, periodo di ADX e ATR lungo); il calcolo è tutto in barre, al passo di 1 barra.
+  Eccezione dal 15/11 (Mattia, `docs/82` §12, D5 = A): i valori standard di RSI, Donchian, ADX e ATR relativo sono in
+  barre, gli stessi su ogni timeframe da M1 a D1, come i blocchi del catalogo; le uscite restano in ore.
 - Ogni strategia valutata è una prova, anche se scartata subito.
 - La cassaforte non si legge prima del passo 8: un test lo garantisce.
 - Seed fisso → stessi risultati. Una ricerca interrotta deve poter riprendere.

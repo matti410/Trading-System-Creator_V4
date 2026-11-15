@@ -210,7 +210,7 @@ def esegui() -> int:
         print("\nLa config (docs/82 P2 e §6)")
         cfg = config_standard(PERP, "M15")
         check("28. la config standard ha i campi di §6 e passa i controlli", tuple(cfg) == CAMPI and controlla_config(cfg) is cfg
-              and len(cfg["blocchi"]) == 78 and cfg["versione"] == 2 and cfg["lati"] == ["long", "short"]
+              and len(cfg["blocchi"]) == 78 and cfg["versione"] == 3 and cfg["lati"] == ["long", "short"]
               and cfg["confini"] == STANDARD and cfg["budget"]["teorie_turno_2"] == 150)
         rovesciata = json.loads(json.dumps(cfg, sort_keys=True))
         rovesciata = {k: rovesciata[k] for k in reversed(list(rovesciata))}

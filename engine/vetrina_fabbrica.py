@@ -22,6 +22,8 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
 - C2 (docs/82 §11.8): la cella 1 mostra i blocchi tenuti e tolti (un blocco per famiglia), le teorie dei due turni,
   le prove massime e la stima del tempo dalla velocità vera delle ricerche del 9 e del 10/11; la 2 dice il turno; la 3
   ha i due turni nell'imbuto. Le celle 4–7 su una ricerca della versione 1 si fermano con «ricerca non trovata» (D5).
+- Dal 15/11 (docs/82 §12, D4 = A) la config è la versione 3: le celle 4–7 si fermano allo stesso modo anche su una
+  ricerca della versione 2.
 - Cella 5 (10/11): i numeri scritti entrano in cassaforte, ogni volta che la cella si lancia, anche se sono già
   entrati; nessuna frase di conferma. Vuoto = nessun ingresso: la cella mostra l'esito di quelle già entrate, se ce
   ne sono.
@@ -51,7 +53,9 @@ FILE_RIEPILOGO = "riepilogo.json"
 RICERCHE_VERE = ((288_920, 713.819, 123_752), (245_970, 183.719, 30_938))
 PROCESSI_VERI = 3
 FATTORE_PROCESSI = {1: 0.7, 2: 0.85}         # docs/82 §5: 380 / 543 valutazioni al secondo con 1 e 3 processi
-VERSIONE_1 = "ricerca non trovata: è una ricerca della versione 1, rilancia la cella 2 per una ricerca nuova"
+# docs/82 §12, D4 = A: anche le ricerche della versione 2 (parametri dei quattro blocchi ottimizzati) si fermano così
+VERSIONE_VECCHIA = ("ricerca non trovata: è una ricerca di una versione precedente della fabbrica, rilancia la cella 2 "
+                    "per una ricerca nuova")
 
 _ESITI_CASSAFORTE: dict = {}                 # id_ricerca -> l'ultimo esito della cassaforte letto in questa sessione
 
@@ -502,10 +506,11 @@ def imbuto(r) -> pd.DataFrame:
 
 # ------------------------------------------------------------------ 4 · Le strategie rimaste
 def _controlla_versione(r) -> None:
-    """Celle 4–7 (D5 = B): una ricerca della versione 1 si ferma con «ricerca non trovata» e dice di rilanciare la 2."""
+    """Celle 4–7 (D5 = B; docs/82 §12, D4 = A): una ricerca di una versione precedente (1 o 2) si ferma con «ricerca non
+    trovata» e dice di rilanciare la 2."""
     from engine.fabbrica.config import VERSIONE
     if _config_ricerca(r).get("versione") != VERSIONE:
-        raise ValueError(VERSIONE_1)
+        raise ValueError(VERSIONE_VECCHIA)
 
 
 def numerate(r) -> pd.DataFrame:
