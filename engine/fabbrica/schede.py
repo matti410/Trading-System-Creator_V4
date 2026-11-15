@@ -539,6 +539,16 @@ def _quando(iso) -> str:
     return t.strftime("%d/%m/%Y %H:%M") + " UTC"
 
 
+def _virgola(testo) -> str:
+    """
+    (15/11) I numeri di un motivo del cammino con la virgola decimale, come il resto della scheda: «t 1.38 sotto 1.96»
+    → «t 1,38 sotto 1,96». I motivi sono scritti dal codice con il punto decimale e senza separatore delle migliaia.
+    Solo nel .md: il .json resta com'è.
+    """
+    import re
+    return re.sub(r"(?<=\d)\.(?=\d)", ",", "" if testo is None else str(testo))
+
+
 def testo_md(sc: dict) -> str:
     """La scheda in parole (§6): Regole · Da dove viene · Il cammino · Da leggere · Verifica, MM e stress test ·
     Blocchi tolti sul timeframe · Blocchi tenuti e tolti (C2); in fondo la frase finale."""
@@ -557,7 +567,8 @@ def testo_md(sc: dict) -> str:
              f"al {_quando(a)}.",
              f"- Software: commit {sc['software']}.", "",
              "## Il cammino",
-             *_tabella_md(sc["esiti"], ["passo", "pezzo", "trade", "ev_bp", "t", "dd_bp", "esito", "motivo"]),
+             *_tabella_md([{**e, "motivo": _virgola(e.get("motivo"))} for e in sc["esiti"]],
+                          ["passo", "pezzo", "trade", "ev_bp", "t", "dd_bp", "esito", "motivo"]),
              "",
              f"Decide il test individuale: t contro {_f(t['soglia'])}. In selezione t {_f(t['selezione'])}, in "
              f"cassaforte t {_f(t['cassaforte'])}.", "",
@@ -575,7 +586,8 @@ def testo_md(sc: dict) -> str:
     if sc.get("mm"):
         par = sc.get("parametri_mm") or {}
         righe += [f"Capitale {_f(par.get('capitale'))} $, drawdown massimo {_f(par.get('drawdown_max_pct'))} %, "
-                  f"{_numero(par.get('anni') or 0)} anni, modello «{sc['mm'].get('modello')}», leva "
+                  f"{_numero(par.get('anni') or 0)} {'anno' if (par.get('anni') or 0) == 1 else 'anni'}, modello "
+                  f"«{sc['mm'].get('modello')}», leva "
                   f"{_numero(par['leva']) if par.get('leva') else 'la massima del symbol'}.",
                   f"Rischio a ogni trade: {_f((sc['mm'].get('percentuale') or 0) * 100)} %. "
                   f"{sc['mm'].get('deciso') or ''}", ""]

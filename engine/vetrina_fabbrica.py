@@ -494,15 +494,50 @@ def imbuto(r) -> pd.DataFrame:
         if len(p1):
             scarti.append({"passo": f"turno {turno}", "motivo": "nessuna strategia passa la condizione 1",
                            "quante": int((~p1["tenuta"].astype(bool)).sum())})
+    # (15/11) una riga per tipo di motivo, con il numero: i valori di ogni strategia stanno nella 4, fra le scartate
     if len(r.passo_2):
-        for m, n in r.passo_2[r.passo_2["esito"] != "regge"]["motivo"].value_counts().items():
+        tipi = r.passo_2[r.passo_2["esito"] != "regge"]["motivo"].map(tipo_motivo)
+        for m, n in tipi.value_counts().items():
             scarti.append({"passo": "altopiano", "motivo": m, "quante": int(n)})
     if r.selezione is not None:
         t = r.selezione.tabella
-        for m, n in t[t["esito"] == "scartata"]["motivo"].value_counts().items():
+        for m, n in t[t["esito"] == "scartata"]["motivo"].map(tipo_motivo).value_counts().items():
             scarti.append({"passo": "selezione", "motivo": m, "quante": int(n)})
     _dettaglio("I motivi di scarto", ("", pd.DataFrame(scarti, columns=["passo", "motivo", "quante"])))
     return tab
+
+
+# (15/11) Il tipo di un motivo di scarto, senza i numeri della singola strategia: (schema, testo). Il primo schema che
+# combacia decide; i gruppi tra parentesi dello schema riempiono il testo (le soglie della config, uguali per tutte).
+_TIPI_MOTIVO = (
+    (r"^condizione 2: \d+ trade, meno di (\d+)$", "condizione 2, meno di {0} trade"),
+    (r"^condizione 2: verdetto SCARTATA: EV netto \S+ \w+ <= (\S+)$", "condizione 2, EV netto ≤ {0}"),
+    (r"^condizione 2: verdetto SCARTATA: guadagno ", "condizione 2, guadagno ≤ 0"),
+    (r"^condizione 2: verdetto SCARTATA: \|t\| ", "condizione 2, |t| sotto la soglia di rumore"),
+    (r"^condizione 2: verdetto SCARTATA: t \S+ oltre soglia ma NEGATIVO", "condizione 2, t negativo"),
+    (r"^condizione 2: verdetto SCARTATA: P\(EV<0\) \S+ >= (\S+)$", "condizione 2, P(EV<0) ≥ {0}"),
+    (r"^condizione 2: il trade migliore pesa il \S+ dei guadagni, oltre il (\S+)$",
+     "condizione 2, il trade migliore pesa oltre il {0} dei guadagni"),
+    (r"^condizione 2: totale / drawdown \S+, sotto (\S+)$", "condizione 2, totale / drawdown sotto {0}"),
+    (r"^test individuale: t \S+ sotto (\S+)$", "test individuale, t sotto {0}"),
+    (r"^nessuna delle \d+ candidate regge l'altopiano$", "nessuna candidata regge l'altopiano"),
+    (r"^budget dell'altopiano finito \((\d+) prove\)$", "budget dell'altopiano finito ({0} prove)"),
+    (r"^nessuna strategia passa la condizione 1$", "nessuna strategia passa la condizione 1"),
+)
+
+
+def tipo_motivo(motivo) -> str:
+    """
+    Il tipo di un motivo di scarto (cella 3, 15/11): «condizione 2: verdetto SCARTATA: EV netto -5.587 bp <= 0» →
+    «condizione 2, EV netto ≤ 0». Un motivo che non combacia con nessuno schema resta com'è, con i numeri tolti («…»).
+    """
+    import re
+    testo = str(motivo or "")
+    for schema, tipo in _TIPI_MOTIVO:
+        m = re.search(schema, testo)
+        if m:
+            return tipo.format(*[g.replace(".", ",") for g in m.groups()])
+    return re.sub(r"-?\d+(?:[.,]\d+)*", "…", testo)
 
 
 # ------------------------------------------------------------------ 4 · Le strategie rimaste
