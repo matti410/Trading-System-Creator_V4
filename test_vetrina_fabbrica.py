@@ -39,7 +39,9 @@ SPOT = "BYBIT_SPOT_ETHUSDT"
 DATA = "20260101"
 ORA_FISSA = "2026-01-01T00:00:00+00:00"
 CONFINI = {"inizio": "2024-01-01 00:00", "ricerca_ore": 3000, "selezione_ore": 2000, "cassaforte_ore": 500}
-BLOCCHI = ("DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "X0", "X3")
+# docs/82 §12: con i valori standard ADX 14 sopra 25 è vero quasi sempre sul mercato sintetico ed esce come degenere;
+# TREND_CONTEXT dà il secondo filtro al turno 2
+BLOCCHI = ("DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "TREND_CONTEXT", "X0", "X3")
 ESITI: list[bool] = []
 
 
@@ -180,7 +182,7 @@ def _celle(radice):
     check("5. Configura: ricerca nuova, poi la stessa cella rieseguita (anche un altro giorno) dà la stessa ricerca",
           conf.nuova and not conf2.nuova and conf.id_ricerca == conf2.id_ricerca and conf.teorie > 0
           and conf.budget_massimo > 0 and 0 < conf.stima_minuti[0] <= conf.stima_minuti[1]
-          and len(conf.esclusi) == 78 - 6)
+          and len(conf.esclusi) == 78 - 7)
     senza_u = dict(cfg, blocchi={k: v for k, v in cfg["blocchi"].items() if k not in ("X0", "X3")})
     check("6. se non resta un'uscita la cella si ferma", errore(
         lambda: _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, senza_u, DATA), ValueError, "un'uscita"))
@@ -216,7 +218,7 @@ def _celle(radice):
     check("8. riepilogo.json: imbuto, prove, lo stesso elenco dei blocchi tolti della cella 1 e la tabella dei tenuti e "
           "dei tolti", riep["imbuto"] == r.imbuto and riep["prove"] == r.prove and riep["blocchi_esclusi"] == conf.esclusi
           and riep["finita"] and riep["tenuti_tolti"] == json.loads(registro.json_riga(conf.tenuti_tolti))
-          and len(riep["tenuti_tolti"]) == 2 + 2)
+          and len(riep["tenuti_tolti"]) == 2 + 3)
     righe.clear()
     r2 = _zitto(vf.ricerca, conf)
     check("9. rieseguita: riprende da dove era, nessuna prova in più, stesso imbuto",
@@ -360,7 +362,9 @@ def _copia(da, a) -> bool:
 def _d1(radice):
     print("\nD1: mostra i blocchi tolti e prosegue")
     d = os.path.join(radice, "D1")
-    confini = {"inizio": "2024-01-01 00:00", "ricerca_ore": 24 * 700, "selezione_ore": 24 * 300,
+    # 1.300 giornate di ricerca, come i dati veri (circa 1.276): con i valori standard (docs/82 §12) sulle 700 di
+    # prima tutti i trigger erano troppo rari (Donchian 20 e RSI 14 su D1), e la cella si fermava senza teorie
+    confini = {"inizio": "2024-01-01 00:00", "ricerca_ore": 24 * 1300, "selezione_ore": 24 * 300,
                "cassaforte_ore": 24 * 100}
     sintetici.scrivi_storico(d, SPOT, "D1", _mercato(1440, confini, extra=5))
     cfg = config_standard(SPOT, "D1", seme=0, processi=1)
@@ -457,11 +461,11 @@ def _dati_e_confini(radice):
 def _c2(radice, r, conf):
     print("\nC2: un blocco per famiglia e i due turni nelle celle; la stima del tempo; le ricerche della versione 1")
     da, a = vf.stima_minuti(370_200, 123_752, 3)
-    check("32. (14/11) la stima della cella 1 viene dalla velocità vera delle ricerche del 14/11 (BTC perp M15: 405 "
-          "prove al secondo; ETH perp H1: 1.339, con 3 processi, in proporzione alle barre): 370.200 prove su 123.752 "
-          "barre fanno circa 15–18 minuti; con 1 processo di più, con meno barre di meno",
-          vf.RICERCHE_VERE == ((288_920, 713.819, 123_752), (245_970, 183.719, 30_938))
-          and round(da) == 15 and round(a) == 18
+    check("32. (15/11, D6) la stima della cella 1 viene dalla velocità vera delle due ricerche della versione 3 del 15/11 "
+          "(BTC perp M15: 487 prove al secondo; ETH perp H1: 1.064, con 3 processi, in proporzione alle barre): 370.200 "
+          "prove su 123.752 barre fanno circa 13–23 minuti; con 1 processo di più, con meno barre di meno",
+          vf.RICERCHE_VERE == ((268_322, 551.494, 123_801), (221_703, 208.287, 30_950))
+          and round(da) == 13 and round(a) == 23
           and vf.stima_minuti(370_200, 123_752, 1)[0] > da and vf.stima_minuti(370_200, 123_752 // 4, 3)[1] < a / 3,
           f"{da:.1f}–{a:.1f} minuti")
     d = os.path.join(radice, "M15")
@@ -479,15 +483,25 @@ def _c2(radice, r, conf):
     with open(os.path.join(vecchia, "config.json"), "w", encoding="utf-8") as f:
         json.dump(cfg_v1, f)
     r1 = dataclasses.replace(r, cartella=vecchia, id_ricerca="20261109_versione1")
-    ferme = [errore(lambda f=f: _zitto(f, r1, *a), ValueError, vf.VERSIONE_1)
+    # docs/82 §12, D4 = A (15/11): anche una ricerca della versione 2 (i quattro blocchi ottimizzati) si ferma
+    vecchia2 = os.path.join(cartella_asset(d, SPOT, "M15"), "20261114_versione2")
+    os.makedirs(vecchia2)
+    cfg_v2 = dict(cfg_v1, versione=2)
+    with open(os.path.join(vecchia2, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(cfg_v2, f)
+    r2 = dataclasses.replace(r, cartella=vecchia2, id_ricerca="20261114_versione2")
+    ferme = [errore(lambda f=f, rr=rr: _zitto(f, rr, *a), ValueError, vf.VERSIONE_VECCHIA) for rr in (r1, r2)
              for f, a in ((vf.strategie_rimaste, ()), (vf.cassaforte, ("1",)), (vf.mm_e_stress, (1,)), (vf.schede, ()))]
-    check("34. una ricerca della versione 1 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una ricerca della "
-          "versione 1, rilancia la cella 2 per una ricerca nuova»", all(ferme)
-          and vf.VERSIONE_1 == "ricerca non trovata: è una ricerca della versione 1, rilancia la cella 2 per una "
-                               "ricerca nuova", str(ferme))
+    check("34. una ricerca della versione 1 o 2 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una ricerca "
+          "di una versione precedente della fabbrica, rilancia la cella 2 per una ricerca nuova» (D4 = A)",
+          all(ferme) and len(ferme) == 8
+          and vf.VERSIONE_VECCHIA == "ricerca non trovata: è una ricerca di una versione precedente della fabbrica, "
+                                     "rilancia la cella 2 per una ricerca nuova", str(ferme))
     from engine.fabbrica.config import controlla_config
-    check("35. la config versione 1 non si rilancia: la ricerca ha una strada sola (D5 = B)",
-          errore(lambda: controlla_config(cfg_v1), ValueError, "versione 1"))
+    check("35. le config versione 1 e 2 non si rilanciano: la ricerca ha una strada sola, la versione 3 (D4 = A)",
+          errore(lambda: controlla_config(cfg_v1), ValueError, "versione 1")
+          and errore(lambda: controlla_config(cfg_v2), ValueError, "versione 2")
+          and controlla_config(dict(cfg_v1, versione=3)) is not None)
 
     print("\n1 · Configura: un symbol con i dati che partono dopo il 02/01/2020 (14/11, scelta B)")
     tardi = os.path.join(radice, "H4_tardi")

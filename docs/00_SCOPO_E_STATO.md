@@ -17,6 +17,11 @@ senza catena di impronte. Dal 14/11 (C1, PR #113; C2, `82` §11): la config stan
 30 filtri, 3 uscite; versione 2, le ricerche della versione 1 restano su disco e nel conto); all'avvio un blocco per
 famiglia misurata; il passo 1 in due turni (turno 1: al massimo un filtro; turno 2: un secondo filtro alle 150 migliori);
 tetto del budget = il massimo arrotondato in su ai 10.000; la cella 1 stima il tempo dalla velocità delle ricerche vere.
+Dal 15/11 (`82` §12, PR #115): RSI, Donchian, ADX e ATR relativo non si ottimizzano più, stanno sul **valore standard** in
+barre (RSI 14 e 30, Donchian 20, ADX 14 e 25, ATR relativo 14, 100 e 1,0), gli stessi su ogni timeframe; il passo 1 e lo
+zoom cercano solo le uscite, l'altopiano li sposta di ±15%; config versione 3 (le ricerche della 2 restano su disco e
+nel conto, le celle 4–7 su una di esse dicono di rilanciare la 2). La stima della cella 1 viene dalle due ricerche vere
+della versione 3 del 15/11 (BTC perp M15 9,2 minuti, ETH perp H1 3,5, con 3 processi).
 Regola di progetto: la pipeline il più semplice possibile (`CLAUDE.md`). **Eccezione: in
 `engine/fabbrica/` i parametri si ottimizzano (`docs/81_FABBRICA`).** Il catalogo dei trigger intraday (`78`, `79`) è unito (PR #97): 12 trigger nuovi
 E46–E52, E50 spento come doppione di E3.

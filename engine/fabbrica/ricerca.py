@@ -66,7 +66,7 @@ from engine.indicatori import aggiungi_indicatori
 
 from . import registro
 from . import selezione as sel_mod
-from .blocchi import BARRE_MINIME, blocchi_da_config
+from .blocchi import BARRE_MINIME, CALCOLI_NUOVI, blocchi_da_config
 from .cache import Cache
 from .config import (budget_massimo, cartella_asset, controlla_budget, controlla_config, impronta_config,
                      salva_config)
@@ -251,13 +251,29 @@ def zoom(assi, migliori: Callable[[], list[dict]], funzione: Callable[[dict, int
 
 
 # ------------------------------------------------------------------ l'altopiano
+def soglia_vicina(v: float, passo: float, variazione: float, verso: int):
+    """
+    (docs/82 §12, D2 = B, 15/11) Il vicino di una soglia di RSI_RIENTRO, ADX o ATR_RELATIVO: v × (1 ± `variazione`),
+    al multiplo di `passo` più vicino; a metà, lontano da v (RSI 30 → 25 e 35, ADX 25 → 21 e 29, ATR 1,0 → 0,8 e 1,2).
+    Spostamento di almeno un passo, come le barre. `verso` −1 sotto, +1 sopra.
+    """
+    x = float(v) * (1.0 + verso * variazione) / float(passo)
+    base = math.floor(x + 1e-9)
+    u = (base if verso < 0 else base + 1) if abs(x - base - 0.5) < 1e-9 else _arrotonda(x)
+    centro = _arrotonda(float(v) / float(passo))
+    u = min(u, centro - 1) if verso < 0 else max(u, centro + 1)
+    return int(u * passo) if float(passo).is_integer() else round(u * float(passo), 10)
+
+
 def vicini(strategia: Strategia, blocchi: dict, variazione_ore: float = 0.15, spostamento_min: int = 1) -> list[tuple]:
     """
     I vicini della strategia, un parametro alla volta (P5): (chiave, verso, valore, valori della strategia vicina).
     - Parametri in ore (in barre): ±`variazione_ore`, alla barra più vicina, spostamento di almeno `spostamento_min`
       barre; sotto il minimo del parametro (1 barra; 5 per periodo di RSI e ADX e ATR lungo) il vicino non c'è.
-    - Altri numeri (soglie, percentile dello stop): il valore adiacente nella griglia di P-L2, sopra e sotto; fra due
-      valori della griglia, quei due; al bordo uno solo.
+    - Soglie di RSI_RIENTRO, ADX e ATR_RELATIVO (docs/82 §12, 15/11): ±`variazione_ore` (15%) al passo della soglia,
+      a metà lontano dal valore (soglia_vicina). Modifica non additiva: prima erano i valori adiacenti della griglia.
+    - Altri numeri (percentile dello stop): il valore adiacente nella griglia di P-L2, sopra e sotto; fra due valori
+      della griglia, quei due; al bordo uno solo.
     - Il target è un interruttore: niente vicini.
     """
     out = []
@@ -273,6 +289,8 @@ def vicini(strategia: Strategia, blocchi: dict, variazione_ore: float = 0.15, sp
                 giu = min(giu, v - spostamento_min)
                 su = max(su, v + spostamento_min)
                 coppia = (giu if giu >= BARRE_MINIME.get(p.nome, 1) else None, su)
+            elif nome in CALCOLI_NUOVI:
+                coppia = (soglia_vicina(v, p.passo, variazione_ore, -1), soglia_vicina(v, p.passo, variazione_ore, 1))
             else:
                 griglia = sorted(b.griglia[p.nome])
                 sotto = [g for g in griglia if g < v]

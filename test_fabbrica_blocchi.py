@@ -31,9 +31,9 @@ import vwap_regime_filter_conditions
 from engine import registry as reg
 from engine.collaudo_catalogo import verifica_degenerazione, verifica_lookahead
 from engine.exit_search_bt import soglie_adattive
-from engine.fabbrica.blocchi import (APPROSSIMAZIONE_ESCLUSA, BARRE_MINIME, FILTRI_CATALOGO, GRIGLIE_NUOVI, LIMITE_LOGICO,
+from engine.fabbrica.blocchi import (APPROSSIMAZIONE_ESCLUSA, BARRE_MINIME, FILTRI_CATALOGO, LIMITE_LOGICO,
                                      MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, SOLO_ELENCO, TRIGGER_CATALOGO, USCITE_CATALOGO,
-                                     Blocco, _registra_catalogo, blocchi_da_config)
+                                     VALORI_STANDARD, Blocco, _registra_catalogo, blocchi_da_config)
 from engine.fabbrica.cache import ORE_FINESTRA_SOGLIE, Cache, barre_da_ore
 from engine.fabbrica.dati import imposta_mercato_crypto
 from engine.fabbrica.ottimizzatore import Categoria, Intero, Reale
@@ -43,7 +43,16 @@ from helpers import _cross_down, _cross_up, _evento
 warnings.simplefilter("ignore")
 
 PREFISSO = "PROVA_FAB_"
-NUOVI = tuple(GRIGLIE_NUOVI)
+# docs/82 §12 (15/11): i quattro blocchi con parametri hanno il valore standard, in barre (VALORI_STANDARD). I collaudi di
+# L2 restano sulle griglie in ore di P-L2, scritte a mano come una config scritta a mano: «una config scritta a mano con
+# le ore converte ancora come oggi» (§12.8). I collaudi dei valori standard sono nella sezione «§12» in fondo.
+GRIGLIE_ORE = {
+    "RSI_RIENTRO": {"periodo_ore": (2, 4, 6, 9, 12), "soglia": (15, 20, 25, 30, 35)},
+    "DONCHIAN": {"canale_ore": (4, 8, 12, 24, 48, 96)},
+    "ADX": {"periodo_ore": (4, 6, 9), "soglia": (15, 20, 25, 30)},
+    "ATR_RELATIVO": {"breve_ore": (2, 4), "lungo_ore": (24, 48, 96), "soglia": (0.8, 1.0, 1.2, 1.5)},
+}
+NUOVI = tuple(GRIGLIE_ORE)
 # I 10 blocchi del catalogo di P-L2 (fino all'11/11): i collaudi di L2 restano su questi. Il catalogo intero (C1, 12/11)
 # ha la sua sezione in fondo.
 ORIGINALI_TRIGGER = ("E5", "E36", "E47", "E49", "E51")
@@ -126,11 +135,15 @@ def _corta() -> pd.DataFrame:
                          "Volume": [1.0] * 6}, index=_indice(6))
 
 
-def _config(*nomi, timeframe="M15") -> dict:
-    return {"timeframe": timeframe, "blocchi": {n: {} for n in nomi}}
+def _config(*nomi, timeframe="M15", standard=False) -> dict:
+    """I quattro blocchi con le griglie in ore di P-L2 (GRIGLIE_ORE); con standard=True con {} (i valori standard)."""
+    return {"timeframe": timeframe, "blocchi": {n: ({} if standard else {k: list(v) for k, v in GRIGLIE_ORE.get(n, {}).items()})
+                                                for n in nomi}}
 
 
-def _uno(nome: str, timeframe="M15", **griglie) -> Blocco:
+def _uno(nome: str, timeframe="M15", standard=False, **griglie) -> Blocco:
+    if not standard and nome in GRIGLIE_ORE:
+        griglie = {**GRIGLIE_ORE[nome], **griglie}
     return blocchi_da_config({"timeframe": timeframe, "blocchi": {nome: griglie}})[0]
 
 
@@ -779,6 +792,75 @@ def esegui() -> int:
     check("123. la fabbrica registra anche i filtri VWAP, come il Lab", "VWAP_PREVIOUS_SESSION_CLOSED_BELOW" in reg.list_filters()
           and "VWAP_GAP_WIDENING" in reg.list_filters() and vwap.dtype == bool and len(vwap) == len(df_ind))
     reg.clear_registry()
+
+    # ------------------------------------------------------------------ §12: i valori standard (15/11)
+    print("\n§12 · I quattro blocchi con parametri sul valore standard (docs/82 §12, decisioni del 15/11)")
+    from engine.fabbrica.config import VERSIONE, config_standard
+    attesi = {"RSI_RIENTRO": {"periodo_barre": (14,), "soglia": (30,)}, "DONCHIAN": {"canale_barre": (20,)},
+              "ADX": {"periodo_barre": (14,), "soglia": (25,)},
+              "ATR_RELATIVO": {"breve_barre": (14,), "lungo_barre": (100,), "soglia": (1.0,)}}
+    check("124. VALORI_STANDARD: RSI 14 e 30, Donchian 20, ADX 14 e 25, ATR relativo 14, 100 e 1,0 (D1), periodi in barre",
+          VALORI_STANDARD == attesi)
+    sbagliati = []
+    for tf in MINUTI_TIMEFRAME:
+        cfg = config_standard("BINANCE_PERP_BTCUSDT", tf)
+        if cfg["versione"] != 3 or VERSIONE != 3:
+            sbagliati.append((tf, "versione", cfg["versione"]))
+        scritti = {n: cfg["blocchi"][n] for n in attesi}
+        if scritti != {n: {k: list(v) for k, v in g.items()} for n, g in attesi.items()}:
+            sbagliati.append((tf, "config", scritti))
+        for b in blocchi_da_config(cfg):
+            if b.nome not in attesi:
+                continue
+            if b.griglia != attesi[b.nome] or any(not isinstance(p, (Intero, Reale)) or p.minimo != p.massimo
+                                                   for p in b.parametri):
+                sbagliati.append((tf, b.nome, b.griglia))
+    check("125. config standard (versione 3) da M1 a D1: un valore per parametro, gli stessi in barre su ogni timeframe "
+          "(D5 = A), e lo spazio dello zoom ha un punto solo", not sbagliati, str(sbagliati[:3]))
+    vuota = {n: _uno(n, standard=True).griglia for n in attesi}
+    check("126. {} nella config = i valori standard", vuota == attesi)
+    h1 = _uno("RSI_RIENTRO", "H1", standard=True, periodo_ore=(2, 4, 6, 9, 12))
+    d1 = _uno("DONCHIAN", "D1", standard=True, canale_ore=(4, 48, 96))
+    check("127. una config scritta a mano con le ore converte ancora come oggi (RSI su H1 5, 6, 9, 12 barre; Donchian "
+          "su D1 1, 2, 4); le soglie non scritte prendono il valore standard",
+          h1.griglia == {"periodo_barre": (5, 6, 9, 12), "soglia": (30,)} and d1.griglia == {"canale_barre": (1, 2, 4)})
+    a_mano = _uno("ATR_RELATIVO", "M5", standard=True, breve_barre=(10, 14), lungo_barre=(100,), soglia=(0.9, 1.0))
+    check("128. in barre a mano: nessuna conversione; doppi ore + barre, barre sotto il minimo o non intere si fermano",
+          a_mano.griglia == {"breve_barre": (10, 14), "lungo_barre": (100,), "soglia": (0.9, 1.0)}
+          and errore(lambda: _uno("RSI_RIENTRO", standard=True, periodo_ore=(2,), periodo_barre=(14,)))
+          and errore(lambda: _uno("ADX", standard=True, periodo_barre=(4,)))
+          and errore(lambda: _uno("DONCHIAN", standard=True, canale_barre=(20.5,)))
+          and errore(lambda: _uno("DONCHIAN", standard=True, finto_barre=(20,))))
+    check("129. la scheda legge le ore effettive dei valori standard: 20 barre sono 5 ore su M15 e 20 giorni su D1",
+          _uno("DONCHIAN", standard=True).griglia_ore() == {"canale_barre": (5.0,)}
+          and _uno("DONCHIAN", "D1", standard=True).griglia_ore() == {"canale_barre": (480.0,)})
+    # verifica_lookahead e verifica_degenerazione al valore standard, su barre sintetiche di ogni timeframe
+    silenzio, deg_ko, look_ko, contate = io.StringIO(), [], [], 0
+    for tf, minuti in MINUTI_TIMEFRAME.items():
+        reg.clear_registry()
+        nomi = []
+        for b in blocchi_da_config(_config(*NUOVI, timeframe=tf, standard=True)):
+            valori = b.centrali()
+            lati = (1, -1) if b.tipo == "trigger" else (1,)
+            for lato in lati:
+                nome = _etichetta(b, valori, lato if b.tipo == "trigger" else None) + f"_{tf}"
+                registra = (reg.register_entry(nome, direction=lato) if b.tipo == "trigger" else reg.register_filter(nome))
+                registra(lambda df_, _b=b, _v=valori, _l=lato: pd.Series(_b.maschera(Cache(df_, 20), _l, _v), index=df_.index))
+                nomi.append(nome)
+        df_tf = _mercato(9000, seme=3, minuti=minuti)
+        with contextlib.redirect_stdout(silenzio):
+            deg = verifica_degenerazione(df_tf, verbose=False)
+            look = verifica_lookahead(df_tf, prepara=lambda x: x.copy(), riscaldamento=3000, tagli_per_condizione=3,
+                                      verbose=False)
+        deg, look = deg[deg["nome"].isin(nomi)], look[look["nome"].isin(nomi)]
+        contate += len(nomi)
+        deg_ko += [(tf, n, e) for n, e in zip(deg["nome"], deg["esito"]) if e != "OK"] + ([(tf, "mancano")] if len(deg) != len(nomi) else [])
+        look_ko += [(tf, n, e) for n, e in zip(look["nome"], look["esito"]) if e != "OK"] + ([(tf, "mancano")] if len(look) != len(nomi) else [])
+    reg.clear_registry()
+    check("130. verifica_degenerazione al valore standard: OK su ogni timeframe da M1 a D1", not deg_ko,
+          f"{contate} condizioni; {deg_ko[:4]}")
+    check("131. verifica_lookahead al valore standard: OK su ogni timeframe da M1 a D1", not look_ko,
+          f"{contate} condizioni; {look_ko[:4]}")
 
     print("\n" + "=" * 70)
     print(f"Durata: {time.perf_counter() - t0:.0f} s")

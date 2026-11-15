@@ -39,7 +39,9 @@ QUI = os.path.dirname(os.path.abspath(__file__))
 NOTEBOOK = os.path.join(QUI, "Fabbrica_Strategie_Crypto.ipynb")
 SPOT = "BYBIT_SPOT_ETHUSDT"
 CONFINI = {"inizio": "2024-01-01 00:00", "ricerca_ore": 3000, "selezione_ore": 2000, "cassaforte_ore": 500}
-BLOCCHI = ("DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "X0", "X3")
+# docs/82 §12: con i valori standard ADX 14 sopra 25 è vero quasi sempre sul mercato sintetico ed esce come degenere;
+# TREND_CONTEXT dà il secondo filtro al turno 2 (come test_vetrina_fabbrica.py)
+BLOCCHI = ("DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "TREND_CONTEXT", "X0", "X3")
 FUNZIONI = {"configura", "ricerca", "imbuto", "strategie_rimaste", "cassaforte", "mm_e_stress", "schede"}
 TITOLI = ["Avvio", "1 · Configura", "2 · La ricerca", "3 · L'imbuto", "4 · Le strategie rimaste", "5 · La cassaforte",
           "6 · MM, stress test e verifica dei trade", "7 · Le schede"]
@@ -106,7 +108,8 @@ def _file(nb):
           "numerico, Poi", not lunghi, f"da rivedere: {lunghi}")
     glossario = next(c.source for c in nb.cells if c.cell_type == "markdown" and c.source.startswith("## Glossario"))
     sigle = ("**bp", "**EV:**", "**MM", "**t:**", "**Drawdown:**", "**Funding:**", "**Zoom:**", "**In-sample",
-             "**Asset:**", "**Cassaforte:**", "**Famiglia:**", "**Altopiano:**", "**Imbuto:**", "**Turno:**")
+             "**Asset:**", "**Cassaforte:**", "**Famiglia:**", "**Altopiano:**", "**Imbuto:**", "**Turno:**",
+             "**Valore standard:**")
     check("4. il glossario in testa spiega le sigle e le parole usate nelle celle", all(s in glossario for s in sigle),
           f"mancano: {[s for s in sigle if s not in glossario]}")
     chiamate = []

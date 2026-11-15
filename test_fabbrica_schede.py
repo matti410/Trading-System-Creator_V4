@@ -144,8 +144,8 @@ def _testi():
                     ("X3", (("durata_barre", 16), ("perc_stop", 90), ("target", None)))))
     righe = sch.regole_in_parole(st, "M15")["righe"]
     attese = [
-        "Entra long all'apertura della barra dopo quella in cui il Close supera il massimo degli High delle 12 ore "
-        "(48 barre) precedenti.",
+        "Entra long all'apertura della barra dopo quella in cui il Close supera il massimo degli High delle 48 barre "
+        "(12 ore) precedenti.",
         "Solo se il volume della barra è sopra la sua media delle ultime 5 ore (20 barre).",
         "Esce dopo 4 ore (16 barre), oppure quando il MACD scende sotto la sua signal, oppure allo stop: la distanza "
         "che contiene il 90% delle escursioni contrarie dei trade di 4 ore (16 barre) delle ultime 125 ore (500 barre), "
@@ -158,12 +158,27 @@ def _testi():
                       ("X0", (("durata_barre", 8), ("perc_stop", 80), ("target", 90)))))
     r_s = sch.regole_in_parole(st_s, "H1")["righe"]
     check("4. lo short su H1: soglia speculare dell'RSI (100 − 30 = 70), due filtri, target acceso",
-          r_s[0].startswith("Entra short") and "l'RSI di 4 ore (4 barre) scende sotto 70 da sopra" in r_s[0]
+          r_s[0].startswith("Entra short") and "l'RSI di 4 barre (4 ore) scende sotto 70 da sopra" in r_s[0]
           and "contiene l'80% delle escursioni contrarie" in r_s[2]
-          and r_s[1] == "Solo se l'ADX di 6 ore (6 barre) è sopra 25 e se il Close è sotto la media esponenziale di "
+          and r_s[1] == "Solo se l'ADX di 6 barre (6 ore) è sopra 25 e se il Close è sotto la media esponenziale di "
                         "50 ore (50 barre)."
           and "al target: la distanza che contiene il 90% delle escursioni favorevoli" in r_s[2]
           and "target spento" not in r_s[2], f"{r_s}")
+    st_std = Strategia(1, "DONCHIAN", ("ATR_RELATIVO",), "X0",
+                       (("DONCHIAN", (("canale_barre", 20),)),
+                        ("ATR_RELATIVO", (("breve_barre", 14), ("lungo_barre", 100), ("soglia", 1.0))),
+                        ("X0", (("durata_barre", 16), ("perc_stop", 90), ("target", None)))))
+    r_std = sch.regole_in_parole(st_std, "M15")["righe"]
+    check("4b. docs/82 §12: i quattro blocchi in barre con le ore fra parentesi, «valore standard» sui valori standard; "
+          "il nome breve in barre",
+          "il Close supera il massimo degli High delle 20 barre (5 ore) precedenti (valore standard)." in r_std[0]
+          and r_std[1] == "Solo se l'ATR di 14 barre (3,5 ore) diviso l'ATR di 100 barre (25 ore) è sopra 1 (valore "
+                          "standard)."
+          and "valore standard" not in sch.regole_in_parole(st, "M15")["righe"][0]
+          and sch.nome_breve("DONCHIAN", {"canale_barre": 20}, "M15") == "Donchian 20 barre (5 ore)"
+          and sch.nome_breve("RSI_RIENTRO", {"periodo_barre": 14, "soglia": 30}, "H1") == "RSI 14 barre (14 ore), soglia 30"
+          and sch.nome_breve("ATR_RELATIVO", {"breve_barre": 14, "lungo_barre": 100, "soglia": 1.0}, "D1")
+          == "ATR 14 barre (336 ore) / 100 barre (2400 ore) sopra 1", f"{r_std}")
 
     rotti = []
     for tf in MINUTI_TIMEFRAME:
