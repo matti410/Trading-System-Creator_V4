@@ -212,4 +212,3 @@ i primi K trigger del catalogo (nell'ordine fisso, ricetta per ricetta, long e s
 - Quasi tutto il tempo va nei 5 percentili mobili su 500 barre (circa 2 s ciascuno su M1, per ricetta).
 - Dati: M1, H1, H4, D1 scaricati il 15/11 con `scarica_dati_crypto.py` (nessun buco; su M1 182 barre a volume zero,
   segnalate); M5 dal Drive (fino al 4/11); M15 da `dati/` (fino al 19/10).
-- La memoria: con la cache di 2 ricette, su M1 circa 0,5 GB oltre al df.
