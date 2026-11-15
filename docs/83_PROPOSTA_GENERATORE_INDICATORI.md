@@ -187,3 +187,29 @@ Codice in `engine/generatore/` (ricette.py, trigger.py, catalogo.py), test in `t
   possono passare ai processi della fabbrica; `registra_trigger_generati(catalogo)` li registra nel motore.
 
 **Quante ricette ci sono** (prezzo + volume, dopo le uguali): con 1 operazione **112** ricette, 2.984 trigger.
+Fino a 2 operazioni **14.049** ricette (112 da 1, 13.937 da 2), 378.800 trigger: in quell'elenco 26.031 generate,
+9.416 tolte per scrittura, 2.468 uguali sul sintetico, 98 che non scattano mai. Con N ≤ 112 il catalogo ha solo
+ricette da 1 operazione. Le ricette da 3 operazioni non sono state contate (qualche milione da provare).
+
+## 12 · Tempi misurati (15/11/2026)
+
+BINANCE_PERP_BTCUSDT, dal 2/1/2020, sul PC di Mattia, un processo solo, a macchina libera. Tempo per **calcolare**
+i primi K trigger del catalogo (nell'ordine fisso, ricetta per ricetta, long e short), con la cache di una ricetta
+(indicatore e livelli calcolati una volta per i suoi 24–28 trigger). Non comprende il gruppo del ML né la fabbrica
+(§7, da misurare quando si collegano).
+
+| timeframe | barre | 100 trigger (4 ricette) | 500 trigger (20 ricette) | 2.000 trigger (76 ricette) |
+|---|---:|---:|---:|---:|
+| M1  | 3.614.206 | 48 s | 3 min 47 s | 15 min 43 s |
+| M5  |   719.580 | 10 s | 45 s | 3 min 4 s |
+| M15 |   238.326 | 3 s | 15 s | 61 s |
+| H1  |    60.237 | 0,8 s | 3,7 s | 15 s |
+| H4  |    15.059 | 0,2 s | 1,2 s | 4,8 s |
+| D1  |     2.509 | 0,1 s | 0,4 s | 1,8 s |
+
+- Il tempo cresce in proporzione alle barre e ai trigger: circa 0,13 microsecondi per barra e per trigger
+  (M1: 943 s / 3,6 milioni di barre / 2.000 trigger). Da qui si stima ogni altro N.
+- Quasi tutto il tempo va nei 5 percentili mobili su 500 barre (circa 2 s ciascuno su M1, per ricetta).
+- Dati: M1, H1, H4, D1 scaricati il 15/11 con `scarica_dati_crypto.py` (nessun buco; su M1 182 barre a volume zero,
+  segnalate); M5 dal Drive (fino al 4/11); M15 da `dati/` (fino al 19/10).
+- La memoria: con la cache di 2 ricette, su M1 circa 0,5 GB oltre al df.
