@@ -46,11 +46,12 @@ from engine.fabbrica.sessione import apri_sessione
 
 ORDINE_ESITI = {"scelta": 0, "stessa famiglia": 1, "scartata": 2}
 FILE_RIEPILOGO = "riepilogo.json"
-# La velocità vera di due ricerche C2 del 14/11, config standard, 3 processi, cella 2 intera (preparazione e selezione
-# comprese): (prove, secondi, barre del pezzo di ricerca). BINANCE_PERP_BTCUSDT M15, ricerca 20261114_dbb3724dbe5b: 405
-# prove al secondo; BINANCE_PERP_ETHUSDT H1, ricerca 20261114_2bd65fa4db60: 1.339 prove al secondo (Mattia, 14/11; prima
-# erano le ricerche del 9 e del 10/11). Serve solo per la stima della cella 1: il tempo vero si vede alla 2.
-RICERCHE_VERE = ((288_920, 713.819, 123_752), (245_970, 183.719, 30_938))
+# La velocità vera di due ricerche della versione 3 (valori standard, docs/82 §12, D6) del 15/11, config standard, 3
+# processi, cella 2 intera (preparazione e selezione comprese): (prove, secondi, barre del pezzo di ricerca).
+# BINANCE_PERP_BTCUSDT M15, ricerca 20261115_3b11a4f4c9ac: 487 prove al secondo; BINANCE_PERP_ETHUSDT H1, ricerca
+# 20261115_c293a834a50b: 1.064 prove al secondo (prima erano le ricerche C2 del 14/11, con i parametri ottimizzati).
+# Serve solo per la stima della cella 1: il tempo vero si vede alla 2.
+RICERCHE_VERE = ((268_322, 551.494, 123_801), (221_703, 208.287, 30_950))
 PROCESSI_VERI = 3
 FATTORE_PROCESSI = {1: 0.7, 2: 0.85}         # docs/82 §5: 380 / 543 valutazioni al secondo con 1 e 3 processi
 # docs/82 §12, D4 = A: anche le ricerche della versione 2 (parametri dei quattro blocchi ottimizzati) si fermano così
@@ -335,7 +336,7 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
     _nota(f"Turno 1: {_f(conf.teorie)} teorie; turno 2: al massimo {_f(conf.turno_2_massimo)}; al massimo "
           f"{_f(conf.budget_massimo)} prove (tetto {_f(config['budget']['totale'])}), {_minuti_da_a(da, a)} con "
           f"{config['processi']} {'processo' if config['processi'] == 1 else 'processi'} se servono tutte (stima dalla "
-          f"velocità delle ricerche vere del 14/11: il tempo vero si vede alla 2). Impronta "
+          f"velocità delle ricerche vere del 15/11: il tempo vero si vede alla 2). Impronta "
           f"{impronta_config(config)[:12]}.")
     _blocchi_esclusi(esclusi, config["timeframe"])
     _nota("Cambiare le regole dopo vuol dire una ricerca nuova, e le prove si sommano.")

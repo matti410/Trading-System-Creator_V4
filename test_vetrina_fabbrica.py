@@ -461,11 +461,11 @@ def _dati_e_confini(radice):
 def _c2(radice, r, conf):
     print("\nC2: un blocco per famiglia e i due turni nelle celle; la stima del tempo; le ricerche della versione 1")
     da, a = vf.stima_minuti(370_200, 123_752, 3)
-    check("32. (14/11) la stima della cella 1 viene dalla velocità vera delle ricerche del 14/11 (BTC perp M15: 405 "
-          "prove al secondo; ETH perp H1: 1.339, con 3 processi, in proporzione alle barre): 370.200 prove su 123.752 "
-          "barre fanno circa 15–18 minuti; con 1 processo di più, con meno barre di meno",
-          vf.RICERCHE_VERE == ((288_920, 713.819, 123_752), (245_970, 183.719, 30_938))
-          and round(da) == 15 and round(a) == 18
+    check("32. (15/11, D6) la stima della cella 1 viene dalla velocità vera delle due ricerche della versione 3 del 15/11 "
+          "(BTC perp M15: 487 prove al secondo; ETH perp H1: 1.064, con 3 processi, in proporzione alle barre): 370.200 "
+          "prove su 123.752 barre fanno circa 13–23 minuti; con 1 processo di più, con meno barre di meno",
+          vf.RICERCHE_VERE == ((268_322, 551.494, 123_801), (221_703, 208.287, 30_950))
+          and round(da) == 13 and round(a) == 23
           and vf.stima_minuti(370_200, 123_752, 1)[0] > da and vf.stima_minuti(370_200, 123_752 // 4, 3)[1] < a / 3,
           f"{da:.1f}–{a:.1f} minuti")
     d = os.path.join(radice, "M15")

@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard), solo testo, in attesa del via.
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»).
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -1130,7 +1130,26 @@ Script ed esiti in `dati/prove/d4_timeframe_20261112/` (`d4_sintetici.py`, `d4_r
 
 ## §12 · I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera)
 
-**Stato:** proposta, solo testo, in attesa del via di Mattia. Nessun codice.
+**Stato (15/11):** decisa da Mattia il 15/11 (D1–D6 come i consigli, §12.9; voce «Valori standard» di §8) e scritta sul
+ramo `fabbrica-valori-standard-proposta` (PR #115): il codice di §12.7 e i collaudi di §12.8, suite completa 62/62. D6: due
+ricerche vere con la config standard versione 3, celle 1–4, 3 processi, la cassaforte non aperta. Numeri di tempo e di
+conteggio, non un giudizio sulle strategie:
+
+| | BTC perp M15 (`20261115_3b11a4f4c9ac`) | ETH perp H1 (`20261115_c293a834a50b`) |
+|---|---|---|
+| tenuti (long trigger / filtri; short trigger / filtri) | 36 / 21; 36 / 22 | 28 / 20; 31 / 21 |
+| degeneri tolti all'avvio | nessuno | 3, del catalogo (E19 long, raro; E23 sui due lati, «STATO») |
+| turno 1: teorie → tenute | 4.860 → 172 | 3.810 → 547 |
+| turno 2: teorie → tenute | 2.692 → 787 | 2.627 → 1.043 |
+| zoom → reggono l'altopiano | 150 → 143 | 150 → 142 |
+| selezione → scelte | 0 → 0 | 0 → 0 |
+| prove contate (massimo; tetto) | 268.322 (370.200; 380.000) | 221.703 (322.200; 330.000) |
+| tempo stimato dalla cella 1 (velocità del 14/11) | 15–18 minuti | 3–4 minuti |
+| tempo vero della cella 2 | 551,5 s (9,2 minuti; 14/11: 11,9) | 208,3 s (3,5 minuti; 14/11: 3,1) |
+
+La velocità di queste due ricerche è in `RICERCHE_VERE` (487 e 1.064 prove al secondo): con lei la cella 1 stima 13–23
+minuti per 370.200 prove su BTC perp M15. Le teorie dei turni e i tenuti sono quelli misurati in §12.1 per BTC (identici)
+e per ETH (tenuti uguali; turno 1 3.810 come previsto).
 
 **L'idea (Mattia, 14/11 sera).** RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO non si ottimizzano più.
 - Nel passo 1 (tutti e due i turni) e nello zoom restano fermi sul loro **valore standard**, come i blocchi del catalogo. Lo
