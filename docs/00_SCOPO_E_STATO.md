@@ -165,7 +165,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 63 suite (dal 15/11 anche `test_generatore`), 3 alla volta, circa 28 minuti; alla fine deve stampare
+  --tutte`, 64 suite (dal 17/11 anche `test_lab_trigger_generati`), 3 alla volta, circa 28 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 143 condizioni (85 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 65 prove (+12 dei trigger intraday E46–E52, 02/11, `79`), dalla mappa 2 (E45,
