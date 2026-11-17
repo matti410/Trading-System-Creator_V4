@@ -191,6 +191,10 @@ Fino a 2 operazioni **14.049** ricette (112 da 1, 13.937 da 2), 378.800 trigger:
 9.416 tolte per scrittura, 2.468 uguali sul sintetico, 98 che non scattano mai. Con N ≤ 112 il catalogo ha solo
 ricette da 1 operazione. Le ricette da 3 operazioni non sono state contate (qualche milione da provare).
 
+**Nel Lab (17/11/2026):** campo `trigger_generati` della schermata 1 (nomi del catalogo, es. `G0002_P90_SU`; vuoto = Lab
+di prima); da lì sono trigger come E1–E52 (2c, rosa, 3b, atlante, conto delle prove), nei grafici con la ricetta.
+Nomi con `python -m engine.generatore --elenco`. Test: `test_lab_trigger_generati.py`.
+
 ## 12 · Tempi misurati (15/11/2026)
 
 BINANCE_PERP_BTCUSDT, dal 2/1/2020, sul PC di Mattia, un processo solo, a macchina libera. Tempo per **calcolare**
