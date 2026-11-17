@@ -541,6 +541,87 @@ def _registra_condizioni() -> None:
         vwap_regime_filter_conditions.registra_filtri_vwap()
 
 
+# ------------------------------------------------- trigger generati (docs/83)
+class LabFermo(Exception):
+    """
+    17/11/2026: ferma la schermata con un messaggio in chiaro (il riquadro arancione sopra), senza il traceback di
+    Python nel notebook. Fuori dal notebook e' un'eccezione normale con lo stesso messaggio.
+    """
+
+    def _render_traceback_(self):        # IPython mostra queste righe al posto del traceback
+        return ["La schermata si è fermata: leggi il riquadro arancione qui sopra."]
+
+
+def _ferma(testo: str):
+    _avviso(testo)
+    raise LabFermo(testo)
+
+
+def _nomi_generati_registrati() -> list[str]:
+    """I trigger generati (engine/generatore) oggi nel registro."""
+    from .generatore.trigger import TriggerGenerato
+    return [n for n in reg.list_entries() if isinstance(reg.get_entry(n), TriggerGenerato)]
+
+
+def carica_trigger_generati(nomi, solo_long: bool = False, percorso=None) -> dict:
+    """
+    17/11/2026 (docs/83): i trigger del catalogo generato (dati_catalogo/generati_v1.json) indicati per nome, es.
+    "G0002_P90_SU, G0002_SHORT_P90_SU" o una lista. Ritorna {nome: TriggerGenerato}; vuoto = {}.
+    Catalogo mancante, nome che non c'e' o short sullo spot: si ferma con un messaggio che dice cosa fare.
+    """
+    nomi = list(dict.fromkeys(_lista_nomi(nomi)))
+    if not nomi:
+        return {}
+    from .generatore.catalogo import carica_catalogo, percorso_catalogo, trigger_del_catalogo
+    try:
+        cat = carica_catalogo(percorso)
+    except FileNotFoundError:
+        _ferma(f"Hai indicato dei trigger generati ({', '.join(nomi)}), ma il catalogo dei trigger generati non c'è "
+               f"({percorso or percorso_catalogo()}). Crealo dal terminale, nella cartella del progetto, con "
+               "«python -m engine.generatore --n 112» (112 è il tetto scelto il 16/11), poi riesegui la schermata 1. "
+               "Oppure lascia vuoto il campo «trigger_generati»: il Lab lavora con il solo catalogo.")
+    lunghi, corti = trigger_del_catalogo(cat)
+    sbagliati = [n for n in nomi if n not in lunghi and n not in corti]
+    if sbagliati:
+        _ferma(f"Questi nomi non sono nel catalogo dei trigger generati (versione {cat['versione']}, "
+               f"{len(lunghi) + len(corti)} trigger): {', '.join(sbagliati)}. I nomi sono fatti così: "
+               "G0002_P90_SU (long), G0002_SHORT_P90_SU (short). L'elenco completo, con le ricette, lo stampa "
+               "«python -m engine.generatore --elenco» dal terminale, nella cartella del progetto. Correggi il campo "
+               "«trigger_generati» e riesegui la schermata 1, oppure lascialo vuoto.")
+    if solo_long:
+        short = [n for n in nomi if n in corti]
+        if short:
+            _ferma(f"Sullo spot lo short non esiste: togli dal campo «trigger_generati» {', '.join(short)} (tieni "
+                   "solo i nomi senza _SHORT_) e riesegui la schermata 1.")
+    return {n: lunghi.get(n) or corti[n] for n in nomi}
+
+
+def _registra_generati(scelti: dict) -> None:
+    """Nel registro solo i trigger generati scelti adesso: quelli di un giro prima della schermata 1 si tolgono."""
+    for n in _nomi_generati_registrati():
+        reg.remove_entries(n)
+    for n, f in scelti.items():
+        reg.register_entry(n, direction=f.lato)(f)
+
+
+def nome_con_ricetta(nome: str) -> str:
+    """
+    17/11/2026 (docs/83): il nome di un trigger generato con la sua ricetta leggibile, per i grafici, es.
+    «G0002_P90_SU · media(sv, 14): attraversa P90 verso l'alto». Gli altri trigger restano come sono.
+    """
+    try:
+        f = reg.get_entry(nome)
+    except KeyError:
+        return nome
+    from .generatore.trigger import TriggerGenerato
+    if not isinstance(f, TriggerGenerato):
+        return nome
+    from .generatore.ricette import testo
+    livello = {"ZERO": "lo zero", "MEDIA20": "la sua media di 20 barre"}.get(f.livello, f.livello)
+    verso = "verso l'alto" if f.verso == "SU" else "verso il basso"
+    return f"{nome} · {testo(f.ricetta)}: attraversa {livello} {verso}"
+
+
 def _e_oraria(nome) -> bool:
     from condizioni_orarie import e_oraria
     return e_oraria(nome)
@@ -1296,7 +1377,7 @@ def tabella_orizzonti(rose: dict, timeframe: str, unita: str) -> pd.DataFrame:
 def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
             cartella: str = "dati", timeframe: str = "M15", funding: bool = True,
             motore: str | None = None, confine=None, aggiorna: bool = False,
-            ricalcola_confine: str = "", macchina: str | None = None) -> Sessione:
+            ricalcola_confine: str = "", macchina: str | None = None, trigger_generati="") -> Sessione:
     """
     Schermata 1. Carica lo storico dal CSV, calcola costi e indicatori,
     divide in-sample / out-of-sample e carica le condizioni dal registro.
@@ -1325,6 +1406,10 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
                       il confine dello studio (solo sul PC); "" = niente
     macchina          25/10/2026 (docs/70 §4.3): il nome del giornale ("pc", "colab");
                       None = "colab" su Colab, "pc" altrove
+    trigger_generati  17/11/2026 (docs/83): nomi del catalogo generato (dati_catalogo/generati_v1.json),
+                      separati da virgola o in una lista, es. "G0002_P90_SU, G0002_SHORT_P90_SU": entrano
+                      nel registro e da qui in poi sono trigger come E1-E52 (2c, rosa, 3b, atlante...).
+                      Vuoto (default) = come prima. Elenco dei nomi: python -m engine.generatore --elenco
 
     11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
     symbol solo dalla tabella di engine/simboli.py; spread dal solo listino
@@ -1344,6 +1429,13 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     # GRIGLIA (1, 4 e 8 ore): allora H e' provvisorio, il piu' lungo, finche' non si sceglie alla 2c
     orizzonti = leggi_orizzonte(H, timeframe)
     H = orizzonti[-1]
+    # 17/11/2026 (docs/83): i trigger generati scelti, controllati prima di caricare i dati
+    if _lista_nomi(trigger_generati):
+        from .exchange import solo_long as _solo_long
+        generati = carica_trigger_generati(trigger_generati,
+                                           solo_long=da_exchange(symbol) and _solo_long(symbol))
+    else:
+        generati = {}
     # 25/10/2026 (docs/70): aggiornamento, studio, reset e taglio al funding; con confine=None
     # apri_dati fa solo quello che facevano prima carica_storico e carica_funding
     dati = apri_dati(symbol, timeframe, cartella, confine=confine, aggiorna=aggiorna,
@@ -1380,6 +1472,8 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     condizioni_orarie.imposta_fuso(s.fuso)   # 19/10/2026: entry e uscite a orario
     s.spread_pips, s.spread_rollover_pips, s.fonte_spread = sp["normale"], sp["rollover"], sp["fonte"]
     _registra_condizioni()
+    _registra_generati(generati)              # 17/11/2026 (docs/83): vuoto = toglie solo quelli di un giro prima
+    s.trigger_generati = tuple(generati)
     # 25/10/2026 (docs/68 §9.1, correzione A di Mattia): il registro del dataset (symbol, timeframe,
     # confine dell'in-sample). Con lo stesso dataset la sessione nuova riprende il conto delle prove e
     # il diario dell'out-of-sample; un H diverso e' una risalita, e la scelta fra gli H provati si conta
@@ -1419,6 +1513,10 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
               (_frase_griglia(s) if s.griglia else f"{H} barre ({_fmt(H * _minuti_barra(timeframe) / 60, 1)} ore)"),
               f"{len(_trigger_candidati(1))} long · {n_short}",
               _fmt(len(_tutti_i_filtri()))]
+    if generati:                              # 17/11/2026 (docs/83): sono gia' contati fra i trigger disponibili
+        voci.insert(voci.index("Trigger disponibili") + 1, "Trigger generati (docs/83)")
+        valori.insert(voci.index("Trigger generati (docs/83)"),
+                      "; ".join(nome_con_ricetta(n) for n in generati) + " · già compresi nei trigger disponibili")
     if s.da_exchange and not s.solo_long:
         voci.append("Funding (perpetual)")
         valori.append(_frase_funding(s))      # 21/10/2026
@@ -1570,7 +1668,7 @@ def _grafico_curve(s: Sessione, candidati: list[str], lato: str) -> None:
     mercato = s.ev.in_pips(s.ev.mercato)
     fig, ax = plt.subplots(figsize=(11, 5))
     for c in candidati:
-        ax.plot(curve.index, curve[c], lw=1.7, label=c)
+        ax.plot(curve.index, curve[c], lw=1.7, label=nome_con_ricetta(c))   # 17/11/2026: ricetta dei generati
     ax.plot(mercato.index, mercato[candidati[0]], color="black", ls="--", lw=1.2,
             label=f"entrando {lato} a caso (tutte le barre)")
     ax.axhline(0, color="black", lw=0.8)
@@ -1620,7 +1718,7 @@ def grafico_scarto(curve: pd.DataFrame, H: int, unita: str, lato: str, punti=Non
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(11, 5))
     for c in curve.columns:
-        ax.plot(curve.index, curve[c], lw=1.7, label=c)
+        ax.plot(curve.index, curve[c], lw=1.7, label=nome_con_ricetta(c))   # 17/11/2026: ricetta dei generati
     ax.axhline(0, color="black", lw=0.8)
     for k in punti or ():
         ax.axvline(k, color="gray", ls=":", lw=1.2)
@@ -2480,8 +2578,8 @@ def grafico_atlante(tab: pd.DataFrame, trigger: list[str]) -> None:
             if mot:
                 ax.text(0.01, yi, motivo_in_chiaro(mot), transform=ax.get_yaxis_transform(), va="center",
                         fontsize=7.5, color="#666666")
-        ax.set_title(f"{nome} · quanto batte il mercato, situazione per situazione (solidità)", loc="left",
-                     fontsize=10)
+        ax.set_title(f"{nome_con_ricetta(nome)} · quanto batte il mercato, situazione per situazione (solidità)",
+                     loc="left", fontsize=10)              # 17/11/2026: ricetta dei generati (docs/83)
         ax.set_xlabel("solidità (t)")
     plt.tight_layout()
     plt.show()

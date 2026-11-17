@@ -3,6 +3,7 @@ Crea il catalogo generato (docs/83 §6).
 
     python -m engine.generatore --n 80              le prime 80 ricette diverse -> dati_catalogo/generati_v1.json
     python -m engine.generatore --n 80 --esempi 10  e mostra 10 ricette leggibili
+    python -m engine.generatore --elenco            ricette e nomi dei trigger del catalogo salvato (per il Lab)
 
 Il tetto --n (numero di ricette) e' obbligatorio: lo sceglie Mattia dopo la misura dei tempi (docs/83 §7).
 Stampa: ricette generate, ricette tolte come uguali (per scrittura e sul dataset sintetico), trigger risultanti.
@@ -20,7 +21,11 @@ def main(argv=None) -> int:
     p.add_argument("--n", type=int, default=None, help="tetto: quante ricette tenere (obbligatorio, docs/83 §7)")
     p.add_argument("--file", default=None, help="dove salvare (di base dati_catalogo/generati_v<versione>.json)")
     p.add_argument("--esempi", type=int, default=5, help="quante ricette leggibili mostrare (di base 5)")
+    p.add_argument("--elenco", action="store_true",
+                   help="stampa ricette e nomi dei trigger del catalogo salvato (non rigenera niente)")
     a = p.parse_args(argv)
+    if a.elenco:
+        return elenco(a.file)
     if a.n is None:
         print("Manca il tetto N. Scegli quante ricette tenere guardando i tempi di docs/83 («Tempi misurati») e "
               "lancia per esempio:\n    python -m engine.generatore --n 80")
@@ -48,6 +53,29 @@ def main(argv=None) -> int:
         print("\nEsempi:")
         for r in cat["ricette"][:a.esempi]:
             print(f"  {r['id']}  {r['ricetta']:<40}  {r['famiglia']:<28}  {len(r['trigger'])} trigger")
+    return 0
+
+
+def elenco(file=None) -> int:
+    """17/11/2026: ricette e nomi dei trigger del catalogo salvato, da copiare nel Lab (schermata 1)."""
+    from engine.generatore import carica_catalogo
+    try:
+        cat = carica_catalogo(file)
+    except FileNotFoundError as e:
+        print(f"{e}")
+        return 2
+    print(f"Catalogo generato, versione {cat['versione']}: {len(cat['ricette'])} ricette, "
+          f"{cat['conteggi']['trigger']} trigger.")
+    print("Nomi: <ricetta>_<livello>_<verso> per il long, <ricetta>_SHORT_<livello>_<verso> per lo short.")
+    print("Livelli: ZERO (lo zero, solo indicatori con segno), MEDIA20 (la media dell'indicatore su 20 barre), "
+          "P10 P25 P50 P75 P90 (percentili mobili su 500 barre). Versi: SU = verso l'alto, GIU = verso il basso.")
+    print("Esempio: G0002_P90_SU = la ricetta G0002 sale sopra il suo 90° percentile (long).\n")
+    for r in cat["ricette"]:
+        lunghi = [t["nome"] for t in r["trigger"] if t["lato"] == "long"]
+        corti = [t["nome"] for t in r["trigger"] if t["lato"] == "short"]
+        print(f"{r['id']}  {r['ricetta']}   [{r['famiglia']}, {len(r['trigger'])} trigger]")
+        print("   long:  " + " ".join(lunghi))
+        print("   short: " + " ".join(corti))
     return 0
 
 
