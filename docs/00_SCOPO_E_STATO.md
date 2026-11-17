@@ -22,6 +22,9 @@ barre (RSI 14 e 30, Donchian 20, ADX 14 e 25, ATR relativo 14, 100 e 1,0), gli s
 zoom cercano solo le uscite, l'altopiano li sposta di ±15%; config versione 3 (le ricerche della 2 restano su disco e
 nel conto, le celle 4–7 su una di esse dicono di rilanciare la 2). La stima della cella 1 viene dalle due ricerche vere
 della versione 3 del 15/11 (BTC perp M15 9,2 minuti, ETH perp H1 3,5, con 3 processi).
+**Incarico 83 (15/11/2026): il generatore di indicatori e trigger prezzo + volume** (`83_PROPOSTA_GENERATORE_INDICATORI.md`,
+ramo `generatore-indicatori`): `engine/generatore/`, si lancia con `python -m engine.generatore --n N`; il tetto N lo
+sceglie Mattia dai tempi misurati (`83` §12). Il collegamento al ML e alla fabbrica sono lavori a parte.
 Regola di progetto: la pipeline il più semplice possibile (`CLAUDE.md`). **Eccezione: in
 `engine/fabbrica/` i parametri si ottimizzano (`docs/81_FABBRICA`).** Il catalogo dei trigger intraday (`78`, `79`) è unito (PR #97): 12 trigger nuovi
 E46–E52, E50 spento come doppione di E3.
@@ -161,7 +164,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 62 suite, 3 alla volta, circa 28 minuti; alla fine deve stampare
+  --tutte`, 63 suite (dal 15/11 anche `test_generatore`), 3 alla volta, circa 28 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 143 condizioni (85 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 65 prove (+12 dei trigger intraday E46–E52, 02/11, `79`), dalla mappa 2 (E45,

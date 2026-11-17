@@ -53,7 +53,8 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
 (docs/50 §9.2) vale solo per le consegne in chat.
 
 ## Regole di codice
-- Nuovi indicatori solo in engine/indicatori.py.
+- Nuovi indicatori solo in engine/indicatori.py. Eccezione: gli indicatori e i trigger GENERATI (docs/83) stanno in
+  engine/generatore/ e nel file dati_catalogo/generati_v<versione>.json; non si scrivono a mano.
 - Condizioni nei dizionari di entry_long.py, entry_short.py, filter_conditions.py, exit_*.py.
 - Modifiche all'engine il più possibile additive; se non lo sono, dichiaralo.
 - Nessun lookahead: ogni condizione passa verifica_lookahead e verifica_degenerazione.
