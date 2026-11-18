@@ -61,11 +61,15 @@ def _come_dizionario(dati) -> dict[str, pd.DataFrame]:
     return dict(dati) if isinstance(dati, dict) else {"": dati}
 
 
-def _colonna(df: pd.DataFrame, tipo: str, nome: str) -> np.ndarray:
-    """Le barre vere di una condizione (NaN = falso; numerica: != 0)."""
-    s = _PRENDI[tipo](nome)(df)
+def barre_vere(s: pd.Series) -> np.ndarray:
+    """Le barre vere della serie di una condizione (NaN = falso; numerica: != 0)."""
     v = pd.to_numeric(s, errors="coerce").to_numpy(dtype=float) if s.dtype != bool else s.to_numpy()
     return np.nan_to_num(v, nan=0.0) != 0
+
+
+def _colonna(df: pd.DataFrame, tipo: str, nome: str) -> np.ndarray:
+    """Le barre vere di una condizione (NaN = falso; numerica: != 0)."""
+    return barre_vere(_PRENDI[tipo](nome)(df))
 
 
 def _allarga(m: np.ndarray, finestra: int, asse: int = 0) -> np.ndarray:
@@ -88,11 +92,16 @@ def _allarga(m: np.ndarray, finestra: int, asse: int = 0) -> np.ndarray:
 BYTE_PER_PEZZO = 64_000_000        # la memoria di una matrice di pezzo (float32)
 
 
-def _misure(df: pd.DataFrame, tipo: str, nomi: list[str], finestra: int) -> dict:
+def _misure(df: pd.DataFrame, tipo: str, nomi: list[str], finestra: int, memoria=None) -> dict:
     n, k = len(df), len(nomi)
     compressa = np.zeros((k, (n + 7) // 8), dtype=np.uint8)       # riga i = barre vere della condizione i
     for i, nome in enumerate(nomi):
-        compressa[i] = np.packbits(_colonna(df, tipo, nome))
+        if memoria is not None and nome in memoria:
+            compressa[i] = memoria[nome]
+        else:
+            compressa[i] = np.packbits(_colonna(df, tipo, nome))
+            if memoria is not None:
+                memoria[nome] = compressa[i].copy()
     conti = np.zeros((k, k))           # conti[i, j] = barre vere di i che cadono su j allargato
     vere = np.zeros(k)
     larghe = np.zeros(k)               # barre coperte da j allargato
@@ -116,12 +125,14 @@ def _misure(df: pd.DataFrame, tipo: str, nomi: list[str], finestra: int) -> dict
     return {"quota": quota, "lift": lift, "vere": vere, "copertura": vere / n}
 
 
-def _prepara(dati, tipo: str, nomi, finestra):
+def _prepara(dati, tipo: str, nomi, finestra, memoria=None):
     if tipo not in FINESTRA:
         raise ValueError(f"tipo deve essere uno di {tuple(FINESTRA)}, non {tipo!r}")
     nomi = list(_ELENCO[tipo]()) if nomi is None else list(nomi)
     finestra = FINESTRA[tipo] if finestra is None else int(finestra)
     dati = _come_dizionario(dati)
+    if memoria is not None and len(dati) == 1:
+        return nomi, finestra, {s: _misure(df, tipo, nomi, finestra, memoria=memoria) for s, df in dati.items()}
     return nomi, finestra, {s: _misure(df, tipo, nomi, finestra) for s, df in dati.items()}
 
 
@@ -179,7 +190,7 @@ def somiglianze(dati, tipo: str = "entry", nomi=None, finestra: int | None = Non
 
 
 def famiglie(dati, tipo: str = "entry", nomi=None, finestra: int | None = None,
-             soglia: float = SOGLIA_FAMIGLIA, lift_min: float = LIFT_MIN) -> pd.DataFrame:
+             soglia: float = SOGLIA_FAMIGLIA, lift_min: float = LIFT_MIN, memoria=None) -> pd.DataFrame:
     """
     Le condizioni raggruppate in famiglie, una riga per condizione:
 
@@ -191,8 +202,11 @@ def famiglie(dati, tipo: str = "entry", nomi=None, finestra: int | None = None,
 
     Una condizione con `membri` = 1 apre una famiglia sua: porta un'idea che
     nel catalogo non c'e'. Ordinata per famiglia, poi per nome.
+
+    memoria  18/11/2026: un dizionario {nome: barre vere compresse} da riusare fra piu' chiamate sullo STESSO df
+             (la rosa a tre orizzonti): ogni condizione si calcola una volta. Stessi numeri.
     """
-    nomi, _, mis = _prepara(dati, tipo, nomi, finestra)
+    nomi, _, mis = _prepara(dati, tipo, nomi, finestra, memoria)
     if not nomi:
         return pd.DataFrame(columns=["nome", "famiglia", "membri", "piu_vicina", "somiglianza"])
     sim = _somiglianza(mis, lift_min)

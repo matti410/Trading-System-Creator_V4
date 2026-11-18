@@ -332,6 +332,9 @@ fattore_n=1.0) -> (errore, a_blocchi)` si sposta da `mappa.py` a `stagionalita.p
   diagonale e sulla riserva a blocchi, esattamente come nel collaudo.
 - Le coppie a meno di H barre contano per intero; se la varianza esce zero o negativa, blocchi di
   una settimana (`a_blocchi = True`). Le barre in una settimana si ricavano dal passo delle barre.
+- Stessa formula con le somme cumulative di `u` (la somma degli `u` a meno di H barre dopo ognuno è la
+  differenza di due somme cumulative): tempo proporzionale alle barre invece che a barre per H, numeri
+  uguali a meno dell'arrotondamento (18/11/2026, decisione di Mattia).
 
 **7.2 · Event study e rosa.** `event_study._errore_standard_sovrapposti` resta come funzione di comodo
 e chiama la funzione unica con `pos`. Entra `_es_senza_sconto` (Mattia, 28/10): con ingressi tutti a

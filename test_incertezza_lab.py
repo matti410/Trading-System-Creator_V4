@@ -438,6 +438,7 @@ def confronto_collaudo(per_variante: int) -> dict:
     funzioni sostituite, come nella PR #86) e il codice nuovo dell'engine."""
     idx = _indice("2022-01-03", giorni=800, minuti=15)
     bit = dict.fromkeys(("es_incertezza", "es_t", "rosa_t", "profilo_incertezza"), True)
+    scarto = dict.fromkeys(bit, 0.0)
     scelte = dict.fromkeys(("rosa", "atlante", "event study", "profilo"), True)
     diff, nan_uguali, uguali, celle = 0.0, True, 0, 0
     for vv in (False, True):
@@ -450,8 +451,15 @@ def confronto_collaudo(per_variante: int) -> dict:
                     c = _valori(df)
                 n_ = _valori(df)
                 for chiave in bit:
-                    bit[chiave] &= bool(c[chiave].shape == n_[chiave].shape
-                                        and np.array_equal(c[chiave], n_[chiave], equal_nan=True))
+                    # 18/11/2026 (decisione di Mattia): l'incertezza con le somme cumulative, entro 1e-9 in relativo
+                    x, y = c[chiave], n_[chiave]
+                    stessi = x.shape == y.shape and np.array_equal(np.isnan(x), np.isnan(y))
+                    bit[chiave] &= bool(stessi)
+                    if stessi:
+                        ok = np.isfinite(x) & np.isfinite(y) & (x != 0)
+                        if ok.any():
+                            scarto[chiave] = max(scarto[chiave], float(np.max(np.abs(x[ok] - y[ok]) / np.abs(x[ok]))))
+                        bit[chiave] &= bool(np.array_equal(x[~ok & np.isfinite(x)], y[~ok & np.isfinite(x)]))
                 for chiave in scelte:
                     scelte[chiave] &= bool(np.array_equal(c["scelte"][chiave], n_["scelte"][chiave]))
                 a, b = c["atlante_t"], n_["atlante_t"]
@@ -461,7 +469,8 @@ def confronto_collaudo(per_variante: int) -> dict:
                     diff = max(diff, float(np.max(np.abs(a[ok] - b[ok]) / np.abs(a[ok]))))
                     uguali += int((a[ok] == b[ok]).sum())
                     celle += int(ok.sum())
-    return {"bit": bit, "scelte": scelte, "diff_atlante": diff, "nan_uguali": nan_uguali,
+    bit = {k: v and scarto[k] <= 1e-9 for k, v in bit.items()}
+    return {"bit": bit, "scarto": scarto, "scelte": scelte, "diff_atlante": diff, "nan_uguali": nan_uguali,
             "atlante_bit": (uguali, celle)}
 
 
@@ -590,8 +599,10 @@ def esegui(argv) -> int:
     print(f"  ({time.time() - t0:.0f} s) atlante: differenza relativa massima {d['diff_atlante']:.1e}, "
           f"t uguali al bit {d['atlante_bit'][0]}/{d['atlante_bit'][1]}")
     check("D1. event study (incertezza a ogni barra e solidità), rosa (t_netto e t_globale) e profilo "
-          "(incertezza): identici al bit al calcolo collaudato",
-          all(d["bit"].values()), ", ".join(f"{k} {'sì' if v else 'NO'}" for k, v in d["bit"].items()))
+          "(incertezza): uguali al calcolo collaudato entro 1e-9 in relativo (dal 18/11/2026 l'incertezza si "
+          "somma con le somme cumulative, decisione di Mattia; prima: al bit)",
+          all(d["bit"].values()), ", ".join(f"{k} {'sì' if v else 'NO'} ({d['scarto'][k]:.1e})"
+                                            for k, v in d["bit"].items()))
     # l'atlante: il motore numba somma in fila, il collaudo (mappa.errore_sovrapposti) a coppie con numpy
     check("D2. atlante: t entro 1e-12 in relativo dal calcolo collaudato (la differenza viene dall'ordine "
           "delle somme: in fila contro a coppie), stesse celle misurate",

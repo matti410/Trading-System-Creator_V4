@@ -58,6 +58,8 @@ ridà esattamente i numeri di prima.
 """
 from __future__ import annotations
 
+import itertools
+import os
 from statistics import NormalDist
 
 import numpy as np
@@ -65,7 +67,7 @@ import pandas as pd
 
 from . import registry as _reg
 from .event_study import _errore_standard_sovrapposti
-from .famiglie import SOGLIA_FAMIGLIA, famiglie
+from .famiglie import SOGLIA_FAMIGLIA, barre_vere, famiglie
 from .giudizio import t_stat
 from .livelli import giorno_fx
 from .metriche import atr_alla_entrata, pips_per_trade
@@ -221,7 +223,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
                rho_max: float = RHO_MAX, min_eventi: int = MIN_EVENTI,
                quarantena=True, baseline: str = "oraria",
                fuso: str = FUSO_PREDEFINITO, unita: str = "pips",
-               unita_extra=None, atr=None, segnali=None) -> pd.DataFrame:
+               unita_extra=None, atr=None, processi=1) -> pd.DataFrame:
     """
     La rosa delle entry sull'in-sample, a orizzonte H. Stessa convenzione
     dell'event study: trigger sulla barra i, ingresso a Open[i+1], misura a
@@ -244,9 +246,8 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
                  scarto_<u>, t_<u>, due_meta_<u>; None = le altre due
     atr          la serie di indicatori.atr_giornaliero_chiuso (meglio sullo
                  storico intero); None = calcolata su df_is
-    segnali      18/11/2026: i segnali gia' calcolati, {nome: barre vere compresse con np.packbits}
-                 (segnali_compressi): la rosa a piu' orizzonti calcola ogni trigger una volta. None =
-                 calcolati qui, come prima. Stessi numeri.
+    processi     18/11/2026: i processi della misura (1 = questo processo, None = PROCESSI); stessi
+                 numeri. La misura e' quella di rosa_orizzonti_entry, a un orizzonte solo.
 
     Con unita="pips" i numeri delle colonne di prima sono identici.
 
@@ -271,103 +272,324 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     In .attrs: k (entry misurate), q, rho_max, H, scartate (sotto min_eventi),
     baseline, fuso, unita.
     """
-    oraria = _controlla_baseline(baseline) == "oraria"
-    unita, extra = _controlla_unita(unita, unita_extra)
-    H = int(H)
-    if H < 1:
-        raise ValueError("H deve essere almeno 1 barra.")
-    if pip is None or not float(pip) > 0:
-        raise ValueError("pip obbligatorio: il pip fisso del symbol (engine/simboli.py).")
-    pip = float(pip)
-    if nomi is None:
-        nomi = _entry_vere()
-    nomi = list(nomi)
+    return rosa_orizzonti_entry(df_is, [H], pip, nomi=nomi, q=q, soglia_famiglia=soglia_famiglia, rho_max=rho_max,
+                                min_eventi=min_eventi, quarantena=quarantena, baseline=baseline, fuso=fuso,
+                                unita=unita, unita_extra=unita_extra, atr=atr, processi=processi)[0][int(H)]
 
+
+# ------------------------------------------------------------------------
+# La misura dei trigger, a uno o piu' orizzonti e in uno o piu' processi (18/11/2026, decisioni di Mattia)
+# ------------------------------------------------------------------------
+# - Ogni trigger si calcola una volta e si misura a tutti gli orizzonti chiesti.
+# - I trigger generati long e short della stessa ricetta, livello e verso hanno la stessa serie
+#   (engine/generatore/trigger.py): segnale e misura si fanno una volta per coppia e lo short e' l'opposto esatto
+#   del long (scarto, t e due meta' col segno cambiato, stessa incertezza, serie giornaliera negata). Nel BH contano
+#   tutti e due. I trigger del catalogo si misurano uno per uno, come prima.
+# - Con piu' processi ognuno misura i suoi gruppi di trigger (una ricetta generata, o qualche trigger del catalogo)
+#   sugli stessi dati: i numeri sono quelli di un processo solo, al bit.
+# - Il conto dell'event study (run_event_study) senza l'event study: per ogni trigger le occasioni con la sua
+#   maschera (segnale & ingresso valido & quarantena) e la prima barra k in cui almeno un'occasione ha il prezzo;
+#   e' misurato a H se le occasioni sono almeno il minimo e quella barra e' <= H (misurati_event_study).
+
+PROCESSI = 4     # 18/11/2026: i processi della misura (memoria massima sotto 4 GB su M5 con «tutti», docs/83)
+
+
+def _base(df_is: pd.DataFrame, quarantena, oraria: bool, fuso: str, atr_is) -> dict:
+    """I dati comuni a tutti gli orizzonti, solo array (si passano ai processi)."""
     n = len(df_is)
     close = df_is["Close"].to_numpy(dtype=float)
     open_ = df_is["Open"].to_numpy(dtype=float)
     ingresso = np.full(n, np.nan)
     ingresso[: n - 1] = open_[1:]
+    meta = n // 2
+    return dict(n=n, close=close, ingresso=ingresso, pulito=maschera_segnali_puliti(df_is, quarantena),
+                meta=meta, prima=np.arange(n) < meta, giorno=np.asarray(giorno_fx(df_is)),
+                codici=fasce_orarie(df_is.index, fuso)[0] if oraria else None,
+                settimana=barre_settimana(df_is.index), atr=atr_is)
+
+
+def _contesto(B: dict, H: int, pip: float, unita: str, extra, oraria: bool) -> dict:
+    """Rendimenti a H barre, barre utili e mercato in ogni unita' (stesse formule di prima)."""
+    n, close, ingresso = B["n"], B["close"], B["ingresso"]
     fwd = np.full(n, np.nan)                      # rendimento long a H barre, in pips
     if n > H:
         fwd[: n - H] = (close[H:] - ingresso[: n - H]) / pip
     valido = np.isfinite(fwd) & np.isfinite(ingresso) & (ingresso > 0)
-    pulito = maschera_segnali_puliti(df_is, quarantena)
-    meta = n // 2
-    prima = np.arange(n) < meta
-    giorno = np.asarray(giorno_fx(df_is))
-    uscita = np.minimum(np.arange(n) + H, n - 1)
-    codici = fasce_orarie(df_is.index, fuso)[0] if oraria else None
-    settimana = barre_settimana(df_is.index)     # 28/10/2026: i blocchi dell'incertezza (docs/75 §7)
-    atr_is = _atr_su(df_is, atr) if "atr" in (unita, *extra) else None
+    meta, prima, codici = B["meta"], B["prima"], B["codici"]
 
     def mercato_in(u: str) -> dict:
-        """Rendimenti, mercato e barre utili nell'unita' u."""
-        f = in_unita(fwd, u, pip, prezzo=ingresso, atr=atr_is)
-        usa = valido & pulito & np.isfinite(f)
+        f = in_unita(fwd, u, pip, prezzo=ingresso, atr=B["atr"])
+        usa = valido & B["pulito"] & np.isfinite(f)
         M = dict(fwd=f, mercato=float(np.nanmean(f)),
                  mercato_meta=(float(np.nanmean(f[:meta])), float(np.nanmean(f[meta:]))),
                  usa=usa, usa_meta=(usa & prima, usa & ~prima))
         if oraria:
-            # 18/11/2026: le medie di fascia e le barre per fascia sono le stesse per tutti i trigger: una volta sola
+            # le medie di fascia e le barre per fascia sono le stesse per tutti i trigger: una volta sola
             n_cod = int(codici.max()) + 1
             M.update(media=media_per_fascia(f, codici, usa),
                      media_meta=tuple(media_per_fascia(f, codici, x) for x in M["usa_meta"]),
                      barre_fascia=np.bincount(codici, weights=usa.astype(float), minlength=n_cod))
+            M["resto"] = np.where(usa, f - M["media"], 0.0)
+            M["codici_usa"] = np.where(usa, codici, n_cod)
         return M
 
-    def misura(M: dict, pos: np.ndarray, d: int) -> dict:
-        """Scarto, t e due meta' di un trigger nell'unita' di M (stesse formule di prima)."""
-        f = M["fwd"]
-        pos = pos[np.isfinite(f[pos])]          # in ATR: niente valore nelle prime giornate
-        if pos.size < 2:
-            return dict(scarto=np.nan, t=np.nan, due_meta=False, globale=np.nan,
-                        t_globale=np.nan, v=None, pos=pos, blocchi=False)
-        v = d * f[pos]
-        se, blocchi = _errore_standard_sovrapposti(v, pos, H, settimana, con_blocchi=True)
-        scarto = float(v.mean()) - d * M["mercato"]
-        t = scarto / se if (np.isfinite(se) and se > 0) else np.nan
-        a, b = prima[pos], ~prima[pos]
-        out = dict(globale=scarto, t_globale=t, v=v, pos=pos)
-        if oraria:
-            scarto, se_o, blocchi = scarto_orario(f, codici, M["usa"], pos, d, H, settimana, con_blocchi=True,
-                                                  media=M["media"], barre_fascia=M["barre_fascia"])
-            t = scarto / se_o if (np.isfinite(se_o) and se_o > 0) else np.nan
-            # le due meta' guardano solo il segno dello scarto (18/11/2026: senza calcolare l'incertezza, che non serve)
-            dm = bool(a.any() and b.any()
-                      and scarto_orario_medio(f, M["media_meta"][0], pos[a], d) > 0
-                      and scarto_orario_medio(f, M["media_meta"][1], pos[b], d) > 0)
+    return dict(H=H, valido=valido, uscita=np.minimum(np.arange(n) + H, n - 1),
+                mercati={u: mercato_in(u) for u in (unita, *extra)})
+
+
+def _misura_unita(B: dict, C: dict, M: dict, pos: np.ndarray, d: int, oraria: bool) -> dict:
+    """Scarto, t e due meta' di un trigger nell'unita' di M, nel verso d (stesse formule di prima)."""
+    H, prima, settimana, codici = C["H"], B["prima"], B["settimana"], B["codici"]
+    f = M["fwd"]
+    pos = pos[np.isfinite(f[pos])]          # in ATR: niente valore nelle prime giornate
+    if pos.size < 2:
+        return dict(scarto=np.nan, t=np.nan, globale=np.nan, t_globale=np.nan, v=None, pos=pos, blocchi=False,
+                    meta_ok=False, meta=(np.nan, np.nan))
+    v = d * f[pos]
+    se, blocchi = _errore_standard_sovrapposti(v, pos, H, settimana, con_blocchi=True)
+    scarto = float(v.mean()) - d * M["mercato"]
+    t = scarto / se if (np.isfinite(se) and se > 0) else np.nan
+    a, b = prima[pos], ~prima[pos]
+    out = dict(globale=scarto, t_globale=t, v=v, pos=pos, meta_ok=bool(a.any() and b.any()))
+    if oraria:
+        scarto, se_o, blocchi = scarto_orario(f, codici, M["usa"], pos, d, H, settimana, con_blocchi=True,
+                                              media=M["media"], barre_fascia=M["barre_fascia"], resto=M["resto"],
+                                              codici_usa=M["codici_usa"])
+        t = scarto / se_o if (np.isfinite(se_o) and se_o > 0) else np.nan
+        # le due meta' guardano solo il segno dello scarto (senza l'incertezza, che non serve)
+        meta = ((scarto_orario_medio(f, M["media_meta"][0], pos[a], d),
+                 scarto_orario_medio(f, M["media_meta"][1], pos[b], d)) if out["meta_ok"] else (np.nan, np.nan))
+    else:
+        meta = ((v[a].mean() - d * M["mercato_meta"][0], v[b].mean() - d * M["mercato_meta"][1])
+                if out["meta_ok"] else (np.nan, np.nan))
+    out.update(scarto=scarto, t=t, meta=meta, blocchi=blocchi)
+    return out
+
+
+def _due_meta(x: dict) -> bool:
+    return bool(x["meta_ok"] and x["meta"][0] > 0 and x["meta"][1] > 0)
+
+
+def _misura_trigger(B: dict, C: dict, m: np.ndarray, d: int, P: dict) -> dict:
+    """La misura di un trigger a un orizzonte: {"scartata": eventi} sotto il minimo, altrimenti il risultato."""
+    pos = np.flatnonzero(m & C["valido"] & B["pulito"])
+    if pos.size < max(int(P["min_eventi"]), 2):
+        return {"scartata": int(pos.size)}
+    per_u = {u: _misura_unita(B, C, C["mercati"][u], pos, d, P["oraria"]) for u in (P["unita"], *P["extra"])}
+    r = per_u[P["unita"]]
+    serie = (pd.Series(r["v"], index=B["giorno"][C["uscita"][r["pos"]]]).groupby(level=0).sum()
+             if r["v"] is not None else None)
+    chiavi = ("scarto", "t", "globale", "t_globale", "blocchi", "meta_ok", "meta")
+    return {"eventi": int(pos.size), "u": {u: {k: x[k] for k in chiavi} for u, x in per_u.items()}, "serie": serie}
+
+
+def _opposto(res: dict) -> dict:
+    """Lo stesso trigger misurato nel verso opposto: scarto, t e due meta' col segno cambiato, stessa incertezza."""
+    if "scartata" in res:
+        return res
+    u = {k: dict(x, scarto=-x["scarto"], t=-x["t"], globale=-x["globale"], t_globale=-x["t_globale"],
+                 meta=(-x["meta"][0], -x["meta"][1])) for k, x in res["u"].items()}
+    return {"eventi": res["eventi"], "u": u, "serie": -res["serie"] if res["serie"] is not None else None}
+
+
+def _conto_es(B: dict, m_es: np.ndarray, k_max: int) -> tuple[int, int]:
+    """
+    Il conto dell'event study per un trigger: le occasioni con la sua maschera (segnale & ingresso valido &
+    quarantena) e la prima barra k (1..k_max) in cui almeno un'occasione ha il rendimento; k_max + 1 se nessuna.
+    """
+    ing = B["ingresso"]
+    pos = np.flatnonzero(m_es & np.isfinite(ing) & (ing > 0) & B["pulito"])
+    if pos.size == 0:
+        return 0, k_max + 1
+    n, close = B["n"], B["close"]
+    for k in range(1, k_max + 1):
+        p = pos[pos + k < n]
+        if p.size and np.isfinite(close[p + k] / ing[p] - 1.0).any():
+            return int(pos.size), k
+    return int(pos.size), k_max + 1
+
+
+_PROC: dict = {}
+
+
+def _avvia_processo(B: dict, df_piccolo: pd.DataFrame, P: dict) -> None:
+    """Prepara un processo (anche quello principale): i dati e il contesto di ogni orizzonte."""
+    _PROC.clear()
+    _PROC.update(B=B, df=df_piccolo, P=P,
+                 C={H: _contesto(B, H, P["pip"], P["unita"], P["extra"], P["oraria"]) for H in P["Hs"]})
+
+
+def _esegui_compito(compito: list) -> dict:
+    """Un gruppo di trigger: {nome: {"es": (occasioni, prima barra), H: risultato, ...}}."""
+    B, df, P, C = _PROC["B"], _PROC["df"], _PROC["P"], _PROC["C"]
+    out = {}
+    for sorgente, membri in compito:
+        if sorgente[0] == "generato":
+            grezzo = sorgente[1](df)
+            m = grezzo.fillna(False).to_numpy(dtype=bool)
+            m_es = grezzo.to_numpy(dtype=bool)
         else:
-            dm = bool(a.any() and b.any()
-                      and v[a].mean() - d * M["mercato_meta"][0] > 0
-                      and v[b].mean() - d * M["mercato_meta"][1] > 0)
-        out.update(scarto=scarto, t=t, due_meta=dm, blocchi=blocchi)
+            m = np.unpackbits(sorgente[1], count=B["n"]).astype(bool)
+            m_es = np.unpackbits(sorgente[2], count=B["n"]).astype(bool)
+        es = _conto_es(B, m_es, P["k_max"])
+        d0 = membri[0][1]
+        misure = {H: _misura_trigger(B, C[H], m, d0, P) for H in P["Hs"]}
+        vere = None
+        for nome, d in membri:
+            out[nome] = {"es": es, **{H: (x if d == d0 else _opposto(x)) for H, x in misure.items()}}
+            # i generati che possono diventare candidati (t > 0 e due meta' a qualche H) portano con se' le barre
+            # vere per famiglie.py, che cosi' non le ricalcola (stessi numeri)
+            if sorgente[0] == "generato" and any(_puo_essere_candidata(out[nome][H], P["unita"]) for H in P["Hs"]):
+                if vere is None:
+                    vere = np.packbits(barre_vere(grezzo))
+                out[nome]["vere"] = vere
+    return out
+
+
+def _puo_essere_candidata(res: dict, unita: str) -> bool:
+    if "scartata" in res:
+        return False
+    r = res["u"][unita]
+    return bool(r["t"] > 0 and _due_meta(r))
+
+
+def _compiti(df_is: pd.DataFrame, nomi: list):
+    """
+    I gruppi di lavoro, uno alla volta: prima, per ogni ricetta generata, le sue coppie (long e short con la stessa
+    serie insieme); poi il catalogo, 8 trigger per gruppo, con i segnali calcolati qui (compressi a 1 bit per barra)
+    mentre i processi misurano i generati.
+    """
+    from .generatore.trigger import TriggerGenerato
+    per_ricetta, catalogo = {}, []
+    for nome in nomi:
+        f = _reg.get_entry(nome)
+        d = int(_reg.get_entry_direction(nome))
+        if isinstance(f, TriggerGenerato):
+            coppie = per_ricetta.setdefault(f.ricetta, {})
+            chiave = (f.livello, f.verso)
+            if chiave not in coppie:
+                coppie[chiave] = (("generato", f), [])
+            coppie[chiave][1].append((nome, d))
+        else:
+            catalogo.append((nome, d, f))
+    for coppie in per_ricetta.values():
+        yield list(coppie.values())
+    gruppo = []
+    for nome, d, f in catalogo:
+        grezzo = f(df_is)
+        sorgente = ("segnale", np.packbits(grezzo.fillna(False).to_numpy(dtype=bool)),
+                    np.packbits(grezzo.to_numpy(dtype=bool)))
+        gruppo.append((sorgente, [(nome, d)]))
+        if len(gruppo) == 8:
+            yield gruppo
+            gruppo = []
+    if gruppo:
+        yield gruppo
+
+
+def _esegui(compiti, B: dict, df_piccolo: pd.DataFrame, P: dict, processi) -> dict:
+    """I compiti (uno alla volta, anche da un generatore) in uno o piu' processi; stessi risultati."""
+    quanti = 1 if processi == 1 else max(1, min(int(processi or PROCESSI), os.cpu_count() or 1))
+    if quanti > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures.process import BrokenProcessPool
+        from .filter_search_bt import _contesto_processi
+        contesto = _contesto_processi(processi is not None)
+        if contesto is not None:
+            compiti, presi = iter(compiti), []
+
+            def uno_alla_volta():
+                for c in compiti:
+                    presi.append(c)
+                    yield c
+            try:
+                with ProcessPoolExecutor(max_workers=quanti, mp_context=contesto, initializer=_avvia_processo,
+                                         initargs=(B, df_piccolo, P)) as ex:
+                    futuri = [ex.submit(_esegui_compito, c) for c in uno_alla_volta()]   # i processi partono subito
+                    out = {}
+                    for f in futuri:
+                        out.update(f.result())
+                    return out
+            except (BrokenProcessPool, OSError) as e:
+                print(f"rosa: processi non disponibili ({type(e).__name__}), si prosegue in un processo solo.")
+                compiti = itertools.chain(presi, compiti)
+    _avvia_processo(B, df_piccolo, P)
+    try:
+        out = {}
+        for c in compiti:
+            out.update(_esegui_compito(c))
         return out
+    finally:
+        _PROC.clear()
 
-    mercati = {u: mercato_in(u) for u in (unita, *extra)}
 
+def rosa_orizzonti_entry(df_is: pd.DataFrame, orizzonti, pip: float, nomi=None,
+                         q: float = Q_ROSA, soglia_famiglia: float = SOGLIA_FAMIGLIA,
+                         rho_max: float = RHO_MAX, min_eventi: int = MIN_EVENTI,
+                         quarantena=True, baseline: str = "oraria",
+                         fuso: str = FUSO_PREDEFINITO, unita: str = "pips",
+                         unita_extra=None, atr=None, processi=1, conto_fino_a: int | None = None):
+    """
+    18/11/2026: la rosa delle entry (rosa_entry) a piu' orizzonti, con ogni trigger calcolato una volta, le coppie
+    dei generati misurate una volta e `processi` processi (1 = questo processo; None = PROCESSI, se si possono
+    avviare). Stessi numeri di rosa_entry a ogni H, al bit.
+
+    Ritorna ({H: rosa}, conto) con conto = {nome: (occasioni, prima barra)}: il conto dell'event study
+    (misurati_event_study), con la prima barra cercata fino a max(conto_fino_a, orizzonti).
+    """
+    oraria = _controlla_baseline(baseline) == "oraria"
+    unita, extra = _controlla_unita(unita, unita_extra)
+    Hs = [int(H) for H in orizzonti]
+    if not Hs or min(Hs) < 1:
+        raise ValueError("H deve essere almeno 1 barra.")
+    if pip is None or not float(pip) > 0:
+        raise ValueError("pip obbligatorio: il pip fisso del symbol (engine/simboli.py).")
+    pip = float(pip)
+    nomi = _entry_vere() if nomi is None else list(nomi)
+    atr_is = _atr_su(df_is, atr) if "atr" in (unita, *extra) else None
+    B = _base(df_is, quarantena, oraria, fuso, atr_is)
+    P = dict(Hs=Hs, pip=pip, unita=unita, extra=list(extra), oraria=oraria, min_eventi=int(min_eventi),
+             k_max=max(Hs + [int(conto_fino_a or 0)]))
+    ohlcv = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df_is.columns]
+    risultati = _esegui(_compiti(df_is, nomi), B, df_is[ohlcv], P, processi)
+    # i segnali delle candidate per famiglie.py, una volta per tutti gli orizzonti (quelli dei generati dai processi)
+    memoria = {n: risultati[n]["vere"] for n in nomi if "vere" in risultati[n]}
+    rose = {H: _rosa_finale(df_is, nomi, {n: risultati[n][H] for n in nomi}, H, q, soglia_famiglia, rho_max,
+                            baseline, fuso, oraria, unita, extra, memoria) for H in Hs}
+    return rose, {n: risultati[n]["es"] for n in nomi}
+
+
+def misurati_event_study(conto: dict, nomi, H: int, min_eventi: int) -> list:
+    """
+    I trigger che run_event_study(nomi, horizon=H, min_trades=min_eventi) mette nella sintesi, dal conto di
+    rosa_orizzonti_entry: almeno min_eventi occasioni (e almeno una) e un'occasione con il rendimento entro H barre.
+    """
+    return [n for n in nomi if conto[n][0] >= max(int(min_eventi), 1) and conto[n][1] <= int(H)]
+
+
+def _rosa_finale(df_is, nomi, misure: dict, H: int, q, soglia_famiglia, rho_max, baseline, fuso, oraria, unita,
+                 extra, memoria=None) -> pd.DataFrame:
+    """Le righe nell'ordine dei nomi, poi BH, famiglie fra le candidate e il gruppo (come prima)."""
     righe, serie, scartate = [], {}, []
     for nome in nomi:
-        d = int(_reg.get_entry_direction(nome))
-        m = (_segnale(df_is, nome) if segnali is None else np.unpackbits(segnali[nome], count=n).astype(bool))
-        m = m & valido & pulito
-        pos = np.flatnonzero(m)
-        if pos.size < max(int(min_eventi), 2):
-            scartate.append((nome, int(pos.size)))
+        res = misure[nome]
+        if "scartata" in res:
+            scartate.append((nome, res["scartata"]))
             continue
-        r = misura(mercati[unita], pos, d)
-        riga = {"candidato": nome, "direction": d, "eventi": int(pos.size)}
+        d = int(_reg.get_entry_direction(nome))
+        r = res["u"][unita]
+        riga = {"candidato": nome, "direction": d, "eventi": res["eventi"]}
         if oraria:
             riga.update({f"scarto_globale_{unita}": r["globale"], "t_globale": r["t_globale"]})
         riga.update({f"scarto_{unita}": r["scarto"], "t_netto": r["t"], "p": _p_una_coda(r["t"]),
-                     "due_meta": r["due_meta"]})
+                     "due_meta": _due_meta(r)})
         for u in extra:
-            x = misura(mercati[u], pos, d)
-            riga.update({f"scarto_{u}": x["scarto"], f"t_{u}": x["t"], f"due_meta_{u}": x["due_meta"]})
+            x = res["u"][u]
+            riga.update({f"scarto_{u}": x["scarto"], f"t_{u}": x["t"], f"due_meta_{u}": _due_meta(x)})
         riga["incertezza_blocchi"] = r["blocchi"]
         righe.append(riga)
-        if r["v"] is not None:
-            serie[nome] = pd.Series(r["v"], index=giorno[uscita[r["pos"]]]).groupby(level=0).sum()
+        if res["serie"] is not None:
+            serie[nome] = res["serie"]
 
     colonne = ["candidato", "direction", "eventi", f"scarto_{unita}", "t_netto", "p", "bh",
                "due_meta", "candidata", "famiglia", "nella_rosa", "rho_max", "perche"]
@@ -388,25 +610,13 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     # 18/11/2026 (decisione di Mattia): le famiglie si misurano solo fra le candidate; un trigger bocciato non entra
     # nel calcolo e la sua famiglia resta vuota. Il BH resta unico su tutti i k misurati (sopra).
     candidate = list(t.loc[t["candidata"], "candidato"])
-    fam = (famiglie(df_is, "entry", nomi=candidate, soglia=soglia_famiglia).set_index("nome")["famiglia"]
+    fam = (famiglie(df_is, "entry", nomi=candidate, soglia=soglia_famiglia, memoria=memoria)
+           .set_index("nome")["famiglia"]
            if candidate else pd.Series(dtype=float))
     t["famiglia"] = t["candidato"].map(fam).astype("Int64")
     t = _ordina(_gruppo(t, serie, rho_max, per_lato=True))[colonne]      # 25/10/2026: rho solo sullo stesso lato
     t.attrs.update(k=len(t), **info)
     return t
-
-
-def _segnale(df_is: pd.DataFrame, nome: str) -> np.ndarray:
-    """Le barre in cui l'entry scatta (NaN = no), come le legge rosa_entry."""
-    return _reg.get_entry(nome)(df_is).fillna(False).to_numpy(dtype=bool)
-
-
-def segnali_compressi(df_is: pd.DataFrame, nomi) -> dict:
-    """
-    18/11/2026: i segnali delle entry `nomi` calcolati una volta, compressi a 1 bit per barra (np.packbits), da
-    passare a rosa_entry(segnali=...) a piu' orizzonti. Con 3.000 trigger su M5 occupano circa 220 MB.
-    """
-    return {nome: np.packbits(_segnale(df_is, nome)) for nome in nomi}
 
 
 def _entry_vere() -> list[str]:
