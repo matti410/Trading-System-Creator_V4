@@ -57,7 +57,7 @@ DURATE = {
     "test_motore_veloce": 41, "test_rosa": 36, "test_mercato_nullo": 33, "test_ore_utc": 31,
     "test_exchange": 27, "test_stagionalita": 27, "test_simboli": 25, "test_velocita": 19,
     "test_quarantena_trade": 13, "test_quintili": 13, "test_money_management": 11,
-    "test_funding": 9, "test_famiglie": 7, "test_confidenza": 30, "test_unita": 4,
+    "test_funding": 9, "test_famiglie": 100, "test_confidenza": 30, "test_unita": 4,
     "test_barre_per_lato": 3, "test_giornata_utc": 3, "test_entry_composita": 2,
     "test_filtri_tempo": 2, "test_inversione": 2, "test_montecarlo": 2, "test_portabilita": 2,
     "test_tempo_prezzo": 2, "test_entry_metro": 1, "test_sessioni": 1,
@@ -70,7 +70,7 @@ DURATE = {
     "test_fabbrica_registro": 3, "test_fabbrica_ricerca": 300,
     "test_fabbrica_selezione": 30, "test_fabbrica_cassaforte": 80, "test_fabbrica_schede": 35,
     "test_vetrina_fabbrica": 60, "test_notebook_fabbrica": 80, "test_generatore": 180,
-    "test_lab_trigger_generati": 20
+    "test_lab_trigger_generati": 185
 }
 INSIEME = 3          # suite che girano insieme, nella rapida e nella completa
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")

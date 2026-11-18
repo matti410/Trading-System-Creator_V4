@@ -11,7 +11,10 @@ B  elenco vuoto = il Lab di prima: stesso registro, stesso event study (2c), ste
 C  con due trigger generati (long e short): entrano nel registro con il loro lato, la 2c li misura e li conta nelle
    prove, la rosa li vede, la 3b li accetta in «aggiungi», l'atlante (3c) li misura; nei grafici accanto al nome
    la ricetta leggibile;
-D  il comando «python -m engine.generatore --elenco»: ricette e nomi dei trigger del catalogo salvato.
+D  il comando «python -m engine.generatore --elenco»: ricette e nomi dei trigger del catalogo salvato;
+E  (17/11/2026) «tutti», il valore di base del Lab: entra tutto il catalogo generato (sullo spot i long), il
+   riepilogo dice quanti; la 2c li misura e li conta tutti; la tabella della 2c mostra i primi «quanti_migliori»
+   per lato con la ricetta dei generati e una riga di riepilogo; campo vuoto = tabella completa di prima.
 
 Come si lancia (da terminale, dalla cartella del progetto):
 
@@ -216,6 +219,78 @@ def sezione_b_c(radice: Path):
     RD.azzera()
 
 
+# ------------------------------------------------------------ sezione E --
+def sezione_e(radice: Path):
+    print("\nE · «tutti» (il valore di base del Lab dal 17/11) e la tabella della 2c")
+    tutti = vt.carica_trigger_generati("tutti")
+    spot = vt.carica_trigger_generati(" Tutti ", solo_long=True)
+    check("E1. «tutti» = tutto il catalogo generato (2.984: 1.492 long + 1.492 short); sullo spot i soli 1.492 long, "
+          "senza fermarsi", len(tutti) == 2984 and sum(f.lato == 1 for f in tutti.values()) == 1492
+          and len(spot) == 1492 and all(f.lato == 1 for f in spot.values()))
+    c = radice / "tutti"
+    c.mkdir()
+    scrivi_dataset(c, giorni=60, seme=8)
+    reg.clear_registry()
+    RD.azzera()
+    s0 = muto(vt.prepara, SYM, H=vt.GRIGLIA, cartella=str(c), trigger_generati="")
+    muto(vt.esplora, s0)
+    pieno0, vista0 = s0.tabelle["orizzonti"], s0.tabelle["orizzonti_mostrata"]
+    check("E2. campo vuoto: la tabella completa e' quella di prima (tabella_orizzonti), la 2c mostra i primi 15 per "
+          "lato e il riepilogo «+ 0 generati», senza colonna Ricetta",
+          pieno0.equals(vt.tabella_orizzonti(s0.rose, s0.timeframe, s0.unita))
+          and vista0.iloc[:-1].equals(pd.concat([pieno0[pieno0["Lato"] == l].head(15) for l in ("long", "short")])
+                                      .reset_index(drop=True))
+          and vista0.iloc[-1]["Trigger"].startswith(f"Misurati: {len(s0.ev.sintesi)} del catalogo + 0 generati")
+          and "Ricetta" not in vista0.columns)
+    RD.azzera()
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        s = vt.prepara(SYM, H=vt.GRIGLIA, cartella=str(c), trigger_generati="tutti")
+    plt.close("all")
+    riep = " ".join(map(str, s.tabelle["riepilogo"].iloc[:, 1]))
+    check("E3. schermata 1: entrano tutti i 2.984 generati; il riepilogo dice quanti",
+          len(generati_nel_registro()) == 2984 and s.generati_tutti
+          and "2.984 entrati (1.492 long · 1.492 short): tutti i trigger del catalogo generato" in riep)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        vt.esplora(s)
+    plt.close("all")
+    nomi = list(s.ev.sintesi["candidato"])
+    cat, gen = vt.conta_misurati(nomi)
+    check("E4. la 2c misura catalogo e generati insieme, e il conto delle prove li conta tutti",
+          gen > 1000 and cat == len(s0.ev.sintesi) and s.prove.get("trigger") == len(nomi)
+          and f"Di questi: {cat} del catalogo + {vt._fmt(gen)} generati." in out.getvalue(), f"{cat} + {gen}")
+    pieno, vista = s.tabelle["orizzonti"], s.tabelle["orizzonti_mostrata"]
+    attese = pd.concat([pieno[pieno["Lato"] == l].head(15) for l in ("long", "short")]).reset_index(drop=True)
+    corpo = vista.iloc[:-1]
+    check("E5. la tabella della 2c: i primi 15 per lato per solidita' netta, catalogo e generati insieme, e una riga di "
+          "riepilogo con i misurati",
+          len(pieno) > 1000 and len(vista) == 31 and (corpo["Lato"] == "long").sum() == 15
+          and corpo.drop(columns="Ricetta").equals(attese)
+          and vista.iloc[-1]["Trigger"] == f"Misurati: {cat} del catalogo + {vt._fmt(gen)} generati · qui i primi 15 "
+                                           "per lato per solidità netta", vista.iloc[-1]["Trigger"])
+    ric = dict(zip(corpo["Trigger"], corpo["Ricetta"]))
+    check("E6. accanto al nome dei generati la ricetta, vuota per i trigger del catalogo",
+          all((r != "") == n.startswith("G") for n, r in ric.items())
+          and all(" verso " in r for n, r in ric.items() if n.startswith("G")) and any(ric.values()))
+    muto(vt.esplora, s, orizzonte="4 ore", quanti_migliori=4)
+    dopo = s.tabelle["orizzonti_mostrata"]
+    check("E7. scelto l'orizzonte, anche la tabella sotto la scelta segue quanti_migliori (4 per lato + riepilogo)",
+          len(dopo) == 9 and dopo.iloc[-1]["Trigger"].startswith("Misurati: "))
+    check("E8. quanti_migliori non valido: si ferma con il messaggio, senza traceback",
+          fermo(lambda: vt.esplora(s, orizzonte="4 ore", quanti_migliori=0), "quanti_migliori"))
+    cs = radice / "tutti_spot"
+    cs.mkdir()
+    scrivi_dataset(cs, SPOT, giorni=30)
+    RD.azzera()
+    s_spot = muto(vt.prepara, SPOT, H=16, cartella=str(cs), trigger_generati="tutti")
+    check("E9. sullo spot «tutti» fa entrare i soli 1.492 long",
+          len(generati_nel_registro()) == 1492 and all(reg.get_entry_direction(n) == 1 for n in generati_nel_registro())
+          and len(s_spot.trigger_generati) == 1492)
+    reg.clear_registry()
+    RD.azzera()
+
+
 # ------------------------------------------------------------ sezione D --
 def sezione_d(radice: Path):
     print("\nD · python -m engine.generatore --elenco")
@@ -242,6 +317,7 @@ def esegui() -> int:
         sezione_a(radice)
         sezione_b_c(radice)
         sezione_d(radice)
+        sezione_e(radice)
     finally:
         reg.clear_registry()
         RD.azzera()

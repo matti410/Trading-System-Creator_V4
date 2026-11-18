@@ -38,7 +38,9 @@ COME SI COSTRUISCE
    giornalieri (giornata FX). Per le entry i profitti sono quelli della sola
    entry a H barre (misurato il 17/10/2026: stessa mappa delle correlazioni
    dei trade interi, accordo 0,99, 60 volte piu' veloce); per i sistemi
-   quelli dei trade veri.
+   quelli dei trade veri. Per le entry le famiglie si misurano solo fra le
+   candidate (punti 1-3 superati): un trigger bocciato non entra nel calcolo
+   (18/11/2026, decisione di Mattia).
 
 Si passa SOLO l'in-sample. L'orizzonte H e' quello scelto prima (passo 1 del
 notebook di ricerca, passo 2 del Lab): la rosa non sceglie orizzonti.
@@ -69,7 +71,7 @@ from .livelli import giorno_fx
 from .metriche import atr_alla_entrata, pips_per_trade
 from .quarantena_trade import maschera_segnali_puliti
 from .stagionalita import (FUSO_PREDEFINITO, UNITA, barre_settimana, deriva_per_barra_oraria, fasce_orarie,
-                           in_unita, scarto_orario)
+                           in_unita, media_per_fascia, scarto_orario, scarto_orario_medio)
 
 Q_ROSA = 0.20
 RHO_MAX = 0.30
@@ -219,7 +221,7 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
                rho_max: float = RHO_MAX, min_eventi: int = MIN_EVENTI,
                quarantena=True, baseline: str = "oraria",
                fuso: str = FUSO_PREDEFINITO, unita: str = "pips",
-               unita_extra=None, atr=None) -> pd.DataFrame:
+               unita_extra=None, atr=None, segnali=None) -> pd.DataFrame:
     """
     La rosa delle entry sull'in-sample, a orizzonte H. Stessa convenzione
     dell'event study: trigger sulla barra i, ingresso a Open[i+1], misura a
@@ -242,6 +244,9 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
                  scarto_<u>, t_<u>, due_meta_<u>; None = le altre due
     atr          la serie di indicatori.atr_giornaliero_chiuso (meglio sullo
                  storico intero); None = calcolata su df_is
+    segnali      18/11/2026: i segnali gia' calcolati, {nome: barre vere compresse con np.packbits}
+                 (segnali_compressi): la rosa a piu' orizzonti calcola ogni trigger una volta. None =
+                 calcolati qui, come prima. Stessi numeri.
 
     Con unita="pips" i numeri delle colonne di prima sono identici.
 
@@ -252,7 +257,8 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         bh             passa il controllo della quota di falsi positivi a q
         due_meta       scarto positivo su entrambe le meta' dell'in-sample
         candidata      t > 0, bh e due_meta
-        famiglia       numero della famiglia (engine/famiglie.py)
+        famiglia       numero della famiglia (engine/famiglie.py), solo per le candidate;
+                       vuota (<NA>) per le altre (18/11/2026)
         nella_rosa     nel gruppo suggerito
         rho_max        |rho| piu' alto con gli altri membri della rosa dello stesso lato (25/10/2026)
         perche         perche' e' fuori dalla rosa: il primo controllo non superato,
@@ -299,9 +305,16 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         """Rendimenti, mercato e barre utili nell'unita' u."""
         f = in_unita(fwd, u, pip, prezzo=ingresso, atr=atr_is)
         usa = valido & pulito & np.isfinite(f)
-        return dict(fwd=f, mercato=float(np.nanmean(f)),
-                    mercato_meta=(float(np.nanmean(f[:meta])), float(np.nanmean(f[meta:]))),
-                    usa=usa, usa_meta=(usa & prima, usa & ~prima))
+        M = dict(fwd=f, mercato=float(np.nanmean(f)),
+                 mercato_meta=(float(np.nanmean(f[:meta])), float(np.nanmean(f[meta:]))),
+                 usa=usa, usa_meta=(usa & prima, usa & ~prima))
+        if oraria:
+            # 18/11/2026: le medie di fascia e le barre per fascia sono le stesse per tutti i trigger: una volta sola
+            n_cod = int(codici.max()) + 1
+            M.update(media=media_per_fascia(f, codici, usa),
+                     media_meta=tuple(media_per_fascia(f, codici, x) for x in M["usa_meta"]),
+                     barre_fascia=np.bincount(codici, weights=usa.astype(float), minlength=n_cod))
+        return M
 
     def misura(M: dict, pos: np.ndarray, d: int) -> dict:
         """Scarto, t e due meta' di un trigger nell'unita' di M (stesse formule di prima)."""
@@ -317,11 +330,13 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
         a, b = prima[pos], ~prima[pos]
         out = dict(globale=scarto, t_globale=t, v=v, pos=pos)
         if oraria:
-            scarto, se_o, blocchi = scarto_orario(f, codici, M["usa"], pos, d, H, settimana, con_blocchi=True)
+            scarto, se_o, blocchi = scarto_orario(f, codici, M["usa"], pos, d, H, settimana, con_blocchi=True,
+                                                  media=M["media"], barre_fascia=M["barre_fascia"])
             t = scarto / se_o if (np.isfinite(se_o) and se_o > 0) else np.nan
+            # le due meta' guardano solo il segno dello scarto (18/11/2026: senza calcolare l'incertezza, che non serve)
             dm = bool(a.any() and b.any()
-                      and scarto_orario(f, codici, M["usa_meta"][0], pos[a], d, H, settimana)[0] > 0
-                      and scarto_orario(f, codici, M["usa_meta"][1], pos[b], d, H, settimana)[0] > 0)
+                      and scarto_orario_medio(f, M["media_meta"][0], pos[a], d) > 0
+                      and scarto_orario_medio(f, M["media_meta"][1], pos[b], d) > 0)
         else:
             dm = bool(a.any() and b.any()
                       and v[a].mean() - d * M["mercato_meta"][0] > 0
@@ -334,7 +349,8 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     righe, serie, scartate = [], {}, []
     for nome in nomi:
         d = int(_reg.get_entry_direction(nome))
-        m = _reg.get_entry(nome)(df_is).fillna(False).to_numpy(dtype=bool) & valido & pulito
+        m = (_segnale(df_is, nome) if segnali is None else np.unpackbits(segnali[nome], count=n).astype(bool))
+        m = m & valido & pulito
         pos = np.flatnonzero(m)
         if pos.size < max(int(min_eventi), 2):
             scartate.append((nome, int(pos.size)))
@@ -369,11 +385,28 @@ def rosa_entry(df_is: pd.DataFrame, H: int, pip: float, nomi=None,
     t = pd.DataFrame(righe)
     t["bh"] = benjamini_hochberg(t["p"].to_numpy(), q)
     t["candidata"] = (t["t_netto"] > 0) & t["bh"] & t["due_meta"]
-    fam = famiglie(df_is, "entry", nomi=list(t["candidato"]), soglia=soglia_famiglia)
-    t["famiglia"] = t["candidato"].map(fam.set_index("nome")["famiglia"]).astype(int)
+    # 18/11/2026 (decisione di Mattia): le famiglie si misurano solo fra le candidate; un trigger bocciato non entra
+    # nel calcolo e la sua famiglia resta vuota. Il BH resta unico su tutti i k misurati (sopra).
+    candidate = list(t.loc[t["candidata"], "candidato"])
+    fam = (famiglie(df_is, "entry", nomi=candidate, soglia=soglia_famiglia).set_index("nome")["famiglia"]
+           if candidate else pd.Series(dtype=float))
+    t["famiglia"] = t["candidato"].map(fam).astype("Int64")
     t = _ordina(_gruppo(t, serie, rho_max, per_lato=True))[colonne]      # 25/10/2026: rho solo sullo stesso lato
     t.attrs.update(k=len(t), **info)
     return t
+
+
+def _segnale(df_is: pd.DataFrame, nome: str) -> np.ndarray:
+    """Le barre in cui l'entry scatta (NaN = no), come le legge rosa_entry."""
+    return _reg.get_entry(nome)(df_is).fillna(False).to_numpy(dtype=bool)
+
+
+def segnali_compressi(df_is: pd.DataFrame, nomi) -> dict:
+    """
+    18/11/2026: i segnali delle entry `nomi` calcolati una volta, compressi a 1 bit per barra (np.packbits), da
+    passare a rosa_entry(segnali=...) a piu' orizzonti. Con 3.000 trigger su M5 occupano circa 220 MB.
+    """
+    return {nome: np.packbits(_segnale(df_is, nome)) for nome in nomi}
 
 
 def _entry_vere() -> list[str]:

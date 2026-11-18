@@ -20,6 +20,8 @@ Sezioni:
     E  EURUSD in-sample, catalogo vero: la tabella e' completa, i vincoli
        valgono, l'esito e' ripetibile; rosa_sistemi su una ricerca delle
        uscite vera
+    F  18/11/2026: le famiglie delle entry si misurano solo fra le candidate (un
+       trigger bocciato non unisce due candidate nella stessa famiglia)
 
 Si lancia da terminale, dalla cartella del progetto:
 
@@ -364,6 +366,39 @@ def main() -> int:
         check("E5. t netto (colonna t_globale) di una combinazione vera contro il calcolo a mano",
               abs(xx.mean() / (xx.std(ddof=1) / np.sqrt(xx.size)) - t_es) < 1e-9, f"t = {t_es:.3f}")
         R.clear_registry()
+
+    # =====================================================================
+    # 18/11/2026 (decisione di Mattia): le famiglie si misurano solo fra le candidate. Tre long: A e C si
+    # somigliano al 40% (240 eventi in comune su 600), B contiene il 90% degli eventi di A e il 90% di quelli di C
+    # piu' 1.500 eventi in perdita, quindi non e' candidata. Con B nel calcolo A, B e C finiscono in una famiglia
+    # sola (legame medio: (40% + 90%) / 2 = 65% >= 60%); senza B, A e C restano in due famiglie
+    print("\nF · FAMIGLIE SOLO FRA LE CANDIDATE (18/11/2026)\n" + "-" * 70)
+    from engine.famiglie import famiglie
+    rngf, passif = _mercato(31)
+    slot = rngf.permutation(np.arange(50, len(passif) - 50)[:: 2 * H])       # barre distanti 2H: niente sovrapposti
+    comuni, solo_a, solo_c, perdenti = slot[:240], slot[240:600], slot[600:960], slot[960:2460]
+    ev_a = np.sort(np.r_[comuni, solo_a])
+    ev_c = np.sort(np.r_[comuni, solo_c])
+    ev_b = np.sort(np.r_[comuni[:216], solo_a[:324], solo_c[:324], perdenti])   # 540 di A, 540 di C, 1.500 in perdita
+    passif = _con_vantaggio(passif, np.sort(np.r_[comuni, solo_a, solo_c]), 1, 1.5)
+    passif = _con_vantaggio(passif, np.sort(perdenti), 1, -3.0)
+    dff = _df(passif, {"FAM_A": ev_a, "FAM_B": ev_b, "FAM_C": ev_c})
+    _registra({"FAM_A": 1, "FAM_B": 1, "FAM_C": 1})
+    tutte = famiglie(dff, "entry").set_index("nome")["famiglia"]
+    rf = rosa_entry(dff, H, PIP, quarantena=False).set_index("candidato")
+    check("F1. il caso: con tutti e tre nel calcolo, A, B e C sono una famiglia sola",
+          tutte.nunique() == 1, f"famiglie {dict(tutte)}")
+    check("F2. A e C candidate, B no (fa peggio del mercato)",
+          bool(rf.loc["FAM_A", "candidata"]) and bool(rf.loc["FAM_C", "candidata"])
+          and not rf.loc["FAM_B", "candidata"], ", ".join(f"{k} t={rf.loc[k, 't_netto']:.1f}" for k in rf.index))
+    check("F3. la rosa: B non unisce A e C, che restano in famiglie diverse; la famiglia di B e' vuota",
+          pd.notna(rf.loc["FAM_A", "famiglia"]) and pd.notna(rf.loc["FAM_C", "famiglia"])
+          and rf.loc["FAM_A", "famiglia"] != rf.loc["FAM_C", "famiglia"] and pd.isna(rf.loc["FAM_B", "famiglia"])
+          and "famiglia" not in rf.loc["FAM_A", "perche"] + rf.loc["FAM_C", "perche"],
+          ", ".join(f"{k}: famiglia {rf.loc[k, 'famiglia']}, {rf.loc[k, 'perche'] or 'nella rosa'}" for k in rf.index))
+    check("F4. il BH resta unico su tutti i misurati, bocciata compresa (k = 3)",
+          rf.attrs["k"] == 3 and rf["bh"].tolist() == benjamini_hochberg(rf["p"].to_numpy()).tolist())
+    R.clear_registry()
 
     tot, ok = len(ESITI), sum(ESITI)
     print("\n" + "=" * 70)
