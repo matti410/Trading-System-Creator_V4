@@ -61,34 +61,59 @@ def _come_dizionario(dati) -> dict[str, pd.DataFrame]:
     return dict(dati) if isinstance(dati, dict) else {"": dati}
 
 
-def _matrice(df: pd.DataFrame, tipo: str, nomi: list[str]) -> np.ndarray:
-    """Una colonna booleana per condizione (NaN = falso; numerica: != 0)."""
-    colonne = []
-    for nome in nomi:
-        s = _PRENDI[tipo](nome)(df)
-        v = pd.to_numeric(s, errors="coerce").to_numpy(dtype=float) if s.dtype != bool else s.to_numpy()
-        colonne.append(np.nan_to_num(v, nan=0.0) != 0)
-    return np.column_stack(colonne) if colonne else np.zeros((len(df), 0), dtype=bool)
+def _colonna(df: pd.DataFrame, tipo: str, nome: str) -> np.ndarray:
+    """Le barre vere di una condizione (NaN = falso; numerica: != 0)."""
+    s = _PRENDI[tipo](nome)(df)
+    v = pd.to_numeric(s, errors="coerce").to_numpy(dtype=float) if s.dtype != bool else s.to_numpy()
+    return np.nan_to_num(v, nan=0.0) != 0
 
 
-def _allarga(m: np.ndarray, finestra: int) -> np.ndarray:
+def _allarga(m: np.ndarray, finestra: int, asse: int = 0) -> np.ndarray:
+    """Ogni barra vera allargata di `finestra` barre per parte, lungo l'asse delle barre."""
     w = m.copy()
     for s in range(1, finestra + 1):
-        w[s:] |= m[:-s]
-        w[:-s] |= m[s:]
+        if asse == 0:
+            w[s:] |= m[:-s]
+            w[:-s] |= m[s:]
+        else:
+            w[:, s:] |= m[:, :-s]
+            w[:, :-s] |= m[:, s:]
     return w
 
 
+# 18/11/2026 (decisione di Mattia): la matrice delle barre vere si tiene compressa (1 bit per barra) e i conteggi
+# si fanno a pezzi di barre, cosi' la memoria resta sotto 1 GB anche con 3.000 condizioni su M5. I numeri sono
+# quelli di prima, al bit: i conteggi sono interi esatti (in float32 fino a 2^24 per pezzo, poi in float64) e
+# quota, caso e lift si ricavano con le stesse divisioni.
+BYTE_PER_PEZZO = 64_000_000        # la memoria di una matrice di pezzo (float32)
+
+
 def _misure(df: pd.DataFrame, tipo: str, nomi: list[str], finestra: int) -> dict:
-    m = _matrice(df, tipo, nomi)
-    w = _allarga(m, finestra)
-    a, b = m.astype(np.float64), w.astype(np.float64)
-    vere = a.sum(axis=0)
+    n, k = len(df), len(nomi)
+    compressa = np.zeros((k, (n + 7) // 8), dtype=np.uint8)       # riga i = barre vere della condizione i
+    for i, nome in enumerate(nomi):
+        compressa[i] = np.packbits(_colonna(df, tipo, nome))
+    conti = np.zeros((k, k))           # conti[i, j] = barre vere di i che cadono su j allargato
+    vere = np.zeros(k)
+    larghe = np.zeros(k)               # barre coperte da j allargato
+    passo = min(max(8, (BYTE_PER_PEZZO // (4 * max(k, 1))) // 8 * 8), 2 ** 24)
+    for p0 in range(0, n, passo):
+        p1 = min(n, p0 + passo)
+        q0, q1 = max(0, p0 - finestra), min(n, p1 + finestra)   # il margine per allargare ai bordi del pezzo
+        bit = np.unpackbits(compressa[:, q0 // 8:(q1 + 7) // 8], axis=1, count=None)
+        m = bit[:, q0 % 8:q0 % 8 + (q1 - q0)].astype(bool)
+        w = _allarga(m, finestra, asse=1)[:, p0 - q0:p1 - q0]
+        a = m[:, p0 - q0:p1 - q0].astype(np.float32)
+        b = w.astype(np.float32)
+        conti += a @ b.T
+        vere += a.sum(axis=1, dtype=np.float64)
+        larghe += b.sum(axis=1, dtype=np.float64)
+        del bit, m, w, a, b
     with np.errstate(invalid="ignore", divide="ignore"):
-        quota = np.where(vere[:, None] > 0, (a.T @ b) / vere[:, None], 0.0)   # [i, j] = i dentro j
-        caso = b.mean(axis=0)
+        quota = np.where(vere[:, None] > 0, conti / vere[:, None], 0.0)   # [i, j] = i dentro j
+        caso = larghe / n
         lift = np.where(caso[None, :] > 0, quota / caso[None, :], 0.0)
-    return {"quota": quota, "lift": lift, "vere": vere, "copertura": m.mean(axis=0)}
+    return {"quota": quota, "lift": lift, "vere": vere, "copertura": vere / n}
 
 
 def _prepara(dati, tipo: str, nomi, finestra):

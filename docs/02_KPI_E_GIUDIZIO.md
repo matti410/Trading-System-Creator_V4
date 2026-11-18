@@ -307,6 +307,9 @@ diverso: suggerire un gruppo da cui scegliere. Non promuove niente; filtri,
    (accordo 0,99 con i trade interi su EURUSD e BTCUSD, 60 volte più veloce), per
    i sistemi quelli dei trade veri. Un sistema ha per famiglia la terna `L·S·X`
    (famiglia dell'entry long, dell'entry short, della regola d'uscita).
+   Per le entry le famiglie si misurano solo fra le candidate (punti 1–3
+   superati): un trigger bocciato non entra nel calcolo (18/11/2026, decisione
+   di Mattia).
 
 H è quello già scelto (passo 1); si passa solo l'in-sample.
 

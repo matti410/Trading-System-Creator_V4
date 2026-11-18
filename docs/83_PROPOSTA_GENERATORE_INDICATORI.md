@@ -193,7 +193,10 @@ ricette da 1 operazione. Le ricette da 3 operazioni non sono state contate (qual
 
 **Nel Lab (17/11/2026):** campo `trigger_generati` della schermata 1 (nomi del catalogo, es. `G0002_P90_SU`; vuoto = Lab
 di prima); da lì sono trigger come E1–E52 (2c, rosa, 3b, atlante, conto delle prove), nei grafici con la ricetta.
-Nomi con `python -m engine.generatore --elenco`. Test: `test_lab_trigger_generati.py`.
+Nomi con `python -m engine.generatore --elenco`. Test: `test_lab_trigger_generati.py`. Dal 17/11 il campo vale di base `tutti`
+(2.984; spot 1.492 long), contati tutti nelle prove; la 2c mostra i primi `quanti_migliori` (15) per lato + il riepilogo.
+Per le entry le famiglie della rosa si misurano solo fra le candidate (punti 1–3 di docs/02 superati): un trigger bocciato
+non entra nel calcolo (18/11/2026, decisione di Mattia).
 
 ## 12 · Tempi misurati (15/11/2026)
 

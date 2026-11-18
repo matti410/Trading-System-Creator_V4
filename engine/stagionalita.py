@@ -308,9 +308,17 @@ def _errore_lab(u: np.ndarray, H: int, barre_settimana: int | None) -> tuple[flo
     return se, blocchi
 
 
+def scarto_orario_medio(fwd: np.ndarray, media: np.ndarray, pos: np.ndarray, direzione: int) -> float:
+    """
+    18/11/2026: solo lo scarto medio di scarto_orario (stessa formula), senza l'incertezza: serve alle due meta'
+    della rosa, che guardano solo il segno. media = media_per_fascia(fwd, codici, usa).
+    """
+    return float(np.mean(direzione * (fwd[pos] - media[pos])))
+
+
 def scarto_orario(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray,
                   pos: np.ndarray, direzione: int, H: int, barre_settimana: int | None = None,
-                  con_blocchi: bool = False):
+                  con_blocchi: bool = False, media=None, barre_fascia=None):
     """
     Lo scarto medio dei trigger in `pos` dalla media della loro fascia
     oraria, nel verso `direzione`, e la sua incertezza. L'incertezza include
@@ -319,15 +327,17 @@ def scarto_orario(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray,
     28/10/2026). Ritorna (scarto, incertezza), con con_blocchi anche
     a_blocchi. barre_settimana: le barre in una settimana (barre_settimana()),
     per la stima a blocchi se la varianza esce zero o negativa.
+    media, barre_fascia  18/11/2026: media_per_fascia(fwd, codici, usa) e le barre `usa` per fascia gia' calcolate
+                  (sono le stesse per tutti i trigger: la rosa le calcola una volta). None = calcolate qui, come prima.
     """
-    b = media_per_fascia(fwd, codici, usa)
-    x = direzione * (fwd[pos] - b[pos])
-    scarto = float(np.mean(x))
+    b = media_per_fascia(fwd, codici, usa) if media is None else media
+    scarto = scarto_orario_medio(fwd, b, pos, direzione)
     n_t = pos.size
     # pesi: +1/n_t sui trigger, -(trigger della fascia)/(n_t * barre della fascia) su ogni barra
     n_cod = int(codici.max()) + 1
     trig_f = np.bincount(codici[pos], minlength=n_cod).astype(float)
-    barre_f = np.bincount(codici, weights=usa.astype(float), minlength=n_cod)
+    barre_f = (np.bincount(codici, weights=usa.astype(float), minlength=n_cod) if barre_fascia is None
+               else barre_fascia)
     with np.errstate(invalid="ignore", divide="ignore"):
         quota = np.where(barre_f > 0, trig_f / barre_f, 0.0)
     c = np.where(usa, -quota[codici] / n_t, 0.0)

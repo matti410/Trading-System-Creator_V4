@@ -234,7 +234,7 @@ def run_event_study(
         if int(m.sum()) < min_trades:
             scartate.append((nome, int(m.sum())))
             continue
-        maschere[nome] = m
+        maschere[nome] = np.flatnonzero(m)     # 18/11/2026: le posizioni, non la maschera intera (meno memoria)
 
     if not maschere:
         raise ValueError(
@@ -254,13 +254,6 @@ def run_event_study(
             print(f"{tolti_q:,} trigger scartati per quarantena")
 
     barre = np.arange(1, horizon + 1)
-    curva = pd.DataFrame(index=barre, dtype=float)
-    mercato = pd.DataFrame(index=barre, dtype=float)
-    b_lo = pd.DataFrame(index=barre, dtype=float)
-    b_hi = pd.DataFrame(index=barre, dtype=float)
-    incert = pd.DataFrame(index=barre, dtype=float)
-    for d in (curva, mercato, b_lo, b_hi, incert):
-        d.index.name = "barre_dal_trigger"
 
     acc = {nome: {"media": [], "lo": [], "hi": [], "mkt": [], "se": [], "blocchi": []}
            for nome in attive}
@@ -269,7 +262,7 @@ def run_event_study(
     prezzo_ing_medio = {nome: float(np.nanmean(prezzo_ing[maschere[nome]]))
                         for nome in attive}
 
-    posizioni = {nome: np.flatnonzero(maschere[nome]) for nome in attive}
+    posizioni = maschere
     ok = {}
     for k in barre:
         fwd = np.full(n, np.nan)
@@ -280,7 +273,7 @@ def run_event_study(
 
         for nome in attive:
             d = direzioni[nome]
-            v = fwd[maschere[nome]]
+            v = fwd[posizioni[nome]]           # 18/11/2026: per posizioni invece che per maschera (stessi valori)
             ok[nome] = np.isfinite(v)
             v = v[ok[nome]]
             if v.size == 0:
@@ -303,13 +296,13 @@ def run_event_study(
         if verbose and (k % max(1, horizon // 8) == 0 or k == horizon):
             print(f"  barra {k:>3}/{horizon}")
 
-    for nome in attive:
-        e = etichetta[nome]
-        curva[e] = np.asarray(acc[nome]["media"]) * 100.0
-        mercato[e] = np.asarray(acc[nome]["mkt"]) * 100.0
-        b_lo[e] = np.asarray(acc[nome]["lo"]) * 100.0
-        b_hi[e] = np.asarray(acc[nome]["hi"]) * 100.0
-        incert[e] = np.asarray(acc[nome]["se"]) * 100.0
+    # 18/11/2026: le colonne si mettono tutte insieme (con migliaia di trigger, una alla volta e' lento); stessi numeri
+    def _tabella(chiave):
+        t = pd.DataFrame({etichetta[nome]: np.asarray(acc[nome][chiave]) * 100.0 for nome in attive},
+                         index=barre, dtype=float)
+        t.index.name = "barre_dal_trigger"
+        return t
+    curva, mercato, b_lo, b_hi, incert = (_tabella(c) for c in ("media", "mkt", "lo", "hi", "se"))
 
     coda = int(np.ceil(horizon * 0.75))
     righe = []

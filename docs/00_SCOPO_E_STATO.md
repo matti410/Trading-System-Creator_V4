@@ -25,7 +25,9 @@ della versione 3 del 15/11 (BTC perp M15 9,2 minuti, ETH perp H1 3,5, con 3 proc
 **Incarico 83 (15/11/2026): il generatore di indicatori e trigger prezzo + volume** (`83_PROPOSTA_GENERATORE_INDICATORI.md`,
 PR #117): `engine/generatore/`, si lancia con `python -m engine.generatore --n N`; tetto N = 112 scelto da Mattia il 16/11
 (`dati_catalogo/generati_v1.json`, 2.984 trigger). Il collegamento al ML e alla fabbrica sono lavori a parte.
-Dal 17/11 nel Lab: campo `trigger_generati` della schermata 1 (vuoto = Lab di prima), nomi con `python -m engine.generatore --elenco`.
+Dal 17/11 nel Lab: campo `trigger_generati` della schermata 1, di base `tutti` (tutto il catalogo generato, sullo spot i long;
+nomi = solo quelli; vuoto = Lab di prima), contati tutti nelle prove; la 2c mostra i primi `quanti_migliori` (15) per lato più
+il riepilogo dei misurati (PR #118 e successiva). Nomi con `python -m engine.generatore --elenco`.
 Regola di progetto: la pipeline il più semplice possibile (`CLAUDE.md`). **Eccezione: in
 `engine/fabbrica/` i parametri si ottimizzano (`docs/81_FABBRICA`).** Il catalogo dei trigger intraday (`78`, `79`) è unito (PR #97): 12 trigger nuovi
 E46–E52, E50 spento come doppione di E3.

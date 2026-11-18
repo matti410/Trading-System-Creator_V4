@@ -12,13 +12,18 @@ Sezioni:
     B  i numeri contro un conteggio a mano, barra per barra
     C  il catalogo vero su EURUSD in-sample: le famiglie attese per costruzione
        (pattern confermati dentro la base, harami cross dentro harami, volume)
+    D  18/11/2026, il calcolo a pezzi (matrice compressa, conteggi a blocchi di
+       barre): su tutto il catalogo, BTC perp M15 in-sample, sovrapposizioni,
+       somiglianze e famiglie identiche al calcolo di prima (matrice intera),
+       anche con pezzi piccoli che tagliano le finestre allargate
 
 Si lancia da terminale, dalla cartella del progetto:
 
     python test_famiglie.py
 
 (su Windows: PYTHONIOENCODING=utf-8). La sezione C gira solo se c'e'
-dati/EURUSD_M15.csv; se manca viene SALTATA e lo dice. Non serve MT5.
+dati/EURUSD_M15.csv, la D solo se c'e' dati/BINANCE_PERP_BTCUSDT_M15.csv; se
+manca il file la sezione viene SALTATA e lo dice. Non serve MT5.
 """
 from __future__ import annotations
 
@@ -38,6 +43,26 @@ from engine.famiglie import famiglie, somiglianze, sovrapposizioni
 
 CARTELLA = os.path.dirname(os.path.abspath(__file__))
 DATI = os.path.join(CARTELLA, "dati", "EURUSD_M15.csv")
+DATI_BTC = os.path.join(CARTELLA, "dati", "BINANCE_PERP_BTCUSDT_M15.csv")
+
+
+def _misure_di_prima(df, tipo, nomi, finestra):
+    """Il calcolo di engine/famiglie.py fino al 17/11/2026 (matrice intera in float64), copiato per il confronto."""
+    from engine import famiglie as F
+    colonne = [F._colonna(df, tipo, nome) for nome in nomi]
+    m = np.column_stack(colonne) if colonne else np.zeros((len(df), 0), dtype=bool)
+    w = F._allarga(m, finestra)
+    a, b = m.astype(np.float64), w.astype(np.float64)
+    vere = a.sum(axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        quota = np.where(vere[:, None] > 0, (a.T @ b) / vere[:, None], 0.0)
+        caso = b.mean(axis=0)
+        lift = np.where(caso[None, :] > 0, quota / caso[None, :], 0.0)
+    return {"quota": quota, "lift": lift, "vere": vere, "copertura": m.mean(axis=0)}
+
+
+def _tre_tabelle(df, tipo):
+    return (sovrapposizioni(df, tipo), somiglianze(df, tipo), famiglie(df, tipo))
 
 
 def _sintetico(seme: int, n: int = 20000) -> pd.DataFrame:
@@ -204,6 +229,50 @@ def main() -> int:
         dop = set(sv.loc[sv["doppione"], "contenuta"])
         check("C4. sovrapposizioni: le versioni _CONFIRMED risultano doppioni della base",
               {"E11_INVERTED_HAMMER_CONFIRMED", "E12_ENGULFING_CONFIRMED", "E13_HARAMI_CONFIRMED"} <= dop)
+        R.clear_registry()
+
+    # =====================================================================
+    print("\nD · CALCOLO A PEZZI = CALCOLO DI PRIMA (18/11/2026)\n" + "-" * 70)
+    from engine import famiglie as F
+    originale, pezzo = F._misure, F.BYTE_PER_PEZZO
+    try:
+        df_s = _sintetico(5)
+        _registra_finte()
+        F.BYTE_PER_PEZZO = 4 * 5 * 1003          # pezzi di 1.000 barre: i bordi tagliano le finestre allargate
+        nuovi = {t: _tre_tabelle(df_s, t) for t in ("entry", "filtro")}
+        F._misure = _misure_di_prima
+        vecchi = {t: _tre_tabelle(df_s, t) for t in ("entry", "filtro")}
+        F._misure, F.BYTE_PER_PEZZO = originale, pezzo
+        check("D1. condizioni a mano, pezzi di 1.000 barre: le tre tabelle identiche al calcolo di prima",
+              all(x.equals(y) for t in nuovi for x, y in zip(nuovi[t], vecchi[t])))
+        if not os.path.exists(DATI_BTC):
+            saltato("D2-D3", f"manca {DATI_BTC}")
+        else:
+            from engine import vetrina as vt
+            from engine.indicatori import aggiungi_indicatori
+            from engine.splitting import split_is_oos
+            with contextlib.redirect_stdout(io.StringIO()):
+                df_is, _ = split_is_oos(aggiungi_indicatori(vt.carica_storico("BINANCE_PERP_BTCUSDT", os.path.join(
+                    CARTELLA, "dati"), "M15")), 0.8)
+                R.clear_registry()
+                vt._registra_condizioni()
+            tipi = ("entry", "filtro", "exit")
+            quante = {t: len(F._ELENCO[t]()) for t in tipi}
+            nuovi = {t: _tre_tabelle(df_is, t) for t in tipi}
+            F.BYTE_PER_PEZZO = 4 * max(quante.values()) * 20_000     # pezzi di 20.000 barre
+            piccoli = {t: _tre_tabelle(df_is, t) for t in tipi}
+            F._misure, F.BYTE_PER_PEZZO = _misure_di_prima, pezzo
+            vecchi = {t: _tre_tabelle(df_is, t) for t in tipi}
+            F._misure = originale
+            uguali = {t: [x.equals(y) for x, y in zip(nuovi[t], vecchi[t])] for t in tipi}
+            check("D2. tutto il catalogo, BTC perp M15 in-sample: sovrapposizioni, somiglianze e famiglie identiche "
+                  "al calcolo di prima (entry, filtri, uscite)",
+                  all(all(v) for v in uguali.values()),
+                  f"{len(df_is)} barre; " + ", ".join(f"{t} {quante[t]}: {uguali[t]}" for t in tipi))
+            check("D3. stesso confronto con pezzi di 20.000 barre",
+                  all(x.equals(y) for t in tipi for x, y in zip(piccoli[t], vecchi[t])))
+    finally:
+        F._misure, F.BYTE_PER_PEZZO = originale, pezzo
         R.clear_registry()
 
     tot, ok = len(ESITI), sum(ESITI)

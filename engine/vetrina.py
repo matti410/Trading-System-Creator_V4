@@ -100,7 +100,7 @@ from .metriche import netti_in_unita, pips_per_trade
 from .montecarlo import (bp_per_dataset, grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import ROLLOVER_DEFAULT, imposta_rollover, passo_barre, verifica_indice_utc
-from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi
+from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi, segnali_compressi
 from .stagionalita import (codice_orario, curva_scarto_orario, descrivi_profilo, fasce_orarie,
                            fuso_profilo, n_fasce, picco_curva, profilo_orario)
 from .splitting import split_al_confine, split_is_oos
@@ -563,24 +563,42 @@ def _nomi_generati_registrati() -> list[str]:
     return [n for n in reg.list_entries() if isinstance(reg.get_entry(n), TriggerGenerato)]
 
 
+TUTTI_GENERATI = "tutti"      # 17/11/2026: il valore di base del campo nel Lab = tutto il catalogo generato
+
+
+def _e_generato(nome: str) -> bool:
+    """Il trigger `nome` del registro e' un trigger generato (engine/generatore)?"""
+    from .generatore.trigger import TriggerGenerato
+    try:
+        return isinstance(reg.get_entry(nome), TriggerGenerato)
+    except KeyError:
+        return False
+
+
 def carica_trigger_generati(nomi, solo_long: bool = False, percorso=None) -> dict:
     """
     17/11/2026 (docs/83): i trigger del catalogo generato (dati_catalogo/generati_v1.json) indicati per nome, es.
-    "G0002_P90_SU, G0002_SHORT_P90_SU" o una lista. Ritorna {nome: TriggerGenerato}; vuoto = {}.
-    Catalogo mancante, nome che non c'e' o short sullo spot: si ferma con un messaggio che dice cosa fare.
+    "G0002_P90_SU, G0002_SHORT_P90_SU" o una lista; "tutti" = tutto il catalogo (sullo spot solo i long).
+    Ritorna {nome: TriggerGenerato}; vuoto = {}.
+    Catalogo mancante, nome che non c'e' o short sullo spot scritto per nome: si ferma con un messaggio che dice
+    cosa fare.
     """
-    nomi = list(dict.fromkeys(_lista_nomi(nomi)))
-    if not nomi:
+    tutti = isinstance(nomi, str) and nomi.strip().lower() == TUTTI_GENERATI
+    nomi = [] if tutti else list(dict.fromkeys(_lista_nomi(nomi)))
+    if not nomi and not tutti:
         return {}
     from .generatore.catalogo import carica_catalogo, percorso_catalogo, trigger_del_catalogo
     try:
         cat = carica_catalogo(percorso)
     except FileNotFoundError:
-        _ferma(f"Hai indicato dei trigger generati ({', '.join(nomi)}), ma il catalogo dei trigger generati non c'è "
-               f"({percorso or percorso_catalogo()}). Crealo dal terminale, nella cartella del progetto, con "
-               "«python -m engine.generatore --n 112» (112 è il tetto scelto il 16/11), poi riesegui la schermata 1. "
-               "Oppure lascia vuoto il campo «trigger_generati»: il Lab lavora con il solo catalogo.")
+        _ferma(f"Hai chiesto dei trigger generati ({'tutti' if tutti else ', '.join(nomi)}), ma il catalogo dei "
+               f"trigger generati non c'è ({percorso or percorso_catalogo()}). Crealo dal terminale, nella cartella "
+               "del progetto, con «python -m engine.generatore --n 112» (112 è il tetto scelto il 16/11), poi "
+               "riesegui la schermata 1. Oppure lascia vuoto il campo «trigger_generati»: il Lab lavora con il solo "
+               "catalogo.")
     lunghi, corti = trigger_del_catalogo(cat)
+    if tutti:            # 17/11/2026: tutto il catalogo generato; sullo spot solo i long
+        return dict(lunghi) if solo_long else {**lunghi, **corti}
     sbagliati = [n for n in nomi if n not in lunghi and n not in corti]
     if sbagliati:
         _ferma(f"Questi nomi non sono nel catalogo dei trigger generati (versione {cat['versione']}, "
@@ -604,22 +622,68 @@ def _registra_generati(scelti: dict) -> None:
         reg.register_entry(n, direction=f.lato)(f)
 
 
+def ricetta_in_chiaro(nome: str) -> str:
+    """
+    17/11/2026 (docs/83): la ricetta leggibile di un trigger generato, es. «media(sv, 14): attraversa P90 verso
+    l'alto»; "" per gli altri trigger.
+    """
+    if not _e_generato(nome):
+        return ""
+    from .generatore.ricette import testo
+    f = reg.get_entry(nome)
+    livello = {"ZERO": "lo zero", "MEDIA20": "la sua media di 20 barre"}.get(f.livello, f.livello)
+    verso = "verso l'alto" if f.verso == "SU" else "verso il basso"
+    return f"{testo(f.ricetta)}: attraversa {livello} {verso}"
+
+
 def nome_con_ricetta(nome: str) -> str:
     """
     17/11/2026 (docs/83): il nome di un trigger generato con la sua ricetta leggibile, per i grafici, es.
     «G0002_P90_SU · media(sv, 14): attraversa P90 verso l'alto». Gli altri trigger restano come sono.
     """
+    r = ricetta_in_chiaro(nome)
+    return f"{nome} · {r}" if r else nome
+
+
+QUANTI_MIGLIORI = 15      # 17/11/2026: le righe per lato della tabella della 2c (campo «quanti_migliori» del Lab)
+
+
+def conta_misurati(nomi) -> tuple[int, int]:
+    """(del catalogo, generati) fra i trigger misurati `nomi`."""
+    nomi = list(nomi)
+    gen = sum(_e_generato(n) for n in nomi)
+    return len(nomi) - gen, gen
+
+
+def _leggi_quanti_migliori(quanti_migliori) -> int:
     try:
-        f = reg.get_entry(nome)
-    except KeyError:
-        return nome
-    from .generatore.trigger import TriggerGenerato
-    if not isinstance(f, TriggerGenerato):
-        return nome
-    from .generatore.ricette import testo
-    livello = {"ZERO": "lo zero", "MEDIA20": "la sua media di 20 barre"}.get(f.livello, f.livello)
-    verso = "verso l'alto" if f.verso == "SU" else "verso il basso"
-    return f"{nome} · {testo(f.ricetta)}: attraversa {livello} {verso}"
+        n = int(quanti_migliori)
+    except (TypeError, ValueError):
+        n = 0
+    if n < 1:
+        _ferma(f"«quanti_migliori» deve essere un numero intero da 1 in su (le righe per lato della tabella), non "
+               f"{quanti_migliori!r}. Correggilo e riesegui la 2c.")
+    return n
+
+
+def migliori_per_lato(tab: pd.DataFrame, quanti_migliori: int, misurati) -> pd.DataFrame:
+    """
+    17/11/2026 (docs/83): la tabella della 2c da mostrare. Dalla tabella completa (una riga per trigger, colonne
+    «Trigger» e «Lato», gia' ordinata per lato e solidita' netta, come tabella_orizzonti) i primi `quanti_migliori`
+    per lato, catalogo e generati insieme; accanto al nome la ricetta dei generati (colonna «Ricetta», solo se fra
+    le righe c'e' un generato); in fondo una riga di riepilogo con i trigger misurati (`misurati`: i loro nomi).
+    Solo presentazione: la tabella completa resta in s.tabelle.
+    """
+    out = pd.concat([tab[tab["Lato"] == lato].head(quanti_migliori) for lato in ("long", "short")])
+    out = out.reset_index(drop=True)
+    ricette = [ricetta_in_chiaro(n) for n in out["Trigger"]]
+    if any(ricette):
+        out.insert(1, "Ricetta", ricette)
+    cat, gen = conta_misurati(misurati)
+    riga = {c: (np.nan if pd.api.types.is_numeric_dtype(out[c]) else "") for c in out.columns}
+    riga["Trigger"] = (f"Misurati: {_fmt(cat)} del catalogo + {_fmt(gen)} generati · qui i primi {quanti_migliori} "
+                       "per lato per solidità netta")
+    return pd.concat([out, pd.DataFrame([riga])], ignore_index=True)
 
 
 def _e_oraria(nome) -> bool:
@@ -1334,11 +1398,13 @@ def rosa_orizzonti(df_is: pd.DataFrame, orizzonti, pip: float, nomi, min_eventi:
     (1.3). gia: un dizionario {H: rosa} gia' calcolato (non si rifa'). Ritorna {H: rosa}.
     """
     out = dict(gia or {})
-    for H in orizzonti:
-        if int(H) not in out:
-            with _zitto():
-                out[int(H)] = rosa_entry(df_is, int(H), pip, nomi=nomi, min_eventi=min_eventi, fuso=fuso,
-                                         atr=atr, unita=unita)
+    mancano = [int(H) for H in orizzonti if int(H) not in out]
+    # 18/11/2026: i segnali si calcolano una volta per tutti gli orizzonti (stessi numeri)
+    segnali = segnali_compressi(df_is, nomi) if len(mancano) > 1 and nomi is not None else None
+    for H in mancano:
+        with _zitto():
+            out[H] = rosa_entry(df_is, H, pip, nomi=nomi, min_eventi=min_eventi, fuso=fuso,
+                                atr=atr, unita=unita, segnali=segnali)
     return {int(H): out[int(H)] for H in orizzonti}
 
 
@@ -1352,13 +1418,15 @@ def tabella_orizzonti(rose: dict, timeframe: str, unita: str) -> pd.DataFrame:
     comuni = None
     for H in hs:
         nomi = list(rose[H]["candidato"])
-        comuni = nomi if comuni is None else [n for n in comuni if n in set(nomi)]
+        presenti = set(nomi)            # 18/11/2026: l'insieme e l'indice si fanno una volta (stessa tabella)
+        comuni = nomi if comuni is None else [n for n in comuni if n in presenti]
+    per_nome = {H: rose[H].set_index("candidato") for H in hs}
     righe = []
     for nome in comuni or []:
         r = {"Trigger": nome}
         migliore = -np.inf
         for H in hs:
-            x = rose[H].set_index("candidato").loc[nome]
+            x = per_nome[H].loc[nome]
             r["Lato"] = "long" if int(x["direction"]) == 1 else "short"
             o = _ore_di(H, timeframe)
             r[f"Più del mercato della stessa ora a {o} ({unita})"] = float(x[f"scarto_{unita}"])
@@ -1409,7 +1477,8 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     trigger_generati  17/11/2026 (docs/83): nomi del catalogo generato (dati_catalogo/generati_v1.json),
                       separati da virgola o in una lista, es. "G0002_P90_SU, G0002_SHORT_P90_SU": entrano
                       nel registro e da qui in poi sono trigger come E1-E52 (2c, rosa, 3b, atlante...).
-                      Vuoto (default) = come prima. Elenco dei nomi: python -m engine.generatore --elenco
+                      Vuoto (default) = come prima. Elenco dei nomi: python -m engine.generatore --elenco.
+                      "tutti" (il valore di base nel Lab dal 17/11) = tutto il catalogo, sullo spot i long
 
     11/10/2026, allineata al notebook principale (Trading_Grid_Search_v4):
     symbol solo dalla tabella di engine/simboli.py; spread dal solo listino
@@ -1474,6 +1543,7 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
     _registra_condizioni()
     _registra_generati(generati)              # 17/11/2026 (docs/83): vuoto = toglie solo quelli di un giro prima
     s.trigger_generati = tuple(generati)
+    s.generati_tutti = isinstance(trigger_generati, str) and trigger_generati.strip().lower() == TUTTI_GENERATI
     # 25/10/2026 (docs/68 §9.1, correzione A di Mattia): il registro del dataset (symbol, timeframe,
     # confine dell'in-sample). Con lo stesso dataset la sessione nuova riprende il conto delle prove e
     # il diario dell'out-of-sample; un H diverso e' una risalita, e la scelta fra gli H provati si conta
@@ -1514,9 +1584,15 @@ def prepara(symbol: str = "EURUSD", H: int = 25, quota_in_sample: float = 0.8,
               f"{len(_trigger_candidati(1))} long · {n_short}",
               _fmt(len(_tutti_i_filtri()))]
     if generati:                              # 17/11/2026 (docs/83): sono gia' contati fra i trigger disponibili
+        n_l = sum(f.lato == 1 for f in generati.values())
+        quanti = f"{_fmt(len(generati))} entrati ({_fmt(n_l)} long · {_fmt(len(generati) - n_l)} short)"
+        if s.generati_tutti:
+            testo_gen = (f"{quanti}: tutti i trigger del catalogo generato"
+                         + (", solo i long (sullo spot lo short non esiste)" if s.solo_long else ""))
+        else:
+            testo_gen = f"{quanti}: " + "; ".join(nome_con_ricetta(n) for n in generati)
         voci.insert(voci.index("Trigger disponibili") + 1, "Trigger generati (docs/83)")
-        valori.insert(voci.index("Trigger generati (docs/83)"),
-                      "; ".join(nome_con_ricetta(n) for n in generati) + " · già compresi nei trigger disponibili")
+        valori.insert(voci.index("Trigger generati (docs/83)"), testo_gen + " · già compresi nei trigger disponibili")
     if s.da_exchange and not s.solo_long:
         voci.append("Funding (perpetual)")
         valori.append(_frase_funding(s))      # 21/10/2026
@@ -1764,20 +1840,22 @@ def _segna_scelta(storia, H: int) -> None:
                           {"voce": "orizzonte", "H": int(H)})
 
 
-def _mostra_griglia(s: Sessione, scelto: int | None) -> pd.DataFrame:
-    """La rosa dei trigger ai tre orizzonti, uno accanto all'altro (docs/77)."""
+def _mostra_griglia(s: Sessione, scelto: int | None, quanti_migliori: int = QUANTI_MIGLIORI) -> pd.DataFrame:
+    """La rosa dei trigger ai tre orizzonti, uno accanto all'altro (docs/77); i primi N per lato (17/11/2026)."""
     s.rose = rosa_orizzonti(s.df_is, s.griglia, s.pip, _trigger_candidati(1 if s.solo_long else None),
                             min_eventi=MIN_TRIGGER, fuso=s.fuso, unita=s.unita, atr=s.atr,
                             gia=getattr(s, "rose", None))
     tab = tabella_orizzonti(s.rose, s.timeframe, s.unita)
     s.tabelle["orizzonti"] = tab
+    vista = migliori_per_lato(tab, quanti_migliori, s.ev.sintesi["candidato"])
+    s.tabelle["orizzonti_mostrata"] = vista
     titolo = ("I trigger ai tre orizzonti (in-sample, prima dei costi)"
               + (f": hai scelto {_ore_di(scelto, s.timeframe)}" if scelto else ""))
-    _mostra((titolo, tab), decimali={c: 2 for c in tab.columns if c.startswith("Solidità")})
+    _mostra((titolo, vista), decimali={c: 2 for c in vista.columns if c.startswith("Solidità")})
     return tab
 
 
-def esplora(s: Sessione, quanti: int = 5, orizzonte=""):
+def esplora(s: Sessione, quanti: int = 5, orizzonte="", quanti_migliori: int = QUANTI_MIGLIORI):
     """
     Schermata 2c (dal 25/10/2026, docs/68 §2.1; prima schermata 2). Misura,
     per ogni trigger del registro, come si muove in media il prezzo nelle H
@@ -1788,16 +1866,20 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte=""):
     decide (stagionalita.curva_scarto_orario). E' lo stesso metro della rosa
     (schermata 3a): a k = H la curva coincide con lo scarto della rosa.
 
+    quanti_migliori   17/11/2026 (docs/83): le righe per lato della tabella dei trigger (con la griglia), i piu'
+                      solidi, catalogo e generati insieme, piu' una riga di riepilogo. Le curve restano `quanti`.
+
     Ritorna l'oggetto EventStudy (anche in `s.ev`); le curve sono in `s.curve_scarto`.
     """
     s._serve("df_is", "1 · Configura")
+    quanti_migliori = _leggi_quanti_migliori(quanti_migliori)
     _avviso_risalita(s, "rieseguire l'esplorazione")
     # 29/10/2026 (docs/77, lavoro 2): con la griglia la 2c mostra i tre orizzonti; l'H si sceglie nel campo
     # «orizzonte_scelto» e si riesegue la 2c. Con un orizzonte solo in barre tutto come prima.
     if getattr(s, "griglia", None):
         scelto = _scegli_orizzonte(s, orizzonte)
         if scelto is None:
-            return _esplora_griglia(s, quanti)
+            return _esplora_griglia(s, quanti, quanti_migliori)
     elif str(orizzonte or "").strip():
         _nota(f"L'orizzonte è fissato alla schermata 1 ({s.H} barre): il campo «orizzonte_scelto» conta solo con "
               "la griglia di 1, 4 e 8 ore.")
@@ -1811,7 +1893,7 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte=""):
     _rd.metti_prova(s.prove, "trigger", None, misurati)
     _nota(f"{misurati} segnali misurati su {len(candidati)} "
           f"(gli altri scattano meno di {MIN_TRIGGER} volte: troppo pochi per fidarsi della media)."
-          + (" Spot: solo i segnali long, lo short non esiste." if s.solo_long else ""))
+          + _frase_generati(s) + (" Spot: solo i segnali long, lo short non esiste." if s.solo_long else ""))
     rosa = _rosa_sessione(s)
     mostrati = []
     for direzione in (1, -1):
@@ -1848,7 +1930,8 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte=""):
                                 min_eventi=MIN_TRIGGER, fuso=s.fuso, unita=s.unita, atr=s.atr,
                                 gia=getattr(s, "rose", None))
         s.tabelle["orizzonti"] = tabella_orizzonti(s.rose, s.timeframe, s.unita)
-        tab_o = s.tabelle["orizzonti"]
+        tab_o = migliori_per_lato(s.tabelle["orizzonti"], quanti_migliori, s.ev.sintesi["candidato"])
+        s.tabelle["orizzonti_mostrata"] = tab_o
         _dettaglio("I trigger ai tre orizzonti (la tabella su cui hai scelto)",
                    (f"Hai scelto {_ore_di(s.H, s.timeframe)} = {s.H} barre", tab_o),
                    decimali={c: 2 for c in tab_o.columns if c.startswith("Solidità")})
@@ -1859,7 +1942,13 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte=""):
     return s.ev
 
 
-def _esplora_griglia(s: Sessione, quanti: int):
+def _frase_generati(s: Sessione) -> str:
+    """17/11/2026 (docs/83): « Di questi: X del catalogo + Y generati.» se fra i misurati ci sono generati."""
+    cat, gen = conta_misurati(s.ev.sintesi["candidato"])
+    return f" Di questi: {_fmt(cat)} del catalogo + {_fmt(gen)} generati." if gen else ""
+
+
+def _esplora_griglia(s: Sessione, quanti: int, quanti_migliori: int = QUANTI_MIGLIORI):
     """
     La 2c con la griglia, prima della scelta (29/10/2026, docs/77): l'event study fino all'orizzonte piu'
     lungo (e' il conto dei trigger misurati), la rosa a ogni H della griglia, la tabella dei tre orizzonti e
@@ -1874,8 +1963,8 @@ def _esplora_griglia(s: Sessione, quanti: int):
     _rd.metti_prova(s.prove, "trigger", None, misurati)
     _nota(f"{misurati} segnali misurati su {len(candidati)}, a tre orizzonti: "
           + ", ".join(f"{_ore_di(h, s.timeframe)} ({h} barre)" for h in s.griglia) + "."
-          + (" Spot: solo i segnali long, lo short non esiste." if s.solo_long else ""))
-    _mostra_griglia(s, None)
+          + _frase_generati(s) + (" Spot: solo i segnali long, lo short non esiste." if s.solo_long else ""))
+    _mostra_griglia(s, None, quanti_migliori)
     mostrati = []
     for direzione in (1, -1):
         if direzione in s.lati():
@@ -2205,7 +2294,8 @@ def rosa_dei_trigger(s: Sessione) -> pd.DataFrame:
         f"Solidità in {a}": vista[f"t_{a}"],
         "Supera la quota di fortuna": [_si_no(v) for v in vista["bh"]],
         "Regge sulle due metà": [_si_no(v) for v in vista["due_meta"]],
-        "Famiglia": vista["famiglia"].astype(int),
+        # 18/11/2026: la famiglia c'e' solo per le candidate («—» per le altre)
+        "Famiglia": [int(v) if pd.notna(v) else None for v in vista["famiglia"]],
         "Nella rosa": [_si_no(v) for v in vista["nella_rosa"]],
         "Perché fuori": vista["perche"],
     })
