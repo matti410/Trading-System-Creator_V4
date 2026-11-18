@@ -1612,9 +1612,9 @@ filtro. Cambia chi le occupa: le 150 si scelgono fra tutte le T+F del turno 1, u
 di oggi (D3).
 
 **Quanti trigger in più ci si aspetta.** Sui due asset misurati, da 1 a 13 per lato, 14 in tutto per asset. Su un altro
-asset o timeframe il numero si vede solo alla cella 1: dipende da quanti generati passano la rosa. Il caso pesante è
-limitato dal tetto calcolato: con 50 generati in più per lato le teorie del turno 1 sarebbero circa 11.600 e il massimo
-circa 640.000 (stima con la formula di `budget_massimo`, non misurata).
+asset o timeframe il numero si vede solo alla cella 1: dipende da quanti generati passano la rosa. Il tetto non li
+limita: si ricalcola e cresce con loro. Con 50 generati in più per lato le teorie del turno 1 sarebbero circa 11.600 e il
+massimo circa 640.000 (stima con la formula di `budget_massimo`, non misurata).
 
 ### §13.8 · Tempi e memoria
 
