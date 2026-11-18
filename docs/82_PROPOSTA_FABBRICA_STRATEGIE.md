@@ -1,11 +1,12 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»).
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo, in attesa del via.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
-§10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11) · §12 I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera)
+§10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11) · §12 I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera) ·
+§13 I trigger generati nella fabbrica (proposta del 18/11)
 
 ---
 
@@ -1414,3 +1415,323 @@ dello zoom delle uscite (§12.10) è un lavoro separato, dopo. Voce in §8: «Va
 ### §12.10 · Visto a parte (non entra nella proposta, si decide insieme)
 
 - La lentezza dello zoom su M5 (e, stimata, su M1) viene dalle soglie adattive delle uscite al passo fine, non dai quattro blocchi (§12.6): se Mattia vuole, se ne parla a parte, con una misura dedicata.
+
+## §13 · I trigger generati nella fabbrica (proposta del 18/11)
+
+**Stato:** proposta, solo testo (ramo `fabbrica-generati-proposta`). Risponde alle decisioni di Mattia del 18/11, punti 1–6,
+qui sotto «le decisioni». Il codice parte con il via di Mattia sulle scelte aperte (§13.11).
+
+**Da dove vengono i numeri.** Una misura del 18/11 sui soli segnali, su BINANCE_PERP_BTCUSDT e BINANCE_PERP_ETHUSDT M15:
+pezzo di ricerca della config standard di oggi (dal 02/01/2020 al 30/06/2023, 122.169 barre dopo il riscaldamento degli
+indicatori), catalogo generato `dati_catalogo/generati_v1.json` (1.492 coppie long/short), 3 processi. Nessuna ricerca,
+nessuna prova scritta, conto e studio non toccati. Sono numeri di conteggio e di tempo, un esempio di cosa fanno le regole:
+all'avvio di ogni ricerca la misura si rifà sul suo pezzo di ricerca.
+
+**Indice:** §13.1 In breve · §13.2 L'interruttore e la versione della config · §13.3 Dove si inserisce e cosa si vede ·
+§13.4 Passo 1, la scrematura · §13.5 Passo 2, la rosa dei generati · §13.6 Il conto delle prove · §13.7 Budget e teorie ·
+§13.8 Tempi e memoria · §13.9 Funzioni e file · §13.10 Cosa non cambia e i collaudi · §13.11 Le scelte aperte
+
+### §13.1 · In breve
+
+- **Un interruttore nella cella 1:** «solo ufficiale» (di base: la fabbrica di oggi, identica) oppure «ufficiale +
+  generati».
+- **Con i generati, all'avvio, sul solo pezzo di ricerca, due passi prima delle teorie:**
+  1. **scrematura per somiglianza** (solo segnali, non conta prove): famiglie misurate su ufficiali + generati, lato per
+     lato; un generato resta solo se la sua famiglia non ha un trigger ufficiale, e solo il più frequente della famiglia;
+  2. **rosa dei generati rimasti:** t netto > 0 contro il mercato della stessa ora, Benjamini-Hochberg su tutti i generati
+     misurati, scarto positivo nelle due metà; a 4, 16 e 32 barre; entra chi passa ad almeno un orizzonte. Ogni generato
+     misurato, per ogni orizzonte, è una prova nel conto.
+- **I generati che entrano** sono trigger come gli altri: turno 1, turno 2, zoom, altopiano, selezione e cassaforte di oggi.
+- **Su BTC e ETH perp M15** (misura del 18/11): circa 660–670 generati per lato dopo la scrematura; ne entrano 11 long e 3
+  short (BTC), 13 long e 1 short (ETH). Turno 1 da 4.860 a circa 5.790 teorie (+19%), massimo da 370.200 a circa 407.500
+  prove (+10%), tetto da 380.000 a 410.000. Preparazione: circa 1,5 minuti in più su M15, circa 5 su M5 (stima).
+
+### §13.2 · L'interruttore e la versione della config
+
+**Nel notebook.** Cella 1, un campo nuovo: `trigger = "solo ufficiale"  #@param ["solo ufficiale", "ufficiale + generati"]`.
+Il valore di base è «solo ufficiale».
+
+**Nella config.** Un campo nuovo, `trigger_generati`, scritto **solo** con «ufficiale + generati». Contiene le regole dei
+due passi scritte per intero, come oggi le griglie (se un giorno cambia un valore nel codice, cambia anche l'impronta):
+
+```
+"trigger_generati": {"catalogo": 1, "soglia_famiglia": 0.6, "orizzonti_barre": [4, 16, 32],
+                     "q": 0.2, "min_eventi": 200}
+```
+
+`catalogo` = la versione del catalogo generato (`generati_v1.json`); `q` e `min_eventi` sono quelli della rosa del Lab
+(`rosa.Q_ROSA`, `rosa.MIN_EVENTI`).
+
+**La versione: resta la 3** (scelta S1 in §13.11, consiglio). Una config «solo ufficiale» è identica, byte per byte, a
+quella di oggi: stessa impronta, stessa ricerca.
+
+**Le ricerche già fatte:**
+- restano su disco e nel conto, come sempre;
+- quelle della versione 3 (dal 15/11) si aprono ancora dalle celle 4–7 e si riprendono: nello stesso giorno UTC la cella 1
+  «solo ufficiale» ritrova la stessa ricerca («già esiste: riprende»), senza contare due volte le sue prove;
+- quelle delle versioni 1 e 2 si fermano come oggi, con «rilancia la cella 2»;
+- una ricerca «ufficiale + generati» ha un'impronta diversa: è una ricerca nuova, e le sue prove si sommano a quelle
+  dell'asset.
+
+### §13.3 · Dove si inserisce e cosa si vede
+
+**Il flusso.** `prepara` (in `engine/fabbrica/ricerca.py`) gira due volte: nella cella 1 (`configura`, per il tetto del
+budget) e all'inizio della cella 2 (`lancia`). Oggi fa: indicatori → valori degeneri → famiglie degli ufficiali → un blocco
+per famiglia → teorie del turno 1 → budget. Con l'interruttore acceso, fra «un blocco per famiglia» e «teorie del turno 1»:
+
+1. **passo 1, scrematura** (§13.4) → i generati rimasti, lato per lato;
+2. **passo 2, rosa** (§13.5) → i generati che entrano, lato per lato;
+3. i generati che entrano si aggiungono ai trigger tenuti del loro lato, dopo gli ufficiali, nell'ordine del catalogo
+   generato; poi teorie del turno 1 e budget come oggi.
+
+Le prove della rosa si scrivono nel file delle prove solo nella cella 2 (`lancia`), prima del turno 1 (§13.6). La cella 1
+non scrive prove, come oggi.
+
+**Cosa vede Mattia** (numeri di BTC perp M15 della misura del 18/11).
+
+- **Cella 1, dopo le righe dei tenuti di oggi:**
+  - «Trigger generati (catalogo v1): 1.492 coppie, segnali calcolati una volta per coppia.»
+  - «Scrematura · long: 1.492 generati + 45 ufficiali → 711 famiglie; 36 hanno un trigger ufficiale (224 generati tolti);
+    661 generati rimasti, uno per famiglia. Short: 1.492 + 44 → 710 famiglie; 33 con un ufficiale (126 tolti); 663
+    rimasti.»
+  - «Rosa dei generati (4, 16, 32 barre) · long: 661 misurati → entrano 11 (4 barre: 3, 16: 11, 32: 2). Short: 663
+    misurati → entrano 3 (4 barre: 1, 16: 2, 32: 0). Prove contate: 3.972.»
+  - «Nella ricerca · long: 36 ufficiali + 11 generati = 47 trigger; short: 36 + 3 = 39.»
+  - Poi la riga di oggi: «Turno 1: 5.793 teorie; turno 2: al massimo 3.150; al massimo 407.520 prove (tetto 410.000)…».
+  - In una sezione chiusa, la tabella dei generati che entrano: nome, regola in parole (per esempio «media(sv, 14):
+    attraversa P90 verso l'alto»), lato, eventi, t netto ai tre orizzonti, orizzonti passati.
+- **Cella 2:** una riga di avanzamento in più all'inizio, «preparazione: scrematura e rosa dei generati, circa 1–2
+  minuti».
+- **Cella 3, imbuto:** una riga in testa, «generati: 1.492 → scrematura 661 / 663 → rosa 11 / 3 (long / short)».
+- **Scheda:** per una strategia con un trigger generato, la regola in parole dalla ricetta, la riga «trigger generato
+  (docs/83): passato la rosa a 16 barre (t …)», e il conto delle prove di oggi, che comprende le prove della rosa.
+
+### §13.4 · Passo 1, la scrematura
+
+**Quando e su cosa:** all'avvio, sul solo pezzo di ricerca, lato per lato. Usa solo i segnali: non è una prova e non entra
+nel conto (decisione 2).
+
+**Come:**
+1. I segnali dei generati si calcolano **una volta per coppia** (decisione 4): il long e lo short di una coppia scattano
+   sulle stesse barre. Si passano a `famiglie.py` con la `memoria` (18/11) già piena, sotto i due nomi.
+2. Per lato, `famiglie.famiglie(df, "entry", nomi=ufficiali + generati, soglia=0.6)`. Gli ufficiali sono **tutti** i trigger
+   della config disponibili sul lato dopo i valori degeneri (45 sul long, 44 sullo short su M15), come nella misura delle
+   famiglie di oggi (`misura_famiglie`).
+3. In ogni famiglia un trigger:
+   - c'è un trigger ufficiale → si tiene l'ufficiale e i generati della famiglia escono;
+   - solo generati → il generato che scatta più spesso, a parità il nome più piccolo;
+   - un generato che non scatta mai sul pezzo di ricerca esce (è solo nella sua famiglia, senza segnali).
+4. **Gli ufficiali tenuti restano quelli di oggi** (scelta S2 in §13.11, consiglio): la scrematura decide solo dei generati.
+
+I generati **non passano dal controllo dei valori degeneri** della fabbrica: sono eventi per costruzione (mai «STATO», mai
+«quasi sempre veri»), e quelli che scattano poco escono alla rosa, che ne misura solo con almeno 200 eventi. Così il
+controllo non calcola 2.984 maschere in più nella cache.
+
+**Misura del 18/11** (pezzo di ricerca M15, 122.169 barre):
+
+| | BTC long | BTC short | ETH long | ETH short |
+|---|---|---|---|---|
+| ufficiali + generati | 45 + 1.492 | 44 + 1.492 | 45 + 1.492 | 44 + 1.492 |
+| famiglie | 711 | 710 | 716 | 719 |
+| famiglie con almeno un ufficiale | 36 | 33 | 34 | 35 |
+| generati tolti perché nella famiglia di un ufficiale | 224 | 126 | 189 | 123 |
+| famiglie di soli generati che non scattano mai | 14 | 14 | 14 | 14 |
+| **generati rimasti** | **661** | **663** | **668** | **670** |
+
+### §13.5 · Passo 2, la rosa dei generati
+
+**Su cosa:** i generati rimasti dei due lati, sul solo pezzo di ricerca. I trigger ufficiali **non** passano dalla rosa:
+entrano come oggi (decisione 3).
+
+**La regola** (la stessa della rosa del Lab, senza il gruppo):
+- t netto > 0 contro il mercato della stessa ora (baseline oraria, giornata UTC, unità bp);
+- Benjamini-Hochberg al 20% sul p a una coda, su **tutti** i generati misurati a quell'orizzonte, long e short insieme,
+  come nel Lab;
+- scarto dal mercato positivo su **tutte e due le metà** del pezzo di ricerca;
+- **niente gruppo:** né famiglia né rho. Due generati simili possono entrare tutti e due (la somiglianza l'ha già guardata
+  la scrematura).
+
+Si misura chi ha almeno 200 eventi (come nel Lab). Orizzonti **4, 16 e 32 barre**, fissi su ogni timeframe (su M15 sono 1, 4
+e 8 ore; su M5 20, 80 e 160 minuti; su H1 4, 16 e 32 ore). Un generato entra se passa **ad almeno uno** dei tre.
+
+**Una misura per coppia** (decisione 4): `rosa.rosa_orizzonti_entry` misura già una volta sola il long e lo short di una
+coppia, e lo short è l'opposto esatto (PR #120); i due lati contano tutti e due, nel BH e nel conto. Sullo spot solo i long.
+
+La regola è la colonna `candidata` della rosa di oggi (t > 0, BH, due metà): la fabbrica legge quella e non `nella_rosa`.
+
+**Misura del 18/11:**
+
+| | BTC long | BTC short | ETH long | ETH short |
+|---|---|---|---|---|
+| misurati (almeno 200 eventi) | 661 | 663 | 667 | 669 |
+| passano a 4 barre | 3 | 1 | 13 | 1 |
+| passano a 16 barre | 11 | 2 | 0 | 0 |
+| passano a 32 barre | 2 | 0 | 0 | 0 |
+| **entrano (almeno uno)** | **11** | **3** | **13** | **1** |
+
+### §13.6 · Il conto delle prove
+
+- Ogni generato misurato al passo 2, **per ogni orizzonte**, è una riga nel file delle prove della ricerca (decisione 5):
+  fase `rosa_generati`, pezzo `ricerca`, `id_strategia` = «ROSA_H16_G0003_P25_SU» (orizzonte e nome), `trade` = gli eventi,
+  `ev_bp` = lo scarto dal mercato, `t` = il t netto.
+- Su BTC perp M15 sono **3.972 righe** (1.324 generati × 3 orizzonti), su ETH 4.008.
+- Si scrivono nella cella 2, all'inizio di `lancia`. Una ripresa le riscrive con le stesse chiavi e il file delle prove le
+  salta: si contano una volta sola.
+- Il conto dell'asset e la soglia da leggere sulla scheda sono quelli di oggi (`registro.conto_prove`,
+  `giudizio.soglia_rumore`): le righe della rosa sono dentro. Il conto **non decide**: decide il test individuale della
+  strategia, in selezione e in cassaforte, come oggi.
+- La scrematura non conta (solo segnali), come «un blocco per famiglia» di oggi.
+
+### §13.7 · Budget e teorie
+
+**Il budget oggi.** Il «budget di 100.000 prove» di §0 era il totale della prima versione. Da §11 (D6) il totale della
+config standard è il **tetto**: il massimo della ricerca arrotondato in su ai 10.000, calcolato dalla cella 1 sui trigger
+tenuti. Su BTC perp M15 oggi: massimo 370.200, tetto 380.000. Con i generati il tetto si calcola nello stesso modo, con i
+generati che entrano: nessuna regola nuova, sale da solo.
+
+**Turno 1.** Le teorie sono trigger × (1 + filtri) × 3 uscite, per lato: ogni generato che entra porta 66 teorie sul long
+(22 × 3) e 69 sullo short (23 × 3) su M15.
+
+| BTC perp M15 | oggi | con i generati (misura del 18/11) |
+|---|---|---|
+| trigger nella ricerca (long; short) | 36; 36 | 47; 39 |
+| teorie del turno 1 | 4.860 | **5.793** (+19%) |
+| teorie del turno 2, al massimo | 3.150 | 3.150 |
+| prove al massimo | 370.200 | **407.520** (+10%) |
+| tetto | 380.000 | **410.000** |
+| prove attese: turno 1 (teorie × 32) | 155.520 | 185.376 |
+| prove attese: turno 2, zoom, altopiano, selezione (§12.5) | circa 114.000 | circa 114.000 |
+| prove della rosa | — | 3.972 |
+| **prove attese in tutto** | **circa 270.000** | **circa 303.000** (+13%) |
+| stima della cella 1 (3 processi) | 12,5–22,9 minuti | 13,8–25,2 minuti |
+
+ETH perp M15: 5.787 teorie, massimo 407.280, tetto 410.000, quasi uguale.
+
+**Turno 2.** Il massimo non cambia: sono sempre le 150 teorie T+F con il t più alto del turno 1, ognuna con un secondo
+filtro. Cambia chi le occupa: le 150 si scelgono fra tutte le T+F del turno 1, ufficiali e generate insieme, con la regola
+di oggi (D3).
+
+**Quanti trigger in più ci si aspetta.** Sui due asset misurati, da 1 a 13 per lato, 14 in tutto per asset. Su un altro
+asset o timeframe il numero si vede solo alla cella 1: dipende da quanti generati passano la rosa. Il caso pesante è
+limitato dal tetto calcolato: con 50 generati in più per lato le teorie del turno 1 sarebbero circa 11.600 e il massimo
+circa 640.000 (stima con la formula di `budget_massimo`, non misurata).
+
+### §13.8 · Tempi e memoria
+
+**M15, misurati** (BTC ed ETH perp, 122.169 barre, 3 processi):
+
+| voce | tempo |
+|---|---|
+| `prepara` di oggi | 14–17 s |
+| segnali dei generati, una volta per coppia (i due lati) | 46–47 s |
+| famiglie, per lato | 3–4 s |
+| rosa, i due lati insieme (1.324–1.336 generati, 3 orizzonti) | 32–40 s |
+| **in più per ogni `prepara`** | **circa 1,5 minuti** |
+| memoria massima, tutti i processi | 1,05–1,06 GB |
+
+La stima di Mattia, «circa 50 s per lato», era la misura di prima, con i segnali calcolati due volte. Calcolati una volta
+per coppia, la scrematura dei due lati costa circa 55 s in tutto.
+
+**M5, stimati** (un pezzo di ricerca M5 ha circa 3 volte le barre di M15, circa 366.000; nella PR #120 la misura in
+parallelo della 2c su M5 costava 3,1 volte M15): segnali circa 2,5 minuti; famiglie circa 10 s per lato; rosa circa
+1,5–2 minuti. **In più per ogni `prepara`: circa 4,5–5 minuti.** Memoria: circa 2,5–3 GB al massimo, tutti i processi (la
+2c del Lab su M5 arrivava a 3,6 GB con 3.069 trigger, 4 processi e 575.000 barre; qui circa 1.330 generati, 3 processi,
+366.000 barre).
+
+**`prepara` gira due volte** (cella 1 e cella 2): il tempo in più si paga due volte, circa 3 minuti su M15 e 9–10 su M5
+(scelta S3 in §13.11).
+
+**La ricerca.** Il turno 1 cresce con le teorie (+19% su BTC M15); turno 2, zoom e altopiano no. Su BTC perp M15 la cella 2
+passa da circa 9 minuti (ricerca vera del 15/11) a circa 10 per le prove, più circa 1,5 minuti di preparazione. Su M5, dalla
+ricerca di XRP del 14/11 (turno 1 di 14,4 minuti su 94,9 in tutto), con circa il 19% di teorie in più al turno 1: circa 3
+minuti in più di prove, più circa 5 di preparazione.
+
+### §13.9 · Funzioni e file
+
+**Si riusa, senza toccarlo:**
+- `engine/famiglie.py`: `famiglie(..., memoria=...)` per la scrematura (la `memoria` del 18/11 dà i segnali di una coppia
+  una volta sola);
+- `engine/rosa.py`: `rosa_orizzonti_entry(df, [4, 16, 32], pip, nomi=..., fuso="UTC", unita="bp", processi=...)`, la
+  colonna `candidata`; il gruppo che la rosa calcola comunque non si legge (costa pochi secondi);
+- `engine/generatore/catalogo.py`: `carica_catalogo`, `trigger_del_catalogo`, `registra_trigger_generati`;
+  `ricette.testo` per la regola in parole;
+- nella fabbrica: `generatore._maschera_centrale` e `_registro_isolato` (le maschere degli ufficiali, come in
+  `misura_famiglie`), `budget_massimo` e `tetto_budget` senza cambi, `registro.FileProve` per le righe della rosa,
+  `stima_minuti`.
+
+**Nuovo:**
+
+| file | cosa | additivo? |
+|---|---|---|
+| `engine/fabbrica/generati.py` (nuovo) | `scrematura(df, blocchi, cache, lati, rimaste, cat) -> (rimasti, tabella)`; `rosa_generati(df, rimasti, symbol, regole, processi) -> (entrano, tabella, righe_prove)` | sì |
+| `engine/fabbrica/config.py` | il campo facoltativo `trigger_generati` (controllo dei valori; assente = «solo ufficiale»); `config_standard(..., generati=False)`; `massimo_senza_dati` conta tutte le coppie del catalogo generato quando il campo c'è (un massimo mai più piccolo del vero) | sì: senza il campo, config e impronta identiche |
+| `engine/fabbrica/blocchi.py` | con il campo, `blocchi_da_config` aggiunge un blocco trigger per ogni coppia generata (nome della coppia, condizione long e short dal registro, come un trigger del catalogo); `_registra_catalogo` registra anche i generati | sì |
+| `engine/fabbrica/ricerca.py` | `prepara`: i due passi fra «un blocco per famiglia» e le teorie, solo con il campo; i generati fuori dal controllo dei degeneri e da «un blocco per famiglia» di oggi; `lancia`: le righe della rosa nel file delle prove, i generati nell'evento di avvio e in `riepilogo.json`; `_inizia` registra i generati nei processi | sì: senza il campo, nessuna riga nuova eseguita |
+| `engine/fabbrica/schede.py` | la regola in parole di un trigger generato (dalla ricetta), la riga «trigger generato» sulla scheda; `blocchi_senza_testo` li conta come scritti | sì |
+| `engine/vetrina_fabbrica.py` | cella 1: il parametro `trigger` e le righe di §13.3; cella 3: la riga dei generati nell'imbuto | sì |
+| `Fabbrica_Strategie_Crypto.ipynb` | il campo della cella 1, il testo sopra la cella, una riga di glossario: «Trigger generati: i trigger del catalogo generato (docs/83); nella fabbrica entrano solo quelli che passano scrematura e rosa sul pezzo di ricerca» | testo |
+| collaudi, `docs/82`, `docs/81_FABBRICA_STRATEGIE.md`, `docs/00` | §13.10; a lavoro finito, lo stato | |
+
+**Selezione e cassaforte** (decisione 6) ricostruiscono i blocchi dalla config per nome, come oggi: un trigger generato si
+rifà dal suo nome e dal catalogo generato, senza scrematura e senza rosa. Leggono solo le barre del loro pezzo.
+
+### §13.10 · Cosa non cambia e i collaudi
+
+**Non cambia:** il motore di backtest; le condizioni di qualità (i cancelli 1 e 2); zoom e altopiano; selezione, cassaforte,
+money management e stress; il test individuale che decide; il catalogo ufficiale e i suoi file; il catalogo generato e il
+suo file; `famiglie.py` e `rosa.py`; il Lab e la Grid Search; la parte ML. Con «solo ufficiale» la fabbrica è quella di oggi,
+riga per riga. Quindi niente prove d'identità dei notebook: bastano le suite, più il collaudo «solo ufficiale identico».
+
+**Collaudi:**
+- **Interruttore** (`test_fabbrica_ricerca.py`, `test_vetrina_fabbrica.py`): senza il campo, `config_standard` identica a
+  oggi e stessa impronta; `prepara` con gli stessi tenuti, teorie e budget, e una ricerca piccola su dati sintetici con lo
+  stesso file delle prove, bit per bit; una ricerca della versione 3 si riapre.
+- **Scrematura** (`test_fabbrica_generati.py`, nuovo, maschere fatte a mano):
+  - famiglia con un ufficiale → resta l'ufficiale, i generati escono;
+  - famiglia di soli generati → il più frequente, a parità il nome più piccolo;
+  - un generato che non scatta mai esce;
+  - gli ufficiali tenuti sono quelli di «un blocco per famiglia» di oggi (S2);
+  - i segnali di una coppia si calcolano una volta (contando le chiamate);
+  - il registro delle condizioni identico prima e dopo.
+- **Rosa** (`test_fabbrica_generati.py`):
+  - entrano esattamente i generati con `candidata` vera ad almeno un orizzonte;
+  - due generati della stessa famiglia nella rosa entrano tutti e due (niente gruppo);
+  - BH su tutti i misurati, long e short insieme;
+  - meno di 200 eventi → non misurato, non entra, non contato;
+  - sullo spot solo long.
+- **Conto:** le righe `rosa_generati`, una per generato misurato e orizzonte; una ripresa non le conta due volte;
+  `conto_prove` le comprende.
+- **Ricerca** (dati sintetici, «ufficiale + generati»): un vantaggio piantato in un generato arriva nella rosa e nelle teorie
+  del turno 1; budget mai superato; 1 processo = 3; fermata e ripresa = corsa unica, bit per bit.
+- **Selezione e cassaforte:** una strategia con un trigger generato si valuta senza chiamare scrematura e rosa (le due
+  funzioni sostituite da un errore nel collaudo); il test del veleno sulla cassaforte resta verde.
+- **Schede e celle:** la regola in parole di un generato su `.md` e `.json`; le righe della cella 1 e dell'imbuto; il
+  notebook intero due volte su dati sintetici con l'interruttore acceso.
+- **Prima della PR:** la suite completa.
+
+### §13.11 · Le scelte aperte
+
+- **S1 · La versione della config.**
+  - A: `VERSIONE = 4`, campo sempre presente, una strada sola come il 12/11 e il 15/11; le ricerche della versione 3 si
+    fermano con «rilancia la cella 2», e una ricerca «solo ufficiale» rilanciata oggi conta di nuovo le sue prove;
+  - B: la versione resta 3, campo facoltativo scritto solo con i generati.
+  *Consiglio:* B. «Solo ufficiale» è davvero la fabbrica di oggi, con la stessa impronta: niente ricerche ripetute né
+  prove contate due volte, e nessun messaggio nuovo nelle celle 4–7.
+- **S2 · Gli ufficiali dentro la scrematura.** Misurati insieme ai generati, gli ufficiali cambiano famiglie: su BTC M15 lo
+  short ha 33 famiglie con un ufficiale (oggi 36 ufficiali tenuti), su ETH 34 e 35; 6–8 famiglie per lato contengono più
+  ufficiali.
+  - A: si tiene un ufficiale per famiglia della misura comune (la regola di oggi dentro la famiglia: i 14, poi il più
+    frequente): con l'interruttore acceso cambiano anche gli ufficiali tenuti;
+  - B: gli ufficiali tenuti restano quelli di oggi; la misura comune decide solo quali generati escono (tutti quelli in una
+    famiglia con un ufficiale, tenuto o no).
+  *Consiglio:* B. L'interruttore aggiunge e non toglie: la parte ufficiale della ricerca è la stessa con e senza generati,
+  e i confronti fra le due si leggono.
+- **S3 · Scrematura e rosa due volte.** `prepara` gira nella cella 1 e nella cella 2.
+  - A: si rifanno tutte e due le volte (stesso risultato per costruzione);
+  - B: la cella 1 scrive i generati che entrano in un file della ricerca, la cella 2 lo rilegge se il pezzo di ricerca ha
+    la stessa impronta.
+  *Consiglio:* A. Nessun file nuovo da tenere coerente; costa circa 1,5 minuti su M15 e 4,5–5 su M5 contro ricerche da 10 e
+  95 minuti. Se un giorno pesa (M1), si passa a B.
+- **S4 · Il minimo di eventi.** La rosa del Lab misura solo i trigger con almeno 200 eventi; la condizione di qualità 1 della
+  fabbrica chiede 100 trade. *Consiglio:* 200, come il Lab: è la regola con cui la rosa è stata provata (docs/02) e il
+  numero sta nel campo `trigger_generati`, quindi nell'impronta.
