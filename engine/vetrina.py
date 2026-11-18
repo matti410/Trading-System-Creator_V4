@@ -100,7 +100,7 @@ from .metriche import netti_in_unita, pips_per_trade
 from .montecarlo import (bp_per_dataset, grafici_montecarlo, montecarlo_completo,
                          pips_per_dataset, sizing, valore_pip_lotto, yardstick)
 from .quarantena import ROLLOVER_DEFAULT, imposta_rollover, passo_barre, verifica_indice_utc
-from .rosa import Q_ROSA, RHO_MAX, rosa_entry, rosa_sistemi, segnali_compressi
+from .rosa import Q_ROSA, RHO_MAX, misurati_event_study, rosa_entry, rosa_orizzonti_entry, rosa_sistemi
 from .stagionalita import (codice_orario, curva_scarto_orario, descrivi_profilo, fasce_orarie,
                            fuso_profilo, n_fasce, picco_curva, profilo_orario)
 from .splitting import split_al_confine, split_is_oos
@@ -342,7 +342,11 @@ class Sessione:
         self.pip = None
         self.spread_pips = self.spread_rollover_pips = None
         self.fonte_spread = ""
+        self._ev_rinviato = None      # 18/11/2026: (trigger, H) dell'event study da calcolare alla prima lettura
         self.ev = None
+        self.misurati = None          # 18/11/2026: i trigger misurati alla 2c (il conto dell'event study)
+        self.conto = None             # {nome: (occasioni, prima barra)} dalla misura della rosa
+        self.conto_fino_a = 0
         self.entry_long = self.entry_short = None
         self.trigger_long = self.trigger_short = ()
         self.uscite = None
@@ -398,8 +402,31 @@ class Sessione:
         """Le direzioni su cui si opera: (1, -1), oppure solo (1,) sullo spot."""
         return (1,) if self.solo_long else (1, -1)
 
+    @property
+    def ev(self):
+        """
+        L'event study dei trigger della 2c. Dal 18/11/2026 (decisione di Mattia) la 2c non lo calcola: lo calcola
+        questa proprieta' la prima volta che si legge (classifiche, soglia_cumulata...), con i trigger e l'H della 2c.
+        """
+        if self._ev is None and self._ev_rinviato is not None:
+            nomi, H = self._ev_rinviato
+            with _zitto():
+                self._ev = run_event_study(self.df_is, entry_names=nomi, horizon=H, min_trades=MIN_TRIGGER,
+                                           pip=self.pip, verbose=False)
+            self._ev_rinviato = None
+        return self._ev
+
+    @ev.setter
+    def ev(self, valore):
+        self._ev, self._ev_rinviato = valore, None
+
+    def _rinvia_ev(self, nomi, H: int) -> None:
+        self._ev, self._ev_rinviato = None, (list(nomi), int(H))
+
     def _serve(self, attributo: str, schermata: str):
-        if getattr(self, attributo) is None:
+        valore = ((self._ev if self._ev is not None else self._ev_rinviato) if attributo == "ev"
+                  else getattr(self, attributo))
+        if valore is None:
             raise RuntimeError(f"Manca un passaggio: esegui prima la schermata «{schermata}».")
 
 
@@ -1392,19 +1419,24 @@ def _serve_orizzonte(s) -> None:
 
 
 def rosa_orizzonti(df_is: pd.DataFrame, orizzonti, pip: float, nomi, min_eventi: int = MIN_TRIGGER,
-                   fuso: str = "UTC", unita: str = "bp", atr=None, gia=None) -> dict:
+                   fuso: str = "UTC", unita: str = "bp", atr=None, gia=None, conto=None, processi=None) -> dict:
     """
     La rosa dei trigger (rosa_entry) a ogni orizzonte della griglia, comune al Lab (2c) e alla ricerca
     (1.3). gia: un dizionario {H: rosa} gia' calcolato (non si rifa'). Ritorna {H: rosa}.
+    18/11/2026: gli orizzonti mancanti si misurano insieme (rosa.rosa_orizzonti_entry: ogni trigger una volta, le
+    coppie long/short dei generati una volta, `processi` processi; None = rosa.PROCESSI se si possono avviare),
+    stessi numeri. conto: un dizionario che si riempie con il conto dell'event study (misurati_event_study).
     """
     out = dict(gia or {})
     mancano = [int(H) for H in orizzonti if int(H) not in out]
-    # 18/11/2026: i segnali si calcolano una volta per tutti gli orizzonti (stessi numeri)
-    segnali = segnali_compressi(df_is, nomi) if len(mancano) > 1 and nomi is not None else None
-    for H in mancano:
+    if mancano:
         with _zitto():
-            out[H] = rosa_entry(df_is, H, pip, nomi=nomi, min_eventi=min_eventi, fuso=fuso,
-                                atr=atr, unita=unita, segnali=segnali)
+            rose, c = rosa_orizzonti_entry(df_is, mancano, pip, nomi=nomi, min_eventi=min_eventi, fuso=fuso,
+                                           atr=atr, unita=unita, processi=processi,
+                                           conto_fino_a=max(int(H) for H in orizzonti))
+        out.update(rose)
+        if conto is not None:
+            conto.update(c)
     return {int(H): out[int(H)] for H in orizzonti}
 
 
@@ -1764,10 +1796,8 @@ def _rosa_sessione(s: Sessione) -> pd.DataFrame:
     if r is None or r.attrs.get("H") != s.H:
         rose = s.__dict__.setdefault("rose", {})     # 29/10/2026 (docs/77): una rosa per H, calcolata una volta
         if s.H not in rose:
-            with _zitto():
-                rose[s.H] = rosa_entry(s.df_is, s.H, s.pip,
-                                       nomi=_trigger_candidati(1 if s.solo_long else None),
-                                       min_eventi=MIN_TRIGGER, fuso=s.fuso, atr=s.atr, unita=s.unita)
+            _misura_2c(s, [s.H])
+            rose = s.rose
         s.rosa_trigger = rose[s.H]
     return s.rosa_trigger
 
@@ -1847,7 +1877,7 @@ def _mostra_griglia(s: Sessione, scelto: int | None, quanti_migliori: int = QUAN
                             gia=getattr(s, "rose", None))
     tab = tabella_orizzonti(s.rose, s.timeframe, s.unita)
     s.tabelle["orizzonti"] = tab
-    vista = migliori_per_lato(tab, quanti_migliori, s.ev.sintesi["candidato"])
+    vista = migliori_per_lato(tab, quanti_migliori, s.misurati)
     s.tabelle["orizzonti_mostrata"] = vista
     titolo = ("I trigger ai tre orizzonti (in-sample, prima dei costi)"
               + (f": hai scelto {_ore_di(scelto, s.timeframe)}" if scelto else ""))
@@ -1869,7 +1899,12 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte="", quanti_migliori: int = Q
     quanti_migliori   17/11/2026 (docs/83): le righe per lato della tabella dei trigger (con la griglia), i piu'
                       solidi, catalogo e generati insieme, piu' una riga di riepilogo. Le curve restano `quanti`.
 
-    Ritorna l'oggetto EventStudy (anche in `s.ev`); le curve sono in `s.curve_scarto`.
+    18/11/2026 (decisione di Mattia): l'event study completo non si calcola piu' qui. Il conto dei trigger
+    misurati e' il suo, con la stessa regola (rosa.misurati_event_study, in `s.misurati`); l'event study si
+    calcola alla prima lettura di `s.ev` (classifiche, soglia_cumulata).
+
+    Ritorna l'event study rinviato (_EventStudyRinviato: si calcola quando se ne legge un attributo, es.
+    .sintesi); le curve sono in `s.curve_scarto`.
     """
     s._serve("df_is", "1 · Configura")
     quanti_migliori = _leggi_quanti_migliori(quanti_migliori)
@@ -1883,12 +1918,11 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte="", quanti_migliori: int = Q
     elif str(orizzonte or "").strip():
         _nota(f"L'orizzonte è fissato alla schermata 1 ({s.H} barre): il campo «orizzonte_scelto» conta solo con "
               "la griglia di 1, 4 e 8 ore.")
-    candidati = _trigger_candidati(1 if s.solo_long else None)    # spot: solo long (19/10/2026)
-    with _zitto():
-        s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=s.H,
-                               min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
-    misurati = len(s.ev.sintesi)
-    _nota_blocchi(s.ev.sintesi, "segnali")
+    # 18/11/2026 (decisione di Mattia): niente event study completo; il conto dei misurati e' il suo, con la stessa
+    # regola, e l'avviso dei blocchi viene dalla rosa (con la griglia: le rose dei tre orizzonti in una misura sola)
+    candidati = _misura_2c(s, s.griglia if getattr(s, "griglia", None) else [s.H])   # spot: solo long (19/10/2026)
+    misurati = _segna_misurati(s, candidati, s.H)
+    _nota_blocchi(_rosa_sessione(s), "segnali")
     # 22/10/2026: soglia cumulata (H e' fisso nella sessione); 28/10/2026 (docs/76): il numero piu' alto
     _rd.metti_prova(s.prove, "trigger", None, misurati)
     _nota(f"{misurati} segnali misurati su {len(candidati)} "
@@ -1930,7 +1964,7 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte="", quanti_migliori: int = Q
                                 min_eventi=MIN_TRIGGER, fuso=s.fuso, unita=s.unita, atr=s.atr,
                                 gia=getattr(s, "rose", None))
         s.tabelle["orizzonti"] = tabella_orizzonti(s.rose, s.timeframe, s.unita)
-        tab_o = migliori_per_lato(s.tabelle["orizzonti"], quanti_migliori, s.ev.sintesi["candidato"])
+        tab_o = migliori_per_lato(s.tabelle["orizzonti"], quanti_migliori, s.misurati)
         s.tabelle["orizzonti_mostrata"] = tab_o
         _dettaglio("I trigger ai tre orizzonti (la tabella su cui hai scelto)",
                    (f"Hai scelto {_ore_di(s.H, s.timeframe)} = {s.H} barre", tab_o),
@@ -1939,27 +1973,67 @@ def esplora(s: Sessione, quanti: int = 5, orizzonte="", quanti_migliori: int = Q
         _titolo(f"2a · Il mercato ora per ora, a {_ore_di(s.H, s.timeframe)} ({s.H} barre), l'orizzonte scelto")
         profilo_delle_ore(s, riga=False)
     _riga_prove(s, f"{misurati} trigger misurati")
-    return s.ev
+    return _EventStudyRinviato(s)
 
 
 def _frase_generati(s: Sessione) -> str:
     """17/11/2026 (docs/83): « Di questi: X del catalogo + Y generati.» se fra i misurati ci sono generati."""
-    cat, gen = conta_misurati(s.ev.sintesi["candidato"])
+    cat, gen = conta_misurati(s.misurati)
     return f" Di questi: {_fmt(cat)} del catalogo + {_fmt(gen)} generati." if gen else ""
+
+
+class _EventStudyRinviato:
+    """
+    18/11/2026: quello che la 2c ritorna al posto dell'event study. Non calcola niente finche' non si legge un suo
+    attributo (es. .sintesi): allora si calcola l'event study della sessione (Sessione.ev), una volta.
+    """
+
+    def __init__(self, s: Sessione):
+        self._s = s
+
+    def __getattr__(self, nome):
+        return getattr(self._s.ev, nome)
+
+
+def _misura_2c(s: Sessione, orizzonti) -> list:
+    """
+    18/11/2026 (decisione di Mattia): la misura della 2c senza l'event study. Le rose della sessione a `orizzonti`
+    (una misura sola, piu' processi) e il conto dei trigger misurati, con la regola dell'event study
+    (rosa.misurati_event_study). Se il conto della sessione non copre i trigger o l'orizzonte si rifa' tutto.
+    Ritorna i trigger candidati.
+    """
+    candidati = _trigger_candidati(1 if s.solo_long else None)
+    Hs = [int(h) for h in orizzonti]
+    conto = s.conto or {}
+    completo = all(n in conto for n in candidati) and (s.conto_fino_a or 0) >= max(Hs)
+    gia = dict(s.rose or {}) if completo else {}
+    if not completo:
+        conto = {}
+    rose = rosa_orizzonti(s.df_is, Hs, s.pip, candidati, min_eventi=MIN_TRIGGER, fuso=s.fuso, unita=s.unita,
+                          atr=s.atr, gia=gia, conto=conto)
+    s.rose = {**(s.rose or {}), **rose}
+    if not completo:
+        s.conto, s.conto_fino_a = conto, max(Hs)
+    return candidati
+
+
+def _segna_misurati(s: Sessione, candidati: list, H: int) -> int:
+    """I trigger misurati a H (s.misurati) e l'event study rinviato con gli stessi trigger e lo stesso H."""
+    s.misurati = misurati_event_study(s.conto, candidati, H, MIN_TRIGGER)
+    s._rinvia_ev(candidati, H)
+    return len(s.misurati)
 
 
 def _esplora_griglia(s: Sessione, quanti: int, quanti_migliori: int = QUANTI_MIGLIORI):
     """
-    La 2c con la griglia, prima della scelta (29/10/2026, docs/77): l'event study fino all'orizzonte piu'
-    lungo (e' il conto dei trigger misurati), la rosa a ogni H della griglia, la tabella dei tre orizzonti e
-    le curve dello scarto fino all'H piu' lungo con i tre H segnati. Non sceglie niente.
+    La 2c con la griglia, prima della scelta (29/10/2026, docs/77): il conto dei trigger misurati fino
+    all'orizzonte piu' lungo, la rosa a ogni H della griglia, la tabella dei tre orizzonti e le curve dello
+    scarto fino all'H piu' lungo con i tre H segnati. Non sceglie niente. Dal 18/11/2026 il conto e' quello
+    dell'event study senza l'event study (_misura_2c).
     """
-    candidati = _trigger_candidati(1 if s.solo_long else None)
+    candidati = _misura_2c(s, s.griglia)
     Hmax = max(s.griglia)
-    with _zitto():
-        s.ev = run_event_study(s.df_is, entry_names=candidati, horizon=Hmax,
-                               min_trades=MIN_TRIGGER, pip=s.pip, verbose=False)
-    misurati = len(s.ev.sintesi)
+    misurati = _segna_misurati(s, candidati, Hmax)
     _rd.metti_prova(s.prove, "trigger", None, misurati)
     _nota(f"{misurati} segnali misurati su {len(candidati)}, a tre orizzonti: "
           + ", ".join(f"{_ore_di(h, s.timeframe)} ({h} barre)" for h in s.griglia) + "."
@@ -1987,7 +2061,7 @@ def _esplora_griglia(s: Sessione, quanti: int, quanti_migliori: int = QUANTI_MIG
         "Scegli l'orizzonte nel campo «orizzonte_scelto» e riesegui la 2c: da lì in poi tutto il Lab lavora con "
         "quell'orizzonte.")
     _riga_prove(s, f"{misurati} trigger misurati a {len(s.griglia)} orizzonti")
-    return s.ev
+    return _EventStudyRinviato(s)
 
 
 def _frasi_profilo(p: pd.DataFrame, u: str, luogo: str) -> list[str]:

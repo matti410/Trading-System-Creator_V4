@@ -14,7 +14,11 @@ C  con due trigger generati (long e short): entrano nel registro con il loro lat
 D  il comando «python -m engine.generatore --elenco»: ricette e nomi dei trigger del catalogo salvato;
 E  (17/11/2026) «tutti», il valore di base del Lab: entra tutto il catalogo generato (sullo spot i long), il
    riepilogo dice quanti; la 2c li misura e li conta tutti; la tabella della 2c mostra i primi «quanti_migliori»
-   per lato con la ricetta dei generati e una riga di riepilogo; campo vuoto = tabella completa di prima.
+   per lato con la ricetta dei generati e una riga di riepilogo; campo vuoto = tabella completa di prima;
+F  (18/11/2026) la 2c veloce: le coppie long/short dei generati misurate una volta danno le stesse rose della misura
+   trigger per trigger (al bit); due processi = uno (al bit); il conto dei misurati senza event study = la sintesi
+   dell'event study; la 2c non calcola l'event study (si calcola alla prima lettura); l'incertezza con le somme
+   cumulative = il calcolo di prima entro 1e-9.
 
 Come si lancia (da terminale, dalla cartella del progetto):
 
@@ -291,6 +295,97 @@ def sezione_e(radice: Path):
     RD.azzera()
 
 
+# ------------------------------------------------------------ sezione F --
+def _ciclo_di_prima(u, H, barre_settimana, pos=None, correzione_n=False):
+    """L'incertezza di stagionalita.errore_sovrapposti fino al 17/11/2026 (le coppie barra per barra), per il confronto."""
+    u = np.nan_to_num(np.asarray(u, dtype=float))
+    tot = float((u ** 2).sum())
+    if pos is not None:
+        nv = u.size
+        if correzione_n:
+            tot = tot * nv / (nv - 1)
+        d = 1
+        while d < nv:
+            vicini = (pos[d:] - pos[:-d]) < H
+            if not vicini.any():
+                break
+            tot += 2.0 * float((u[d:][vicini] * u[:-d][vicini]).sum())
+            d += 1
+        return tot
+    for d in range(1, min(int(H), u.size)):
+        tot += 2.0 * float((u[d:] * u[:-d]).sum())
+    return tot
+
+
+def sezione_f(radice: Path):
+    print("\nF · La 2c veloce (18/11/2026): coppie dei generati, processi, conto senza event study, somme cumulative")
+    import engine.rosa as R
+    from engine.event_study import run_event_study
+    from engine.stagionalita import errore_sovrapposti
+    c = radice / "veloce"
+    c.mkdir()
+    scrivi_dataset(c, giorni=60, seme=8)
+    reg.clear_registry()
+    RD.azzera()
+    s = muto(vt.prepara, SYM, H=vt.GRIGLIA, cartella=str(c), trigger_generati="tutti")
+    nomi = vt._trigger_candidati(None)
+    G = list(s.griglia)
+    kw = dict(min_eventi=vt.MIN_TRIGGER, fuso=s.fuso, unita=s.unita, atr=s.atr, conto_fino_a=max(G))
+    rose, conto = R.rosa_orizzonti_entry(s.df_is, G, s.pip, nomi=nomi, processi=1, **kw)
+    # le coppie dei generati misurate una per una, come prima del 18/11: ogni trigger un gruppo suo
+    vera = R._compiti
+
+    def separati(df, nn):
+        return [[(sorgente, [m])] for comp in vera(df, nn) for sorgente, membri in comp for m in membri]
+    R._compiti = separati
+    try:
+        rose_sep, conto_sep = R.rosa_orizzonti_entry(s.df_is, G, s.pip, nomi=nomi, processi=1, **kw)
+    finally:
+        R._compiti = vera
+    coppie = sum(len(membri) == 2 for comp in vera(s.df_is, nomi) for _, membri in comp)
+    check("F1. coppie dei generati: lo short come opposto esatto del long da' le stesse rose, al bit, della misura "
+          "trigger per trigger, ai tre orizzonti",
+          coppie > 1000 and conto == conto_sep and all(rose[H].equals(rose_sep[H]) for H in G)
+          and all(dict(rose[H].attrs) == dict(rose_sep[H].attrs) for H in G), f"{coppie} coppie")
+    rose2, conto2 = R.rosa_orizzonti_entry(s.df_is, G, s.pip, nomi=nomi, processi=2, **kw)
+    check("F2. due processi: stesse rose e stesso conto di un processo solo, al bit",
+          conto == conto2 and all(rose[H].equals(rose2[H]) for H in G))
+    uguali = []
+    for H in G:
+        with contextlib.redirect_stdout(io.StringIO()):
+            ev = run_event_study(s.df_is, entry_names=nomi, horizon=H, min_trades=vt.MIN_TRIGGER, pip=s.pip,
+                                 verbose=False)
+        uguali.append(sorted(ev.sintesi["candidato"]) == sorted(R.misurati_event_study(conto, nomi, H,
+                                                                                         vt.MIN_TRIGGER)))
+    check("F3. il conto dei misurati senza event study = i trigger nella sintesi dell'event study, ai tre orizzonti",
+          all(uguali), str(uguali))
+    muto(vt.esplora, s)
+    rinviato = s._ev is None and s._ev_rinviato is not None
+    n_prove = s.prove.get("trigger")
+    check("F4. la 2c non calcola l'event study; il conto delle prove e' quello della sua sintesi, che si calcola "
+          "alla prima lettura (classifiche)",
+          rinviato and n_prove == len(s.misurati) and len(s.ev.sintesi) == n_prove and s._ev is not None
+          and set(muto(vt.classifiche, s)) == {"long", "short"})
+    rng = np.random.default_rng(5)
+    peggio, blocchi_ok = 0.0, True
+    for _ in range(200):
+        n, H = int(rng.integers(2, 20000)), int(rng.integers(1, 100))
+        u = rng.normal(size=n) * rng.random(n)
+        pos = np.sort(rng.choice(3 * n, size=min(n, 2000), replace=False))
+        uu = rng.normal(size=pos.size)
+        uu -= uu.mean()
+        for args, kk in (((u, H, 672), {}), ((uu, H, 672), {"pos": pos, "correzione_n": True})):
+            se, blocchi = errore_sovrapposti(*args, **kk)
+            tot = _ciclo_di_prima(*args, **kk)
+            blocchi_ok &= blocchi == (not tot > 0)
+            if tot > 0:
+                peggio = max(peggio, abs(se - np.sqrt(tot)) / np.sqrt(tot))
+    check("F5. l'incertezza con le somme cumulative = il calcolo barra per barra di prima, entro 1e-9 in relativo; "
+          "stessa ricaduta sui blocchi", peggio < 1e-9 and blocchi_ok, f"scarto relativo massimo {peggio:.1e}")
+    reg.clear_registry()
+    RD.azzera()
+
+
 # ------------------------------------------------------------ sezione D --
 def sezione_d(radice: Path):
     print("\nD · python -m engine.generatore --elenco")
@@ -318,6 +413,7 @@ def esegui() -> int:
         sezione_b_c(radice)
         sezione_d(radice)
         sezione_e(radice)
+        sezione_f(radice)
     finally:
         reg.clear_registry()
         RD.azzera()

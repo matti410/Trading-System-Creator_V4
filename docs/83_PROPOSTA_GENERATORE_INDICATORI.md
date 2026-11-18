@@ -197,6 +197,7 @@ Nomi con `python -m engine.generatore --elenco`. Test: `test_lab_trigger_generat
 (2.984; spot 1.492 long), contati tutti nelle prove; la 2c mostra i primi `quanti_migliori` (15) per lato + il riepilogo.
 Per le entry le famiglie della rosa si misurano solo fra le candidate (punti 1–3 di docs/02 superati): un trigger bocciato
 non entra nel calcolo (18/11/2026, decisione di Mattia).
+La 2c veloce (18/11/2026, decisioni di Mattia): niente event study completo (il conto dei misurati è il suo, con la stessa regola), coppie long/short dei generati misurate una volta, 4 processi, incertezza con le somme cumulative. 2c al primo giro con `tutti`, BTC perp sul PC: M15 da 786 s a 110 s, M5 da 6.156 s a 334 s; dopo la scelta M15 da 128 s a 6 s, M5 da 987 s a 25 s; memoria massima (tutti i processi) 1,8 GB su M15 e 3,6 GB su M5.
 
 ## 12 · Tempi misurati (15/11/2026)
 

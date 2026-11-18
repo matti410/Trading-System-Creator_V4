@@ -265,22 +265,25 @@ def errore_sovrapposti(u: np.ndarray, H: int, barre_settimana: int, pos=None,
                   moltiplicano per n/(n-1) (u sono scarti dalla media degli stessi
                   ingressi), come faceva l'event study: con ingressi tutti a H
                   barre o piu' il risultato e' quello di prima, al bit.
+
+    18/11/2026 (decisione di Mattia): la somma delle coppie vicine si fa con le somme cumulative di u, in tempo
+    proporzionale alle barre invece che a barre per H. Stessa formula: per ogni j, u_j per la somma degli u dopo j
+    a meno di H barre, che e' la differenza di due somme cumulative. I numeri cambiano solo per l'arrotondamento
+    (scarto relativo sotto 1e-9, misurato nelle prove d'identita'); stessa ricaduta sui blocchi di una settimana.
     """
-    u = np.nan_to_num(np.asarray(u, dtype=float))
+    u = np.asarray(u, dtype=float)
+    if not np.isfinite(u).all():          # 18/11/2026: la copia senza NaN solo quando serve (stessi numeri)
+        u = np.nan_to_num(u)
     if pos is not None:
         pos = np.asarray(pos)
         nv = u.size
         tot = float((u ** 2).sum())
         if correzione_n:
             tot = tot * nv / (nv - 1)
-        d = 1
-        while d < nv:
-            dist = pos[d:] - pos[:-d]
-            vicini = dist < H
-            if not vicini.any():
-                break
-            tot += 2.0 * float((u[d:][vicini] * u[:-d][vicini]).sum())
-            d += 1
+        if nv > 1:
+            cum = np.concatenate(([0.0], np.cumsum(u)))
+            fine = np.searchsorted(pos, pos + H, side="left")     # il primo ingresso a H barre o piu' dopo j
+            tot += 2.0 * float((u * (cum[fine] - cum[np.arange(1, nv + 1)])).sum())
         if not tot <= 0:
             return float(np.sqrt(tot)), False
         b = pos // max(1, int(barre_settimana))
@@ -290,8 +293,12 @@ def errore_sovrapposti(u: np.ndarray, H: int, barre_settimana: int, pos=None,
             tot = tot * nv / (nv - 1)
         return float(np.sqrt(tot)), True
     tot = float((u ** 2).sum())
-    for d in range(1, min(int(H), u.size)):
-        tot += 2.0 * float((u[d:] * u[:-d]).sum())
+    if min(int(H), u.size) > 1:
+        m, h = u.size, int(H)
+        cum = np.concatenate(([0.0], np.cumsum(u)))
+        k = max(0, m - h + 1)
+        alto = np.concatenate((cum[h:h + k], np.full(m - k, cum[m])))     # cum[min(j + H, m)] per ogni barra j
+        tot += 2.0 * float((u * (alto - cum[1:])).sum())
     if tot > 0:
         return float(np.sqrt(tot)), False
     b = max(1, int(barre_settimana))
@@ -318,7 +325,7 @@ def scarto_orario_medio(fwd: np.ndarray, media: np.ndarray, pos: np.ndarray, dir
 
 def scarto_orario(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray,
                   pos: np.ndarray, direzione: int, H: int, barre_settimana: int | None = None,
-                  con_blocchi: bool = False, media=None, barre_fascia=None):
+                  con_blocchi: bool = False, media=None, barre_fascia=None, resto=None, codici_usa=None):
     """
     Lo scarto medio dei trigger in `pos` dalla media della loro fascia
     oraria, nel verso `direzione`, e la sua incertezza. L'incertezza include
@@ -329,20 +336,24 @@ def scarto_orario(fwd: np.ndarray, codici: np.ndarray, usa: np.ndarray,
     per la stima a blocchi se la varianza esce zero o negativa.
     media, barre_fascia  18/11/2026: media_per_fascia(fwd, codici, usa) e le barre `usa` per fascia gia' calcolate
                   (sono le stesse per tutti i trigger: la rosa le calcola una volta). None = calcolate qui, come prima.
+    resto         18/11/2026: np.where(usa, fwd - media, 0.0) gia' calcolato (lo stesso per tutti i trigger).
+    codici_usa    18/11/2026: np.where(usa, codici, numero delle fasce) gia' calcolato: il peso di ogni barra si
+                  prende dalla sua fascia (stessi numeri, una sola lettura per barra).
     """
     b = media_per_fascia(fwd, codici, usa) if media is None else media
     scarto = scarto_orario_medio(fwd, b, pos, direzione)
     n_t = pos.size
     # pesi: +1/n_t sui trigger, -(trigger della fascia)/(n_t * barre della fascia) su ogni barra
-    n_cod = int(codici.max()) + 1
+    n_cod = int(codici.max()) + 1 if barre_fascia is None else barre_fascia.size
     trig_f = np.bincount(codici[pos], minlength=n_cod).astype(float)
     barre_f = (np.bincount(codici, weights=usa.astype(float), minlength=n_cod) if barre_fascia is None
                else barre_fascia)
     with np.errstate(invalid="ignore", divide="ignore"):
         quota = np.where(barre_f > 0, trig_f / barre_f, 0.0)
-    c = np.where(usa, -quota[codici] / n_t, 0.0)
+    c = (np.where(usa, -quota[codici] / n_t, 0.0) if codici_usa is None
+         else np.append(-quota / n_t, 0.0)[codici_usa])
     c[pos] += 1.0 / n_t
-    r = np.where(usa, fwd - b, 0.0)
+    r = np.where(usa, fwd - b, 0.0) if resto is None else resto.copy()
     r[pos] -= direzione * scarto       # il modello: fascia + vantaggio del trigger
     se, blocchi = _errore_lab(c * r, H, barre_settimana)
     return (scarto, se, blocchi) if con_blocchi else (scarto, se)
