@@ -1,5 +1,7 @@
 # 00 · Scopo del progetto e stato attuale
 
+**REGOLA DI MATTIA (20/11/2026), PRIMA DI TUTTE: tutto DEVE essere super semplice e intuitivo, anche per un non esperto: la pipeline, il notebook, la documentazione e la logica con cui si costruisce il codice. Una strada sola, uguale per tutti i casi; niente interruttori, gate interni, eccezioni o trattamenti diversi per cose che fanno lo stesso lavoro. Ogni passo si deve poter dire in una frase. Una complicazione si propone solo con il vantaggio concreto, e decide Mattia prima che venga scritta. Nel dubbio, la versione più semplice.**
+
 **Da leggere per primo, insieme a `CLAUDE.md`.** Stato al 4 novembre 2026 (dopo il catalogo
 dei trigger intraday, `79`, PR #97, e con la confidenza in ore e la 5b del Lab, `81`).
 Questo file è solo lo **stato attuale**, in 1–2 pagine. Riferimenti completi e

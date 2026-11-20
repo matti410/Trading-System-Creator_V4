@@ -92,6 +92,7 @@ e indicatore TradingView sono fuori da questo incarico.
 
 ## §4 · Regole
 
+- **REGOLA DI MATTIA (20/11/2026), PRIMA DI TUTTE: tutto DEVE essere super semplice e intuitivo, anche per un non esperto: la pipeline, il notebook, la documentazione e la logica con cui si costruisce il codice. Una strada sola, uguale per tutti i casi; niente interruttori, gate interni, eccezioni o trattamenti diversi per cose che fanno lo stesso lavoro. Ogni passo si deve poter dire in una frase. Una complicazione si propone solo con il vantaggio concreto, e decide Mattia prima che venga scritta. Nel dubbio, la versione più semplice.**
 - Vale la regola di `docs/00`: i risultati servono a collaudare lo strumento, non sono un verdetto.
 - Riuso prima di tutto. Codice nuovo in `engine/fabbrica/` (file nuovi). Altri file solo con modifiche additive,
   dichiarate. Lab Crypto e Grid Search devono restare identici (prova di identità se si tocca il motore).
