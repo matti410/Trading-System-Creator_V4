@@ -1,7 +1,7 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab; in attesa del via.
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab. **20/11:** §13 fatta (ramo `fabbrica-rosa`), filtri: scelta A.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
@@ -1418,8 +1418,13 @@ dello zoom delle uscite (§12.10) è un lavoro separato, dopo. Voce in §8: «Va
 
 ## §13 · I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11)
 
-**Stato:** proposta, solo testo (PR #121), riscritta il 20/11 con lo schema di Mattia e la sua regola del 20/11 (una
-strada sola, la più semplice). Il codice parte con il suo via.
+**Stato:** fatta il 20/11 (ramo `fabbrica-rosa`), con la scelta A sui filtri (§13.7): entrano tutti i filtri non
+degeneri; «un blocco per famiglia» (`misura_famiglie`, `un_blocco_per_famiglia`) è tolto con i suoi collaudi. Proposta
+riscritta il 20/11 (PR #121) con lo schema di Mattia e la sua regola del 20/11 (una strada sola, la più semplice).
+Nel codice: `generatore.rosa_dei_trigger`, `blocchi.trigger_generati`, `config.ROSA_STANDARD`; con il codice i numeri di
+§13.3 e §13.4 su BTC perp M15 tornano uguali (13 long e 10 short, 2.139 teorie, tetto 310.000, 9.024 prove della rosa);
+la cella 1 su BTC perp M15 dura circa 2,3 minuti (136 s, di cui 128 di preparazione; prima 15–20 s). Se nessun trigger è nella rosa su nessun lato, la cella 1 si
+ferma («non resta un trigger»); se succede su un lato solo, quel lato esce e la ricerca prosegue con l'altro.
 
 ### §13.1 · Lo schema
 

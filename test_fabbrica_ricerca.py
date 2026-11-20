@@ -26,12 +26,12 @@ import numpy as np
 import pandas as pd
 
 from engine.fabbrica import registro, sintetici
-from engine.fabbrica.blocchi import blocchi_da_config
+from engine.fabbrica.blocchi import blocchi_da_config, trigger_generati
 from engine.fabbrica.config import budget_massimo, cartella_asset, config_standard, impronta_config
 from engine.fabbrica.dati import Confini, carica_pezzi
 from engine.fabbrica.generatore import Teoria, stato_registro
 from engine.fabbrica.ottimizzatore import Categoria, Intero, Spazio
-from engine.fabbrica.ricerca import (Asse, _Lavoro, _ProveTeoria, cerca, giudica_altopiano, lancia, passi_zoom,
+from engine.fabbrica.ricerca import (NESSUN_TRIGGER, Asse, _Lavoro, _ProveTeoria, cerca, giudica_altopiano, lancia, passi_zoom,
                                      prepara, spazio_giro, vicini, zoom)
 from engine.fabbrica.valutatore import Strategia, qualita_1
 
@@ -294,9 +294,11 @@ def esegui() -> int:
         prima = _fotografia(F)
 
         # ------------------------------------------------------------------ una ricerca piccola
-        print("\nUna ricerca piccola in due turni: turno 1 di 16 teorie, turno 2 dalle 3 T+F migliori, 4 allo zoom")
+        print("\nUna ricerca piccola in due turni: la rosa dei trigger, turno 1, turno 2 dalle 3 T+F migliori, 4 allo zoom")
         cfg = _config()
         e = lancia(cfg, F, verbose=False, data=DATA)
+        n1 = e.imbuto["turno_1"]                    # i trigger nella rosa × (1 + 3 filtri) × 1 uscita, per lato
+        entrati = {(r["lato"], r["blocco"]) for r in e.rosa if r["nella_rosa"]}
         r1, r2 = _jsonl(os.path.join(e.cartella, "passo_1.jsonl")), _jsonl(os.path.join(e.cartella, "passo_2.jsonl"))
         rt2 = _jsonl(os.path.join(e.cartella, "turno_2.jsonl"))
         csv_f = pd.read_csv(registro.FileProve(e.cartella).percorso, dtype=str, keep_default_na=False)
@@ -305,13 +307,14 @@ def esegui() -> int:
                                ("config.json", "passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl", "stato.json"))
               and json.load(open(os.path.join(e.cartella, "stato.json"), encoding="utf-8"))["fase"] == "finita",
               f"imbuto {e.imbuto}, {e.prove} prove, {e.durata_s:.0f} s")
-        somma = sum(len(r["prove"]) for r in r1 + rt2 + r2) + len(e.selezione.tabella)
-        check("15. conteggio esatto: righe del file = prove dei due turni, del passo 2 e della selezione = conto dell'asset",
+        somma = sum(len(r["prove"]) for r in r1 + rt2 + r2) + len(e.selezione.tabella) + len(e.rosa)
+        check("15. conteggio esatto: righe del file = prove della rosa, dei due turni, del passo 2 e della selezione = "
+              "conto dell'asset",
               len(csv_f) == somma == e.prove == registro.conto_prove(F, PERP, "M15"), f"{len(csv_f)}, {somma}, {e.prove}")
         fasi = csv_f["fase"].value_counts().to_dict()
         check("16. ogni prova del turno 2 nel conto con la fase «passo_1_turno_2», quelle del turno 1 con «passo_1»; ogni "
               "strategia una riga sola per pezzo", fasi.get("passo_1_turno_2") == sum(len(r["prove"]) for r in rt2) > 0
-              and fasi.get("passo_1") == sum(len(r["prove"]) for r in r1)
+              and fasi.get("passo_1") == sum(len(r["prove"]) for r in r1) and fasi.get("rosa") == len(e.rosa) > 0
               and all(p["fase"] == "passo_1_turno_2" for r in rt2 for p in r["prove"])
               and csv_f["id_strategia"][csv_f["pezzo"] == "ricerca"].is_unique
               and sorted(csv_f.loc[csv_f["pezzo"] == "selezione", "id_strategia"]) == sorted(e.sopravvissute["id_strategia"]),
@@ -321,9 +324,9 @@ def esegui() -> int:
         giri_ok = all(g["prove"] <= 30 for r in r2 for g in r["giri"]) and all(r["prove_altopiano"] <= 60 for r in r2)
         check("18. budget mai superato: ogni giro ≤ 30, altopiano ≤ 60, totale ≤ budget massimo meno selezione e "
               "cassaforte; il budget massimo con la formula nuova (turno 2 compreso)",
-              giri_ok and e.prove <= e.budget_massimo - 2 * 4
-              and e.budget_massimo == budget_massimo(16, cfg, 12, 3) == (16 + 3 * 2) * 40 + 4 * 90 + 4 * 60 + 8,
-              f"{e.prove} ≤ {e.budget_massimo - 8}")
+              giri_ok and e.prove - len(e.rosa) <= e.budget_massimo - 2 * 4
+              and e.budget_massimo == budget_massimo(n1, cfg, n1 * 3 // 4, 3) == (n1 + 3 * 2) * 40 + 4 * 90 + 4 * 60 + 8,
+              f"{e.prove - len(e.rosa)} ≤ {e.budget_massimo - 8}")
         gia = sum(g["gia_viste"] for r in r2 for g in r["giri"])
         check("19. la stessa strategia in due giri: non si rivaluta e non si conta (già viste nei giri)", gia > 0
               and all(sum(1 for p in r["prove"] if p["fase"].startswith("zoom")) == r["prove_zoom"] for r in r2), f"{gia}")
@@ -360,23 +363,24 @@ def esegui() -> int:
               "la condizione 1", bene and prima_cand)
         t_sel = e.selezione.tabella
         check("24. imbuto e tabelle coerenti, con i due turni",
-              e.imbuto == {"turno_1": 16, "turno_1_tenute": sum(1 for r in r1 if r["migliore"]), "turno_2": len(rt2),
+              e.imbuto == {"rosa_misurati": len({(r["lato"], r["blocco"]) for r in e.rosa}),
+                           "rosa_entrano": len(entrati), "turno_1": 4 * len(entrati), "turno_1_tenute": sum(1 for r in r1 if r["migliore"]), "turno_2": len(rt2),
                            "turno_2_tenute": sum(1 for r in rt2 if r["migliore"]), "passo_2": 4,
                            "altopiano": int((e.passo_2["esito"] == "regge").sum()),
                            "selezione": int((t_sel["esito"] != "scartata").sum()),
                            "scelte": int((t_sel["esito"] == "scelta").sum())}
               and len(e.sopravvissute) == e.imbuto["altopiano"]
-              and list(e.passo_1["turno"]) == [1] * 16 + [2] * len(rt2), str(e.imbuto))
+              and list(e.passo_1["turno"]) == [1] * n1 + [2] * len(rt2) and n1 >= 8, str(e.imbuto))
         eventi = registro.leggi_registro(cartella_asset(F, PERP, "M15"))
         avvio = [x for x in eventi if x["tipo"] == "avvio_ricerca"]
         fine = [x for x in eventi if x["tipo"] == "fine_ricerca"]
-        tt = {(x["lato"], x["blocco"]): x for x in e.tenuti_tolti}
-        check("25. registro: avvio con impronta della config, teorie e perché, famiglie misurate, tenuti e tolti, degeneri "
-              "all'avvio, budget", len(avvio) == 1 and avvio[0]["impronta_config"] == impronta_config(cfg)
-              and avvio[0]["teorie"]["teorie"] == 16 and {"dichiarata", "gruppo_misurato", "famiglia"} <= set(avvio[0]["famiglie"][0])
-              and avvio[0]["tenuti_tolti"] == json.loads(registro.json_riga(e.tenuti_tolti))
-              and tt[("long", "E47")]["esito"] == "tolto" and tt[("long", "DONCHIAN")]["esito"] == "tenuto"
-              and avvio[0]["degeneri_avvio"] == e.degeneri_avvio and avvio[0]["budget_massimo"] == e.budget_massimo)
+        check("25. registro: avvio con impronta della config, teorie e perché, i trigger della rosa e i blocchi della "
+              "ricerca, degeneri all'avvio, budget", len(avvio) == 1 and avvio[0]["impronta_config"] == impronta_config(cfg)
+              and avvio[0]["teorie"]["teorie"] == n1 and avvio[0]["rosa_misurati"] == len(e.rosa)
+              and {(r["lato"], r["blocco"]) for r in avvio[0]["rosa_entrano"]} == entrati
+              and set(avvio[0]["tenuti"]) == {"long", "short"}
+              and avvio[0]["degeneri_avvio"] == e.degeneri_avvio and avvio[0]["budget_massimo"] == e.budget_massimo,
+              str(sorted(entrati)))
         check("26. registro: fine con imbuto, degeneri dello zoom, prove contate e soglia da leggere",
               len(fine) == 1 and fine[0]["imbuto"] == e.imbuto and fine[0]["prove"]["questa_ricerca"] == e.prove
               and fine[0]["prove"]["asset"] == e.prove and fine[0]["prove"]["soglia_da_leggere"] > 1.96
@@ -384,22 +388,23 @@ def esegui() -> int:
 
         # ------------------------------------------------------------------ ripresa
         print("\nFermata a metà e ripresa: nel turno 1, nel turno 2, nello zoom")
-        a = lancia(cfg, R, ferma_dopo=7, verbose=False, data=DATA)
+        a = lancia(cfg, R, ferma_dopo=n1 - 3, verbose=False, data=DATA)
         p1 = os.path.join(a.cartella, "passo_1.jsonl")
         with open(p1, "a", encoding="utf-8") as f:
             f.write('{"teoria": "L|DONCHIAN|-')                        # il PC si spegne a metà riga
         with open(registro.FileProve(a.cartella).percorso, "a", encoding="utf-8") as f:
             f.write(f"{a.id_ricerca},ricerca,passo_1,L|E47")
-        b = lancia(cfg, R, ferma_dopo=10, verbose=False, data=DATA)    # 9 del turno 1 e la prima del turno 2
+        b = lancia(cfg, R, ferma_dopo=4, verbose=False, data=DATA)     # il resto del turno 1 e la prima del turno 2
         with open(os.path.join(b.cartella, "turno_2.jsonl"), "a", encoding="utf-8") as f:
             f.write('{"teoria": "S|DONCHIAN|F3')                        # anche nel turno 2
-        b2 = lancia(cfg, R, ferma_dopo=4, verbose=False, data=DATA)    # il resto del turno 2 e il primo dello zoom
+        b2 = lancia(cfg, R, ferma_dopo=len(rt2) + 1, verbose=False, data=DATA)   # il resto del turno 2, 2 dello zoom
         c = lancia(cfg, R, verbose=False, data=DATA)
-        check("27. fermata dopo 7 teorie, poi dentro il turno 2, poi dentro lo zoom, poi fino in fondo",
-              not a.finita and len(a.passo_1) == 7 and not b.finita and len(b.passo_1) == 16 + 1
+        check("27. fermata nel turno 1, poi dentro il turno 2, poi dentro lo zoom, poi fino in fondo",
+              not a.finita and len(a.passo_1) == n1 - 3 and not b.finita and len(b.passo_1) == n1 + 1
               and not b2.finita and len(b2.passo_2) == 2 and c.finita,
               f"{len(a.passo_1)}, {len(b.passo_1)}, {len(b2.passo_1)} e {len(b2.passo_2)}")
-        check("28. ripresa = corsa unica, bit per bit: turno 1, turno 2, passo 2 e file delle prove (righe a metà comprese)",
+        check("28. ripresa = corsa unica, bit per bit: turno 1, turno 2, passo 2 e file delle prove (righe a metà comprese; "
+              "le prove della rosa una volta sola)",
               _file(c) == _file(e))
         check("29. stesse tabelle e stesso conto delle prove", c.passo_1.equals(e.passo_1) and c.passo_2.equals(e.passo_2)
               and c.prove == e.prove and registro.conto_prove(R, PERP, "M15") == e.prove and c.imbuto == e.imbuto)
@@ -502,7 +507,7 @@ def esegui() -> int:
               f"{primo['teoria'] if primo is not None else '-'}: canale {canale_v}, durata {durata_v}")
 
         # ------------------------------------------------------------------ C2: la config standard, tutto il catalogo
-        print("\nC2: la config standard, tutto il catalogo, con budget ridotti")
+        print("\nC2 e §13: la config standard, tutto il catalogo e i trigger generati, con budget ridotti")
         S2 = os.path.join(radice, "S2")
         df_s = sintetici.mercato(BARRE, seme=3, minuti=15, inizio="2024-01-01", prezzo=30_000.0)
         sintetici.scrivi_storico(S2, PERP, "M15", df_s)
@@ -517,19 +522,21 @@ def esegui() -> int:
         res = es.resoconto["blocchi"]
         filtri_max = max(res[x]["filtro"]["tenuti"] for x in res)
         tf_s = sum(1 for t in es.passo_1.itertuples() if t.turno == 1 and "|-|" not in t.teoria)
-        check("42. config standard con tutto il catalogo (45 trigger e 30 filtri sul long, 44 e 30 sullo short): un blocco "
-              "per famiglia, turno 1 = trigger × (1 + filtri) × 3 per lato, budget massimo con la formula nuova, tetto "
-              "rispettato, prove sotto il massimo", es.finita
-              and res["long"]["trigger"]["blocchi"] == 45 and res["short"]["trigger"]["blocchi"] == 44
+        n_gen = len(trigger_generati())
+        check("42. config standard con tutto il catalogo e i generati (45 + generati trigger e 30 filtri sul long, 44 + "
+              "generati e 30 sullo short): la rosa, turno 1 = trigger nella rosa × (1 + filtri) × 3 per lato, budget "
+              "massimo con la formula nuova, tetto rispettato, prove sotto il massimo", es.finita
+              and res["long"]["trigger"]["blocchi"] == 45 + n_gen and res["short"]["trigger"]["blocchi"] == 44 + n_gen
               and es.imbuto["turno_1"] == sum(res[x]["trigger"]["tenuti"] * (1 + res[x]["filtro"]["tenuti"]) * 3
                                               for x in res)
               and es.budget_massimo == budget_massimo(es.imbuto["turno_1"], cfg_s, tf_s, filtri_max)
-              and es.budget_massimo <= cfg_s["budget"]["totale"] and es.prove <= es.budget_massimo
+              and es.budget_massimo <= cfg_s["budget"]["totale"] and es.prove - len(es.rosa) <= es.budget_massimo
               and 0 < es.imbuto["turno_2"] <= 3 * (filtri_max - 1),
               f"imbuto {es.imbuto}, prove {es.prove} di {es.budget_massimo}, tetto {cfg_s['budget']['totale']}")
 
+        n = _rosa_nella_ricerca(check, radice, 43)
+
         # ------------------------------------------------------------------ C2 su più timeframe (docs/82 §11.7)
-        n = 43
         for symbol, tf, minuti, confini in CASI_TF:
             n = _caso_timeframe(check, radice, symbol, tf, minuti, confini, n)
 
@@ -563,7 +570,9 @@ CASI_TF = (
 
 
 def _cfg_tf(symbol, tf, confini, processi=1):
+    """La config standard senza i trigger generati (la rosa con i generati ha i suoi collaudi: 42 e §13)."""
     cfg = config_standard(symbol, tf, seme=0, processi=processi)
+    cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k not in trigger_generati()}
     cfg["confini"] = dict(confini)
     cfg["qualita_1"]["trade_min"] = 30
     cfg["budget"].update({"per_teoria_passo_1": 1, "teorie_turno_2": 3, "teorie_passo_2": 2, "giri_zoom": 1,
@@ -592,7 +601,7 @@ def _file_ricerca(esito) -> dict:
 def _caso_timeframe(check, radice, symbol, tf, minuti, confini, n) -> int:
     from engine.fabbrica.blocchi import MOTIVI_ESCLUSIONE
     from engine.fabbrica.config import BLOCCHI_STANDARD, blocchi_esclusi
-    from engine.fabbrica.generatore import QUATTORDICI, teorie_turno_2
+    from engine.fabbrica.generatore import teorie_turno_2
     from engine.fabbrica.schede import esclusi_dalla_config
     nome = f"{symbol} {tf}"
     print(f"\nC2 su {nome}: config standard intera, budget ridotti")
@@ -604,28 +613,24 @@ def _caso_timeframe(check, radice, symbol, tf, minuti, confini, n) -> int:
 
     esclusi = blocchi_esclusi(tf)
     fuori = {x["blocco"] for x in esclusi}
-    righe = pd.DataFrame(e.tenuti_tolti)
+    righe = pd.DataFrame(e.rosa)
     check(f"{n}. {nome}: i blocchi esclusi sul timeframe ({len(esclusi)}) stanno fuori dalla config, ognuno con il suo "
-          "motivo; la scheda li elenca uguali; nessuno di loro nella tabella dei tenuti",
+          "motivo; la scheda li elenca uguali; nessuno di loro nella rosa",
           set(cfg["blocchi"]) == set(BLOCCHI_STANDARD) - fuori
           and all((x["blocco"], tf) in MOTIVI_ESCLUSIONE and x["motivo"] for x in esclusi)
           and esclusi_dalla_config(cfg) == esclusi and not (set(righe["blocco"]) & fuori),
           ", ".join(sorted(fuori)) or "nessuno")
-    vivi = righe[righe["famiglia"].notna()]
-    regola = []
-    for _, g in vivi.groupby(["lato", "tipo", "famiglia"]):
-        pool = g[g["blocco"].isin(QUATTORDICI)]
-        pool = pool if len(pool) else g
-        regola.append(list(g[g["esito"] == "tenuto"]["blocco"]) == [sorted(zip(-pool["scatta"], pool["blocco"]))[0][1]])
     res = e.resoconto["blocchi"]
     lati = ["long"] if symbol == SPOT else ["long", "short"]
-    check(f"{n + 1}. {nome}: famiglie e tenuti: un blocco per famiglia misurata, con la regola; i tolti hanno il motivo; "
-          f"lati {lati}; E19 solo long", all(regola) and sorted(set(righe["lato"])) == sorted(lati)
-          and list(res) == lati and all(righe["motivo"].str.len() > 0)
+    dentro = righe[righe["nella_rosa"]]
+    check(f"{n + 1}. {nome}: la rosa: i trigger nella ricerca sono quelli nella rosa ad almeno un orizzonte, i filtri "
+          f"tutti quelli rimasti; lati {lati}; E19 solo long",
+          sorted(set(righe["lato"])) == sorted(lati) and list(res) == lati
           and not len(righe[(righe["blocco"] == "E19") & (righe["lato"] == "short")])
-          and all(res[x][t]["tenuti"] == int(((righe["lato"] == x) & (righe["tipo"] == t)
-                                              & (righe["esito"] == "tenuto")).sum()) for x in lati
-                  for t in ("trigger", "filtro")),
+          and all(res[x]["trigger"]["tenuti"] == dentro[dentro["lato"] == x]["blocco"].nunique() for x in lati)
+          and all(res[x]["filtro"]["tenuti"] == res[x]["filtro"]["blocchi"] - sum(
+              1 for u in e.resoconto["blocchi_usciti"] if u["lato"] == x and u["blocco"] in
+              {b.nome for b in blocchi_da_config(cfg) if b.tipo == "filtro"}) for x in lati),
           "; ".join(f"{x}: {res[x]['trigger']['blocchi']} trigger → {res[x]['trigger']['tenuti']}, "
                     f"{res[x]['filtro']['blocchi']} filtri → {res[x]['filtro']['tenuti']}" for x in lati))
     p1 = e.passo_1
@@ -633,11 +638,9 @@ def _caso_timeframe(check, radice, symbol, tf, minuti, confini, n) -> int:
     tf_tenute = t1[t1["tenuta"] & ~t1["teoria"].str.contains(r"\|-\|") & ~t1["teoria"].str.contains(r"\+")]
     scelte = [Teoria(1 if t.startswith("L") else -1, t.split("|")[1], (t.split("|")[2],), t.split("|")[3])
               for t in tf_tenute.sort_values(["t", "teoria"], ascending=[False, True])["teoria"][:3]]
-    attese = [t.id for t in teorie_turno_2(scelte, cfg, blocchi_da_config(cfg), {
-        (1 if x == "long" else -1): list(righe[(righe["lato"] == x) & (righe["esito"] == "tenuto")]["blocco"])
-        for x in lati})]
+    attese = [t.id for t in teorie_turno_2(scelte, cfg, blocchi_da_config(cfg), _tenuti_da_registro(e))]
     t2 = list(p1[p1["turno"] == 2]["teoria"])
-    check(f"{n + 2}. {nome}: turno 1 = trigger tenuti × (1 + filtri tenuti) × 3 uscite; turno 2 = le 3 T+F migliori con "
+    check(f"{n + 2}. {nome}: turno 1 = trigger nella rosa × (1 + filtri) × 3 uscite; turno 2 = le 3 T+F migliori con "
           "tutti i secondi filtri compatibili, mai ADX con ATR relativo; tutte dei lati della ricerca",
           e.imbuto["turno_1"] == len(t1) == sum(res[x]["trigger"]["tenuti"] * (1 + res[x]["filtro"]["tenuti"]) * 3
                                                 for x in lati)
@@ -649,9 +652,9 @@ def _caso_timeframe(check, radice, symbol, tf, minuti, confini, n) -> int:
     check(f"{n + 3}. {nome}: conto delle prove esatto (turno 1, turno 2 con la sua fase, zoom, altopiano, selezione) = "
           "conto dell'asset; sotto il budget massimo, che sta sotto il tetto",
           e.finita and len(csv_f) == e.prove == registro.conto_prove(cartelle["A"], symbol, tf)
-          and fasi.get("passo_1") == int(t1["prove"].sum())
+          and fasi.get("passo_1") == int(t1["prove"].sum()) and fasi.get("rosa") == len(e.rosa)
           and fasi.get("passo_1_turno_2", 0) == int(p1[p1["turno"] == 2]["prove"].sum())
-          and e.prove <= e.budget_massimo <= cfg["budget"]["totale"], f"{e.prove} prove, {fasi}")
+          and e.prove - len(e.rosa) <= e.budget_massimo <= cfg["budget"]["totale"], f"{e.prove} prove, {fasi}")
     a = lancia(cfg, cartelle["R"], ferma_dopo=e.imbuto["turno_1"] + max(1, e.imbuto["turno_2"] // 2), verbose=False,
                data=DATA)
     b = lancia(cfg, cartelle["R"], verbose=False, data=DATA)
@@ -666,8 +669,75 @@ def _caso_timeframe(check, radice, symbol, tf, minuti, confini, n) -> int:
     w = lancia(cfg, cartelle["W"], verbose=False, data=DATA)
     check(f"{n + 5}. {nome}: cassaforte avvelenata (prezzi × 3, volume 1): ogni file della ricerca identico al bit, "
           "turni compresi: la cassaforte resta sigillata", w.id_ricerca == e.id_ricerca
-          and _file_ricerca(w) == _file_ricerca(e) and w.tenuti_tolti == e.tenuti_tolti)
+          and _file_ricerca(w) == _file_ricerca(e) and w.rosa == e.rosa)
     return n + 6
+
+def _tenuti_da_registro(e) -> dict:
+    """I blocchi della ricerca, per lato, dall'avvio scritto nel registro."""
+    for x in registro.leggi_registro(os.path.dirname(e.cartella)):
+        if x.get("tipo") == "avvio_ricerca" and x["id_ricerca"] == e.id_ricerca:
+            return {(1 if lato == "long" else -1): nomi for lato, nomi in x["tenuti"].items()}
+    raise AssertionError("avvio non trovato")
+
+
+# ------------------------------------------------------------------ §13: la rosa dei trigger nella ricerca
+def _rosa_nella_ricerca(check, radice, n) -> int:
+    """docs/82 §13.6: un vantaggio piantato in un generato; un lato senza trigger; nessun trigger; processi; ripresa."""
+    print("\n§13 · La rosa dei trigger nella ricerca: un vantaggio piantato in un trigger generato")
+    G = "G0045_P50_SU"
+    cartelle = {k: os.path.join(radice, f"rosa_{k}") for k in ("A", "R", "P", "U", "N")}
+    df = sintetici.mercato_con_generato(G, n=BARRE, seme=1)
+    for c in cartelle.values():
+        sintetici.scrivi_storico(c, PERP, "M15", df)
+        sintetici.scrivi_funding(c, PERP, df, seme=1)
+
+    def cfg_g(blocchi, processi=1):
+        cfg = config_standard(PERP, "M15", seme=0, processi=processi)
+        cfg["confini"] = dict(CONFINI)
+        cfg["blocchi"] = {k: {} for k in blocchi}
+        cfg["qualita_1"]["trade_min"] = 30
+        cfg["budget"].update({"per_teoria_passo_1": 4, "teorie_turno_2": 2, "teorie_passo_2": 2, "giri_zoom": 1,
+                              "prove_per_giro": 5})
+        cfg["altopiano"]["prove_max"] = 4
+        return cfg
+
+    cfg = cfg_g(("E47", "RSI_RIENTRO", G, "F3_VOLUME_ABOVE_AVG", "X0"))
+    e = lancia(cfg, cartelle["A"], verbose=False, data=DATA)
+    csv_f = pd.read_csv(registro.FileProve(e.cartella).percorso, dtype=str, keep_default_na=False)
+    rosa_csv = csv_f[csv_f["fase"] == "rosa"]
+    check(f"{n}. il vantaggio piantato nel generato arriva nella rosa (long) e nelle teorie del turno 1",
+          e.finita and any(r["blocco"] == G and r["lato"] == "long" and r["nella_rosa"] for r in e.rosa)
+          and any(t.startswith(f"L|{G}|") for t in e.passo_1["teoria"]), str(e.imbuto))
+    check(f"{n + 1}. conto: una riga per trigger misurato e orizzonte (fase «rosa», «ROSA_H16_<blocco>_<lato>»), "
+          "nel conto dell'asset; il budget della ricerca non le comprende e non si supera",
+          len(rosa_csv) == len(e.rosa) > 0 and set(rosa_csv["teoria"]) == {"rosa"}
+          and f"ROSA_H16_{G}_long" in set(rosa_csv["id_strategia"])
+          and set(rosa_csv["trade"]) == {str(r["eventi"]) for r in e.rosa}
+          and len(csv_f) == e.prove == registro.conto_prove(cartelle["A"], PERP, "M15")
+          and e.prove - len(e.rosa) <= e.budget_massimo, f"{len(rosa_csv)} righe della rosa")
+    a = lancia(cfg, cartelle["R"], ferma_dopo=2, verbose=False, data=DATA)
+    b = lancia(cfg, cartelle["R"], verbose=False, data=DATA)
+    tre = lancia(cfg_g(("E47", "RSI_RIENTRO", G, "F3_VOLUME_ABOVE_AVG", "X0"), processi=3), cartelle["P"],
+                 verbose=False, data=DATA)
+    check(f"{n + 2}. fermata e ripresa = corsa unica, bit per bit (le prove della rosa una volta sola); 3 processi = 1",
+          not a.finita and b.finita and _file_ricerca(b) == _file_ricerca(e) and tre.rosa == e.rosa
+          and {k: v for k, v in _file_ricerca(tre).items() if k != "config.json"}
+          == {k: v for k, v in _file_ricerca(e).items() if k != "config.json"})
+    u = lancia(cfg_g((G, "F3_VOLUME_ABOVE_AVG", "X0")), cartelle["U"], verbose=False, data=DATA)
+    check(f"{n + 3}. un lato senza trigger nella rosa esce (lo short del generato è il suo opposto): la ricerca prosegue "
+          "con l'altro, solo teorie long", u.finita and not any(r["lato"] == "short" and r["nella_rosa"] for r in u.rosa)
+          and len(u.passo_1) and all(t.startswith("L|") for t in u.passo_1["teoria"]), str(u.imbuto))
+    nessuno = cfg_g(("E47", G, "X0"))
+    nessuno["rosa"]["min_eventi"] = 10 ** 6       # nessun trigger arriva a un milione di eventi: la rosa resta vuota
+    try:
+        lancia(nessuno, cartelle["N"], verbose=False, data=DATA)
+        fermata = ""
+    except ValueError as err:
+        fermata = str(err)
+    check(f"{n + 4}. nessun trigger nella rosa, né long né short: la ricerca si ferma con il messaggio",
+          fermata == NESSUN_TRIGGER, fermata)
+    return n + 5
+
 
 # ------------------------------------------------------------------ §12: i valori standard (docs/82 §12.8)
 def _valori_standard(check, radice, n) -> int:
@@ -750,7 +820,7 @@ def _valori_standard(check, radice, n) -> int:
           and all(r["prove_altopiano"] <= 60 for r in r2), f"{ {k: sorted(v) for k, v in visti.items()} }")
     csv_z = pd.read_csv(registro.FileProve(e.cartella).percorso, dtype=str, keep_default_na=False)
     check(f"{n + 4}. conto delle prove come oggi: una riga per prova, sotto il budget massimo",
-          len(csv_z) == e.prove == registro.conto_prove(Z, PERP, "M15") and e.prove <= e.budget_massimo
+          len(csv_z) == e.prove == registro.conto_prove(Z, PERP, "M15") and e.prove - len(e.rosa) <= e.budget_massimo
           and e.budget_massimo == budget_massimo(e.imbuto["turno_1"], cfg, sum(1 for r in r1 if "|-|" not in r["teoria"]),
                                                  max(e.resoconto["blocchi"][x]["filtro"]["tenuti"]
                                                      for x in e.resoconto["blocchi"])),

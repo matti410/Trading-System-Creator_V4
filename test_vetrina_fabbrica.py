@@ -216,10 +216,11 @@ def _celle(radice):
           and righe[-1]["prove"] + r.imbuto["altopiano"] == r.prove
           and max(x["numero"] for x in righe if x["fase"] == "turno 1") == r.imbuto["turno_1"],
           "le ultime prove sono quelle della selezione, una per sopravvissuta")
-    check("8. riepilogo.json: imbuto, prove, lo stesso elenco dei blocchi tolti della cella 1 e la tabella dei tenuti e "
-          "dei tolti", riep["imbuto"] == r.imbuto and riep["prove"] == r.prove and riep["blocchi_esclusi"] == conf.esclusi
-          and riep["finita"] and riep["tenuti_tolti"] == json.loads(registro.json_riga(conf.tenuti_tolti))
-          and len(riep["tenuti_tolti"]) == 2 + 3)
+    entrano = [x for x in conf.rosa if x["nella_rosa"]]
+    check("8. riepilogo.json: imbuto, prove, lo stesso elenco dei blocchi tolti della cella 1 e i trigger della rosa",
+          riep["imbuto"] == r.imbuto and riep["prove"] == r.prove and riep["blocchi_esclusi"] == conf.esclusi
+          and riep["finita"] and riep["rosa_entrano"] == json.loads(registro.json_riga(entrano)) and entrano
+          and riep["rosa_prove"] == len(conf.rosa) > 0)
     righe.clear()
     r2 = _zitto(vf.ricerca, conf)
     check("9. rieseguita: riprende da dove era, nessuna prova in più, stesso imbuto",
@@ -232,11 +233,13 @@ def _celle(radice):
 
     print("\n3 · L'imbuto e 4 · Le strategie rimaste")
     imb = _zitto(vf.imbuto, r)
-    check("11. l'imbuto ha i passi della ricerca, con i due turni, e la cassaforte ancora a zero",
-          list(imb["quante"])[:8] == [r.imbuto[k] for k in ("turno_1", "turno_1_tenute", "turno_2", "turno_2_tenute",
-                                                              "passo_2", "altopiano", "selezione", "scelte")]
-          and list(imb["passo"])[:4] == ["turno 1: teorie", "turno 1: tenute", "turno 2: teorie", "turno 2: tenute"]
-          and list(imb["quante"])[8:] == [0, 0])
+    check("11. l'imbuto ha la rosa in testa, poi i passi della ricerca, con i due turni, e la cassaforte ancora a zero",
+          list(imb["quante"])[:10] == [r.imbuto[k] for k in ("rosa_misurati", "rosa_entrano", "turno_1",
+                                                               "turno_1_tenute", "turno_2", "turno_2_tenute",
+                                                               "passo_2", "altopiano", "selezione", "scelte")]
+          and list(imb["passo"])[:4] == ["rosa: trigger misurati", "rosa: trigger nella ricerca", "turno 1: teorie",
+                                         "turno 1: tenute"]
+          and list(imb["quante"])[10:] == [0, 0])
     # (15/11) i motivi di scarto della 3 raggruppati per tipo: una riga per tipo, con il numero
     # sul mercato sintetico le scartate possono mancare: la selezione di prova ha i motivi di XRP perp H1 del 15/11
     import dataclasses
@@ -305,7 +308,7 @@ def _celle(radice):
           and _registro_bytes(d) == dopo and c3.tabella.equals(c.tabella))
     imb2 = _zitto(vf.imbuto, r)
     check("18. l'imbuto legge la cassaforte dal registro: entrate e passate",
-          list(imb2["quante"])[8] == len(scelte) and list(imb2["quante"])[9] == int((c.tabella["esito"] == "passa").sum()))
+          list(imb2["quante"])[10] == len(scelte) and list(imb2["quante"])[11] == int((c.tabella["esito"] == "passa").sum()))
 
     print("\n6 · MM, stress test e verifica dei trade")
     catalogo = stato_registro()
@@ -477,7 +480,8 @@ def _dati_e_confini(radice):
 
     print("\nD1 dal 02/01/2020, l'exchange dà 6 barre nuove; config standard (confini calcolati)")
     d1 = os.path.join(radice, "D1_standard")
-    tutto = sintetici.mercato_piantato(2_500, seme=7, minuti=1440, inizio="2020-01-02", prezzo=2_000.0)
+    # seme 5 (20/11, docs/82 §13): su questa serie la rosa fa entrare dei trigger, e la cella prosegue
+    tutto = sintetici.mercato_piantato(2_500, seme=5, minuti=1440, inizio="2020-01-02", prezzo=2_000.0)
     sintetici.scrivi_storico(d1, SPOT, "D1", tutto.iloc[:-6])
     vf._scarica = _con_exchange(_Exchange(tutto))
     conf, testo = _parlato(vf.configura, d1, "BYBIT", "SPOT", "ETH", "D1", 1, None, DATA)
@@ -491,7 +495,8 @@ def _dati_e_confini(radice):
           and f"Dati aggiornati fino a {vf._data(ultima + pd.Timedelta(days=1))} UTC (6 barre nuove)" in testo
           and all(vf._data(lim[x][0]) in testo for x in ("ricerca", "selezione", "cassaforte")),
           f"{attesi}" if isinstance(conf, vf.Configurazione) else repr(conf)[:300])
-    a_mano = dict(_cfg("D1"), confini={"inizio": "2020-01-02 00:00", "ricerca_ore": 24 * 1200,
+    # la config standard (con i trigger generati: su D1 la rosa ne fa entrare qualcuno) con i confini scritti a mano
+    a_mano = dict(config_standard(SPOT, "D1", seme=0, processi=1), confini={"inizio": "2020-01-02 00:00", "ricerca_ore": 24 * 1200,
                                        "selezione_ore": 24 * 700, "cassaforte_ore": 24 * 400})
     vf._scarica = _con_exchange(_Exchange())
     conf_m, _t = _parlato(vf.configura, d1, "BYBIT", "SPOT", "ETH", "D1", 1, a_mano, DATA)
@@ -522,7 +527,7 @@ def _dati_e_confini(radice):
 
 
 def _c2(radice, r, conf):
-    print("\nC2: un blocco per famiglia e i due turni nelle celle; la stima del tempo; le ricerche della versione 1")
+    print("\n§13: la rosa e i due turni nelle celle; la stima del tempo; le ricerche delle versioni precedenti")
     da, a = vf.stima_minuti(370_200, 123_752, 3)
     check("32. (15/11, D6) la stima della cella 1 viene dalla velocità vera delle due ricerche della versione 3 del 15/11 "
           "(BTC perp M15: 487 prove al secondo; ETH perp H1: 1.064, con 3 processi, in proporzione alle barre): 370.200 "
@@ -533,11 +538,16 @@ def _c2(radice, r, conf):
           f"{da:.1f}–{a:.1f} minuti")
     d = os.path.join(radice, "M15")
     _, testo = _parlato(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, _cfg(), DATA)
-    check("33. la cella 1 mostra, per lato, quanti trigger e filtri e quanti tenuti (un blocco per famiglia), le teorie "
-          "dei due turni, le prove massime e la stima in minuti", "long: 2 trigger → " in testo
-          and "tenuti (un blocco per famiglia)" in testo and f"Turno 1: {conf.teorie} teorie; turno 2: al massimo" in testo
-          and "minut" in testo and "Tutti i blocchi, tenuti e tolti" in testo and conf.turno_2_massimo > 0,
-          testo[testo.find("long:"):][:160])
+    misurati = len({(x["lato"], x["blocco"]) for x in conf.rosa})
+    n_long = len([n for n in conf.tenuti[1] if n in ("DONCHIAN", "RSI_RIENTRO")])
+    check("33. la cella 1 mostra la rosa dei trigger in una riga (misurati, nella ricerca per lato, prove), i filtri, la "
+          "tabella di chi entra, le teorie dei due turni, le prove massime e la stima in minuti",
+          f"Rosa dei trigger (4, 16, 32 barre), pezzo di ricerca: {misurati} misurati → nella ricerca {n_long} long "
+          f"({n_long} del catalogo, 0 generati); {len(conf.rosa)} prove, che la cella 2 scrive nel conto." in testo
+          and "Filtri: tutti quelli che sul pezzo di ricerca scattano come serve, " in testo
+          and f"I trigger nella ricerca ({n_long})" in testo
+          and f"Turno 1: {conf.teorie} teorie; turno 2: al massimo" in testo and "minut" in testo
+          and conf.turno_2_massimo > 0, testo[testo.find("Rosa"):][:300])
     import dataclasses
     vecchia = os.path.join(cartella_asset(d, SPOT, "M15"), "20261109_versione1")
     os.makedirs(vecchia)
@@ -546,25 +556,28 @@ def _c2(radice, r, conf):
     with open(os.path.join(vecchia, "config.json"), "w", encoding="utf-8") as f:
         json.dump(cfg_v1, f)
     r1 = dataclasses.replace(r, cartella=vecchia, id_ricerca="20261109_versione1")
-    # docs/82 §12, D4 = A (15/11): anche una ricerca della versione 2 (i quattro blocchi ottimizzati) si ferma
-    vecchia2 = os.path.join(cartella_asset(d, SPOT, "M15"), "20261114_versione2")
-    os.makedirs(vecchia2)
+    # docs/82 §12, D4 = A (15/11) e §13 (20/11): anche le ricerche delle versioni 2 e 3 si fermano
+    vecchie = [r1]
+    for v in (2, 3):
+        cartella_v = os.path.join(cartella_asset(d, SPOT, "M15"), f"2026111{v}_versione{v}")
+        os.makedirs(cartella_v)
+        with open(os.path.join(cartella_v, "config.json"), "w", encoding="utf-8") as f:
+            json.dump(dict(cfg_v1, versione=v), f)
+        vecchie.append(dataclasses.replace(r, cartella=cartella_v, id_ricerca=f"2026111{v}_versione{v}"))
     cfg_v2 = dict(cfg_v1, versione=2)
-    with open(os.path.join(vecchia2, "config.json"), "w", encoding="utf-8") as f:
-        json.dump(cfg_v2, f)
-    r2 = dataclasses.replace(r, cartella=vecchia2, id_ricerca="20261114_versione2")
-    ferme = [errore(lambda f=f, rr=rr: _zitto(f, rr, *a), ValueError, vf.VERSIONE_VECCHIA) for rr in (r1, r2)
+    ferme = [errore(lambda f=f, rr=rr: _zitto(f, rr, *a), ValueError, vf.VERSIONE_VECCHIA) for rr in vecchie
              for f, a in ((vf.strategie_rimaste, ()), (vf.cassaforte, ("1",)), (vf.mm_e_stress, (1,)), (vf.schede, ()))]
-    check("34. una ricerca della versione 1 o 2 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una ricerca "
-          "di una versione precedente della fabbrica, rilancia la cella 2 per una ricerca nuova» (D4 = A)",
-          all(ferme) and len(ferme) == 8
+    check("34. una ricerca della versione 1, 2 o 3 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una "
+          "ricerca di una versione precedente della fabbrica, rilancia la cella 2 per una ricerca nuova» (D4 = A, §13)",
+          all(ferme) and len(ferme) == 12
           and vf.VERSIONE_VECCHIA == "ricerca non trovata: è una ricerca di una versione precedente della fabbrica, "
                                      "rilancia la cella 2 per una ricerca nuova", str(ferme))
     from engine.fabbrica.config import controlla_config
-    check("35. le config versione 1 e 2 non si rilanciano: la ricerca ha una strada sola, la versione 3 (D4 = A)",
+    check("35. le config versione 1, 2 e 3 non si rilanciano: la ricerca ha una strada sola, la versione 4 (§13)",
           errore(lambda: controlla_config(cfg_v1), ValueError, "versione 1")
           and errore(lambda: controlla_config(cfg_v2), ValueError, "versione 2")
-          and controlla_config(dict(cfg_v1, versione=3)) is not None)
+          and errore(lambda: controlla_config(dict(cfg_v1, versione=3)), ValueError, "versione 3")
+          and controlla_config(dict(cfg_v1, versione=4)) is not None)
 
     print("\n1 · Configura: un symbol con i dati che partono dopo il 02/01/2020 (14/11, scelta B)")
     tardi = os.path.join(radice, "H4_tardi")

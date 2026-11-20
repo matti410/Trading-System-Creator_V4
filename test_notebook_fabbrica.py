@@ -225,16 +225,17 @@ def _esecuzione(nb):
               not any("ERRORE" in x for x in t.values()))
         check("8. Avvio: fabbrica pronta con la macchina scritta nel campo, il file sintetico trovato",
               "Fabbrica pronta" in t["Avvio"] and "collaudo" in t["Avvio"] and SPOT in t["Avvio"])
-        check("9. 1 · Configura: ricerca nuova, i tre pezzi, la cassaforte chiusa, i blocchi tolti, i tenuti per lato "
-              "(un blocco per famiglia) e le teorie dei due turni", "(nuova)" in t["1 · Configura"]
+        check("9. 1 · Configura: ricerca nuova, i tre pezzi, la cassaforte chiusa, i blocchi tolti, la rosa dei trigger "
+              "e le teorie dei due turni", "(nuova)" in t["1 · Configura"]
               and "chiusa" in t["1 · Configura"] and "Blocchi tolti" in t["1 · Configura"]
-              and "tenuti (un blocco per famiglia)" in t["1 · Configura"] and "Turno 1:" in t["1 · Configura"]
+              and "Rosa dei trigger (4, 16, 32 barre)" in t["1 · Configura"] and "Turno 1:" in t["1 · Configura"]
               and "turno 2: al massimo" in t["1 · Configura"])
         check("10. 2 · La ricerca: finita, con le prove e i valori degeneri", "finita" in t["2 · La ricerca"]
               and "prove in questa ricerca" in t["2 · La ricerca"])
         immagine = any("image/png" in o.get("data", {}) for o in uscite["3 · L'imbuto"].get("outputs", []))
-        check("11. 3 · L'imbuto: la figura e la tabella dei passi, con i due turni", immagine
-              and "cassaforte: entrate" in t["3 · L'imbuto"] and "turno 2: tenute" in t["3 · L'imbuto"])
+        check("11. 3 · L'imbuto: la figura e la tabella dei passi, con la rosa e i due turni", immagine
+              and "cassaforte: entrate" in t["3 · L'imbuto"] and "turno 2: tenute" in t["3 · L'imbuto"]
+              and "rosa: trigger nella ricerca" in t["3 · L'imbuto"])
         check("12. 4 · Le strategie rimaste: la tabella con le regole in parole",
               "Le strategie rimaste" in t["4 · Le strategie rimaste"] and "Entra long" in t["4 · Le strategie rimaste"])
         check("13. 5 · La cassaforte: le scelte entrano e si vede l'esito", "La cassaforte · tratto" in t["5 · La cassaforte"]

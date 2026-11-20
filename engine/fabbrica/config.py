@@ -33,13 +33,15 @@ import os
 
 from engine.exchange import simboli_exchange, solo_long
 
-from .blocchi import GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, USCITE_CATALOGO, VALORI_STANDARD, blocchi_da_config
+from .blocchi import (GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, USCITE_CATALOGO, VALORI_STANDARD,
+                      blocchi_da_config, trigger_generati)
 from .dati import Confini
 
-# 3 dal 15/11 (docs/82 §12, D4 = A): i quattro blocchi con parametri sul valore standard. Una strada sola: le ricerche
-# delle versioni 1 e 2 restano su disco e nel conto, le celle 4–7 su una di esse si fermano con «rilancia la cella 2».
-VERSIONE = 3
-CAMPI = ("versione", "symbol", "timeframe", "confini", "lati", "blocchi", "modelli", "qualita_1", "qualita_2",
+# 3 dal 15/11 (docs/82 §12, D4 = A): i quattro blocchi con parametri sul valore standard. 4 dal 20/11 (docs/82 §13):
+# tutti i trigger, del catalogo e generati, passano dalla rosa del Lab (campo «rosa»). Una strada sola: le ricerche
+# delle versioni precedenti restano su disco e nel conto, le celle 4–7 su una di esse si fermano con «rilancia la cella 2».
+VERSIONE = 4
+CAMPI = ("versione", "symbol", "timeframe", "confini", "lati", "blocchi", "rosa", "modelli", "qualita_1", "qualita_2",
          "altopiano", "test_individuale", "budget", "seme", "processi")
 SOTTOCAMPI = {
     "qualita_1": ("trade_min", "ev_min_bp", "peso_max", "totale_su_dd_min"),
@@ -48,7 +50,12 @@ SOTTOCAMPI = {
                   "prove_max"),
     "test_individuale": ("alfa",),
     "budget": ("totale", "per_teoria_passo_1", "teorie_turno_2", "teorie_passo_2", "giri_zoom", "prove_per_giro"),
+    "rosa": ("orizzonti_barre", "q", "soglia_famiglia", "rho_max", "min_eventi", "catalogo_generato"),
 }
+# La rosa dei trigger (docs/82 §13, 20/11): la regola della rosa del Lab (engine/rosa.py), scritta per intero nella
+# config, così se un giorno cambia un valore cambia anche l'impronta. Gli orizzonti sono in barre, su ogni timeframe.
+ROSA_STANDARD = {"orizzonti_barre": [4, 16, 32], "q": 0.2, "soglia_famiglia": 0.6, "rho_max": 0.3, "min_eventi": 200,
+                 "catalogo_generato": 1}
 FILTRI_MAX = 2                         # i modelli di docs/82 P3: T+U, T+F+U, T+F+F+U
 # La prima finestra (docs/82 P1 e §6). Dal 09/11 dà solo l'inizio fisso e le proporzioni dei tre pezzi:
 # la cella 1 calcola i confini con confini_standard, fino all'ultima mezzanotte UTC chiusa del CSV.
@@ -106,8 +113,8 @@ def controlla_config(config: dict) -> dict:
     """Controlla campi e intervalli; si ferma con un errore che dice cosa manca o cosa è fuori posto."""
     _campi(config, CAMPI, "la config")
     if config["versione"] != VERSIONE:
-        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §12, "
-                "D4): una ricerca di una versione precedente resta su disco e nel conto, rilancia la cella 2 per una "
+        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §13): "
+                "una ricerca di una versione precedente resta su disco e nel conto, rilancia la cella 2 per una "
                 "ricerca nuova")
     if config["symbol"] not in simboli_exchange():
         _errore(f"symbol {config['symbol']!r} fuori da SIMBOLI_EXCHANGE (engine/simboli.py)")
@@ -137,6 +144,7 @@ def controlla_config(config: dict) -> dict:
             _errore(f"filtri di un modello = [minimo, massimo], da 0 a {FILTRI_MAX}: {f!r}")
     for nome, sotto in SOTTOCAMPI.items():
         _campi(config[nome], sotto, nome)
+    _controlla_rosa(config["rosa"])
     q1, q2, alt, bud = config["qualita_1"], config["qualita_2"], config["altopiano"], config["budget"]
     for q, nome in ((q1, "qualita_1"), (q2, "qualita_2")):
         _intero(q["trade_min"], f"{nome}.trade_min", 2)
@@ -158,6 +166,22 @@ def controlla_config(config: dict) -> dict:
     if config["processi"] > (os.cpu_count() or 1):
         _errore(f"processi = {config['processi']}, più dei core del PC ({os.cpu_count()})")
     return config
+
+
+def _controlla_rosa(rosa: dict) -> None:
+    from engine.generatore.catalogo import VERSIONE as VERSIONE_CATALOGO
+    o = rosa["orizzonti_barre"]
+    if not isinstance(o, list) or not o or len(set(o)) != len(o):
+        _errore(f"rosa.orizzonti_barre deve essere una lista di orizzonti diversi, non {o!r}")
+    for h in o:
+        _intero(h, "rosa.orizzonti_barre", 1)
+    _numero(rosa["q"], "rosa.q", 0.0, 1.0, aperto_sotto=True)
+    _numero(rosa["soglia_famiglia"], "rosa.soglia_famiglia", 0.0, 1.0, aperto_sotto=True)
+    _numero(rosa["rho_max"], "rosa.rho_max", 0.0, 1.0)
+    _intero(rosa["min_eventi"], "rosa.min_eventi", 1)
+    if rosa["catalogo_generato"] != VERSIONE_CATALOGO:
+        _errore(f"rosa.catalogo_generato = {rosa['catalogo_generato']!r}: questa fabbrica legge il catalogo generato "
+                f"versione {VERSIONE_CATALOGO}")
 
 
 def budget_massimo(n_teorie: int, config: dict, teorie_tf: int = 0, filtri_lato_max: int = 0) -> int:
@@ -191,7 +215,7 @@ def controlla_budget(n_teorie: int, config: dict, teorie_tf: int = 0, filtri_lat
 
 def massimo_senza_dati(config: dict) -> int:
     """
-    Il massimo con tutti i blocchi della config, come se nessuno uscisse per i valori degeneri o per le famiglie: non
+    Il massimo con tutti i blocchi della config, come se nessuno uscisse per i valori degeneri o per la rosa: non
     è mai più piccolo di quello della ricerca vera. Serve a config_standard quando non ha i dati.
     """
     from .generatore import _filtri_modelli, lati_config
@@ -317,8 +341,9 @@ def confini_standard(timeframe: str, ultima_barra, prima_barra=None) -> dict:
 def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi: int = 3,
                     confini: dict | None = None, totale: int | None = None) -> dict:
     """
-    La config di §6, versione 3 (docs/82 §12), con tutti i blocchi di BLOCCHI_STANDARD ammessi sul timeframe e le loro
-    griglie (per RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO un valore solo per parametro, in barre). I
+    La config di §6, versione 4 (docs/82 §13), con tutti i blocchi di BLOCCHI_STANDARD ammessi sul timeframe e le loro
+    griglie (per RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO un valore solo per parametro, in barre), più tutti i trigger
+    generati dopo DONCHIAN, e la regola della rosa (ROSA_STANDARD). I
     blocchi del catalogo che su quel timeframe non scattano restano fuori (blocchi.py li fermerebbe). `confini` (09/11):
     quelli calcolati da confini_standard sui dati; senza, la prima finestra (CONFINI_STANDARD). `totale`: il tetto del
     budget calcolato dalla cella 1 sui blocchi tenuti (D6); senza, il tetto del massimo con tutti i blocchi.
@@ -333,11 +358,14 @@ def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi
         # blocchi con parametri hanno il loro valore standard, in barre (docs/82 §12)
         griglie = VALORI_STANDARD.get(nome, GRIGLIE_USCITA if nome in USCITE_CATALOGO else {})
         blocchi[nome] = copy.deepcopy({k: list(v) for k, v in griglie.items()})
+        if nome == "DONCHIAN":                   # docs/82 §13: i trigger generati, dopo quelli del catalogo
+            blocchi.update({g: {} for g in trigger_generati()})
     config = {
         "versione": VERSIONE, "symbol": symbol, "timeframe": timeframe,
         "confini": dict(CONFINI_STANDARD if confini is None else confini),
         "lati": ["long"] if solo_long(symbol) else ["long", "short"],
         "blocchi": blocchi,
+        "rosa": copy.deepcopy(ROSA_STANDARD),
         "modelli": [{"trigger": 1, "filtri": [0, 2], "uscite": 1}],
         "qualita_1": {"trade_min": 100, "ev_min_bp": 0, "peso_max": 0.10, "totale_su_dd_min": 1.0},
         "qualita_2": {"trade_min": 50, "p_ev_neg_max": 5.0, "peso_max": 0.15, "totale_su_dd_min": 0.5},

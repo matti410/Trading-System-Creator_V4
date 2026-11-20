@@ -15,8 +15,9 @@ Le schede della fabbrica (docs/82 P10 e §6, lavoro L5a): un .json e un .md per 
   pezzi devono essere quelle della scheda. La cassaforte si rilegge solo per una strategia già entrata nel suo tratto.
 - La scheda porta anche i blocchi tolti su quel timeframe, con il motivo (08/11), e l'esito delle regole della verifica
   dei trade (schermata 8 del Lab) quando la cella 6 del notebook è stata eseguita per quella strategia.
-- C2 (docs/82 §11.8): «Da dove viene» dice il turno del passo 1 da cui viene la teoria (1 o 2), e la sezione «Blocchi
-  tenuti e tolti» ha la tabella della cella 1 (un blocco per famiglia); nel .json la tabella intera.
+- C2 (docs/82 §11.8): «Da dove viene» dice il turno del passo 1 da cui viene la teoria (1 o 2).
+- Dal 20/11 (docs/82 §13): la sezione «La rosa dei trigger» dice quanti trigger sono stati misurati e quali sono
+  entrati nella ricerca; un trigger generato ha la sua regola in parole dalla ricetta (testo_generato).
 - In fondo al .md sempre la frase FRASE_FINALE (Mattia, 08/11).
 """
 from __future__ import annotations
@@ -79,6 +80,24 @@ def _standard(nome: str, valori: dict) -> str:
 
 # ------------------------------------------------------------------ i testi dei blocchi
 # Ogni testo è una funzione (valori, d, lato) -> frase; d(barre) = durata in parole sul timeframe; lato 1 o -1.
+_LIVELLI = {"ZERO": "lo zero", "MEDIA20": "la sua media delle ultime 20 barre"}
+
+
+def generato_in_parole(nome: str) -> str:
+    """Un trigger generato (docs/83) in parole: «l'indicatore media(sv, 14) attraversa il suo 90° percentile ...»."""
+    from .blocchi import trigger_generati
+    _, _, _, ricetta, livello, verso = trigger_generati()[nome]
+    dove = _LIVELLI.get(livello) or f"il suo {livello[1:]}° percentile delle ultime 500 barre (barra esclusa)"
+    direzione = "verso l'alto" if verso == "SU" else "verso il basso"
+    return f"l'indicatore {ricetta} attraversa {dove} {direzione}"
+
+
+def _testo_trigger(nome: str):
+    """Il testo di un trigger: quello scritto in TESTI_TRIGGER o, per un trigger generato, dalla sua ricetta."""
+    from .blocchi import trigger_generati
+    if nome in trigger_generati():
+        return lambda v, d, l: generato_in_parole(nome)
+    return TESTI_TRIGGER.get(nome)
 def _su(lato, a, b):
     return a if lato == 1 else b
 
@@ -305,8 +324,10 @@ def nome_breve(blocco: str, valori: dict, timeframe: str) -> str:
     (5 ore)», «RSI 14 barre (3,5 ore), soglia 30» (dal 15/11 in barre, docs/82 §12), «E47 · rottura dopo compressione».
     Al posto dei nomi temporanei FAB_SES_… del catalogo.
     """
-    from .blocchi import FILTRI_CATALOGO, TRIGGER_CATALOGO, USCITE_CATALOGO
+    from .blocchi import FILTRI_CATALOGO, TRIGGER_CATALOGO, USCITE_CATALOGO, trigger_generati
     m = MINUTI_TIMEFRAME[timeframe]
+    if blocco in trigger_generati():
+        return f"{blocco} · {generato_in_parole(blocco)}"
     v = valori or {}
     if blocco == "DONCHIAN":
         return f"Donchian {in_barre(v['canale_barre'], m)}"
@@ -336,11 +357,12 @@ def regole_in_parole(strategia: Strategia, timeframe: str) -> dict:
     d.in_barre = lambda barre: in_barre(barre, minuti)      # i quattro blocchi con parametri (docs/82 §12)
     lato = strategia.lato
     nome_lato = "long" if lato == 1 else "short"
-    for nome, testi in [(strategia.trigger, TESTI_TRIGGER), *[(f, TESTI_FILTRI) for f in strategia.filtri],
-                        (strategia.uscita, TESTI_USCITE)]:
-        if nome not in testi:
-            raise ValueError(f"il blocco {nome} non ha il testo in parole (schede.py): la scheda non si scrive.")
-    ingresso = (TESTI_TRIGGER[strategia.trigger](strategia.valori_di(strategia.trigger), d, lato)
+    senza = [n for n in (strategia.trigger,) if _testo_trigger(n) is None]
+    senza += [f for f in strategia.filtri if f not in TESTI_FILTRI]
+    senza += [u for u in (strategia.uscita,) if u not in TESTI_USCITE]
+    if senza:
+        raise ValueError(f"il blocco {senza[0]} non ha il testo in parole (schede.py): la scheda non si scrive.")
+    ingresso = (_testo_trigger(strategia.trigger)(strategia.valori_di(strategia.trigger), d, lato)
                 + _standard(strategia.trigger, strategia.valori_di(strategia.trigger)))
     filtri = [TESTI_FILTRI[f](strategia.valori_di(f), d, lato) + _standard(f, strategia.valori_di(f))
               for f in strategia.filtri]
@@ -492,7 +514,9 @@ def componi_scheda(esito_ricerca, esito_cas, id_strat: str, mm: dict | None = No
         "cassaforte": {"data": ingresso.get("quando"), "tratto": esito_cas.tratto, "esito": cas.get("esito"),
                        "entrate_nel_tratto": esito_cas.conto.get("entrate_nel_tratto")},
         "blocchi_esclusi": esclusi_dalla_config(config),
-        "blocchi_tenuti_tolti": list(getattr(esito_ricerca, "tenuti_tolti", []) or []),
+        "rosa_trigger": {"misurati": len({(r["lato"], r["blocco"]) for r in esito_ricerca.rosa}),
+                         "prove": len(esito_ricerca.rosa),
+                         "entrano": [r for r in esito_ricerca.rosa if r["nella_rosa"]]},
         "mm": (mm or {}).get("mm"), "stress": (mm or {}).get("stress"), "verifica": (mm or {}).get("verifica"),
         "parametri_mm": (mm or {}).get("parametri"),
         "software": commit_software(),
@@ -501,7 +525,7 @@ def componi_scheda(esito_ricerca, esito_cas, id_strat: str, mm: dict | None = No
 
 
 def _tipo(nome: str) -> str:
-    if nome in TESTI_TRIGGER:
+    if _testo_trigger(nome) is not None:
         return "trigger"
     return "uscita" if nome in TESTI_USCITE else "filtro"
 
@@ -551,7 +575,7 @@ def _virgola(testo) -> str:
 
 def testo_md(sc: dict) -> str:
     """La scheda in parole (§6): Regole · Da dove viene · Il cammino · Da leggere · Verifica, MM e stress test ·
-    Blocchi tolti sul timeframe · Blocchi tenuti e tolti (C2); in fondo la frase finale."""
+    Blocchi tolti sul timeframe · La rosa dei trigger (§13); in fondo la frase finale."""
     t = sc["test_individuale"]
     pr, cas = sc["prove"], sc["cassaforte"]
     da, a = cas["tratto"]["da"], cas["tratto"]["a"]
@@ -603,17 +627,15 @@ def testo_md(sc: dict) -> str:
         righe += [f"- {e['blocco']} ({e['tipo']}): {e['motivo']}." for e in sc["blocchi_esclusi"]]
     else:
         righe.append("Nessuno: c'erano tutti i blocchi della lista.")
-    righe += ["", "## Blocchi tenuti e tolti (un blocco per famiglia)"]
-    tab = sc.get("blocchi_tenuti_tolti") or []
-    for lato in dict.fromkeys(r["lato"] for r in tab):
-        for tipo, nome in (("trigger", "trigger"), ("filtro", "filtri")):
-            mie = [r for r in tab if r["lato"] == lato and r["tipo"] == tipo]
-            righe.append(f"- {lato}: {len(mie)} {nome} → {sum(r['esito'] == 'tenuto' for r in mie)} tenuti.")
-    tolti = [r for r in tab if r["esito"] == "tolto"]
-    if tolti:
-        righe += ["", *_tabella_md(tolti, ["lato", "tipo", "blocco", "motivo", "scatta"])]
-    elif not tab:
-        righe.append("Non registrati in questa scheda.")
+    righe += ["", "## La rosa dei trigger"]
+    rosa = sc.get("rosa_trigger")
+    if rosa:
+        entrano = list(dict.fromkeys((r["lato"], r["blocco"]) for r in rosa["entrano"]))
+        righe.append(f"- {_f(rosa['misurati'])} trigger misurati sul pezzo di ricerca ({_f(rosa['prove'])} prove nel "
+                     f"conto); {_f(len(entrano))} nella rosa, entrati nella ricerca.")
+        righe += _tabella_md(rosa["entrano"], ["orizzonte", "lato", "blocco", "eventi", "t"])
+    else:
+        righe.append("Non registrata in questa scheda.")
     righe += ["", FRASE_FINALE, ""]
     return "\n".join(righe)
 

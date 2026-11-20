@@ -1,6 +1,6 @@
 """
-Suite di collaudo del generatore della fabbrica (docs/82 P3 e P-L2, lavoro L3a; C2, docs/82 §11.3, §11.4, §11.7):
-valori degeneri e «STATO», famiglie misurate, un blocco per famiglia, teorie del turno 1 e del turno 2, spazio del passo 1.
+Suite di collaudo del generatore della fabbrica (docs/82 P3 e P-L2, lavoro L3a; C2, docs/82 §11.4; §13): valori
+degeneri e «STATO», la rosa dei trigger (§13.6), teorie del turno 1 e del turno 2, spazio del passo 1.
 
 Si lancia da terminale, dalla cartella del progetto:
 
@@ -21,13 +21,13 @@ import pandas as pd
 
 from engine.fabbrica import generatore as gen
 from engine.fabbrica import sintetici
-from engine.fabbrica.blocchi import FAMIGLIA_ADX_ATR, Blocco, blocchi_da_config
+from engine.fabbrica.blocchi import FAMIGLIA_ADX_ATR, Blocco, blocchi_da_config, trigger_generati
 from engine.fabbrica.cache import Cache
-from engine.fabbrica.config import budget_massimo, config_standard
-from engine.fabbrica.generatore import (QUATTORDICI, STATO_CATALOGO, ControlloDegenerazione, Teoria,
-                                        filtri_compatibili, lati_config, misura_famiglie, resoconto_teorie, seme_teoria,
-                                        spazio_teoria, stato_registro, teorie_turno_1, teorie_turno_2, togli_degeneri,
-                                        un_blocco_per_famiglia)
+from engine.fabbrica.config import ROSA_STANDARD, budget_massimo, config_standard
+from engine.fabbrica.dati import imposta_mercato_crypto
+from engine.fabbrica.generatore import (ControlloDegenerazione, Teoria, filtri_compatibili, filtri_rimasti, lati_config,
+                                        resoconto_teorie, rosa_dei_trigger, seme_teoria, spazio_teoria, stato_registro,
+                                        teorie_turno_1, teorie_turno_2, togli_degeneri)
 from engine.fabbrica.ottimizzatore import Categoria, Intero
 from engine.indicatori import aggiungi_indicatori
 
@@ -46,15 +46,21 @@ def _config(symbol, blocchi, modelli=((0, 2),), lati=("long", "short"), timefram
 
 
 def _tutto(cfg, cache, blocchi=None):
-    """L'avvio della ricerca sul pezzo della cache: degeneri, famiglie, un blocco per famiglia, turno 1."""
+    """Degeneri e turno 1 con TUTTI i blocchi rimasti (senza la rosa, che ha la sua sezione): (blocchi, rimaste, tolte,
+    tenuti, teorie)."""
     blocchi = blocchi if blocchi is not None else blocchi_da_config(cfg)
     lati = lati_config(cfg)
-    controllo = ControlloDegenerazione(cache)
-    rimaste, tolte = togli_degeneri(blocchi, cache, lati, controllo)
-    famiglie, misura = misura_famiglie(blocchi, cache, lati, rimaste)
-    tenuti, tabella = un_blocco_per_famiglia(blocchi, misura, controllo, lati, rimaste)
-    teorie = teorie_turno_1(cfg, blocchi, tenuti)
-    return blocchi, rimaste, tolte, misura, tenuti, tabella, teorie
+    rimaste, tolte = togli_degeneri(blocchi, cache, lati, ControlloDegenerazione(cache))
+    trigger = {lato: [b.nome for b in blocchi if b.tipo == "trigger" and lato in b.lati
+                      and rimaste.get((b.nome, lato), (None,))] for lato in lati}
+    filtri = filtri_rimasti(blocchi, lati, rimaste)
+    tenuti = {lato: trigger[lato] + filtri[lato] for lato in lati}
+    return blocchi, rimaste, tolte, tenuti, teorie_turno_1(cfg, blocchi, tenuti)
+
+
+def _senza_generati(cfg) -> dict:
+    """La config senza i trigger generati (più veloce, quando il collaudo non li riguarda)."""
+    return {**cfg, "blocchi": {k: v for k, v in cfg["blocchi"].items() if k not in trigger_generati()}}
 
 
 def _uguale_registro(a: dict, b: dict) -> bool:
@@ -120,12 +126,11 @@ def esegui() -> int:
     print("Il turno 1, su una lista fatta a mano")
     piccola = {"E47": {}, "RSI_RIENTRO": {}, "F3_VOLUME_ABOVE_AVG": {}, "ADX": {}, "ATR_RELATIVO": {}, "X0": {}, "X3": {}}
     cfg = _config(PERP, piccola)
-    blocchi, rimaste, tolte, misura, tenuti, tabella, teorie = _tutto(cfg, cache)
+    blocchi, rimaste, tolte, tenuti, teorie = _tutto(cfg, cache)
     scelte = ["-", "F3_VOLUME_ABOVE_AVG", "ADX", "ATR_RELATIVO"]
     attese = [f"L|{t}|{f}|{u}" for t in ("E47", "RSI_RIENTRO") for f in scelte for u in ("X0", "X3")]
     check("1. turno 1 con il conto esatto: 2 trigger × (1 + 3 filtri) × 2 uscite = 16 per lato, 32 in tutto, in "
-          "quest'ordine (tutti tenuti: nessuno nella stessa famiglia misurata sulle barre sintetiche; E47 e DONCHIAN "
-          "invece sì, e resta DONCHIAN)",
+          "quest'ordine",
           len(teorie) == 32 and [t.id for t in teorie if t.lato == 1] == attese
           and [t.id for t in teorie if t.lato == -1] == [a.replace("L|", "S|", 1) for a in attese]
           and all(len(tenuti[lato]) == 5 for lato in (1, -1)), f"{len(teorie)} teorie")
@@ -170,149 +175,111 @@ def esegui() -> int:
           and budget_massimo(4860, config_standard(PERP, "M15"), 4644, 22) == 370_200)
 
     # ------------------------------------------------------------------ la config standard, tutto il catalogo
-    print("\nLa config standard (C2: tutto il catalogo) sulle barre sintetiche M15")
-    std = config_standard(PERP, "M15")
+    print("\nLa config standard (C2: tutto il catalogo, senza i generati) sulle barre sintetiche M15")
+    std = _senza_generati(config_standard(PERP, "M15"))
     prima = stato_registro()
-    b_std, r_std, tolte_std, m_std, ten_std, tab_std, t_std = _tutto(std, cache)
+    b_std, r_std, tolte_std, ten_std, t_std = _tutto(std, cache)
     dopo = stato_registro()
     res = resoconto_teorie(std, b_std, ten_std, r_std, t_std)
     per_nome = {b.nome: b for b in b_std}
     conti = {lato: (sum(per_nome[n].tipo == "trigger" for n in ten_std[lato]),
                     sum(per_nome[n].tipo == "filtro" for n in ten_std[lato])) for lato in (1, -1)}
-    check("8. 45 trigger e 30 filtri sul long, 44 e 30 sullo short; teorie del turno 1 = trigger tenuti × (1 + filtri "
-          "tenuti) × 3 uscite, per lato", res["blocchi"]["long"]["trigger"]["blocchi"] == 45
+    check("8. 45 trigger e 30 filtri sul long, 44 e 30 sullo short; teorie del turno 1 = trigger × (1 + filtri) × 3 "
+          "uscite, per lato", res["blocchi"]["long"]["trigger"]["blocchi"] == 45
           and res["blocchi"]["short"]["trigger"]["blocchi"] == 44 and res["blocchi"]["long"]["filtro"]["blocchi"] == 30
           and all(res["per_lato"][gen.NOME_LATO[lato]] == t * (1 + f) * 3 for lato, (t, f) in conti.items())
           and len(t_std) == sum(t * (1 + f) * 3 for t, f in conti.values()),
           f"long {conti[1]}, short {conti[-1]}, {len(t_std)} teorie")
-    check("9. il registro delle condizioni è identico prima e dopo degeneri, famiglie e un blocco per famiglia",
-          _uguale_registro(prima, dopo))
+    check("9. il registro delle condizioni è identico prima e dopo i valori degeneri", _uguale_registro(prima, dopo))
     di_nuovo = _tutto(std, cache)
-    check("10. stesso ordine, stessi tenuti e stessa tabella a ogni lancio",
-          [t.id for t in di_nuovo[6]] == [t.id for t in t_std] and di_nuovo[4] == ten_std and di_nuovo[5] == tab_std)
-    righe = pd.DataFrame(tab_std)
-    vivi = righe[righe["famiglia"].notna()]
-    regola = []
-    for (lato, tipo, fam), g in vivi.groupby(["lato", "tipo", "famiglia"]):
-        dei14 = g[g["blocco"].isin(QUATTORDICI)]
-        pool = dei14 if len(dei14) else g
-        atteso = sorted(zip(-pool["scatta"], pool["blocco"]))[0][1]
-        regola.append(list(g[g["esito"] == "tenuto"]["blocco"]) == [atteso])
-    check("11. in ogni famiglia misurata di ogni lato resta un blocco solo, quello della regola (uno dei 14; fra due o più "
-          "dei 14, o senza, quello che scatta più spesso; a parità il nome più piccolo)",
-          all(regola) and len(regola) == len(vivi[vivi["esito"] == "tenuto"]),
-          f"{len(regola)} famiglie, {int((righe['esito'] == 'tolto').sum())} blocchi tolti")
-    check("12. la tabella ha una riga per blocco e lato (E19 solo sul long) con le colonne di §11.3; ogni tolto ha il "
-          "suo motivo", list(righe.columns) == gen.COLONNE_TENUTI and len(righe) == 75 + 74
-          and not len(righe[(righe["blocco"] == "E19") & (righe["lato"] == "short")])
-          and all(righe["motivo"].str.len() > 0))
+    check("10. stesso ordine e stessi blocchi a ogni lancio",
+          [t.id for t in di_nuovo[4]] == [t.id for t in t_std] and di_nuovo[3] == ten_std)
+    f_std = filtri_rimasti(b_std, [1, -1], r_std)
+    check("11. i filtri: tutti quelli rimasti dopo i valori degeneri, nell'ordine della config (docs/82 §13, scelta A)",
+          f_std[1] == [b.nome for b in b_std if b.tipo == "filtro" and r_std.get((b.nome, 1), (None,))]
+          and len(f_std[1]) == conti[1][1], str(len(f_std[1])))
     check("13. E19 non ha teorie short; lo spot ha solo teorie long, anche con lo short scritto nei lati",
           not any(t.trigger == "E19" and t.lato == -1 for t in t_std)
           and all(t.lato == 1 for t in teorie_turno_1({**config_standard(SPOT, "M15"), "lati": ["long", "short"]},
                                                        b_std, ten_std)))
-    _, _, _, _, ten_sp, tab_sp, t_sp = _tutto(config_standard(SPOT, "M15"), cache)
-    check("14. spot: famiglie e tenuti solo sul long, teorie tutte long", set(ten_sp) == {1}
-          and {r["lato"] for r in tab_sp} == {"long"} and t_sp and all(t.lato == 1 for t in t_sp))
-    fam = m_std.set_index(["lato", "blocco"])
-    check("15. famiglie misurate per lato, trigger con trigger e filtri con filtri; la dichiarazione non unisce: ADX e "
-          "ATR relativo, in famiglie misurate diverse, restano tutti e due",
-          set(m_std["lato"]) == {"long", "short"} and set(m_std["tipo"]) == {"trigger", "filtro"}
-          and fam.loc[("long", "ADX"), "famiglia"] != fam.loc[("long", "ATR_RELATIVO"), "famiglia"]
-          and {"ADX", "ATR_RELATIVO"} <= set(ten_std[1]) and {"ADX", "ATR_RELATIVO"} <= set(ten_std[-1])
+    _, _, _, ten_sp, t_sp = _tutto(_senza_generati(config_standard(SPOT, "M15")), cache)
+    check("14. spot: blocchi e teorie solo sul long", set(ten_sp) == {1} and t_sp and all(t.lato == 1 for t in t_sp))
+    check("15. ADX e ATR relativo (stessa famiglia dichiarata) entrano tutti e due, ma mai nella stessa teoria",
+          {"ADX", "ATR_RELATIVO"} <= set(ten_std[1]) and {"ADX", "ATR_RELATIVO"} <= set(ten_std[-1])
           and res["coppie_stessa_famiglia"] == [{"lato": "long", "filtri": ["ADX", "ATR_RELATIVO"],
                                                  "famiglia": FAMIGLIA_ADX_ATR},
                                                 {"lato": "short", "filtri": ["ADX", "ATR_RELATIVO"],
                                                  "famiglia": FAMIGLIA_ADX_ATR}])
 
-    # ------------------------------------------------------------------ un blocco per famiglia, maschere a mano
-    print("\nUn blocco per famiglia, con maschere fatte a mano dall'esito noto (docs/82 §11.3, §11.7)")
-    c2 = Cache(df, 600)
-    NB = len(df)                                                  # le barre dopo aggiungi_indicatori
-    r = np.random.default_rng(7)
-    A, B, C, D, F, G = (_eventi(r, NB) for _ in range(6))
-    D2 = np.r_[False, D[:-1]]                                     # gli stessi eventi una barra dopo: stessa frequenza
-    S1, S2 = _stato(r, NB), _stato(r, NB)
-    rari = np.zeros(NB, dtype=bool)
-    rari[[100, 5_000, 9_000]] = True
-    a_mano = [
-        _blocco_a_mano(c2, "DONCHIAN", "trigger", {1: _ogni_due(A), -1: _ogni_due(A)}),     # uno dei 14, scatta meno
-        _blocco_a_mano(c2, "E12", "trigger", {1: A, -1: A}),
-        _blocco_a_mano(c2, "E21", "trigger", {1: B, -1: B}),                                 # nessuno dei 14
-        _blocco_a_mano(c2, "E8", "trigger", {1: _ogni_due(B), -1: _ogni_due(B)}),
-        _blocco_a_mano(c2, "E5", "trigger", {1: C, -1: C}),                                  # due dei 14
-        _blocco_a_mano(c2, "E47", "trigger", {1: _ogni_due(C), -1: _ogni_due(C)}),
-        _blocco_a_mano(c2, "E30", "trigger", {1: D, -1: D}),                                 # parità
-        _blocco_a_mano(c2, "E2", "trigger", {1: D2, -1: D2}),
-        _blocco_a_mano(c2, "E3", "trigger", {1: F, -1: F}),                                  # E1 con E3 solo sul long
-        _blocco_a_mano(c2, "E1", "trigger", {1: _ogni_due(F), -1: G}),
-        _blocco_a_mano(c2, "E40", "trigger", {1: rari, -1: rari}),                           # degenere: rara
-        _blocco_a_mano(c2, "ADX", "filtro", {1: S1, -1: S1}, FAMIGLIA_ADX_ATR, neutro=True),
-        _blocco_a_mano(c2, "F1_ADX_ABOVE", "filtro", {1: S1 & (np.arange(NB) % 10 != 0)} | {-1: S1 & (np.arange(NB) % 10 != 0)},
-                       neutro=True),
-        _blocco_a_mano(c2, "ATR_RELATIVO", "filtro", {1: S2, -1: S2}, FAMIGLIA_ADX_ATR, neutro=True),
-        _blocco_a_mano(c2, "F2_HIGH_VOLATILITY", "filtro", {1: S2 & (np.arange(NB) % 7 != 0)} | {-1: S2 & (np.arange(NB) % 7 != 0)},
-                       neutro=True),
-    ]
-    uscite = blocchi_da_config({"timeframe": "M15", "blocchi": {"X0": {}}})
-    prima_m = stato_registro()
-    mano_cfg = {**_config(PERP, {"X0": {}}), "blocchi": {b.nome: {} for b in a_mano + uscite}}
-    _, rim_m, tolte_m, mis_m, ten_m, tab_m, teo_m = _tutto(mano_cfg, c2, a_mano + uscite)
-    riga = {(x["lato"], x["blocco"]): x for x in tab_m}
-    n_ = {nome: int(m.sum()) for nome, m in (("A", A), ("B", B), ("C", C), ("D", D))}
-
-    def tenuto(lato, nome):
-        return riga[(lato, nome)]["esito"] == "tenuto"
-
-    check("16. una famiglia con uno dei 14 tiene quello, anche se scatta meno: DONCHIAN tenuto, E12 tolto",
-          tenuto("long", "DONCHIAN") and not tenuto("long", "E12")
-          and riga[("long", "E12")]["motivo"] == "stessa famiglia di DONCHIAN, che è uno dei 14 di oggi"
-          and riga[("long", "DONCHIAN")]["motivo"] == "uno dei 14 di oggi"
-          and riga[("long", "DONCHIAN")]["scatta"] < riga[("long", "E12")]["scatta"], riga[("long", "E12")]["motivo"])
-    check("17. una famiglia senza i 14 tiene quello che scatta più spesso: E21 tenuto, E8 tolto, con i numeri",
-          tenuto("long", "E21") and not tenuto("long", "E8") and riga[("long", "E21")]["motivo"] == "scatta più spesso"
-          and riga[("long", "E8")]["motivo"] == f"stessa famiglia di E21, che scatta più spesso ({n_['B']} segnali "
-                                                f"contro {int(_ogni_due(B).sum())})", riga[("long", "E8")]["motivo"])
-    check("18. due dei 14 nella stessa famiglia misurata: resta quello che scatta più spesso (E5), E47 tolto",
-          tenuto("long", "E5") and not tenuto("long", "E47")
-          and riga[("long", "E5")]["motivo"] == "dei 14 di oggi, scatta più spesso"
-          and riga[("long", "E47")]["motivo"].startswith("stessa famiglia di E5, che scatta più spesso ("))
-    check("19. a parità di frequenza, il nome più piccolo: E2 tenuto, E30 tolto",
-          riga[("long", "E2")]["scatta"] == riga[("long", "E30")]["scatta"] and tenuto("long", "E2")
-          and not tenuto("long", "E30"))
-    check("20. lo stesso blocco tenuto su un lato e tolto sull'altro: E1 tolto sul long (con E3), tenuto sullo short",
-          not tenuto("long", "E1") and tenuto("long", "E3") and tenuto("short", "E1") and tenuto("short", "E3")
-          and riga[("short", "E1")]["motivo"] == "solo nella sua famiglia")
-    check("21. ADX e ATR relativo in famiglie misurate diverse (ADX con F1, ATR relativo con F2_HIGH): restano tutti e "
-          "due, F1 e F2_HIGH tolti; nel turno 2 mai insieme",
-          tenuto("long", "ADX") and tenuto("long", "ATR_RELATIVO") and not tenuto("long", "F1_ADX_ABOVE")
-          and not tenuto("long", "F2_HIGH_VOLATILITY")
-          and riga[("long", "F1_ADX_ABOVE")]["motivo"] == "stessa famiglia di ADX, che è uno dei 14 di oggi"
-          and not any({"ADX", "ATR_RELATIVO"} <= set(t.filtri) for t in teorie_turno_2(
-              [t for t in teo_m if len(t.filtri) == 1], mano_cfg, a_mano + uscite, ten_m)))
-    check("22. un blocco del catalogo degenere su questi dati esce dal lato con il motivo, senza famiglia",
-          not tenuto("long", "E40") and riga[("long", "E40")]["famiglia"] is None
-          and riga[("long", "E40")]["motivo"] == "degenere sul pezzo di ricerca (scatta meno di 30 volte)"
-          and {"blocco": "E40", "lato": "long", "valori": {}, "esito": "RARA", "quota_vere": 3 / NB} in tolte_m)
-    check("23. tenuti: long DONCHIAN, E21, E5, E2, E3, ADX, ATR relativo (in ordine di config); short anche E1",
-          ten_m[1] == ["DONCHIAN", "E21", "E5", "E2", "E3", "ADX", "ATR_RELATIVO"]
-          and ten_m[-1] == ["DONCHIAN", "E21", "E5", "E2", "E3", "E1", "ADX", "ATR_RELATIVO"], str(ten_m))
-    check("24. il registro delle condizioni identico prima e dopo", _uguale_registro(prima_m, stato_registro()))
+    # ------------------------------------------------------------------ la rosa dei trigger (docs/82 §13.6)
+    print("\nLa rosa dei trigger (docs/82 §13): un vantaggio piantato in un trigger generato")
+    imposta_mercato_crypto()
+    G = "G0045_P50_SU"
+    piantato = aggiungi_indicatori(sintetici.mercato_con_generato(G))
+    c_r = Cache(piantato, 600)
+    NB = len(piantato)
+    rari = _eventi(np.random.default_rng(5), NB, quanti=150)
+    rara = _blocco_a_mano(c_r, "E40", "trigger", {1: rari, -1: rari})            # 150 eventi: sotto i 200
+    cfg_r = _config(PERP, {"E47": {}, "RSI_RIENTRO": {}, G: {}, "G0001_P25_SU": {}, "X0": {}})
+    b_r = blocchi_da_config(cfg_r) + [rara]
+    rim_r, _ = togli_degeneri(b_r, c_r, [1, -1])
+    prima_r = stato_registro()
+    entrano, tab = rosa_dei_trigger(b_r, c_r, [1, -1], rim_r, PERP, ROSA_STANDARD, processi=1)
+    dopo_r = stato_registro()
+    righe_g = [r for r in tab if r["blocco"] == G]
+    check("R1. il vantaggio piantato nel generato arriva nella rosa, sul long, ai tre orizzonti; lo short della coppia "
+          "(lo stesso segnale, l'opposto) no", G in entrano[1] and G not in entrano[-1]
+          and {r["orizzonte"] for r in righe_g if r["lato"] == "long" and r["nella_rosa"]} == {4, 16, 32},
+          str(entrano))
+    dentro = {(r["lato"], r["blocco"]) for r in tab if r["nella_rosa"]}
+    check("R2. entra esattamente chi è nella rosa ad almeno un orizzonte, nell'ordine della config",
+          all(entrano[lato] == [b.nome for b in b_r if (gen.NOME_LATO[lato], b.nome) in dentro] for lato in (1, -1)))
+    from engine.rosa import rosa_orizzonti_entry
+    from engine.simboli import pip_symbol
+    with gen._registro_isolato():
+        nomi = []
+        for lato in (1, -1):
+            for b in b_r:
+                if b.tipo == "trigger" and rim_r.get((b.nome, lato), (None,)):
+                    n = f"{b.nome}_{gen.NOME_LATO[lato]}"
+                    gen.reg.register_entry(n, direction=lato)(b.condizione(c_r, lato))
+                    nomi.append(n)
+        diretta, _ = rosa_orizzonti_entry(piantato, [4, 16, 32], pip_symbol(PERP), nomi=nomi, fuso="UTC", unita="bp")
+    attesa = sorted((h, n, round(float(t), 9), bool(r)) for h, d in diretta.items()
+                    for n, t, r in zip(d["candidato"], d["t_netto"], d["nella_rosa"]))
+    avuta = sorted((r["orizzonte"], f"{r['blocco']}_{r['lato']}", round(r["t"], 9), r["nella_rosa"]) for r in tab)
+    check("R3. gli stessi numeri della rosa del Lab chiamata direttamente, ufficiali e generati nella stessa chiamata "
+          "(un solo Benjamini-Hochberg)", attesa == avuta and {r["blocco"] for r in tab} >= {"RSI_RIENTRO", G},
+          f"{len(avuta)} righe")
+    check("R4. sotto i 200 eventi un trigger non è misurato: niente righe, niente prove, non entra",
+          not any(r["blocco"] == "E40" for r in tab) and "E40" not in entrano[1])
+    check("R5. una riga per trigger misurato e orizzonte, con eventi, scarto e t", len(tab) == len(attesa)
+          and all(set(r) == {"orizzonte", "lato", "blocco", "eventi", "scarto_bp", "t", "candidata", "nella_rosa"}
+                  for r in tab))
+    check("R6. il registro delle condizioni è identico prima e dopo la rosa", _uguale_registro(prima_r, dopo_r))
+    solo_l, tab_l = rosa_dei_trigger(b_r, c_r, [1], rim_r, SPOT, ROSA_STANDARD, processi=1)
+    check("R7. sullo spot solo il long: righe e trigger solo long", set(solo_l) == {1}
+          and {r["lato"] for r in tab_l} == {"long"} and G in solo_l[1])
+    vuoto, _ = rosa_dei_trigger([rara], c_r, [1, -1], {}, PERP, ROSA_STANDARD, processi=1)
+    check("R8. nessun trigger nella rosa: liste vuote (la ricerca poi si ferma, collaudo in test_fabbrica_ricerca)",
+          vuoto == {1: [], -1: []})
 
     # ------------------------------------------------------------------ STATO
     print("\nSTATO (Mattia, 12/11, scelta A)")
     c3 = Cache(df, 600)
+    NB = len(df)                                                  # le barre dopo aggiungi_indicatori
+    A = _eventi(np.random.default_rng(7), NB)
     due_di_fila = _eventi(np.random.default_rng(3), NB)
     due_di_fila[np.flatnonzero(due_di_fila)[:5] + 1] = True       # cinque volte su due barre di fila
     e23 = _blocco_a_mano(c3, "E23", "trigger", {1: due_di_fila, -1: _eventi(np.random.default_rng(4), NB)})
     e12 = _blocco_a_mano(c3, "E12", "trigger", {1: A, -1: A})
+    uscite = blocchi_da_config({"timeframe": "M15", "blocchi": {"X0": {}}})
     blo = [e23, e12, *uscite]
     cfg_s = {**_config(PERP, {"X0": {}}), "blocchi": {b.nome: {} for b in blo}}
-    _, rim_s, tolte_s, _, ten_s, tab_s, teo_s = _tutto(cfg_s, c3, blo)
-    riga_s = {(x["lato"], x["blocco"]): x for x in tab_s}
-    check("25. un trigger del catalogo vero su due barre di fila esce da quel lato con il motivo «vero su due barre di "
-          "fila: non è un evento su questi dati»; resta sull'altro lato; la ricerca prosegue con le altre teorie",
-          "E23" not in ten_s[1] and "E23" in ten_s[-1] and riga_s[("long", "E23")]["motivo"] == STATO_CATALOGO
-          and STATO_CATALOGO == "vero su due barre di fila: non è un evento su questi dati"
+    _, rim_s, tolte_s, ten_s, teo_s = _tutto(cfg_s, c3, blo)
+    check("25. un trigger del catalogo vero su due barre di fila esce da quel lato; resta sull'altro lato; la ricerca "
+          "prosegue con le altre teorie",
+          "E23" not in ten_s[1] and "E23" in ten_s[-1] and rim_s[("E23", 1)] == ()
           and any(t["blocco"] == "E23" and t["esito"] == "STATO" for t in tolte_s)
           and {t.id for t in teo_s} == {"L|E12|-|X0", "S|E23|-|X0", "S|E12|-|X0"}, str([t.id for t in teo_s]))
     a_stato = Blocco("PARAM_STATO", "trigger", "prova", 15, (Intero("p_barre", 5, 5, 1),), {"p_barre": (5,)},
@@ -331,7 +298,7 @@ def esegui() -> int:
     # ------------------------------------------------------------------ i valori degeneri
     print("\nI valori degeneri (decisione del 07/11)")
     con_adx = dict(piccola, ADX={"periodo_ore": [1.25], "soglia": [15, 30]})
-    b_d, r_d, tolte_d, _, ten_d, _, t_d = _tutto(_config(PERP, con_adx), cache)
+    b_d, r_d, tolte_d, ten_d, t_d = _tutto(_config(PERP, con_adx), cache)
     riga_d = [t for t in tolte_d if t["blocco"] == "ADX"]
     check("28. ADX a 5 barre: la soglia 15 è quasi sempre vera e si toglie, una volta per i due lati; la 30 resta",
           len(riga_d) == 1 and riga_d[0]["valori"] == {"periodo_barre": 5, "soglia": 15} and riga_d[0]["lato"] == "entrambi"
@@ -343,12 +310,12 @@ def esegui() -> int:
           and st._valori["ADX.periodo_barre"] == (5,))
     vuoto = dict(piccola, ADX={"periodo_ore": [1.25], "soglia": [15, 20]})
     cfg_v = _config(PERP, vuoto)
-    b_v, r_v, _, _, ten_v, tab_v, t_v = _tutto(cfg_v, cache)
+    b_v, r_v, _, ten_v, t_v = _tutto(cfg_v, cache)
     res_v = resoconto_teorie(cfg_v, b_v, ten_v, r_v, t_v)
-    check("30. tutte le combinazioni degeneri: il blocco esce, il resoconto e la tabella dei tenuti lo dicono",
+    check("30. tutte le combinazioni degeneri: il blocco esce e il resoconto lo dice",
           not any("ADX" in t.filtri for t in t_v) and len(t_v) == 2 * 2 * (1 + 2) * 2
           and {(x["blocco"], x["lato"]) for x in res_v["blocchi_usciti"]} == {("ADX", "long"), ("ADX", "short")}
-          and {x["motivo"] for x in tab_v if x["blocco"] == "ADX"} == {"tutte le combinazioni della griglia sono degeneri"})
+          and {x["perche"] for x in res_v["blocchi_usciti"]} == {"tutte le combinazioni della griglia sono degeneri"})
     salita = aggiungi_indicatori(sintetici.mercato(N, seme=6, minuti=15, prezzo=30_000, spinta=np.full(N, 0.0005)))
     c_sal = Cache(salita, 300)
     b_l = blocchi_da_config({"timeframe": "M15", "blocchi": {"DONCHIAN": {"canale_ore": [24, 2500]}}})
@@ -410,22 +377,20 @@ def esegui() -> int:
     su = pd.DataFrame({"Open": chiusure / 1.0005, "High": chiusure * 1.001, "Low": chiusure / 1.002, "Close": chiusure,
                        "Volume": 1000.0}, index=pd.date_range("2024-01-01", periods=6000, freq="15min", tz="UTC"))
     cfg_su = _config(PERP, {"DONCHIAN": {}, "E5": {}, "X0": {}}, modelli=((0, 0),))
-    _, rim_su, tolte_su, _, ten_su, tab_su, teo_su = _tutto(cfg_su, Cache(su, 50))
-    riga_s = next((r for r in tab_su if r["blocco"] == "DONCHIAN" and r["lato"] == "short"), {})
-    check("39b. Donchian 20 (il valore standard) degenere sullo short: esce da quel lato con il motivo, resta sul long",
+    _, rim_su, tolte_su, ten_su, teo_su = _tutto(cfg_su, Cache(su, 50))
+    check("39b. Donchian 20 (il valore standard) degenere sullo short: esce da quel lato, resta sul long",
           rim_su[("DONCHIAN", 1)] == ({"canale_barre": 20},) and rim_su[("DONCHIAN", -1)] == ()
-          and riga_s.get("esito") == "tolto" and riga_s.get("motivo") == "tutte le combinazioni della griglia sono degeneri"
           and any(t["blocco"] == "DONCHIAN" and t["lato"] == "short" and t["valori"] == {"canale_barre": 20}
                   for t in tolte_su)
           and "DONCHIAN" in ten_su[1] and "DONCHIAN" not in ten_su[-1]
-          and not any(t.trigger == "DONCHIAN" and t.lato == -1 for t in teo_su), str(riga_s))
+          and not any(t.trigger == "DONCHIAN" and t.lato == -1 for t in teo_su), str(rim_su))
 
     # ------------------------------------------------------------------ D1, da leggere
     print("\nD1, barre sintetiche: le combinazioni degeneri tolte")
     d1 = aggiungi_indicatori(sintetici.mercato(12_300, seme=0, minuti=1440, prezzo=30_000))
-    std_d1 = config_standard(PERP, "D1")
+    std_d1 = _senza_generati(config_standard(PERP, "D1"))
     c_d1 = Cache(d1, 300)
-    b1, r1, tolte1, _, ten1, tab1, t1 = _tutto(std_d1, c_d1)
+    b1, r1, tolte1, ten1, t1 = _tutto(std_d1, c_d1)
     elenco = "; ".join(f"{x['blocco']} {x['lato']} {x['valori']} {x['esito']} {x['quota_vere']:.1%}" for x in tolte1
                        if x["valori"])
     coerenti = all((x["esito"] == "QUASI_SEMPRE_VERA" and x["quota_vere"] >= 0.95) or (x["esito"] == "SEMPRE_FALSA" and x["quota_vere"] == 0)

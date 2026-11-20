@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from engine.fabbrica import sintetici
+from engine.fabbrica.blocchi import trigger_generati
 from engine.fabbrica.config import (CAMPI, budget_massimo, cartella_asset, confini_standard, config_standard,
                                     controlla_budget, controlla_config, impronta_config, leggi_config, salva_config,
                                     tetto_budget)
@@ -36,6 +37,8 @@ STANDARD = {"inizio": "2020-01-02 00:00", "ricerca_ore": 30624, "selezione_ore":
 PICCOLI = {"inizio": "2024-01-01 00:00", "ricerca_ore": 300.25, "selezione_ore": 200.5, "cassaforte_ore": 90.75}
 T = pd.Timestamp
 
+
+N_GENERATI = len(trigger_generati())         # docs/82 §13: i trigger generati nella config standard
 
 def _utc(testo: str) -> pd.Timestamp:
     return pd.Timestamp(testo, tz="UTC")
@@ -210,18 +213,22 @@ def esegui() -> int:
         print("\nLa config (docs/82 P2 e §6)")
         cfg = config_standard(PERP, "M15")
         check("28. la config standard ha i campi di §6 e passa i controlli", tuple(cfg) == CAMPI and controlla_config(cfg) is cfg
-              and len(cfg["blocchi"]) == 78 and cfg["versione"] == 3 and cfg["lati"] == ["long", "short"]
+              and len(cfg["blocchi"]) == 78 + N_GENERATI and cfg["versione"] == 4 and cfg["lati"] == ["long", "short"]
+              and cfg["rosa"] == {"orizzonti_barre": [4, 16, 32], "q": 0.2, "soglia_famiglia": 0.6, "rho_max": 0.3,
+                                  "min_eventi": 200, "catalogo_generato": 1}
               and cfg["confini"] == STANDARD and cfg["budget"]["teorie_turno_2"] == 150)
         rovesciata = json.loads(json.dumps(cfg, sort_keys=True))
         rovesciata = {k: rovesciata[k] for k in reversed(list(rovesciata))}
         check("29. stesso contenuto con le chiavi in altro ordine: stessa impronta", impronta_config(rovesciata) == impronta_config(cfg))
         diverse = []
         for cambia in (lambda c: c.update(seme=1), lambda c: c["blocchi"]["RSI_RIENTRO"]["soglia"].__setitem__(0, 16),
-                       lambda c: c["confini"].update(ricerca_ore=30623), lambda c: c["qualita_1"].update(trade_min=101)):
+                       lambda c: c["confini"].update(ricerca_ore=30623), lambda c: c["qualita_1"].update(trade_min=101),
+                       lambda c: c["rosa"].update(min_eventi=201)):
             c2 = copy.deepcopy(cfg)
             cambia(c2)
             diverse.append(impronta_config(c2) != impronta_config(cfg))
-        check("30. un valore cambiato (seme, una griglia, un confine, una condizione): impronta diversa", all(diverse))
+        check("30. un valore cambiato (seme, una griglia, un confine, una condizione, la rosa): impronta diversa",
+              all(diverse))
         spot = config_standard(SPOT, "M15")
         check("31. spot: solo long; short nei lati: errore", spot["lati"] == ["long"]
               and errore(lambda: controlla_config({**spot, "lati": ["long", "short"]})))
@@ -236,6 +243,11 @@ def esegui() -> int:
             "parametro sconosciuto": {**cfg, "blocchi": {**cfg["blocchi"], "ADX": {"finto_ore": [1]}}},
             "niente uscite": {**cfg, "blocchi": {"E47": {}, "ADX": {}}},
             "lati vuoti": {**cfg, "lati": []},
+            "versione 3": {**cfg, "versione": 3},
+            "senza la rosa": {k: v for k, v in cfg.items() if k != "rosa"},
+            "rosa senza orizzonti": {**cfg, "rosa": {**cfg["rosa"], "orizzonti_barre": []}},
+            "rosa con q 0": {**cfg, "rosa": {**cfg["rosa"], "q": 0}},
+            "catalogo generato 2": {**cfg, "rosa": {**cfg["rosa"], "catalogo_generato": 2}},
             "filtri oltre 2": {**cfg, "modelli": [{"trigger": 1, "filtri": [0, 3], "uscite": 1}]},
             "processi 0": {**cfg, "processi": 0},
             "budget negativo": {**cfg, "budget": {**cfg["budget"], "totale": -1}},
@@ -252,7 +264,7 @@ def esegui() -> int:
             ammessi.append((tf, len(c["blocchi"])))
         d1 = config_standard(PERP, "D1")
         check("33. da M1 a D1 la config standard tiene solo i blocchi che scattano sul timeframe",
-              dict(ammessi)["M15"] == 78 and "F20_SESSION_OVERLAP" not in d1["blocchi"] and "E36" not in d1["blocchi"]
+              dict(ammessi)["M15"] == 78 + N_GENERATI and "F20_SESSION_OVERLAP" not in d1["blocchi"] and "E36" not in d1["blocchi"]
               and "E5" in d1["blocchi"], str(ammessi))
         tetto = {**cfg, "budget": {**cfg["budget"], "totale": tetto_budget(370_200)}}
         check("34. budget (C2, docs/82 §11.5): turno 1 di 4.860 teorie, 4.644 T+F, 22 filtri sul lato più largo fanno "

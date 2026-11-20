@@ -25,11 +25,15 @@ I blocchi della fabbrica (docs/82 P-L2, lavoro L2): i mattoncini con cui il gene
     logico, approssimazione esclusa per scelta, escluso solo dall'elenco) e la ricerca prosegue;
   - config scritta a mano: un blocco scelto esplicitamente che non scatta ferma la config con un errore che dice quale
     blocco e perché (_non_scatta).
-- `famiglia` è quella di P-L2 e P3; il generatore (L3) la controlla con famiglie.py.
+- `famiglia` è quella di P-L2 e P3 (per i trigger generati, quella della ricetta).
+- Dal 20/11 (docs/82 §13): anche i trigger del catalogo generato (docs/83) sono blocchi trigger, uno per coppia
+  long/short, con il nome del trigger long (trigger_generati); la condizione viene dal registro, come per il catalogo.
 """
 from __future__ import annotations
 
 import contextlib
+import copy
+import functools
 import io
 from dataclasses import dataclass, field
 from typing import Callable
@@ -256,15 +260,35 @@ PASSI_REALI = {("ATR_RELATIVO", "soglia"): 0.1}
 BARRE_MINIME = {"periodo_barre": 5, "lungo_barre": 5}
 
 
+# ------------------------------------------------------------------ i trigger generati (docs/82 §13, 20/11)
+@functools.lru_cache(maxsize=1)
+def trigger_generati() -> dict:
+    """
+    Nome del blocco -> (trigger long, trigger short, famiglia, ricetta in chiaro, livello, verso): una coppia del
+    catalogo generato (dati_catalogo/generati_v<VERSIONE>.json, docs/83). Il blocco ha il nome del trigger long; long e
+    short scattano sulle stesse barre. Sono trigger come quelli del catalogo: la condizione viene dal registro.
+    """
+    from engine.generatore.catalogo import carica_catalogo
+    from engine.generatore.trigger import nome_trigger
+    out = {}
+    for r in carica_catalogo()["ricette"]:
+        for t in r["trigger"]:
+            if t["lato"] == "long":
+                corto = nome_trigger(r["id"], t["livello"], t["verso"], -1)
+                out[t["nome"]] = (t["nome"], corto, r["famiglia"], r["ricetta"], t["livello"], t["verso"])
+    return out
+
+
 # ------------------------------------------------------------------ il catalogo, dal registro
 def _registra_catalogo() -> None:
-    """Le stesse registrazioni del Lab: i nomi già presenti vengono saltati, i dizionari non cambiano."""
+    """Le stesse registrazioni del Lab, più i trigger generati: i nomi già presenti vengono saltati."""
     import entry_long
     import entry_short
     import exit_long
     import exit_short
     import filter_conditions
     import vwap_regime_filter_conditions
+    from engine.generatore.catalogo import carica_catalogo, registra_trigger_generati
     with contextlib.redirect_stdout(io.StringIO()):
         entry_long.registra_trigger_long()
         entry_short.registra_trigger_short()
@@ -272,6 +296,7 @@ def _registra_catalogo() -> None:
         exit_short.registra_exit_short()
         filter_conditions.registra_filtri()
         vwap_regime_filter_conditions.registra_filtri_vwap()      # C1 (12/11): come vetrina._registra_condizioni
+        registra_trigger_generati(carica_catalogo())              # docs/82 §13 (20/11)
 
 
 def _dal_registro(tipo: str, nome: str) -> Callable:
@@ -408,6 +433,17 @@ class Blocco:
         chiave = ("maschera", self.nome, lato_chiave, tuple(sorted(valori.items())))
         return cache.prendi(chiave, lambda: self._calcola(cache, lato, valori))
 
+    def condizione(self, cache, lato: int) -> Callable:
+        """
+        Per la rosa (docs/82 §13): la condizione del trigger sul lato, df -> Series booleana. Un trigger generato resta
+        un TriggerGenerato (una copia: la rosa ne misura la coppia long/short una volta); per gli altri, la maschera
+        della fabbrica (ai valori centrali), già nella cache dopo il controllo dei valori degeneri.
+        """
+        if self.nome in trigger_generati():
+            return copy.copy(_dal_registro(self.tipo, self._catalogo[0 if lato == 1 else 1]))
+        m = self.maschera(cache, lato, self.centrali() if self.parametri else None)
+        return lambda d: pd.Series(m, index=d.index)
+
     def soglie(self, cache, lato: int, valori: dict) -> dict:
         """Solo per le uscite: {"barre", "sl", "tp"}; sl e tp sono array di frazioni del prezzo, NaN se spenti."""
         if self.tipo != "uscita":
@@ -494,6 +530,11 @@ def _blocco(nome: str, config_blocco: dict, timeframe: str) -> Blocco:
         if timeframe not in ammessi:
             raise _non_scatta(nome, timeframe, f"sul catalogo scatta solo su {', '.join(ammessi)}")
         return Blocco(nome, "trigger", famiglia, minuti, _catalogo=(lungo, corto))
+    if nome in trigger_generati():
+        if config_blocco:
+            raise ValueError(f"{nome} è un trigger generato e non ha parametri: {sorted(config_blocco)}")
+        lungo, corto, famiglia = trigger_generati()[nome][:3]
+        return Blocco(nome, "trigger", famiglia, minuti, _catalogo=(lungo, corto))
     if nome in FILTRI_CATALOGO:
         if timeframe in FILTRI_MAI_VERI.get(nome, ()):
             raise _non_scatta(nome, timeframe, "sul catalogo non è mai vero su questo timeframe")
@@ -509,7 +550,7 @@ def _blocco(nome: str, config_blocco: dict, timeframe: str) -> Blocco:
         parametri, griglia = _parametri(nome, VALORI_STANDARD[nome], config_blocco, minuti)
         return Blocco(nome, tipo, famiglia, minuti, parametri, griglia, neutro=tipo == "filtro", _calcola=calcola)
     noti = sorted([*TRIGGER_CATALOGO, *FILTRI_CATALOGO, *USCITE_CATALOGO, *CALCOLI_NUOVI])
-    raise ValueError(f"blocco {nome!r} sconosciuto: {noti}")
+    raise ValueError(f"blocco {nome!r} sconosciuto: {noti}, o un trigger generato (docs/83)")
 
 
 def blocchi_da_config(config: dict) -> list[Blocco]:

@@ -29,8 +29,8 @@ from engine.fabbrica.blocchi import blocchi_da_config
 from engine.fabbrica.cache import ORE_FINESTRA_SOGLIE, Cache, barre_da_ore
 from engine.fabbrica.config import BLOCCHI_P_L2, config_standard
 from engine.fabbrica.dati import Confini, carica_pezzi
-from engine.fabbrica.generatore import (ControlloDegenerazione, Teoria, lati_config, misura_famiglie, teorie_turno_1,
-                                        teorie_turno_2, togli_degeneri, un_blocco_per_famiglia)
+from engine.fabbrica.generatore import (ControlloDegenerazione, Teoria, disponibile, lati_config, teorie_turno_1,
+                                        teorie_turno_2, togli_degeneri)
 from engine.fabbrica.ottimizzatore import Categoria
 from engine.fabbrica.valutatore import (Costi, Misure, Strategia, Valutatore, id_strategia, misure_da_bp, obiettivo,
                                         qualita_1, trade_completi)
@@ -63,9 +63,8 @@ def _prepara(cartella, symbol, prezzo, seme):
     lati = lati_config(cfg)
     controllo = ControlloDegenerazione(cache)
     rimaste, _ = togli_degeneri(blocchi, cache, lati, controllo)
-    _, misura = misura_famiglie(blocchi, cache, lati, rimaste)
-    tenuti, _ = un_blocco_per_famiglia(blocchi, misura, controllo, lati, rimaste)
-    teorie = teorie_turno_1(cfg, blocchi, tenuti)                  # C2: le teorie dei due turni
+    tenuti = {lato: [b.nome for b in blocchi if lato in b.lati and disponibile(b.nome, lato, rimaste)] for lato in lati}
+    teorie = teorie_turno_1(cfg, blocchi, tenuti)                  # le teorie dei due turni, con tutti i blocchi rimasti
     teorie += teorie_turno_2([t for t in teorie if len(t.filtri) == 1], cfg, blocchi, tenuti)
     return {"cfg": cfg, "costi": costi, "df": dfi, "cache": cache, "blocchi": blocchi, "teorie": teorie,
             "valutatore": Valutatore(blocchi, cache, Costi(dfi, costi))}
