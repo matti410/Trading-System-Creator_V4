@@ -9,10 +9,13 @@ passo 1 in due turni, zoom, altopiano, selezione, ripresa.
     esito.selezione.tabella                   # una riga per sopravvissuta sul pezzo di selezione (selezione.py)
     esito.conto                               # le prove di questa ricerca, dell'asset e la soglia, solo da leggere
 
-Avvio (prepara, docs/82 §13). Sul solo pezzo di ricerca: valori degeneri e «STATO» (generatore.togli_degeneri); la
-rosa del Lab su tutti i trigger, del catalogo e generati (generatore.rosa_dei_trigger): entra chi è nella rosa ad almeno
-un orizzonte; tutti i filtri rimasti; teorie del turno 1, budget massimo. Ogni trigger misurato, per ogni orizzonte, è
-una prova (fase «rosa»), scritta da lancia una volta sola.
+Avvio (prepara, docs/82 §13 e §14). Sul solo pezzo di ricerca di ogni moneta della lista, una moneta alla volta:
+valori degeneri e «STATO» (generatore.togli_degeneri: una combinazione degenere su una moneta esce per tutte), i segnali
+compressi dei trigger e i contributi di ogni barra; poi la rosa su tutta la lista (generatore.rosa_dei_trigger, con
+rosa_lista.py): entra chi è nella rosa ad almeno un orizzonte; tutti i filtri rimasti; teorie del turno 1, budget
+massimo. Ogni trigger misurato, per ogni orizzonte, è una prova (fase «rosa»), scritta da lancia una volta sola.
+S2 (§14.8): la rosa e i valori degeneri si salvano nella cartella della ricerca (FILE_ROSA, con le impronte della
+config e dei dati): la cella 1 li calcola e li salva, la cella 2 li rilegge invece di rifarli.
 
 Passo 1 (P4). Sul solo pezzo di ricerca, una teoria alla volta, al massimo `per_teoria_passo_1` prove sui valori larghi:
 griglia completa se i punti ammessi ci stanno, altrimenti il genetico tarato in ampiezza (AMPIEZZA). L'obiettivo è il t
@@ -47,7 +50,10 @@ Ripresa e processi. Il seme di una teoria nasce da seme della ricerca + id della
 dipende dall'ordine né dal numero di processi. Ogni teoria finita si scrive su disco, nell'ordine delle teorie; alla
 ripresa si saltano quelle già scritte, e il risultato è identico bit per bit. Le teorie del turno 2 nascono solo dai
 risultati del turno 1, che sono su disco: alla ripresa si ricalcolano uguali. Ogni processo imposta da sé il mercato
-crypto (dati.imposta_mercato_crypto). Nessuna lettura o scrittura fuori da dati/fabbrica/<SYMBOL>_<TIMEFRAME>/.
+crypto (dati.imposta_mercato_crypto). Nessuna lettura o scrittura fuori da dati/fabbrica/<LISTA>_<TIMEFRAME>/.
+
+Più monete (docs/82 §14): ogni processo tiene le monete della lista e una cache sola per la lista (cache.MemoriaComune)
+col tetto di oggi; una strategia è valutata su tutte le monete insieme (valutatore.ValutatoreLista): è una prova sola.
 """
 from __future__ import annotations
 
@@ -65,19 +71,22 @@ import pandas as pd
 
 from engine.giudizio import soglia_rumore
 from engine.indicatori import aggiungi_indicatori
+from engine.simboli import pip_symbol
+from engine.stagionalita import barre_settimana
 
 from . import registro
 from . import selezione as sel_mod
-from .blocchi import BARRE_MINIME, CALCOLI_NUOVI, blocchi_da_config
-from .cache import Cache
+from .blocchi import BARRE_MINIME, CALCOLI_NUOVI, MINUTI_TIMEFRAME, blocchi_da_config
+from .cache import Cache, MemoriaComune
 from .config import (budget_massimo, cartella_asset, controlla_budget, controlla_config, impronta_config,
                      salva_config)
-from .dati import Confini, carica_pezzi, imposta_mercato_crypto
-from .generatore import (NOME_LATO, ControlloDegenerazione, SpazioTeoria, Teoria, filtri_rimasti, lati_config,
-                         resoconto_teorie, rosa_dei_trigger, seme_teoria, teorie_turno_1, teorie_turno_2,
-                         togli_degeneri)
+from .dati import Confini, carica_pezzi, imposta_mercato_crypto, orologio
+from .generatore import (NOME_LATO, ControlloDegenerazione, ControlloLista, SpazioTeoria, Teoria, filtri_rimasti,
+                         lati_config, resoconto_teorie, richieste_degeneri, rosa_dei_trigger, seme_teoria,
+                         segnali_trigger, teorie_turno_1, teorie_turno_2, togli_degeneri)
 from .ottimizzatore import AMPIEZZA, PREDEFINITE, Categoria, Intero, Reale, Spazio, genetico
-from .valutatore import Costi, Strategia, Valutatore, id_strategia, obiettivo, qualita_1
+from .rosa_lista import base_moneta
+from .valutatore import Costi, Strategia, ValutatoreLista, id_strategia, obiettivo, qualita_1
 
 LIMITE_CACHE_MB = 1500          # per processo: indicatori, maschere e soglie già calcolati
 MIGLIORI_ZOOM = 5               # le strategie da cui riparte ogni giro (P5)
@@ -89,6 +98,7 @@ FASE_ROSA = "rosa"                             # docs/82 §13: una prova per tri
 NESSUN_TRIGGER = ("nessun trigger è nella rosa, né long né short, sul pezzo di ricerca: la ricerca non può partire "
                   "(non resta un trigger).")
 FILE_SELEZIONE = "selezione.json"
+FILE_ROSA = "rosa.json"                        # S2 (docs/82 §14.8): la rosa e i valori degeneri, salvati dalla cella 1
 
 
 def _arrotonda(x: float) -> int:
@@ -372,7 +382,7 @@ class _ProveTeoria:
         if not richieste:
             return False
         brutta = False
-        for (b, lato, v), (esito, quota) in zip(richieste, l.controllo.esiti(richieste)):
+        for (b, lato, v), (esito, quota, moneta) in zip(richieste, l.controllo.esiti(richieste)):
             if esito == "OK":
                 continue
             brutta = True
@@ -380,14 +390,15 @@ class _ProveTeoria:
             if k not in self.degeneri:
                 self.degeneri[k] = {"fase": fase, "blocco": b.nome,
                                     "lato": "entrambi" if b.neutro and l.due_lati else NOME_LATO[lato],
-                                    "valori": dict(v), "esito": esito, "quota_vere": quota, "volte": 0}
+                                    "valori": dict(v), "esito": esito, "quota_vere": quota, "moneta": moneta,
+                                    "volte": 0}
             self.degeneri[k]["volte"] += 1
         self.scartate_degeneri += brutta
         return brutta
 
     def strategia(self, valori: dict) -> tuple[Strategia, str]:
         s = Strategia.da_teoria(self.teoria, valori)
-        return s, id_strategia(s, self.l.symbol, self.l.timeframe)
+        return s, id_strategia(s, self.l.monete, self.l.timeframe)
 
     def valuta(self, valori: dict, fase: str, controlla: bool = True) -> tuple[float, bool]:
         """(t, contata). Degenere: NaN, non contata. Già vista: il suo t, non contata."""
@@ -409,20 +420,28 @@ class _ProveTeoria:
 
 
 class _Lavoro:
-    """Quello che serve a un processo per lavorare sulle teorie: blocchi, cache, controllo, valutatore."""
+    """
+    Quello che serve a un processo per lavorare sulle teorie (docs/82 §14): le monete della lista con una cache sola
+    (MemoriaComune, col tetto di oggi), il controllo dei valori degeneri sulla lista, il valutatore della lista.
+    `dfs` e `costi` = {symbol: …}, nell'ordine della lista.
+    """
 
-    def __init__(self, config: dict, df: pd.DataFrame, costi: dict, rimaste: dict, esiti: dict | None = None,
-                 cache: Cache | None = None, controllo: ControlloDegenerazione | None = None):
+    def __init__(self, config: dict, dfs: dict, costi: dict, rimaste: dict, esiti: dict | None = None,
+                 caches: dict | None = None, controllo: ControlloLista | None = None):
         self.config = config
-        self.symbol, self.timeframe = config["symbol"], config["timeframe"]
+        self.monete, self.timeframe = list(config["monete"]), config["timeframe"]
         self.due_lati = len(lati_config(config)) > 1
         self.blocchi = blocchi_da_config(config)
         self.per_nome = {b.nome: b for b in self.blocchi}
-        self.cache = cache if cache is not None else Cache(df, LIMITE_CACHE_MB)
-        self.controllo = controllo if controllo is not None else ControlloDegenerazione(self.cache)
+        if caches is None:
+            comune = MemoriaComune(LIMITE_CACHE_MB)
+            caches = {m: Cache(dfs[m], LIMITE_CACHE_MB, comune) for m in self.monete}
+        self.caches = caches
+        self.controllo = (controllo if controllo is not None
+                          else ControlloLista({m: ControlloDegenerazione(caches[m]) for m in self.monete}))
         if esiti:
-            self.controllo._esiti.update(esiti)
-        self.valutatore = Valutatore(self.blocchi, self.cache, Costi(self.cache.df, costi))
+            self.controllo.aggiorna(esiti)
+        self.valutatore = ValutatoreLista(self.blocchi, caches, {m: Costi(caches[m].df, costi[m]) for m in self.monete})
         self.rimaste = rimaste
 
     # -------------------------------------------------------------- passo 1
@@ -480,7 +499,7 @@ class _Lavoro:
 
         def migliori_annotati():
             m = migliori()
-            partenze.append([id_strategia(Strategia.da_teoria(teoria, _annida(teoria, x)), self.symbol,
+            partenze.append([id_strategia(Strategia.da_teoria(teoria, _annida(teoria, x)), self.monete,
                                           self.timeframe) for x in m])
             return m
 
@@ -508,12 +527,12 @@ class _Lavoro:
                 _, contata = pt.valuta(valori, "altopiano", controlla=False)
                 prove_alt += contata
                 r = pt.viste[i]
-                righe.append({**riga, "id": i, "t": r["t"], "ev_bp": r["ev_bp"], "contata": contata})
+                righe.append({**riga, "id": i, "t": r["t"], "ev_atr": r["ev_atr"], "contata": contata})
             if finito:
                 motivo = f"budget dell'altopiano finito ({alt['prove_max']} prove)"
                 giudizi.append({"candidata": c["id"], "t": c["t"], "vicini": righe, "regge": False, "motivo": motivo})
                 break
-            g = giudica_altopiano(c["t"], [(r["t"], r["ev_bp"]) for r in righe if not r.get("degenere")], alt)
+            g = giudica_altopiano(c["t"], [(r["t"], r["ev_atr"]) for r in righe if not r.get("degenere")], alt)
             giudizi.append({"candidata": c["id"], "t": c["t"], "vicini": righe, **g})
             if g["regge"]:
                 scelta = c
@@ -531,10 +550,10 @@ class _Lavoro:
 _LAVORO: _Lavoro | None = None
 
 
-def _inizia(config, df, costi, rimaste, esiti) -> None:
+def _inizia(config, dfs, costi, rimaste, esiti) -> None:
     global _LAVORO
     imposta_mercato_crypto()
-    _LAVORO = _Lavoro(config, df, costi, rimaste, esiti)
+    _LAVORO = _Lavoro(config, dfs, costi, rimaste, esiti)
 
 
 def _fai_passo_1(teoria):
@@ -567,11 +586,13 @@ def _in_ordine(funzione, compiti: list, prep: "Preparazione", processi: int):
 class Preparazione:
     """
     Indicatori, valori degeneri, rosa dei trigger, teorie del turno 1 e budget: tutto quello che si fa prima della prima
-    prova. `tenuti` = {lato: i trigger nella rosa e i filtri rimasti}; `rosa` = una riga per trigger misurato e
-    orizzonte; `teorie` = quelle del turno 1; `turno_2_massimo` = le teorie del turno 2 al massimo.
+    prova. `dfs` e `costi` = {symbol: …} (il pezzo di ricerca di ogni moneta, con gli indicatori). `tenuti` = {lato: i
+    trigger nella rosa e i filtri rimasti}; `rosa` = una riga per trigger misurato e orizzonte; `teorie` = quelle del
+    turno 1; `turno_2_massimo` = le teorie del turno 2 al massimo; `rosa_letta` = True se rosa e valori degeneri vengono
+    dal file salvato dalla cella 1 (S2).
     """
     config: dict
-    df: pd.DataFrame
+    dfs: dict
     costi: dict
     blocchi: list
     lati: list
@@ -585,9 +606,10 @@ class Preparazione:
     tenuti: dict = field(default_factory=dict)
     rosa: list = field(default_factory=list)
     turno_2_massimo: int = 0
+    rosa_letta: bool = False
 
     def per_processi(self) -> tuple:
-        return (self.config, self.df, self.costi, self.rimaste, dict(self.lavoro.controllo._esiti))
+        return (self.config, self.dfs, self.costi, self.rimaste, self.lavoro.controllo.stato())
 
 
 def massimo_turno_2(config: dict, teorie_tf: int, filtri_lato_max: int) -> int:
@@ -597,22 +619,81 @@ def massimo_turno_2(config: dict, teorie_tf: int, filtri_lato_max: int) -> int:
     return min(config["budget"]["teorie_turno_2"], teorie_tf) * max(filtri_lato_max - 1, 0)
 
 
-def prepara(config: dict, pezzi, controlla: bool = True) -> Preparazione:
+# ------------------------------------------------------------------ la rosa salvata (S2, docs/82 §14.8)
+def _impronta_rosa(config: dict, pezzi) -> dict:
+    """Quello da cui dipendono rosa e valori degeneri: la config e i pezzi di ricerca delle monete."""
+    return {"impronta_config": impronta_config(config),
+            "impronte_ricerca": {m: pezzi[m].impronte["ricerca"] for m in config["monete"]}}
+
+
+def scrivi_rosa(cartella_ricerca: str, config: dict, pezzi, prep: "Preparazione") -> str:
+    """S2: la rosa e i valori degeneri nella cartella della ricerca, con le impronte (config e dati). Non sovrascrive."""
+    percorso = os.path.join(cartella_ricerca, FILE_ROSA)
+    if os.path.exists(percorso):
+        return percorso
+    contenuto = {**_impronta_rosa(config, pezzi),
+                 "rimaste": [[n, lato, [dict(c) for c in comb]] for (n, lato), comb in prep.rimaste.items()],
+                 "tolte": prep.tolte, "rosa": prep.rosa,
+                 "entrano": {str(lato): [n for n in prep.tenuti[lato] if prep.lavoro.per_nome[n].tipo == "trigger"]
+                             for lato in prep.lati}}
+    with open(percorso + ".tmp", "w", encoding="utf-8") as f:
+        f.write(registro.json_riga(contenuto) + "\n")
+    os.replace(percorso + ".tmp", percorso)
+    return percorso
+
+
+def leggi_rosa(cartella_ricerca: str | None, config: dict, pezzi):
+    """S2: (rimaste, tolte, entrano, rosa) dal file della cella 1, se c'è e se le impronte sono quelle; altrimenti None."""
+    if not cartella_ricerca:
+        return None
+    percorso = os.path.join(cartella_ricerca, FILE_ROSA)
+    if not os.path.exists(percorso):
+        return None
+    with open(percorso, encoding="utf-8") as f:
+        dati = json.loads(f.read())
+    if {k: dati.get(k) for k in ("impronta_config", "impronte_ricerca")} != _impronta_rosa(config, pezzi):
+        return None
+    rimaste = {(n, int(lato)): tuple(comb) for n, lato, comb in dati["rimaste"]}
+    entrano = {int(lato): list(v) for lato, v in dati["entrano"].items()}
+    return rimaste, list(dati["tolte"]), entrano, list(dati["rosa"])
+
+
+def prepara(config: dict, pezzi, controlla: bool = True, cartella_ricerca: str | None = None) -> Preparazione:
     """
-    Sul solo pezzo di ricerca: valori degeneri e «STATO», la rosa dei trigger (docs/82 §13), poi le teorie del turno 1 e
-    il budget massimo. Si ferma se nessun trigger è nella rosa su nessun lato. `controlla`=False (cella 1, config
-    standard): il massimo non si confronta con il totale, perché il totale (il tetto, D6) si calcola da questo massimo.
+    Sul solo pezzo di ricerca di ogni moneta: valori degeneri e «STATO», la rosa dei trigger (docs/82 §13 e §14), poi
+    le teorie del turno 1 e il budget massimo. Si ferma se nessun trigger è nella rosa su nessun lato. `controlla`=False
+    (cella 1, config standard): il massimo non si confronta con il totale, perché il totale (il tetto, D6) si calcola
+    da questo massimo. `cartella_ricerca` (S2): se lì c'è la rosa salvata dalla cella 1 con le stesse impronte, si
+    rilegge invece di rifarla. La preparazione va una moneta alla volta e tiene solo i segnali compressi e i
+    contributi di ogni barra (§14.7).
     """
     t0 = time.perf_counter()
     imposta_mercato_crypto()
-    df = aggiungi_indicatori(pezzi.ricerca)
-    cache = Cache(df, LIMITE_CACHE_MB)
+    monete = list(config["monete"])
+    dfs = {m: aggiungi_indicatori(pezzi[m].ricerca) for m in monete}
+    comune = MemoriaComune(LIMITE_CACHE_MB)
+    caches = {m: Cache(dfs[m], LIMITE_CACHE_MB, comune) for m in monete}
     blocchi = blocchi_da_config(config)
     lati = lati_config(config)
-    controllo = ControlloDegenerazione(cache)
-    rimaste, tolte = togli_degeneri(blocchi, cache, lati, controllo)
-    entrano, rosa = rosa_dei_trigger(blocchi, cache, lati, rimaste, config["symbol"], config["rosa"],
-                                     config["processi"])
+    controllo = ControlloLista({m: ControlloDegenerazione(caches[m]) for m in monete})
+    salvata = leggi_rosa(cartella_ricerca, config, pezzi)
+    if salvata is not None:
+        rimaste, tolte, entrano, rosa = salvata
+    else:
+        minuti = MINUTI_TIMEFRAME[config["timeframe"]]
+        oro = orologio({m: dfs[m].index for m in monete}, minuti)
+        n_orologio = int(max(int(o[-1]) for o in oro.values())) + 1
+        settimana = barre_settimana(dfs[monete[0]].index)
+        richieste = richieste_degeneri(blocchi, lati)
+        basi, segnali = {}, {}
+        for m in monete:                       # una moneta alla volta (§14.7)
+            controllo.controlli[m].esiti(richieste)
+            segnali[m] = segnali_trigger(blocchi, caches[m], lati)
+            basi[m] = base_moneta(dfs[m], pip_symbol(m), config["rosa"]["orizzonti_barre"], oro[m], n_orologio // 2)
+        rimaste, tolte = togli_degeneri(blocchi, caches, lati, controllo)
+        entrano, rosa = rosa_dei_trigger(blocchi, lati, rimaste, basi, segnali, config["rosa"], n_orologio, settimana,
+                                         config["processi"])
+        del basi, segnali
     if not any(entrano.values()):
         raise ValueError(NESSUN_TRIGGER)
     filtri = filtri_rimasti(blocchi, lati, rimaste)
@@ -625,10 +706,11 @@ def prepara(config: dict, pezzi, controlla: bool = True) -> Preparazione:
     teorie_tf = sum(1 for t in teorie if len(t.filtri) == 1)
     filtri_max = max(sum(1 for n in tenuti[lato] if per_nome[n].tipo == "filtro") for lato in lati)
     massimo = (controlla_budget if controlla else budget_massimo)(len(teorie), config, teorie_tf, filtri_max)
-    costi = pezzi.costi(PEZZO)
-    lavoro = _Lavoro(config, df, costi, rimaste, cache=cache, controllo=controllo)
-    return Preparazione(config, df, costi, blocchi, lati, rimaste, tolte, teorie, resoconto, massimo, lavoro,
-                        time.perf_counter() - t0, tenuti, rosa, massimo_turno_2(config, teorie_tf, filtri_max))
+    costi = {m: pezzi[m].costi(PEZZO) for m in monete}
+    lavoro = _Lavoro(config, dfs, costi, rimaste, caches=caches, controllo=controllo)
+    return Preparazione(config, dfs, costi, blocchi, lati, rimaste, tolte, teorie, resoconto, massimo, lavoro,
+                        time.perf_counter() - t0, tenuti, rosa, massimo_turno_2(config, teorie_tf, filtri_max),
+                        salvata is not None)
 
 
 # ------------------------------------------------------------------ i file della ricerca
@@ -656,12 +738,12 @@ def righe_prove_rosa(id_ricerca: str, rosa: list[dict]) -> list[dict]:
     """Le prove della rosa (docs/82 §13): una per trigger misurato e orizzonte, «ROSA_H16_E36_short»."""
     return [{"id_ricerca": id_ricerca, "pezzo": PEZZO, "fase": FASE_ROSA, "teoria": FASE_ROSA,
              "id_strategia": f"ROSA_H{r['orizzonte']}_{r['blocco']}_{r['lato']}", "trade": r["eventi"],
-             "ev_bp": r["scarto_bp"], "t": r["t"]} for r in rosa]
+             "ev_atr": r["scarto_atr"], "t": r["t"]} for r in rosa]
 
 
 def _righe_prove(id_ricerca: str, teoria: str, righe) -> list[dict]:
     return [{"id_ricerca": id_ricerca, "pezzo": PEZZO, "fase": r["fase"], "teoria": teoria, "id_strategia": r["id"],
-             "trade": r["trade"], "ev_bp": r["ev_bp"], "t": r["t"]} for r in righe]
+             "trade": r["trade"], "ev_atr": r["ev_atr"], "t": r["t"]} for r in righe]
 
 
 def _controlla_gia_fatte(fatte: list[dict], attese: list[str], nome: str) -> None:
@@ -674,8 +756,8 @@ def _controlla_gia_fatte(fatte: list[dict], attese: list[str], nome: str) -> Non
 # ------------------------------------------------------------------ il registro della ricerca
 def _evento_avvio(id_ricerca, config, pezzi, prep: Preparazione) -> dict:
     return {"tipo": "avvio_ricerca", "id_ricerca": id_ricerca, "impronta_config": impronta_config(config),
-            "symbol": config["symbol"], "timeframe": config["timeframe"], "impronte_dati": dict(pezzi.impronte),
-            "barre": {"ricerca": len(pezzi.ricerca), "selezione": len(pezzi.selezione)},
+            "monete": list(config["monete"]), "timeframe": config["timeframe"], "impronte_dati": pezzi.impronte,
+            "barre": {"ricerca": pezzi.barre("ricerca"), "selezione": pezzi.barre("selezione")},
             "teorie": prep.resoconto, "rosa_entrano": [r for r in prep.rosa if r["nella_rosa"]],
             "rosa_misurati": len(prep.rosa), "degeneri_avvio": prep.tolte,
             "tenuti": {NOME_LATO[lato]: n for lato, n in prep.tenuti.items()}, "turno_2_massimo": prep.turno_2_massimo,
@@ -733,10 +815,11 @@ def _tabelle(ris_1: list[dict], ris_2: list[dict], al_passo_2: list[str], ris_t2
         s = r["scelta"] or {}
         righe.append({"teoria": r["teoria"], "prove_zoom": r["prove_zoom"], "prove_altopiano": r["prove_altopiano"],
                       "esito": r["esito"], "motivo": r["motivo"], "id_strategia": s.get("id"),
-                      "t": s.get("t", math.nan), "ev_bp": s.get("ev_bp", math.nan), "trade": s.get("trade", 0),
+                      "t": s.get("t", math.nan), "ev_atr": s.get("ev_atr", math.nan),
+                      "ev_bp": s.get("ev_bp", math.nan), "trade": s.get("trade", 0),
                       "valori": json.dumps(s.get("valori"), ensure_ascii=False, sort_keys=True) if s else None})
     p2 = pd.DataFrame(righe, columns=["teoria", "prove_zoom", "prove_altopiano", "esito", "motivo", "id_strategia", "t",
-                                      "ev_bp", "trade", "valori"])
+                                      "ev_atr", "ev_bp", "trade", "valori"])
     vive = p2[p2["esito"] == "regge"].sort_values(["t", "teoria"], ascending=[False, True]).reset_index(drop=True)
     return p1, p2, vive
 
@@ -770,17 +853,18 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
     """
     t_inizio = time.perf_counter()
     controlla_config(config)
-    symbol, timeframe, processi = config["symbol"], config["timeframe"], config["processi"]
+    monete, timeframe, processi = config["monete"], config["timeframe"], config["processi"]
     id_ricerca = salva_config(config, cartella_dati, data)
-    base = cartella_asset(cartella_dati, symbol, timeframe)
+    base = cartella_asset(cartella_dati, monete, timeframe)
     cartella = os.path.join(base, id_ricerca)
-    pezzi = carica_pezzi(symbol, timeframe, Confini.da_config(config["confini"]), cartella_dati)
-    prep = prepara(config, pezzi)
+    pezzi = carica_pezzi(monete, timeframe, Confini.da_config(config["confini"]), cartella_dati)
+    prep = prepara(config, pezzi, cartella_ricerca=cartella)
+    scrivi_rosa(cartella, config, pezzi, prep)
     _registra_avvio(base, _evento_avvio(id_ricerca, config, pezzi, prep))
     prove = registro.FileProve(cartella)
     prove.aggiungi(righe_prove_rosa(id_ricerca, prep.rosa))      # a una ripresa sono già scritte: non si contano due volte
     per_id = {t.id: t for t in prep.teorie}
-    tempi = {"preparazione_s": prep.durata_s}
+    tempi = {"preparazione_s": prep.durata_s, "rosa_letta": prep.rosa_letta}
     fatte_ora = [0]                  # teorie finite in questa chiamata, turni e passo 2
     prove_prima = len(prove)
 
@@ -871,7 +955,7 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
     selezione = _selezione(cartella, vive, pezzi, config, id_ricerca, prove)
     pezzi.verifica_impronte()
     tempi["selezione_s"] = time.perf_counter() - t0
-    k = registro.conto_prove(cartella_dati, symbol, timeframe)
+    k = registro.conto_prove(cartella_dati, monete, timeframe)
     conto = {"questa_ricerca": sum(1 for c in prove.chiavi if c[0] == id_ricerca), "asset": k,
              "soglia_da_leggere": soglia_rumore(k, config["test_individuale"]["alfa"]) if k else None}
     selezione = sel_mod.con_conto(selezione, conto)
@@ -895,7 +979,7 @@ def _selezione(cartella, vive, pezzi, config, id_ricerca, prove) -> "sel_mod.Sel
     if not os.path.exists(percorso):
         s = sel_mod.seleziona(vive, pezzi, config, id_ricerca, prove)
         testo = registro.json_riga({k: getattr(s, k).to_dict("records") for k in ("tabella", "famiglie",
-                                                                                  "sovrapposizioni")})
+                                                                                  "sovrapposizioni", "per_moneta")})
         with open(percorso + ".tmp", "w", encoding="utf-8") as f:
             f.write(testo + "\n")
         os.replace(percorso + ".tmp", percorso)
@@ -904,7 +988,8 @@ def _selezione(cartella, vive, pezzi, config, id_ricerca, prove) -> "sel_mod.Sel
     tabella = pd.DataFrame(dati["tabella"], columns=sel_mod.COLONNE)
     if list(tabella["id_strategia"]) != list(dict.fromkeys(vive["id_strategia"])):
         raise ValueError(f"{percorso}: le strategie non sono le sopravvissute di questa ricerca: la ripresa si ferma.")
-    return sel_mod.Selezione(tabella, pd.DataFrame(dati["famiglie"]), pd.DataFrame(dati["sovrapposizioni"]))
+    return sel_mod.Selezione(tabella, pd.DataFrame(dati["famiglie"]), pd.DataFrame(dati["sovrapposizioni"]),
+                             per_moneta=pd.DataFrame(dati["per_moneta"], columns=sel_mod.COLONNE_MONETA))
 
 
 def _esito(id_ricerca, cartella, finita, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi, selezione=None,

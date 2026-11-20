@@ -2,11 +2,13 @@
 I dati della fabbrica in tre pezzi (docs/82 P1, lavoro L3a).
 
     confini = Confini.da_config(config["confini"])
-    pezzi = carica_pezzi("BINANCE_PERP_BTCUSDT", "M15", confini, "dati")
+    lista = carica_pezzi(["BINANCE_PERP_BTCUSDT", "BINANCE_PERP_ETHUSDT"], "M15", confini, "dati")
+    pezzi = lista["BINANCE_PERP_BTCUSDT"]  # i pezzi di una moneta (Pezzi)
     pezzi.ricerca, pezzi.selezione        # OHLCV con indice UTC, già tagliati
     pezzi.funding["ricerca"]              # il funding del pezzo (None sullo spot)
     pezzi.costi("ricerca")                # i costi calcolati sul pezzo tagliato
     pezzi.apri_cassaforte(permesso)       # solo con il permesso che crea cassaforte.py (L4)
+    orologio({m: df.index for m, df in ...}, minuti)   # docs/82 §14.2: il numero della barra dall'ora
 
 - I confini sono una data di inizio e tre durate in ore (docs/82 §6): ricerca, selezione e cassaforte sono intervalli
   di tempo chiusi a sinistra e aperti a destra, gli stessi su ogni timeframe. Una barra sta nel pezzo in cui cade il
@@ -17,6 +19,10 @@ I dati della fabbrica in tre pezzi (docs/82 P1, lavoro L3a).
   disco solo con un PermessoCassaforte, che crea cassaforte.py (L4) dopo aver congelato l'elenco delle strategie.
 - Nessun limite agli ingressi in cassaforte (10/11, docs/81 §2): niente finestra scorrevole né controllo delle
   sovrapposizioni.
+- Più monete (20/11, docs/82 §14.1): le stesse date di calendario per tutte le monete della lista; una moneta più
+  giovane ha solo meno barre (i suoi dati possono partire dopo l'inizio della ricerca). Ogni pezzo di ogni moneta deve
+  avere almeno due barre. L'orologio comune (§14.2): il numero della barra viene dall'ora, (ora − prima ora della
+  lista) / durata della barra, così una moneta più giovane o con barre mancanti resta allineata per ora.
 """
 from __future__ import annotations
 
@@ -194,28 +200,80 @@ class Pezzi:
         return {"df": df, "funding": _funding(self.symbol, df, da, a, self.cartella)}
 
 
-def carica_pezzi(symbol: str, timeframe: str, confini: Confini, cartella="dati") -> Pezzi:
-    """
-    Legge lo storico, lo taglia subito e restituisce ricerca e selezione con il loro funding; la cassaforte resta
-    sigillata. Si ferma se i dati non coprono tutti e tre i pezzi.
-    """
+def _pezzi_moneta(symbol: str, timeframe: str, confini: Confini, cartella) -> Pezzi:
+    """I pezzi di una moneta: legge lo storico, lo taglia subito, la cassaforte resta sigillata."""
     df = _leggi(symbol, timeframe, cartella)
     limiti = confini.limiti()
     idx = pd.DatetimeIndex(df.index)
     passo = pd.Timedelta(minutes=MINUTI_TIMEFRAME[timeframe])
-    inizio, fine = limiti["ricerca"][0], limiti["cassaforte"][1]
-    if idx[0] > inizio + passo:
-        raise ValueError(f"i dati partono il {idx[0]:%d/%m/%Y %H:%M}, dopo l'inizio della ricerca "
-                         f"({inizio:%d/%m/%Y %H:%M} UTC).")
+    fine = limiti["cassaforte"][1]
     if idx[-1] < fine - passo:
-        raise ValueError(f"la cassaforte finisce il {fine:%d/%m/%Y %H:%M} UTC, i dati il {idx[-1]:%d/%m/%Y %H:%M}: "
-                         "aggiorna lo storico o accorcia i confini.")
+        raise ValueError(f"{symbol}: la cassaforte finisce il {fine:%d/%m/%Y %H:%M} UTC, i dati il "
+                         f"{idx[-1]:%d/%m/%Y %H:%M}: aggiorna lo storico o accorcia i confini.")
     pezzi = {nome: _taglia(df, *limiti[nome]) for nome in APERTI}
+    cassaforte = _taglia(df, *limiti["cassaforte"])
     del df, idx                       # la cassaforte non resta in memoria
-    for nome, p in pezzi.items():
+    for nome, p in (*pezzi.items(), ("cassaforte", cassaforte)):
         if len(p) < 2:
-            raise ValueError(f"il pezzo {nome} è vuoto: controlla i confini.")
+            raise ValueError(f"{symbol}: il pezzo {nome} è vuoto (i dati partono dopo, o i confini sono sbagliati).")
+    del cassaforte
     funding = {nome: _funding(symbol, pezzi[nome], *limiti[nome], cartella) for nome in APERTI}
     controlli = {nome: controlla_storico(pezzi[nome], timeframe) for nome in APERTI}
     return Pezzi(symbol, timeframe, confini, cartella, pezzi["ricerca"], pezzi["selezione"], funding, controlli)
+
+
+class PezziLista:
+    """I pezzi di ogni moneta della lista (docs/82 §14.1), con le stesse date di calendario: lista[symbol] = Pezzi."""
+
+    def __init__(self, monete, timeframe, confini: Confini, cartella, per_moneta: dict):
+        self.monete, self.timeframe, self.confini, self.cartella = list(monete), timeframe, confini, str(cartella)
+        self.per_moneta = dict(per_moneta)
+
+    def __getitem__(self, symbol: str) -> Pezzi:
+        return self.per_moneta[symbol]
+
+    def __iter__(self):
+        return iter(self.monete)
+
+    @property
+    def impronte(self) -> dict:
+        """{symbol: {ricerca, selezione}}: le impronte dei pezzi aperti di ogni moneta."""
+        return {m: dict(self.per_moneta[m].impronte) for m in self.monete}
+
+    def barre(self, nome: str) -> dict:
+        """{symbol: barre del pezzo `nome`}."""
+        return {m: len(self.per_moneta[m].df(nome)) for m in self.monete}
+
+    def verifica_impronte(self) -> None:
+        for m in self.monete:
+            self.per_moneta[m].verifica_impronte()
+
+
+def carica_pezzi(monete, timeframe: str, confini: Confini, cartella="dati") -> PezziLista:
+    """
+    I pezzi di ogni moneta della lista (docs/82 §14.1): legge lo storico, lo taglia subito e tiene ricerca e selezione
+    con il loro funding; la cassaforte resta sigillata. Si ferma se i dati di una moneta non arrivano alla fine della
+    cassaforte o se un suo pezzo resta senza barre. Una moneta più giovane ha solo meno barre.
+    """
+    if isinstance(monete, str):
+        raise ValueError("carica_pezzi vuole la lista delle monete (docs/82 §14), anche di una moneta sola.")
+    return PezziLista(monete, timeframe, confini, cartella,
+                      {m: _pezzi_moneta(m, timeframe, confini, cartella) for m in monete})
+
+
+def orologio(indici: dict, minuti: float) -> dict:
+    """
+    L'orologio comune della lista (docs/82 §14.2): per ogni moneta il numero di ogni barra, (ora − prima ora della
+    lista) / durata della barra, contato dalla prima barra di tutte le monete. Una moneta più giovane o con barre
+    mancanti resta allineata per ora. `indici` = {symbol: DatetimeIndex}; ritorna {symbol: array di interi}.
+    """
+    passo = int(pd.Timedelta(minutes=float(minuti)).value)
+    asi8 = {m: pd.DatetimeIndex(i).as_unit("ns").asi8 for m, i in indici.items()}
+    origine = min(int(a[0]) for a in asi8.values() if len(a))
+    out = {}
+    for m, a in asi8.items():
+        if ((a - origine) % passo).any():
+            raise ValueError(f"{m}: una barra non cade all'inizio di una barra contata dalla prima ora della lista.")
+        out[m] = (a - origine) // passo
+    return out
 

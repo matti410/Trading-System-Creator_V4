@@ -4,7 +4,7 @@ Le schede della fabbrica (docs/82 P10 e §6, lavoro L5a): un .json e un .md per 
     sc = componi_scheda(esito_ricerca, esito_cassaforte, id_strategia, mm=riassunto_mm)    # il dizionario del .json
     md, js = scrivi_scheda(sc, cartella)              # <cartella>/<id_strategia>.md e .json
     sc = leggi_scheda(js)
-    trade = trade_da_scheda(sc, cartella_dati)        # {"in_sample", "cassaforte"}: gli stessi trade, al bit
+    trade = trade_da_scheda(sc, cartella_dati)        # {"in_sample", "cassaforte"}: {symbol: trade}, gli stessi, al bit
     regole_in_parole(strategia, timeframe)            # le regole scritte dal testo di ogni blocco con i suoi valori
 
 - La regola in parole viene dal testo di ogni blocco (TESTI_TRIGGER, TESTI_FILTRI, TESTI_USCITE), con i valori della
@@ -19,6 +19,9 @@ Le schede della fabbrica (docs/82 P10 e §6, lavoro L5a): un .json e un .md per 
 - Dal 20/11 (docs/82 §13): la sezione «La rosa dei trigger» dice quanti trigger sono stati misurati e quali sono
   entrati nella ricerca; un trigger generato ha la sua regola in parole dalla ricetta (testo_generato).
 - In fondo al .md sempre la frase FRASE_FINALE (Mattia, 08/11).
+- Dal 20/11 (docs/82 §14, versione 2 della scheda): la strategia vale per la lista di monete della config; EV,
+  drawdown e totale in ATR (decide l'ATR), i bp accanto; sotto il cammino la tabella per moneta (selezione e
+  cassaforte: trade, EV, t), solo da leggere. I trade si rifanno moneta per moneta.
 """
 from __future__ import annotations
 
@@ -33,7 +36,7 @@ from .cache import ORE_FINESTRA_SOGLIE, barre_da_ore
 from .valutatore import Strategia, id_strategia
 
 FRASE_FINALE = "La scheda descrive cosa è successo sui dati; la decisione è tua."
-VERSIONE_SCHEDA = 1
+VERSIONE_SCHEDA = 2              # 2 dal 20/11 (docs/82 §14): la lista di monete, l'ATR, la tabella per moneta
 TOLTO_DALLA_CONFIG = "tolto dalla config"
 
 __all__ = ["FRASE_FINALE", "componi_scheda", "esclusi_dalla_config", "leggi_scheda", "regole_in_parole",
@@ -466,13 +469,14 @@ def componi_scheda(esito_ricerca, esito_cas, id_strat: str, mm: dict | None = No
     if id_strat not in esito_cas.trade:
         raise ValueError(f"la strategia {id_strat} non è entrata in cassaforte: niente scheda.")
     config = esito_cas.config
-    symbol, timeframe = config["symbol"], config["timeframe"]
+    monete, timeframe = list(config["monete"]), config["timeframe"]
     ingresso = next(e for e in esito_cas.ingressi if any(x["id_strategia"] == id_strat for x in e["strategie"]))
     riga = next(x for x in ingresso["strategie"] if x["id_strategia"] == id_strat)
-    st = strategia_da_riga(riga, symbol, timeframe)
+    st = strategia_da_riga(riga, monete, timeframe)
     teoria = st.teoria_id
-    p = esito_cas.pezzo
-    impronte = {**esito_cas.pezzi.impronte, "cassaforte": impronta_pezzo(p.df.iloc[p.inizio:])}
+    impronte = {m: {**esito_cas.pezzi[m].impronte,
+                    "cassaforte": impronta_pezzo(esito_cas.pezzo[m].df.iloc[esito_cas.pezzo[m].inizio:])}
+                for m in monete}
 
     p1 = _riga(esito_ricerca.passo_1, "teoria", teoria) or {}
     p2 = _riga(esito_ricerca.passo_2, "teoria", teoria) or {}
@@ -480,33 +484,41 @@ def componi_scheda(esito_ricerca, esito_cas, id_strat: str, mm: dict | None = No
     sel = _riga(esito_ricerca.selezione.tabella, "id_strategia", id_strat) or {}
     cas = _riga(esito_cas.tabella, "id_strategia", id_strat) or {}
     esiti = [
-        {"passo": f"passo 1, turno {turno}", "pezzo": "ricerca", "trade": None, "ev_bp": None, "t": p1.get("t"),
-         "dd_bp": None, "condizione": "qualità 1", "esito": "tenuta" if p1.get("tenuta") else "fuori",
+        {"passo": f"passo 1, turno {turno}", "pezzo": "ricerca", "trade": None, "ev_atr": None, "ev_bp": None,
+         "t": p1.get("t"), "dd_atr": None, "condizione": "qualità 1", "esito": "tenuta" if p1.get("tenuta") else "fuori",
          "motivo": f"la migliore della teoria al turno {turno} ({p1.get('prove')} prove)"},
-        {"passo": "zoom e altopiano", "pezzo": "ricerca", "trade": p2.get("trade"), "ev_bp": p2.get("ev_bp"),
-         "t": p2.get("t"), "dd_bp": None, "condizione": "qualità 1 e altopiano", "esito": p2.get("esito"),
+        {"passo": "zoom e altopiano", "pezzo": "ricerca", "trade": p2.get("trade"), "ev_atr": p2.get("ev_atr"),
+         "ev_bp": p2.get("ev_bp"), "t": p2.get("t"), "dd_atr": None, "condizione": "qualità 1 e altopiano",
+         "esito": p2.get("esito"),
          "motivo": p2.get("motivo") or f"{p2.get('prove_zoom')} prove di zoom, {p2.get('prove_altopiano')} di altopiano"},
-        {"passo": "selezione", "pezzo": "selezione", "trade": sel.get("trade"), "ev_bp": sel.get("ev_bp"),
-         "t": sel.get("t"), "dd_bp": sel.get("dd_bp"), "condizione": "qualità 2 e test individuale",
-         "esito": sel.get("esito"), "motivo": sel.get("motivo") or sel.get("motivo_q2") or ""},
-        {"passo": "cassaforte", "pezzo": "cassaforte", "trade": cas.get("trade"), "ev_bp": cas.get("ev_bp"),
-         "t": cas.get("t"), "dd_bp": cas.get("dd_bp"), "condizione": "test individuale", "esito": cas.get("esito"),
-         "motivo": cas.get("motivo") or ""},
+        {"passo": "selezione", "pezzo": "selezione", "trade": sel.get("trade"), "ev_atr": sel.get("ev_atr"),
+         "ev_bp": sel.get("ev_bp"), "t": sel.get("t"), "dd_atr": sel.get("dd_atr"),
+         "condizione": "qualità 2 e test individuale", "esito": sel.get("esito"),
+         "motivo": sel.get("motivo") or sel.get("motivo_q2") or ""},
+        {"passo": "cassaforte", "pezzo": "cassaforte", "trade": cas.get("trade"), "ev_atr": cas.get("ev_atr"),
+         "ev_bp": cas.get("ev_bp"), "t": cas.get("t"), "dd_atr": cas.get("dd_atr"), "condizione": "test individuale",
+         "esito": cas.get("esito"), "motivo": cas.get("motivo") or ""},
     ]
+    per_moneta = []
+    for pezzo, tab in (("selezione", esito_ricerca.selezione.per_moneta), ("cassaforte", esito_cas.per_moneta)):
+        if tab is not None and len(tab):
+            per_moneta += [{"pezzo": pezzo, **{k: r[k] for k in ("moneta", "trade", "ev_atr", "ev_bp", "t")}}
+                           for r in tab[tab["id_strategia"] == id_strat].to_dict("records")]
     soglia = cas.get("soglia_test", sel.get("soglia_test"))
     sc = {
         "versione_scheda": VERSIONE_SCHEDA,
         "id_strategia": id_strat, "id_ricerca": esito_ricerca.id_ricerca, "impronta_config": impronta_config(config),
-        "impronte_dati": impronte, "symbol": symbol, "timeframe": timeframe,
+        "impronte_dati": impronte, "monete": monete, "timeframe": timeframe,
         "lato": "long" if st.lato == 1 else "short", "turno": turno,
         "blocchi": [{"nome": n, "tipo": _tipo(n), "valori": st.valori_di(n)} for n in st.blocchi],
         "uscita": {"nome": st.uscita, **st.valori_di(st.uscita)},
         "regole": regole_in_parole(st, timeframe)["righe"],
         "strategia": {**st.come_dict(), "teoria": teoria},
-        "config_strategia": {"symbol": symbol, "timeframe": timeframe, "confini": dict(config["confini"]),
+        "config_strategia": {"monete": monete, "timeframe": timeframe, "confini": dict(config["confini"]),
                              "blocchi": {n: config["blocchi"][n] for n in st.blocchi},
                              "test_individuale": dict(config["test_individuale"])},
         "esiti": esiti,
+        "per_moneta": per_moneta,
         "altopiano": _altopiano(esito_ricerca.cartella, teoria, p2.get("id_strategia") or id_strat),
         "test_individuale": {"soglia": soglia, "selezione": sel.get("t"), "cassaforte": cas.get("t")},
         "prove": {"questa_ricerca": esito_ricerca.conto.get("questa_ricerca"), "asset": esito_cas.conto.get("asset"),
@@ -573,14 +585,22 @@ def _virgola(testo) -> str:
     return re.sub(r"(?<=\d)\.(?=\d)", ",", "" if testo is None else str(testo))
 
 
+def nome_monete(monete) -> str:
+    """«BINANCE PERP · BTC, ETH, XRP, SOL, ADA» (docs/82 §14.5)."""
+    monete = list(monete)
+    ex, mercato = monete[0].split("_")[:2]
+    return f"{ex} {mercato} · " + ", ".join(m.rsplit("_", 1)[1].removesuffix("USDT") for m in monete)
+
+
 def testo_md(sc: dict) -> str:
-    """La scheda in parole (§6): Regole · Da dove viene · Il cammino · Da leggere · Verifica, MM e stress test ·
-    Blocchi tolti sul timeframe · La rosa dei trigger (§13); in fondo la frase finale."""
+    """La scheda in parole (§6): Regole · Da dove viene · Il cammino (con la tabella per moneta, §14) · Da leggere ·
+    Verifica, MM e stress test · Blocchi tolti sul timeframe · La rosa dei trigger (§13); in fondo la frase finale."""
     t = sc["test_individuale"]
     pr, cas = sc["prove"], sc["cassaforte"]
     da, a = cas["tratto"]["da"], cas["tratto"]["a"]
-    righe = [f"# Strategia {sc['id_strategia']} · {sc['symbol']} {sc['timeframe']} · {sc['lato']}", "",
-             "## Regole", *[f"- {r}" for r in sc["regole"]], "",
+    righe = [f"# Strategia {sc['id_strategia']} · {nome_monete(sc['monete'])} · {sc['timeframe']} · {sc['lato']}", "",
+             "## Regole", *[f"- {r}" for r in sc["regole"]],
+             f"- Vale per tutte le monete della lista: {nome_monete(sc['monete'])}.", "",
              "## Da dove viene",
              f"- Ricerca {sc['id_ricerca']}, config {sc['impronta_config'][:12]}.",
              f"- Turno {_f(sc.get('turno'))} del passo 1 (turno 1: al massimo un filtro; turno 2: un secondo filtro "
@@ -592,10 +612,15 @@ def testo_md(sc: dict) -> str:
              f"- Software: commit {sc['software']}.", "",
              "## Il cammino",
              *_tabella_md([{**e, "motivo": _virgola(e.get("motivo"))} for e in sc["esiti"]],
-                          ["passo", "pezzo", "trade", "ev_bp", "t", "dd_bp", "esito", "motivo"]),
+                          ["passo", "pezzo", "trade", "ev_atr", "ev_bp", "t", "dd_atr", "esito", "motivo"]),
              "",
              f"Decide il test individuale: t contro {_f(t['soglia'])}. In selezione t {_f(t['selezione'])}, in "
-             f"cassaforte t {_f(t['cassaforte'])}.", "",
+             f"cassaforte t {_f(t['cassaforte'])}. EV, drawdown e totale in ATR (quanto si muove di solito la moneta "
+             "in un giorno); i bp accanto, da leggere.", "",
+             "Moneta per moneta, solo da leggere (la strategia vale per tutta la lista):", "",
+             *_tabella_md([{**r, "moneta": r["moneta"].rsplit("_", 1)[1].removesuffix("USDT")}
+                           for r in sc.get("per_moneta") or []],
+                          ["pezzo", "moneta", "trade", "ev_atr", "ev_bp", "t"]), "",
              "## Da leggere",
              f"- Prove di questa ricerca: {_f(pr['questa_ricerca'])}; su questo asset: {_f(pr['asset'])}; soglia "
              f"corrispondente: {_f(pr['soglia_da_leggere'])}.",
@@ -672,16 +697,16 @@ def strategia_da_scheda(sc: dict) -> Strategia:
     st = Strategia(int(s["lato"]), s["trigger"], tuple(s["filtri"]), s["uscita"],
                    tuple((n, tuple(sorted(s["valori"].get(n, {}).items()))) for n in (s["trigger"], *s["filtri"],
                                                                                         s["uscita"])))
-    if id_strategia(st, sc["symbol"], sc["timeframe"]) != sc["id_strategia"]:
+    if id_strategia(st, sc["monete"], sc["timeframe"]) != sc["id_strategia"]:
         raise ValueError(f"la scheda {sc['id_strategia']}: la strategia non torna dai suoi valori.")
     return st
 
 
 def trade_da_scheda(sc: dict, cartella_dati) -> dict:
     """
-    I trade della strategia rifatti dalla sola scheda (P10): {"in_sample": trade su ricerca + selezione,
-    "cassaforte": trade sulla cassaforte}. Servono i CSV del symbol; si ferma se le impronte dei pezzi non sono quelle
-    della scheda o se la strategia non è entrata nel tratto di cassaforte della scheda.
+    I trade della strategia rifatti dalla sola scheda (P10): {"in_sample": {symbol: trade su ricerca + selezione},
+    "cassaforte": {symbol: trade sulla cassaforte}}. Servono i CSV delle monete; si ferma se le impronte dei pezzi non
+    sono quelle della scheda o se la strategia non è entrata nel tratto di cassaforte della scheda.
     """
     from .blocchi import blocchi_da_config
     from .cassaforte import trade_entrata
@@ -691,11 +716,14 @@ def trade_da_scheda(sc: dict, cartella_dati) -> dict:
     config = sc["config_strategia"]
     riga = {"teoria": st.teoria_id, "valori": {n: dict(v) for n, v in st.valori}, "id_strategia": sc["id_strategia"]}
     trade_cas, impronte = trade_entrata(cartella_dati, config, riga, sc["impronte_dati"])
-    pezzi = carica_pezzi(config["symbol"], config["timeframe"], Confini.da_config(config["confini"]), cartella_dati)
-    if {k: pezzi.impronte[k] for k in APERTI} != {k: impronte[k] for k in APERTI}:
-        raise ValueError("i dati sono cambiati fra due letture: i trade non si rifanno.")
-    ins = in_sample(config, pezzi, st, {b.nome: b for b in blocchi_da_config(config)})
-    return {"in_sample": ins.trades, "cassaforte": trade_cas}
+    pezzi = carica_pezzi(config["monete"], config["timeframe"], Confini.da_config(config["confini"]), cartella_dati)
+    blocchi = {b.nome: b for b in blocchi_da_config(config)}
+    ins = {}
+    for m in config["monete"]:
+        if {k: pezzi[m].impronte[k] for k in APERTI} != {k: impronte[m][k] for k in APERTI}:
+            raise ValueError("i dati sono cambiati fra due letture: i trade non si rifanno.")
+        ins[m] = in_sample(config, pezzi[m], st, blocchi).trades
+    return {"in_sample": ins, "cassaforte": trade_cas}
 
 
 # controlli di coerenza dei testi, usati dai collaudi

@@ -4,8 +4,9 @@ legge l'ultimo pezzo di dati. Dal 10/11 (docs/81 §2): ogni strategia entra quan
 conferma; il registro degli ingressi resta, solo come annotazione da leggere.
 
     esito = entra(cartella_dati, id_ricerca, ["id1", "id2"])
-    esito.tabella        # una riga per strategia: t di selezione, trade, EV, t in cassaforte, soglia, esito
-    esito.trade          # {id_strategia: trade del motore completo sulla cassaforte}
+    esito.tabella        # una riga per strategia: t di selezione, trade, EV (ATR e bp), t in cassaforte, soglia, esito
+    esito.per_moneta     # una riga per strategia e moneta (trade, EV, t): solo da leggere (docs/82 §14.1)
+    esito.trade          # {id_strategia: {symbol: trade del motore completo sulla cassaforte}}
     esito_cassaforte(cartella_dati, id_ricerca)    # rifà l'esito delle strategie già entrate (nessun ingresso nuovo)
 
 L'ordine di `entra`, che è la regola (docs/82 P8):
@@ -13,15 +14,17 @@ L'ordine di `entra`, che è la regola (docs/82 P8):
    (selezione.controlla_ammessa);
 2. l'elenco congelato si scrive nel registro dell'asset (evento «ingresso_cassaforte»): strategie, tratto, ricerca,
    impronta della config, strategie entrate nel tratto fino a quel momento;
-3. solo ora il permesso (dati.PermessoCassaforte) e la lettura dei dati: le impronte di ricerca e selezione devono
-   essere quelle dell'avvio della ricerca;
-4. ogni strategia sul pezzo di cassaforte con il motore completo (valutatore.trade_completi): ricerca, selezione e
-   cassaforte attaccate per gli indicatori, i segnali spenti prima della prima barra della cassaforte, l'ultima barra
-   è quella della cassaforte e un trade ancora aperto lì resta fuori (motore, U7). Costi del pezzo di cassaforte.
-   Decide il test individuale: t netto >= selezione.soglia_test(alfa) = 1,96. Ogni strategia è una prova (pezzo
-   «cassaforte») nel file delle prove della ricerca; l'esito va nel registro (evento «esito_cassaforte»).
+3. solo ora il permesso (dati.PermessoCassaforte, uno per moneta) e la lettura dei dati: le impronte di ricerca e
+   selezione di ogni moneta devono essere quelle dell'avvio della ricerca;
+4. ogni strategia sul pezzo di cassaforte di ogni moneta con il motore completo (valutatore.trade_completi): ricerca,
+   selezione e cassaforte attaccate per gli indicatori, i segnali spenti prima della prima barra della cassaforte,
+   l'ultima barra è quella della cassaforte e un trade ancora aperto lì resta fuori (motore, U7). Costi e funding del
+   pezzo di cassaforte di ogni moneta. I trade di tutte le monete in un solo elenco, in ATR, con il t dei trade
+   sovrapposti (docs/82 §14.2). Decide il test individuale: t netto >= selezione.soglia_test(alfa) = 1,96. Ogni
+   strategia è una prova (pezzo «cassaforte») nel file delle prove della ricerca; l'esito va nel registro (evento
+   «esito_cassaforte»).
 
-- Il tratto è symbol, timeframe, inizio e fine della cassaforte. Una strategia può entrare più volte, nello stesso
+- Il tratto è la lista di monete, timeframe, inizio e fine della cassaforte (stesse date per tutte le monete). Una strategia può entrare più volte, nello stesso
   tratto o in altri (10/11): ogni ingresso è un evento nel registro e ha il suo esito. Le prove non crescono: la stessa
   strategia sulla stessa cassaforte è la stessa prova (registro.CHIAVE_PROVA). Un parametro cambiato è una strategia
   nuova (valutatore.id_strategia).
@@ -38,17 +41,19 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+import numpy as np
+
 from engine.giudizio import soglia_rumore
 from engine.indicatori import aggiungi_indicatori
+from engine.metriche import pips_per_trade
 
 from . import registro
-from .blocchi import blocchi_da_config
-from .cache import Cache
-from .config import cartella_asset, controlla_config, impronta_config
+from .config import cartella_asset, controlla_config, impronta_config, nome_lista
 from .dati import Confini, PermessoCassaforte, _utc, carica_pezzi, imposta_mercato_crypto
 from .generatore import NOME_LATO
-from .selezione import ValutatoreSelezione, controlla_ammessa, soglia_test, strategia_da_riga
-from .valutatore import Costi, id_strategia, misure_da_bp, trade_completi
+from .selezione import (COLONNE_MONETA, controlla_ammessa, righe_per_moneta, soglia_test, strategia_da_riga,
+                        valutatore_lista)
+from .valutatore import durata_uscita, id_strategia, in_atr, misure_lista, trade_completi, unisci
 
 PEZZO = "cassaforte"
 FASE = "cassaforte"
@@ -60,10 +65,10 @@ __all__ = ["EsitoCassaforte", "congela", "entra", "esito_cassaforte", "gia_entra
 
 
 # ------------------------------------------------------------------ il tratto e il registro
-def tratto(symbol: str, timeframe: str, confini: Confini) -> str:
-    """L'identità del tratto di cassaforte: symbol, timeframe, inizio e fine (UTC)."""
+def tratto(monete, timeframe: str, confini: Confini) -> str:
+    """L'identità del tratto di cassaforte: la lista di monete (config.nome_lista), timeframe, inizio e fine (UTC)."""
     da, a = confini.tratto_cassaforte
-    return f"{symbol}_{timeframe}_{da:%Y%m%dT%H%M}_{a:%Y%m%dT%H%M}"
+    return f"{nome_lista(monete)}_{timeframe}_{da:%Y%m%dT%H%M}_{a:%Y%m%dT%H%M}"
 
 
 def _ingressi(eventi, id_tratto: str | None = None) -> list[dict]:
@@ -85,14 +90,14 @@ def strategie_entrate(cartella_asset_, id_tratto: str) -> int:
     return len(_entrate(registro.leggi_registro(cartella_asset_), id_tratto))
 
 
-def congela(cartella_asset_, confini: Confini, symbol: str, timeframe: str, strategie: list[dict], dove: dict,
+def congela(cartella_asset_, confini: Confini, monete, timeframe: str, strategie: list[dict], dove: dict,
             nome_macchina: str | None = None) -> dict:
     """
     Il passo 2 di `entra`, da solo: controlli sul registro e scrittura dell'elenco. `strategie` = righe con
     id_strategia (e teoria, valori, t_selezione); `dove` = id_ricerca e impronta_config. Ritorna l'evento scritto.
     """
     eventi = registro.leggi_registro(cartella_asset_)
-    id_tratto = tratto(symbol, timeframe, confini)
+    id_tratto = tratto(monete, timeframe, confini)
     da, a = confini.tratto_cassaforte
     ids = [s["id_strategia"] for s in strategie]
     if not ids:
@@ -101,7 +106,7 @@ def congela(cartella_asset_, confini: Confini, symbol: str, timeframe: str, stra
         raise ValueError("una strategia compare due volte nell'elenco.")
     gia = _entrate(eventi, id_tratto)                # (10/11) una strategia già entrata può rientrare
     evento = {"tipo": INGRESSO, **dove,
-              "tratto": {"id": id_tratto, "symbol": symbol, "timeframe": timeframe, "da": da.isoformat(),
+              "tratto": {"id": id_tratto, "monete": list(monete), "timeframe": timeframe, "da": da.isoformat(),
                          "a": a.isoformat()},
               "strategie": strategie, "entrate_nel_tratto": len(set(gia) | set(ids))}
     return registro.scrivi_evento(cartella_asset_, evento, nome_macchina)
@@ -126,7 +131,7 @@ def _ricerca(cartella_dati, id_ricerca: str) -> tuple[dict, str, str, pd.DataFra
         raise ValueError(f"la ricerca {id_ricerca} non ha ancora la selezione: lanciala fino in fondo.")
     with open(percorso, encoding="utf-8") as f:
         tabella = pd.DataFrame(json.loads(f.read())["tabella"])
-    return config, cartella_asset(cartella_dati, config["symbol"], config["timeframe"]), cartella, tabella
+    return config, cartella_asset(cartella_dati, config["monete"], config["timeframe"]), cartella, tabella
 
 
 def _impronte_avvio(eventi, id_ricerca: str) -> dict:
@@ -167,53 +172,73 @@ def pezzo_cassaforte(pezzi, aperta: dict) -> PezzoCassaforte:
 class EsitoCassaforte:
     tratto: dict
     tabella: pd.DataFrame
-    trade: dict = field(default_factory=dict)
+    trade: dict = field(default_factory=dict)          # {id_strategia: {symbol: trade}}
     ingressi: list = field(default_factory=list)
     conto: dict = field(default_factory=dict)
     config: dict = field(default_factory=dict)
-    pezzi: object = None              # dati.Pezzi: ricerca e selezione
-    pezzo: PezzoCassaforte | None = None   # i tre pezzi attaccati, con gli indicatori (per il passo 9)
+    pezzi: object = None              # dati.PezziLista: ricerca e selezione di ogni moneta
+    pezzo: dict = field(default_factory=dict)          # {symbol: PezzoCassaforte}: i tre pezzi attaccati (passo 9)
+    per_moneta: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=COLONNE_MONETA))
 
 
-def _valuta(config, pezzi, aperta, righe_sel: pd.DataFrame) -> tuple[pd.DataFrame, dict, PezzoCassaforte]:
-    p = pezzo_cassaforte(pezzi, aperta)
-    cache = Cache(p.df, LIMITE_CACHE_MB)
-    v = ValutatoreSelezione(blocchi_da_config(config), cache, Costi(p.df, p.costi), p.inizio)
+def misure_trade(trade_per_moneta: dict, valutatore, H: int):
+    """
+    Le misure dei trade del motore completo di ogni moneta ({symbol: trade}): netto in ATR al segnale e in bp, barra
+    d'ingresso sull'orologio comune; ritorna (Misure della lista, {symbol: Misure}).
+    """
+    per = {}
+    for m, t in trade_per_moneta.items():
+        v = valutatore.per_moneta[m]
+        _, netti = pips_per_trade(t, v.costi.pip, v.costi.commission)
+        eb = t["EntryBar"].to_numpy(dtype=np.int64)
+        per[m] = {"pos": valutatore.orologi[m][eb], "atr": in_atr(netti.to_numpy(dtype=float), v.costi.pip,
+                                                                  valutatore.atr[m][eb - 1]),
+                  "bp": t["BpNetti"].to_numpy(dtype=float)}
+    u = unisci(per)
+    tutti = misure_lista(u["atr"], u["bp"], u["pos"], H, valutatore.settimana)
+    return tutti, {m: misure_lista(x["atr"], x["bp"], x["pos"], H, valutatore.settimana) for m, x in per.items()}
+
+
+def _valuta(config, pezzi, aperte: dict, righe_sel: pd.DataFrame):
+    monete = config["monete"]
+    p = {m: pezzo_cassaforte(pezzi[m], aperte[m]) for m in monete}
+    v = valutatore_lista(config, p)
     soglia = soglia_test(config["test_individuale"]["alfa"])
-    righe, trade = [], {}
+    righe, trade, per_moneta = [], {}, []
     for r in righe_sel.to_dict("records"):
-        s = strategia_da_riga(r, config["symbol"], config["timeframe"])
-        t = trade_completi(s, v, p.costi)
-        m = misure_da_bp(t["BpNetti"].to_numpy())
-        passa = bool(m.t == m.t and m.t >= soglia)
+        s = strategia_da_riga(r, monete, config["timeframe"])
+        t = {m: trade_completi(s, v.per_moneta[m], p[m].costi) for m in monete}
+        mis, per = misure_trade(t, v, durata_uscita(s))
+        passa = bool(mis.t == mis.t and mis.t >= soglia)
         righe.append({"teoria": r["teoria"], "id_strategia": r["id_strategia"], "lato": NOME_LATO[s.lato],
-                      "t_selezione": r["t"], "ev_bp_selezione": r["ev_bp"], **m.come_dict(), "soglia_test": soglia,
+                      "t_selezione": r["t"], "ev_atr_selezione": r["ev_atr"], **mis.come_dict(), "soglia_test": soglia,
                       "esito": "passa" if passa else "non passa",
-                      "motivo": "" if passa else (f"t {m.t:.2f} sotto {soglia:.2f}" if m.t == m.t
+                      "motivo": "" if passa else (f"t {mis.t:.2f} sotto {soglia:.2f}" if mis.t == mis.t
                                                   else "t non calcolabile")})
+        per_moneta += righe_per_moneta(r["id_strategia"], per)
         trade[r["id_strategia"]] = t
-    return pd.DataFrame(righe), trade, p
+    return pd.DataFrame(righe), trade, p, pd.DataFrame(per_moneta, columns=COLONNE_MONETA)
 
 
 def _apri_e_valuta(cartella_dati, config, base, cartella, id_ricerca, ingressi: list[dict], tabella_sel,
                    scrivi: bool) -> EsitoCassaforte:
     """Passi 3 e 4: permesso, lettura, valutazione, prove ed esito nel registro (una volta per ingresso)."""
-    symbol, timeframe = config["symbol"], config["timeframe"]
+    monete, timeframe = config["monete"], config["timeframe"]
     confini = Confini.da_config(config["confini"])
-    pezzi = carica_pezzi(symbol, timeframe, confini, cartella_dati)
+    pezzi = carica_pezzi(monete, timeframe, confini, cartella_dati)
     eventi = registro.leggi_registro(base)
-    if dict(pezzi.impronte) != _impronte_avvio(eventi, id_ricerca):
+    if pezzi.impronte != _impronte_avvio(eventi, id_ricerca):
         raise ValueError("i dati di ricerca o selezione sono cambiati dall'avvio della ricerca: la cassaforte non si "
                          "valuta.")
-    aperta = pezzi.apri_cassaforte(PermessoCassaforte(symbol, timeframe, confini.tratto_cassaforte))
+    aperte = {m: pezzi[m].apri_cassaforte(PermessoCassaforte(m, timeframe, confini.tratto_cassaforte)) for m in monete}
     ids = list(dict.fromkeys(s["id_strategia"] for e in ingressi for s in e["strategie"]))
     righe_sel = tabella_sel.set_index("id_strategia").loc[ids].reset_index()
-    tab, trade, pezzo = _valuta(config, pezzi, aperta, righe_sel)
+    tab, trade, pezzo, per_moneta = _valuta(config, pezzi, aperte, righe_sel)
     prove = registro.FileProve(cartella)
     prove.aggiungi([{"id_ricerca": id_ricerca, "pezzo": PEZZO, "fase": FASE, "teoria": r.teoria,
-                     "id_strategia": r.id_strategia, "trade": r.trade, "ev_bp": r.ev_bp, "t": r.t}
+                     "id_strategia": r.id_strategia, "trade": r.trade, "ev_atr": r.ev_atr, "t": r.t}
                     for r in tab.itertuples()])
-    k = registro.conto_prove(cartella_dati, symbol, timeframe)
+    k = registro.conto_prove(cartella_dati, monete, timeframe)
     id_tratto = ingressi[0]["tratto"]["id"]
     eventi = registro.leggi_registro(base)
     conto = {"asset": k, "soglia_da_leggere": soglia_rumore(k, config["test_individuale"]["alfa"]) if k else None,
@@ -230,10 +255,11 @@ def _apri_e_valuta(cartella_dati, config, base, cartella, id_ricerca, ingressi: 
             registro.scrivi_evento(base, {
                 "tipo": ESITO, "id_ricerca": id_ricerca, "tratto": e["tratto"],
                 "ingresso": {"macchina": e["macchina"], "n": e["n"]},
-                "risultati": sotto[["id_strategia", "trade", "ev_bp", "t", "soglia_test", "esito"]].to_dict("records"),
+                "risultati": sotto[["id_strategia", "trade", "ev_atr", "ev_bp", "t", "soglia_test", "esito"]]
+                .to_dict("records"),
                 "prove": {"asset": conto["asset"], "soglia_da_leggere": conto["soglia_da_leggere"]},
                 "entrate_nel_tratto": conto["entrate_nel_tratto"]})
-    return EsitoCassaforte(ingressi[0]["tratto"], tab, trade, ingressi, conto, config, pezzi, pezzo)
+    return EsitoCassaforte(ingressi[0]["tratto"], tab, trade, ingressi, conto, config, pezzi, pezzo, per_moneta)
 
 
 # ------------------------------------------------------------------ le funzioni pubbliche
@@ -249,7 +275,7 @@ def entra(cartella_dati, id_ricerca: str, strategie) -> EsitoCassaforte:
     per_id = tabella.set_index("id_strategia")
     elenco = [{"id_strategia": i, "teoria": per_id.loc[i, "teoria"], "valori": json.loads(per_id.loc[i, "valori"]),
                "t_selezione": float(per_id.loc[i, "t"])} for i in ids]
-    evento = congela(base, Confini.da_config(config["confini"]), config["symbol"], config["timeframe"], elenco,
+    evento = congela(base, Confini.da_config(config["confini"]), config["monete"], config["timeframe"], elenco,
                      {"id_ricerca": id_ricerca, "impronta_config": impronta_config(config)})
     return _apri_e_valuta(cartella_dati, config, base, cartella, id_ricerca, [evento], tabella, scrivi=True)
 
@@ -260,7 +286,7 @@ def esito_cassaforte(cartella_dati, id_ricerca: str) -> EsitoCassaforte:
     l'esito degli ingressi che non l'hanno ancora (per esempio dopo un'interruzione fra l'ingresso e la lettura).
     """
     config, base, cartella, tabella = _ricerca(cartella_dati, id_ricerca)
-    id_tratto = tratto(config["symbol"], config["timeframe"], Confini.da_config(config["confini"]))
+    id_tratto = tratto(config["monete"], config["timeframe"], Confini.da_config(config["confini"]))
     ingressi = [e for e in _ingressi(registro.leggi_registro(base), id_tratto) if e.get("id_ricerca") == id_ricerca]
     if not ingressi:
         raise ValueError(f"nessuna strategia della ricerca {id_ricerca} è entrata in cassaforte.")
@@ -272,25 +298,26 @@ def trade_entrata(cartella_dati, config: dict, riga: dict, impronte: dict | None
     (L5a, per la scheda, docs/82 P10) I trade sulla cassaforte di una strategia GIÀ ENTRATA nel tratto della config,
     rifatti da capo: stesso pezzo, stessi costi, stesso motore di `entra`, quindi gli stessi trade al bit. Nessun
     ingresso nuovo, nessuna prova, niente nel registro. Si ferma se la strategia non è entrata in quel tratto e, con
-    `impronte` ({ricerca, selezione, cassaforte}), se i dati non sono più quelli. `config` basta che abbia symbol,
-    timeframe, confini e i blocchi della strategia; `riga` = teoria, valori, id_strategia.
-    Ritorna (trade, impronte dei tre pezzi).
+    `impronte` ({symbol: {ricerca, selezione, cassaforte}}), se i dati non sono più quelli. `config` basta che abbia
+    monete, timeframe, confini e i blocchi della strategia; `riga` = teoria, valori, id_strategia.
+    Ritorna ({symbol: trade}, impronte dei tre pezzi di ogni moneta).
     """
     from .dati import impronta_pezzo
-    symbol, timeframe = config["symbol"], config["timeframe"]
+    monete, timeframe = config["monete"], config["timeframe"]
     confini = Confini.da_config(config["confini"])
-    base = cartella_asset(cartella_dati, symbol, timeframe)
-    if not gia_entrata(base, tratto(symbol, timeframe, confini), riga["id_strategia"]):
+    base = cartella_asset(cartella_dati, monete, timeframe)
+    if not gia_entrata(base, tratto(monete, timeframe, confini), riga["id_strategia"]):
         raise ValueError(f"la strategia {riga['id_strategia']} non è entrata nel tratto di cassaforte della scheda: "
                          "i suoi trade di cassaforte non si rifanno.")
-    pezzi = carica_pezzi(symbol, timeframe, confini, cartella_dati)
-    aperta = pezzi.apri_cassaforte(PermessoCassaforte(symbol, timeframe, confini.tratto_cassaforte))
-    trovate = {**pezzi.impronte, "cassaforte": impronta_pezzo(aperta["df"])}
+    pezzi = carica_pezzi(monete, timeframe, confini, cartella_dati)
+    aperte = {m: pezzi[m].apri_cassaforte(PermessoCassaforte(m, timeframe, confini.tratto_cassaforte)) for m in monete}
+    trovate = {m: {**pezzi[m].impronte, "cassaforte": impronta_pezzo(aperte[m]["df"])} for m in monete}
     if impronte is not None and dict(impronte) != trovate:
         raise ValueError("i dati non sono più quelli della scheda (impronte diverse): i trade non si rifanno.")
-    p = pezzo_cassaforte(pezzi, aperta)
-    v = ValutatoreSelezione(blocchi_da_config(config), Cache(p.df, LIMITE_CACHE_MB), Costi(p.df, p.costi), p.inizio)
-    return trade_completi(strategia_da_riga(riga, symbol, timeframe), v, p.costi), trovate
+    p = {m: pezzo_cassaforte(pezzi[m], aperte[m]) for m in monete}
+    v = valutatore_lista(config, p)
+    s = strategia_da_riga(riga, monete, timeframe)
+    return {m: trade_completi(s, v.per_moneta[m], p[m].costi) for m in monete}, trovate
 
 
 def tratti_usati(cartella_asset_) -> list[tuple]:

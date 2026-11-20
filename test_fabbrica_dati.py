@@ -40,6 +40,11 @@ T = pd.Timestamp
 
 N_GENERATI = len(trigger_generati())         # docs/82 §13: i trigger generati nella config standard
 
+def _uno(symbol, timeframe, confini, cartella):
+    """I pezzi di una moneta sola (docs/82 §14: carica_pezzi vuole la lista)."""
+    return carica_pezzi([symbol], timeframe, confini, cartella)[symbol]
+
+
 def _utc(testo: str) -> pd.Timestamp:
     return pd.Timestamp(testo, tz="UTC")
 
@@ -102,7 +107,7 @@ def esegui() -> int:
         df_h1 = sintetici.mercato(59_700, seme=3, minuti=60, inizio="2020-01-01", prezzo=30_000)
         sintetici.scrivi_storico(cart, PERP, "H1", df_h1)
         sintetici.scrivi_funding(cart, PERP, df_h1)
-        p = carica_pezzi(PERP, "H1", conf, cart)
+        p = _uno(PERP, "H1", conf, cart)
         check("3. ricerca dalle 00:00 del 02/01/2020 alle 23:00 del 30/06/2023; selezione dal 01/07/2023 alle 17:00 del 15/06/2025",
               (p.ricerca.index[0], p.ricerca.index[-1], p.selezione.index[0], p.selezione.index[-1])
               == (_utc("2020-01-02"), _utc("2023-06-30 23:00"), _utc("2023-07-01"), _utc("2025-06-15 17:00")))
@@ -138,7 +143,7 @@ def esegui() -> int:
         cart_v = os.path.join(base, "h1_veleno")
         sintetici.scrivi_storico(cart_v, PERP, "H1", avvelenato)
         shutil.copy(os.path.join(cart, f"{PERP}_FUNDING.csv"), cart_v)
-        p_v = carica_pezzi(PERP, "H1", conf, cart_v)
+        p_v = _uno(PERP, "H1", conf, cart_v)
         costi_a = {k: v for k, v in p.costi("ricerca").items() if k != "funding"}
         costi_b = {k: v for k, v in p_v.costi("ricerca").items() if k != "funding"}
         check("10. cassaforte alterata: ricerca, selezione, impronte, funding, costi e controlli identici",
@@ -162,7 +167,7 @@ def esegui() -> int:
 
         # ------------------------------------------------------------------ costi
         print("\nI costi sul pezzo tagliato")
-        p = carica_pezzi(PERP, "H1", conf, cart)
+        p = _uno(PERP, "H1", conf, cart)
         atteso = costi_storico(PERP, p.ricerca, funding=p.funding["ricerca"], df_prezzo=p.ricerca)[0]
         costi = p.costi("ricerca")
         check("13. costi del pezzo = vetrina.costi_storico sul pezzo, con il funding del pezzo",
@@ -180,22 +185,26 @@ def esegui() -> int:
             bar[tf] = d
         piccoli_m1 = Confini.da_config({"inizio": "2024-01-01 00:00", "ricerca_ore": 15, "selezione_ore": 8, "cassaforte_ore": 5})
         piccoli_d1 = Confini.da_config({"inizio": "2024-01-01 00:00", "ricerca_ore": 480, "selezione_ore": 240, "cassaforte_ore": 192})
-        m1, d1 = carica_pezzi(SPOT, "M1", piccoli_m1, cart_t), carica_pezzi(SPOT, "D1", piccoli_d1, cart_t)
+        m1, d1 = _uno(SPOT, "M1", piccoli_m1, cart_t), _uno(SPOT, "D1", piccoli_d1, cart_t)
         check("15. M1 e D1 si leggono (vetrina.carica_storico li rifiuta: accetta solo da M5 a H4)",
               len(m1.ricerca) == 900 and len(d1.ricerca) == 20 and len(d1.selezione) == 10
               and errore(lambda: carica_storico(SPOT, cart_t, "M1")) and errore(lambda: carica_storico(SPOT, cart_t, "D1")))
         check("16. spot: nessun funding", m1.funding == {"ricerca": None, "selezione": None} and "funding" not in m1.costi("ricerca"))
         sintetici.scrivi_storico(cart_t, SPOT, "H1", bar["M15"])
-        check("17. un file con barre di un altro timeframe: errore", errore(lambda: carica_pezzi(SPOT, "H1", piccoli_m1, cart_t)))
-        check("18. symbol fuori tabella o del broker: errore", errore(lambda: carica_pezzi("BINANCE_PERP_DOGEUSDT", "M15", piccoli_m1, cart_t))
-              and errore(lambda: carica_pezzi("EURUSD", "M15", piccoli_m1, cart_t)))
-        check("19. file mancante o timeframe non previsto: errore", errore(lambda: carica_pezzi(SPOT, "M30", piccoli_m1, cart_t))
-              and errore(lambda: carica_pezzi(SPOT, "W1", piccoli_m1, cart_t)))
+        check("17. un file con barre di un altro timeframe: errore", errore(lambda: _uno(SPOT, "H1", piccoli_m1, cart_t)))
+        check("18. symbol fuori tabella o del broker: errore", errore(lambda: _uno("BINANCE_PERP_DOGEUSDT", "M15", piccoli_m1, cart_t))
+              and errore(lambda: _uno("EURUSD", "M15", piccoli_m1, cart_t)))
+        check("19. file mancante o timeframe non previsto: errore", errore(lambda: _uno(SPOT, "M30", piccoli_m1, cart_t))
+              and errore(lambda: _uno(SPOT, "W1", piccoli_m1, cart_t)))
         oltre = Confini.da_config({"inizio": "2024-01-01 00:00", "ricerca_ore": 15, "selezione_ore": 8, "cassaforte_ore": 50})
         prima = Confini.da_config({"inizio": "2023-12-31 00:00", "ricerca_ore": 15, "selezione_ore": 8, "cassaforte_ore": 5})
-        check("20. i dati non coprono la cassaforte, o partono dopo l'inizio: errore", errore(lambda: carica_pezzi(SPOT, "M1", oltre, cart_t))
-              and errore(lambda: carica_pezzi(SPOT, "M1", prima, cart_t)))
-        pc = carica_pezzi(SPOT, "M15", Confini.da_config(PICCOLI), cart_t)
+        check("20. i dati non coprono la cassaforte, o un pezzo resta senza barre: errore",
+              errore(lambda: _uno(SPOT, "M1", oltre, cart_t)) and errore(lambda: _uno(SPOT, "M1", prima, cart_t)))
+        giovane = Confini.da_config({"inizio": "2023-12-31 20:00", "ricerca_ore": 19, "selezione_ore": 8, "cassaforte_ore": 5})
+        pg = _uno(SPOT, "M1", giovane, cart_t)
+        check("20b. docs/82 §14.1: dati che partono dopo l'inizio della ricerca (una moneta più giovane): solo meno barre",
+              pg.ricerca.index[0] == _utc("2024-01-01 00:00") and len(pg.ricerca) == 15 * 60)
+        pc = _uno(SPOT, "M15", Confini.da_config(PICCOLI), cart_t)
         check("21. confini a quarti d'ora: la barra delle 12:15 cade nel pezzo che inizia alle 12:15",
               pc.ricerca.index[-1] == _utc("2024-01-13 12:00") and pc.selezione.index[0] == _utc("2024-01-13 12:15"))
 
@@ -203,17 +212,18 @@ def esegui() -> int:
         cart_f = os.path.join(base, "funding")
         d = sintetici.mercato(2400, seme=5, minuti=15, inizio="2024-01-01", prezzo=30_000)
         sintetici.scrivi_storico(cart_f, PERP, "M15", d)
-        check("22. perpetual senza il file del funding: errore", errore(lambda: carica_pezzi(PERP, "M15", Confini.da_config(PICCOLI), cart_f)))
+        check("22. perpetual senza il file del funding: errore", errore(lambda: _uno(PERP, "M15", Confini.da_config(PICCOLI), cart_f)))
         corto = sintetici.funding_sintetico(d.iloc[:500])
         from engine.exchange import file_funding, salva_funding
         salva_funding(corto, file_funding(PERP, cart_f))
-        check("23. un funding che non copre i pezzi: errore", errore(lambda: carica_pezzi(PERP, "M15", Confini.da_config(PICCOLI), cart_f)))
+        check("23. un funding che non copre i pezzi: errore", errore(lambda: _uno(PERP, "M15", Confini.da_config(PICCOLI), cart_f)))
 
         # ------------------------------------------------------------------ la config
         print("\nLa config (docs/82 P2 e §6)")
-        cfg = config_standard(PERP, "M15")
+        cfg = config_standard([PERP], "M15")
         check("28. la config standard ha i campi di §6 e passa i controlli", tuple(cfg) == CAMPI and controlla_config(cfg) is cfg
-              and len(cfg["blocchi"]) == 78 + N_GENERATI and cfg["versione"] == 4 and cfg["lati"] == ["long", "short"]
+              and len(cfg["blocchi"]) == 78 + N_GENERATI and cfg["versione"] == 5 and cfg["lati"] == ["long", "short"]
+              and cfg["monete"] == [PERP] and "ev_min" in cfg["qualita_1"] and "p_ev_neg_max" not in cfg["qualita_2"]
               and cfg["rosa"] == {"orizzonti_barre": [4, 16, 32], "q": 0.2, "soglia_famiglia": 0.6, "rho_max": 0.3,
                                   "min_eventi": 200, "catalogo_generato": 1}
               and cfg["confini"] == STANDARD and cfg["budget"]["teorie_turno_2"] == 150)
@@ -229,7 +239,7 @@ def esegui() -> int:
             diverse.append(impronta_config(c2) != impronta_config(cfg))
         check("30. un valore cambiato (seme, una griglia, un confine, una condizione, la rosa): impronta diversa",
               all(diverse))
-        spot = config_standard(SPOT, "M15")
+        spot = config_standard([SPOT], "M15")
         check("31. spot: solo long; short nei lati: errore", spot["lati"] == ["long"]
               and errore(lambda: controlla_config({**spot, "lati": ["long", "short"]})))
         sbagliate = {
@@ -237,13 +247,19 @@ def esegui() -> int:
             "un campo in più": {**cfg, "commento": "x"},
             "un sottocampo che manca": {**cfg, "qualita_1": {k: v for k, v in cfg["qualita_1"].items() if k != "peso_max"}},
             "versione": {**cfg, "versione": 1},
-            "symbol fuori tabella": {**cfg, "symbol": "BINANCE_PERP_DOGEUSDT"},
+            "moneta fuori tabella": {**cfg, "monete": ["BINANCE_PERP_DOGEUSDT"]},
+            "monete vuote": {**cfg, "monete": []},
+            "una moneta scritta come testo": {**cfg, "monete": PERP},
+            "una moneta due volte": {**cfg, "monete": [PERP, PERP]},
+            "monete di due mercati": {**cfg, "monete": [PERP, "BINANCE_SPOT_ETHUSDT"]},
+            "il campo symbol di prima": {**{k: v for k, v in cfg.items() if k != "monete"}, "symbol": PERP},
             "timeframe": {**cfg, "timeframe": "M2"},
             "blocco sconosciuto": {**cfg, "blocchi": {**cfg["blocchi"], "E99": {}}},
             "parametro sconosciuto": {**cfg, "blocchi": {**cfg["blocchi"], "ADX": {"finto_ore": [1]}}},
             "niente uscite": {**cfg, "blocchi": {"E47": {}, "ADX": {}}},
             "lati vuoti": {**cfg, "lati": []},
             "versione 3": {**cfg, "versione": 3},
+            "versione 4": {**cfg, "versione": 4},
             "senza la rosa": {k: v for k, v in cfg.items() if k != "rosa"},
             "rosa senza orizzonti": {**cfg, "rosa": {**cfg["rosa"], "orizzonti_barre": []}},
             "rosa con q 0": {**cfg, "rosa": {**cfg["rosa"], "q": 0}},
@@ -259,10 +275,10 @@ def esegui() -> int:
         check(f"32. {len(sbagliate)} config sbagliate: tutte ferme", not passate, f"passate: {passate}")
         ammessi = []
         for tf in ("M1", "M5", "M15", "M30", "H1", "H4", "D1"):
-            c = config_standard(PERP, tf)
+            c = config_standard([PERP], tf)
             controlla_config(c)
             ammessi.append((tf, len(c["blocchi"])))
-        d1 = config_standard(PERP, "D1")
+        d1 = config_standard([PERP], "D1")
         check("33. da M1 a D1 la config standard tiene solo i blocchi che scattano sul timeframe",
               dict(ammessi)["M15"] == 78 + N_GENERATI and "F20_SESSION_OVERLAP" not in d1["blocchi"] and "E36" not in d1["blocchi"]
               and "E5" in d1["blocchi"], str(ammessi))
@@ -278,7 +294,7 @@ def esegui() -> int:
         print("\nIl salvataggio")
         dati = os.path.join(base, "dati_config")
         id1 = salva_config(cfg, dati, data="20261107")
-        percorso = os.path.join(cartella_asset(dati, PERP, "M15"), id1, "config.json")
+        percorso = os.path.join(cartella_asset(dati, [PERP], "M15"), id1, "config.json")
         with open(percorso, "rb") as f:
             prima_byte = f.read()
         check("36. dati/fabbrica/<SYMBOL>_<TIMEFRAME>/<data>_<impronta>/config.json",
@@ -288,23 +304,23 @@ def esegui() -> int:
         with open(percorso, "rb") as f:
             dopo_byte = f.read()
         check("37. stessa config un altro giorno: stessa ricerca, nessuna scrittura", id2 == id1 and dopo_byte == prima_byte
-              and len(os.listdir(cartella_asset(dati, PERP, "M15"))) == 1)
+              and len(os.listdir(cartella_asset(dati, [PERP], "M15"))) == 1)
         check("38. letta dal file è la stessa config", leggi_config(percorso) == json.loads(json.dumps(cfg)))
         id3 = salva_config({**cfg, "seme": 5}, dati, data="20261107")
-        check("39. config diversa: ricerca nuova, in una cartella nuova", id3 != id1 and len(os.listdir(cartella_asset(dati, PERP, "M15"))) == 2)
+        check("39. config diversa: ricerca nuova, in una cartella nuova", id3 != id1 and len(os.listdir(cartella_asset(dati, [PERP], "M15"))) == 2)
         with open(percorso, "w", encoding="utf-8") as f:
             f.write(json.dumps({**cfg, "seme": 9}))
         check("40. una cartella con la stessa impronta ma un config.json cambiato: errore, nessuna sovrascrittura",
               errore(lambda: salva_config(cfg, dati)) and json.load(open(percorso, encoding="utf-8"))["seme"] == 9)
         check("41. una config sbagliata non si salva", errore(lambda: salva_config({**cfg, "lati": []}, dati)))
-        p3 = os.path.join(cartella_asset(dati, PERP, "M15"), id3, "config.json")
+        p3 = os.path.join(cartella_asset(dati, [PERP], "M15"), id3, "config.json")
         with open(p3, "rb") as f:
             byte_3 = f.read()
         id4 = salva_config({**cfg, "seme": 5, "processi": 1}, dati, data="20261108")
         with open(p3, "rb") as f:
             check("42. processi diversi: stessa impronta, stessa ricerca, config.json intatto (08/11)",
                   impronta_config({**cfg, "processi": 1}) == impronta_config(cfg) and id4 == id3
-                  and f.read() == byte_3 and len(os.listdir(cartella_asset(dati, PERP, "M15"))) == 2)
+                  and f.read() == byte_3 and len(os.listdir(cartella_asset(dati, [PERP], "M15"))) == 2)
 
         # ------------------------------------------------------------------ i confini sui dati (09/11)
         print("\nI confini standard calcolati fino all'ultima mezzanotte UTC chiusa (09/11)")
@@ -345,8 +361,8 @@ def esegui() -> int:
         prima_btc = confini_standard("M15", ultima)
         stessi = [confini_standard("M15", ultima, p) for p in ("2019-09-08 17:45", "2020-01-01 00:00",
                                                                "2020-01-02 00:00")]
-        cfg_a = config_standard(PERP, "M15", confini=prima_btc)
-        cfg_b = config_standard(PERP, "M15", confini=stessi[0])
+        cfg_a = config_standard([PERP], "M15", confini=prima_btc)
+        cfg_b = config_standard([PERP], "M15", confini=stessi[0])
         check("46. BTC, dati dal 02/01/2020 o da prima: confini e impronta della config uguali a prima (senza la prima "
               "barra)", all(x == prima_btc for x in stessi) and prima_btc["inizio"] == "2020-01-02 00:00"
               and impronta_config(cfg_a) == impronta_config(cfg_b), str(prima_btc))

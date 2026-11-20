@@ -3,8 +3,9 @@ La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
 
     config = leggi_config("…/config.json")       # controlla campi e intervalli, si ferma se manca qualcosa
     impronta_config(config)                       # sha256 del contenuto in forma ordinata, seme compreso, processi esclusi
-    id_ricerca = salva_config(config, "dati")     # dati/fabbrica/<SYMBOL>_<TIMEFRAME>/<id>/config.json
-    config_standard("BINANCE_PERP_BTCUSDT", "M15")
+    id_ricerca = salva_config(config, "dati")     # dati/fabbrica/<LISTA>_<TIMEFRAME>/<id>/config.json
+    config_standard(["BINANCE_PERP_BTCUSDT", "BINANCE_PERP_ETHUSDT"], "M15")
+    nome_lista(monete)                            # «BINANCE_PERP_BTCUSDT+ETHUSDT»; una moneta: «BINANCE_PERP_BTCUSDT»
     confini_standard("M15", ultima_barra, prima_barra)   # (09/11) fino all'ultima mezzanotte UTC chiusa; (14/11) inizio
 
 - Stessa impronta = stessa ricerca, che si può riprendere: salva_config ritorna la cartella che c'è già. Impronta
@@ -21,6 +22,11 @@ La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
   catalogo (C1), più RSI, Donchian, ADX e ATR relativo, e le tre uscite.
 - Dal 15/11 (docs/82 §12, D4 = A) solo la versione 3: RSI, Donchian, ADX e ATR relativo sul valore standard
   (blocchi.VALORI_STANDARD), in barre. budget_massimo non cambia (D3 = A): il tetto per teoria resta 40.
+- Dal 20/11 (docs/82 §14) solo la versione 5: la fabbrica lavora su una LISTA di monete dello stesso exchange e
+  mercato (`monete` al posto di `symbol`; una moneta sola è una lista di una). Nella fabbrica decide l'ATR: `ev_min`
+  della condizione 1 è in ATR; la condizione 2 non ha più P(EV<0) (§14.3). La cartella della lista è
+  dati/fabbrica/<EXCHANGE>_<MERCATO>_<COPPIA>+<COPPIA>…_<TIMEFRAME>: con una moneta è quella di prima, così le ricerche
+  della versione 4 di quella moneta restano nel suo conto.
 """
 from __future__ import annotations
 
@@ -38,14 +44,15 @@ from .blocchi import (GRIGLIE_USCITA, MINUTI_TIMEFRAME, MOTIVI_ESCLUSIONE, USCIT
 from .dati import Confini
 
 # 3 dal 15/11 (docs/82 §12, D4 = A): i quattro blocchi con parametri sul valore standard. 4 dal 20/11 (docs/82 §13):
-# tutti i trigger, del catalogo e generati, passano dalla rosa del Lab (campo «rosa»). Una strada sola: le ricerche
-# delle versioni precedenti restano su disco e nel conto, le celle 4–7 su una di esse si fermano con «rilancia la cella 2».
-VERSIONE = 4
-CAMPI = ("versione", "symbol", "timeframe", "confini", "lati", "blocchi", "rosa", "modelli", "qualita_1", "qualita_2",
+# tutti i trigger, del catalogo e generati, passano dalla rosa del Lab (campo «rosa»). 5 dal 20/11 (docs/82 §14): una
+# lista di monete, l'ATR che decide, la condizione 2 senza P(EV<0). Una strada sola: le ricerche delle versioni
+# precedenti restano su disco e nel conto, le celle 4–7 su una di esse si fermano con «rilancia la cella 2».
+VERSIONE = 5
+CAMPI = ("versione", "monete", "timeframe", "confini", "lati", "blocchi", "rosa", "modelli", "qualita_1", "qualita_2",
          "altopiano", "test_individuale", "budget", "seme", "processi")
 SOTTOCAMPI = {
-    "qualita_1": ("trade_min", "ev_min_bp", "peso_max", "totale_su_dd_min"),
-    "qualita_2": ("trade_min", "p_ev_neg_max", "peso_max", "totale_su_dd_min"),
+    "qualita_1": ("trade_min", "ev_min", "peso_max", "totale_su_dd_min"),
+    "qualita_2": ("trade_min", "peso_max", "totale_su_dd_min"),
     "altopiano": ("variazione_ore", "spostamento_min_barre", "mediana_min", "peggiore_min", "candidati_max",
                   "prove_max"),
     "test_individuale": ("alfa",),
@@ -57,6 +64,8 @@ SOTTOCAMPI = {
 ROSA_STANDARD = {"orizzonti_barre": [4, 16, 32], "q": 0.2, "soglia_famiglia": 0.6, "rho_max": 0.3, "min_eventi": 200,
                  "catalogo_generato": 1}
 FILTRI_MAX = 2                         # i modelli di docs/82 P3: T+U, T+F+U, T+F+F+U
+# docs/82 §14.1: la lista di base, Binance perp. «BTC» = una moneta sola.
+MONETE_STANDARD = ("BTC", "ETH", "XRP", "SOL", "ADA")
 # La prima finestra (docs/82 P1 e §6). Dal 09/11 dà solo l'inizio fisso e le proporzioni dei tre pezzi:
 # la cella 1 calcola i confini con confini_standard, fino all'ultima mezzanotte UTC chiusa del CSV.
 CONFINI_STANDARD = {"inizio": "2020-01-02 00:00", "ricerca_ore": 30624, "selezione_ore": 17177.75,
@@ -109,23 +118,53 @@ def _campi(d, attesi, nome: str) -> None:
         _errore(f"in {nome} ci sono campi sconosciuti {sorted(estranei)}")
 
 
+def _mercato(symbol: str) -> str:
+    """«BINANCE_PERP_BTCUSDT» → «BINANCE_PERP»."""
+    return symbol.rsplit("_", 1)[0]
+
+
+def controlla_monete(monete) -> list[str]:
+    """La lista di monete (docs/82 §14.1): non vuota, senza doppioni, tutte in SIMBOLI_EXCHANGE, stesso exchange e mercato."""
+    if isinstance(monete, str) or not isinstance(monete, (list, tuple)) or not monete:
+        _errore(f"monete deve essere una lista non vuota di symbol, non {monete!r}")
+    monete = list(monete)
+    if len(set(monete)) != len(monete):
+        _errore(f"una moneta compare due volte in {monete}")
+    fuori = [m for m in monete if m not in simboli_exchange()]
+    if fuori:
+        _errore(f"{fuori} fuori da SIMBOLI_EXCHANGE (engine/simboli.py)")
+    if len({_mercato(m) for m in monete}) != 1:
+        _errore(f"le monete di una lista stanno sullo stesso exchange e mercato: {monete}")
+    return monete
+
+
+def nome_lista(monete) -> str:
+    """Il nome della lista: «BINANCE_PERP_BTCUSDT+ETHUSDT+…»; una moneta sola, il suo symbol (come prima)."""
+    monete = controlla_monete(monete)
+    return _mercato(monete[0]) + "_" + "+".join(m.rsplit("_", 1)[1] for m in monete)
+
+
+def solo_long_lista(monete) -> bool:
+    """Spot: solo long (lo stesso mercato per tutta la lista)."""
+    return any(solo_long(m) for m in monete)
+
+
 def controlla_config(config: dict) -> dict:
     """Controlla campi e intervalli; si ferma con un errore che dice cosa manca o cosa è fuori posto."""
-    _campi(config, CAMPI, "la config")
-    if config["versione"] != VERSIONE:
-        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §13): "
+    if isinstance(config, dict) and "versione" in config and config["versione"] != VERSIONE:
+        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §14): "
                 "una ricerca di una versione precedente resta su disco e nel conto, rilancia la cella 2 per una "
                 "ricerca nuova")
-    if config["symbol"] not in simboli_exchange():
-        _errore(f"symbol {config['symbol']!r} fuori da SIMBOLI_EXCHANGE (engine/simboli.py)")
+    _campi(config, CAMPI, "la config")
+    controlla_monete(config["monete"])
     if config["timeframe"] not in MINUTI_TIMEFRAME:
         _errore(f"timeframe {config['timeframe']!r} non previsto: {list(MINUTI_TIMEFRAME)}")
     Confini.da_config(config["confini"])
     lati = config["lati"]
     if not isinstance(lati, list) or not lati or len(set(lati)) != len(lati) or not set(lati) <= {"long", "short"}:
         _errore(f"lati deve essere una lista con long e/o short, non {lati!r}")
-    if "short" in lati and solo_long(config["symbol"]):
-        _errore(f"{config['symbol']} è uno spot: solo long (togli \"short\" dai lati)")
+    if "short" in lati and solo_long_lista(config["monete"]):
+        _errore(f"{nome_lista(config['monete'])} è uno spot: solo long (togli \"short\" dai lati)")
     if not isinstance(config["blocchi"], dict) or not config["blocchi"]:
         _errore("blocchi deve essere un dizionario non vuoto {nome: griglie}")
     blocchi = blocchi_da_config(config)                         # blocchi, parametri e timeframe
@@ -150,8 +189,7 @@ def controlla_config(config: dict) -> dict:
         _intero(q["trade_min"], f"{nome}.trade_min", 2)
         _numero(q["peso_max"], f"{nome}.peso_max", 0.0, 1.0, aperto_sotto=True)
         _numero(q["totale_su_dd_min"], f"{nome}.totale_su_dd_min", 0.0)
-    _numero(q1["ev_min_bp"], "qualita_1.ev_min_bp")
-    _numero(q2["p_ev_neg_max"], "qualita_2.p_ev_neg_max", 0.0, 100.0)
+    _numero(q1["ev_min"], "qualita_1.ev_min")
     _numero(alt["variazione_ore"], "altopiano.variazione_ore", 0.0, 1.0, aperto_sotto=True)
     _intero(alt["spostamento_min_barre"], "altopiano.spostamento_min_barre", 1)
     _numero(alt["mediana_min"], "altopiano.mediana_min", 0.0, 1.0)
@@ -251,9 +289,9 @@ def impronta_config(config: dict) -> str:
     return hashlib.sha256(_testo(contenuto).encode("utf-8")).hexdigest()
 
 
-def cartella_asset(cartella_dati, symbol: str, timeframe: str) -> str:
-    """dati/fabbrica/<SYMBOL>_<TIMEFRAME>: l'unico posto dove la fabbrica scrive (docs/82 §6)."""
-    return os.path.join(str(cartella_dati), "fabbrica", f"{symbol}_{timeframe}")
+def cartella_asset(cartella_dati, monete, timeframe: str) -> str:
+    """dati/fabbrica/<LISTA>_<TIMEFRAME> (nome_lista): l'unico posto dove la fabbrica scrive (docs/82 §6 e §14)."""
+    return os.path.join(str(cartella_dati), "fabbrica", f"{nome_lista(monete)}_{timeframe}")
 
 
 def salva_config(config: dict, cartella_dati, data: str | None = None) -> str:
@@ -263,7 +301,7 @@ def salva_config(config: dict, cartella_dati, data: str | None = None) -> str:
     """
     controlla_config(config)
     impronta = impronta_config(config)
-    base = cartella_asset(cartella_dati, config["symbol"], config["timeframe"])
+    base = cartella_asset(cartella_dati, config["monete"], config["timeframe"])
     os.makedirs(base, exist_ok=True)
     for nome in sorted(os.listdir(base)):
         if nome.endswith("_" + impronta[:12]) and os.path.isdir(os.path.join(base, nome)):
@@ -302,13 +340,15 @@ def confini_standard(timeframe: str, ultima_barra, prima_barra=None) -> dict:
     """
     (09/11, decisioni di Mattia) I confini standard sui dati di oggi: inizio fisso (CONFINI_STANDARD), fine = l'ultima
     mezzanotte UTC chiusa, cioè la mezzanotte alla chiusura dell'ultima barra chiusa del CSV o quella prima
-    (`ultima_barra` = il suo inizio, UTC; su D1 è la chiusura stessa). Così nella stessa giornata UTC la cella 1 dà la
+    (`ultima_barra` = il suo inizio, UTC; su D1 è la chiusura stessa; con più monete la più vecchia fra le ultime barre,
+    docs/82 §14). Così nella stessa giornata UTC la cella 1 dà la
     stessa ricerca anche con barre nuove. I tre pezzi stanno nelle proporzioni di CONFINI_STANDARD (30624 : 17177,75 :
     11779,5 ore); ogni confine cade all'inizio di una barra del timeframe, la più vicina (a metà strada verso l'alto).
     Ritorna il dizionario «confini» della config, con le ore risultanti.
     (14/11, scelta B) Con `prima_barra` (la prima barra del CSV) l'inizio è inizio_dati(prima_barra): il 02/01/2020, o la
     prima mezzanotte UTC con i dati se viene dopo; le proporzioni dei tre pezzi si calcolano da lì. Senza, o con dati dal
-    02/01/2020 o prima, tutto come prima: stessi confini, stessa impronta.
+    02/01/2020 o prima, tutto come prima: stessi confini, stessa impronta. Con più monete `prima_barra` è la prima barra
+    della moneta più vecchia (docs/82 §14.1: stesse date per tutte, una moneta più giovane ha solo meno barre).
     """
     import pandas as pd
     if timeframe not in MINUTI_TIMEFRAME:
@@ -338,10 +378,11 @@ def confini_standard(timeframe: str, ultima_barra, prima_barra=None) -> dict:
             "cassaforte_ore": in_ore(barre - b2)}
 
 
-def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi: int = 3,
+def config_standard(monete, timeframe: str = "M15", seme: int = 0, processi: int = 3,
                     confini: dict | None = None, totale: int | None = None) -> dict:
     """
-    La config di §6, versione 4 (docs/82 §13), con tutti i blocchi di BLOCCHI_STANDARD ammessi sul timeframe e le loro
+    La config di §6, versione 5 (docs/82 §14), sulla lista `monete` (symbol interi, stesso exchange e mercato), con
+    tutti i blocchi di BLOCCHI_STANDARD ammessi sul timeframe e le loro
     griglie (per RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO un valore solo per parametro, in barre), più tutti i trigger
     generati dopo DONCHIAN, e la regola della rosa (ROSA_STANDARD). I
     blocchi del catalogo che su quel timeframe non scattano restano fuori (blocchi.py li fermerebbe). `confini` (09/11):
@@ -360,15 +401,16 @@ def config_standard(symbol: str, timeframe: str = "M15", seme: int = 0, processi
         blocchi[nome] = copy.deepcopy({k: list(v) for k, v in griglie.items()})
         if nome == "DONCHIAN":                   # docs/82 §13: i trigger generati, dopo quelli del catalogo
             blocchi.update({g: {} for g in trigger_generati()})
+    monete = controlla_monete(monete)
     config = {
-        "versione": VERSIONE, "symbol": symbol, "timeframe": timeframe,
+        "versione": VERSIONE, "monete": monete, "timeframe": timeframe,
         "confini": dict(CONFINI_STANDARD if confini is None else confini),
-        "lati": ["long"] if solo_long(symbol) else ["long", "short"],
+        "lati": ["long"] if solo_long_lista(monete) else ["long", "short"],
         "blocchi": blocchi,
         "rosa": copy.deepcopy(ROSA_STANDARD),
         "modelli": [{"trigger": 1, "filtri": [0, 2], "uscite": 1}],
-        "qualita_1": {"trade_min": 100, "ev_min_bp": 0, "peso_max": 0.10, "totale_su_dd_min": 1.0},
-        "qualita_2": {"trade_min": 50, "p_ev_neg_max": 5.0, "peso_max": 0.15, "totale_su_dd_min": 0.5},
+        "qualita_1": {"trade_min": 100, "ev_min": 0, "peso_max": 0.10, "totale_su_dd_min": 1.0},
+        "qualita_2": {"trade_min": 50, "peso_max": 0.15, "totale_su_dd_min": 0.5},
         "altopiano": {"variazione_ore": 0.15, "spostamento_min_barre": 1, "mediana_min": 0.7, "peggiore_min": 0.4,
                       "candidati_max": 3, "prove_max": 60},
         "test_individuale": {"alfa": 0.05},
@@ -388,7 +430,7 @@ def blocchi_esclusi(timeframe: str) -> list[dict]:
     """
     if timeframe not in MINUTI_TIMEFRAME:
         raise ValueError(f"timeframe {timeframe!r} non previsto: {sorted(MINUTI_TIMEFRAME)}")
-    dentro = config_standard("BINANCE_PERP_BTCUSDT", timeframe)["blocchi"]
+    dentro = config_standard(["BINANCE_PERP_BTCUSDT"], timeframe)["blocchi"]
     out = []
     for nome in BLOCCHI_STANDARD:
         if nome in dentro:

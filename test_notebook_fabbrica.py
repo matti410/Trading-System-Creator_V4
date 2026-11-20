@@ -109,7 +109,7 @@ def _file(nb):
     glossario = next(c.source for c in nb.cells if c.cell_type == "markdown" and c.source.startswith("## Glossario"))
     sigle = ("**bp", "**EV:**", "**MM", "**t:**", "**Drawdown:**", "**Funding:**", "**Zoom:**", "**In-sample",
              "**Asset:**", "**Cassaforte:**", "**Famiglia:**", "**Altopiano:**", "**Imbuto:**", "**Turno:**",
-             "**Valore standard:**")
+             "**Valore standard:**", "**Lista di monete:**", "**ATR:**", "**Trade sovrapposti:**")
     check("4. il glossario in testa spiega le sigle e le parole usate nelle celle", all(s in glossario for s in sigle),
           f"mancano: {[s for s in sigle if s not in glossario]}")
     chiamate = []
@@ -150,7 +150,7 @@ def _cambia(sorgente: str, vecchio: str, nuovo: str) -> str:
 def _copia_di_collaudo(nb, dati: str):
     """La copia che gira: campi di collaudo, cartella sintetica, config ridotta e meno simulazioni."""
     import copy
-    cfg = config_standard(SPOT, "M15", seme=0, processi=2)
+    cfg = config_standard([SPOT], "M15", seme=0, processi=2)
     cfg["confini"] = dict(CONFINI)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in BLOCCHI}
     cfg["qualita_1"]["trade_min"] = 30
@@ -166,7 +166,7 @@ def _copia_di_collaudo(nb, dati: str):
     a.source = _cambia(a.source, "pronto = avvio(", SENZA_RETE + "pronto = avvio(")
     c1 = per["1 · Configura"]
     for v, n in (('exchange = "BINANCE"', 'exchange = "BYBIT"'), ('mercato = "PERP"', 'mercato = "SPOT"'),
-                 ('moneta = "BTC"', 'moneta = "ETH"'), ("processi = 3", "processi = 2")):
+                 ('monete = "BTC, ETH, XRP, SOL, ADA"', 'monete = "ETH"'), ("processi = 3", "processi = 2")):
         c1.source = _cambia(c1.source, v, n)
     c1.source = _cambia(c1.source, "processi=processi)",
                         f"processi=processi, config=__import__('json').loads({json.dumps(cfg)!r}), data='20260101')")
@@ -246,7 +246,7 @@ def _esecuzione(nb):
               and "Trigger scattato" in sei and "schermat" not in sei.lower() and "FAB_SES" not in sei)
         check("15. 7 · Le schede: la prima scheda è mostrata e finisce con la frase", FRASE_FINALE in t["7 · Le schede"]
               and "## Regole" in t["7 · Le schede"])
-        base = cartella_asset(dati, SPOT, "M15")
+        base = cartella_asset(dati, [SPOT], "M15")
         prima = {k: _eventi(base, k) for k in (INGRESSO, ESITO)}
         id_r = next(d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d)))
         prove_prima = _righe(os.path.join(base, id_r, "prove_collaudo.csv"))

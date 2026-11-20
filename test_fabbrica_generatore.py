@@ -25,7 +25,7 @@ from engine.fabbrica.blocchi import FAMIGLIA_ADX_ATR, Blocco, blocchi_da_config,
 from engine.fabbrica.cache import Cache
 from engine.fabbrica.config import ROSA_STANDARD, budget_massimo, config_standard
 from engine.fabbrica.dati import imposta_mercato_crypto
-from engine.fabbrica.generatore import (ControlloDegenerazione, Teoria, filtri_compatibili, filtri_rimasti, lati_config,
+from engine.fabbrica.generatore import (ControlloDegenerazione, ControlloLista, Teoria, filtri_compatibili, filtri_rimasti, lati_config,
                                         resoconto_teorie, rosa_dei_trigger, seme_teoria, spazio_teoria, stato_registro,
                                         teorie_turno_1, teorie_turno_2, togli_degeneri)
 from engine.fabbrica.ottimizzatore import Categoria, Intero
@@ -38,7 +38,7 @@ N = 20_300
 
 
 def _config(symbol, blocchi, modelli=((0, 2),), lati=("long", "short"), timeframe="M15") -> dict:
-    cfg = config_standard(symbol, timeframe)
+    cfg = config_standard([symbol], timeframe)
     cfg["blocchi"] = {n: dict(g) for n, g in blocchi.items()}
     cfg["modelli"] = [{"trigger": 1, "filtri": list(m), "uscite": 1} for m in modelli]
     cfg["lati"] = list(lati)
@@ -50,7 +50,7 @@ def _tutto(cfg, cache, blocchi=None):
     tenuti, teorie)."""
     blocchi = blocchi if blocchi is not None else blocchi_da_config(cfg)
     lati = lati_config(cfg)
-    rimaste, tolte = togli_degeneri(blocchi, cache, lati, ControlloDegenerazione(cache))
+    rimaste, tolte = togli_degeneri(blocchi, {cfg["monete"][0]: cache}, lati)
     trigger = {lato: [b.nome for b in blocchi if b.tipo == "trigger" and lato in b.lati
                       and rimaste.get((b.nome, lato), (None,))] for lato in lati}
     filtri = filtri_rimasti(blocchi, lati, rimaste)
@@ -61,6 +61,19 @@ def _tutto(cfg, cache, blocchi=None):
 def _senza_generati(cfg) -> dict:
     """La config senza i trigger generati (più veloce, quando il collaudo non li riguarda)."""
     return {**cfg, "blocchi": {k: v for k, v in cfg["blocchi"].items() if k not in trigger_generati()}}
+
+
+def _rosa(blocchi, cache, lati, rimaste, regole=ROSA_STANDARD):
+    """docs/82 §14: la rosa di una moneta sola (rosa_lista), come la prepara ricerca.prepara."""
+    from engine.fabbrica.dati import orologio
+    from engine.fabbrica.rosa_lista import base_moneta
+    from engine.simboli import pip_symbol
+    from engine.stagionalita import barre_settimana
+    oro = orologio({PERP: cache.df.index}, 15)[PERP]
+    n = int(oro[-1]) + 1
+    basi = {PERP: base_moneta(cache.df, pip_symbol(PERP), regole["orizzonti_barre"], oro, n // 2)}
+    segnali = {PERP: gen.segnali_trigger(blocchi, cache, lati)}
+    return rosa_dei_trigger(blocchi, lati, rimaste, basi, segnali, regole, n, barre_settimana(cache.df.index), processi=1)
 
 
 def _uguale_registro(a: dict, b: dict) -> bool:
@@ -172,11 +185,11 @@ def esegui() -> int:
     check("7. il budget massimo con la formula nuova: turno 1 × 40 + min(150, T+F) × (filtri del lato più largo − 1) × 40 "
           "+ zoom, altopiano, selezione e cassaforte (docs/82 §11.5)",
           budget_massimo(32, cfg, 24, 3) == (32 + 24 * 2) * 40 + 80 * 270 + 80 * 60 + 2 * 80
-          and budget_massimo(4860, config_standard(PERP, "M15"), 4644, 22) == 370_200)
+          and budget_massimo(4860, config_standard([PERP], "M15"), 4644, 22) == 370_200)
 
     # ------------------------------------------------------------------ la config standard, tutto il catalogo
     print("\nLa config standard (C2: tutto il catalogo, senza i generati) sulle barre sintetiche M15")
-    std = _senza_generati(config_standard(PERP, "M15"))
+    std = _senza_generati(config_standard([PERP], "M15"))
     prima = stato_registro()
     b_std, r_std, tolte_std, ten_std, t_std = _tutto(std, cache)
     dopo = stato_registro()
@@ -200,9 +213,9 @@ def esegui() -> int:
           and len(f_std[1]) == conti[1][1], str(len(f_std[1])))
     check("13. E19 non ha teorie short; lo spot ha solo teorie long, anche con lo short scritto nei lati",
           not any(t.trigger == "E19" and t.lato == -1 for t in t_std)
-          and all(t.lato == 1 for t in teorie_turno_1({**config_standard(SPOT, "M15"), "lati": ["long", "short"]},
+          and all(t.lato == 1 for t in teorie_turno_1({**config_standard([SPOT], "M15"), "lati": ["long", "short"]},
                                                        b_std, ten_std)))
-    _, _, _, ten_sp, t_sp = _tutto(_senza_generati(config_standard(SPOT, "M15")), cache)
+    _, _, _, ten_sp, t_sp = _tutto(_senza_generati(config_standard([SPOT], "M15")), cache)
     check("14. spot: blocchi e teorie solo sul long", set(ten_sp) == {1} and t_sp and all(t.lato == 1 for t in t_sp))
     check("15. ADX e ATR relativo (stessa famiglia dichiarata) entrano tutti e due, ma mai nella stessa teoria",
           {"ADX", "ATR_RELATIVO"} <= set(ten_std[1]) and {"ADX", "ATR_RELATIVO"} <= set(ten_std[-1])
@@ -222,9 +235,9 @@ def esegui() -> int:
     rara = _blocco_a_mano(c_r, "E40", "trigger", {1: rari, -1: rari})            # 150 eventi: sotto i 200
     cfg_r = _config(PERP, {"E47": {}, "RSI_RIENTRO": {}, G: {}, "G0001_P25_SU": {}, "X0": {}})
     b_r = blocchi_da_config(cfg_r) + [rara]
-    rim_r, _ = togli_degeneri(b_r, c_r, [1, -1])
+    rim_r, _ = togli_degeneri(b_r, {PERP: c_r}, [1, -1])
     prima_r = stato_registro()
-    entrano, tab = rosa_dei_trigger(b_r, c_r, [1, -1], rim_r, PERP, ROSA_STANDARD, processi=1)
+    entrano, tab = _rosa(b_r, c_r, [1, -1], rim_r)
     dopo_r = stato_registro()
     righe_g = [r for r in tab if r["blocco"] == G]
     check("R1. il vantaggio piantato nel generato arriva nella rosa, sul long, ai tre orizzonti; lo short della coppia "
@@ -244,23 +257,25 @@ def esegui() -> int:
                     n = f"{b.nome}_{gen.NOME_LATO[lato]}"
                     gen.reg.register_entry(n, direction=lato)(b.condizione(c_r, lato))
                     nomi.append(n)
-        diretta, _ = rosa_orizzonti_entry(piantato, [4, 16, 32], pip_symbol(PERP), nomi=nomi, fuso="UTC", unita="bp")
+        from engine.indicatori import atr_giornaliero_chiuso
+        diretta, _ = rosa_orizzonti_entry(piantato, [4, 16, 32], pip_symbol(PERP), nomi=nomi, fuso="UTC", unita="atr",
+                                          atr=atr_giornaliero_chiuso(piantato))
     attesa = sorted((h, n, round(float(t), 9), bool(r)) for h, d in diretta.items()
                     for n, t, r in zip(d["candidato"], d["t_netto"], d["nella_rosa"]))
     avuta = sorted((r["orizzonte"], f"{r['blocco']}_{r['lato']}", round(r["t"], 9), r["nella_rosa"]) for r in tab)
-    check("R3. gli stessi numeri della rosa del Lab chiamata direttamente, ufficiali e generati nella stessa chiamata "
-          "(un solo Benjamini-Hochberg)", attesa == avuta and {r["blocco"] for r in tab} >= {"RSI_RIENTRO", G},
+    check("R3. gli stessi numeri della rosa del Lab (in ATR, docs/82 §14.1) chiamata direttamente, ufficiali e generati "
+          "nella stessa chiamata (un solo Benjamini-Hochberg)", attesa == avuta and {r["blocco"] for r in tab} >= {"RSI_RIENTRO", G},
           f"{len(avuta)} righe")
     check("R4. sotto i 200 eventi un trigger non è misurato: niente righe, niente prove, non entra",
           not any(r["blocco"] == "E40" for r in tab) and "E40" not in entrano[1])
     check("R5. una riga per trigger misurato e orizzonte, con eventi, scarto e t", len(tab) == len(attesa)
-          and all(set(r) == {"orizzonte", "lato", "blocco", "eventi", "scarto_bp", "t", "candidata", "nella_rosa"}
+          and all(set(r) == {"orizzonte", "lato", "blocco", "eventi", "scarto_atr", "t", "candidata", "nella_rosa"}
                   for r in tab))
     check("R6. il registro delle condizioni è identico prima e dopo la rosa", _uguale_registro(prima_r, dopo_r))
-    solo_l, tab_l = rosa_dei_trigger(b_r, c_r, [1], rim_r, SPOT, ROSA_STANDARD, processi=1)
+    solo_l, tab_l = _rosa(b_r, c_r, [1], rim_r)
     check("R7. sullo spot solo il long: righe e trigger solo long", set(solo_l) == {1}
           and {r["lato"] for r in tab_l} == {"long"} and G in solo_l[1])
-    vuoto, _ = rosa_dei_trigger([rara], c_r, [1, -1], {}, PERP, ROSA_STANDARD, processi=1)
+    vuoto, _ = _rosa([rara], c_r, [1, -1], {})
     check("R8. nessun trigger nella rosa: liste vuote (la ricerca poi si ferma, collaudo in test_fabbrica_ricerca)",
           vuoto == {1: [], -1: []})
 
@@ -285,7 +300,7 @@ def esegui() -> int:
     a_stato = Blocco("PARAM_STATO", "trigger", "prova", 15, (Intero("p_barre", 5, 5, 1),), {"p_barre": (5,)},
                      _calcola=lambda c, l, v, _m=due_di_fila: _m)
     check("26. un blocco con parametri della fabbrica in «STATO»: è un errore del blocco, la ricerca si ferma",
-          errore(lambda: togli_degeneri([a_stato], c3, [1, -1])))
+          errore(lambda: togli_degeneri([a_stato], {PERP: c3}, [1, -1])))
 
     # ------------------------------------------------------------------ il seme
     print("\nIl seme della teoria")
@@ -319,10 +334,10 @@ def esegui() -> int:
     salita = aggiungi_indicatori(sintetici.mercato(N, seme=6, minuti=15, prezzo=30_000, spinta=np.full(N, 0.0005)))
     c_sal = Cache(salita, 300)
     b_l = blocchi_da_config({"timeframe": "M15", "blocchi": {"DONCHIAN": {"canale_ore": [24, 2500]}}})
-    r_l, tolte_l = togli_degeneri(b_l, c_sal, [1, -1])
+    r_l, tolte_l = togli_degeneri(b_l, {PERP: c_sal}, [1, -1])
     check("31. per lato: su un mercato che sale molto il canale di 10.000 barre non scatta mai sullo short ed esce solo da lì",
           tolte_l == [{"blocco": "DONCHIAN", "lato": "short", "valori": {"canale_barre": 10000}, "esito": "SEMPRE_FALSA",
-                       "quota_vere": 0.0}] and r_l[("DONCHIAN", 1)] == ({"canale_barre": 96}, {"canale_barre": 10000})
+                       "quota_vere": 0.0, "moneta": PERP}] and r_l[("DONCHIAN", 1)] == ({"canale_barre": 96}, {"canale_barre": 10000})
           and r_l[("DONCHIAN", -1)] == ({"canale_barre": 96},), str(tolte_l))
     uscita = next(b for b in b_std if b.nome == "X0")
     ctl = ControlloDegenerazione(cache)
@@ -338,10 +353,10 @@ def esegui() -> int:
     originale = gen.verifica_degenerazione
     gen.verifica_degenerazione = lambda *a, **k: chiamate.append(1) or originale(*a, **k)
     try:
-        ctl2 = ControlloDegenerazione(cache)
-        togli_degeneri(b_d, cache, [1, -1], ctl2)
+        ctl2 = ControlloLista({PERP: ControlloDegenerazione(cache)})
+        togli_degeneri(b_d, {PERP: cache}, [1, -1], ctl2)
         n_prima = len(chiamate)
-        togli_degeneri(b_d, cache, [1, -1], ctl2)
+        togli_degeneri(b_d, {PERP: cache}, [1, -1], ctl2)
     finally:
         gen.verifica_degenerazione = originale
     check("34. una combinazione già misurata non si rimisura", n_prima >= 1 and len(chiamate) == n_prima, f"{n_prima} misure, poi nessuna")
@@ -388,7 +403,7 @@ def esegui() -> int:
     # ------------------------------------------------------------------ D1, da leggere
     print("\nD1, barre sintetiche: le combinazioni degeneri tolte")
     d1 = aggiungi_indicatori(sintetici.mercato(12_300, seme=0, minuti=1440, prezzo=30_000))
-    std_d1 = _senza_generati(config_standard(PERP, "D1"))
+    std_d1 = _senza_generati(config_standard([PERP], "D1"))
     c_d1 = Cache(d1, 300)
     b1, r1, tolte1, ten1, t1 = _tutto(std_d1, c_d1)
     elenco = "; ".join(f"{x['blocco']} {x['lato']} {x['valori']} {x['esito']} {x['quota_vere']:.1%}" for x in tolte1

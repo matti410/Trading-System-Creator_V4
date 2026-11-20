@@ -32,7 +32,7 @@ from engine.fabbrica.dati import Confini, carica_pezzi
 from engine.fabbrica.generatore import (ControlloDegenerazione, Teoria, disponibile, lati_config, teorie_turno_1,
                                         teorie_turno_2, togli_degeneri)
 from engine.fabbrica.ottimizzatore import Categoria
-from engine.fabbrica.valutatore import (Costi, Misure, Strategia, Valutatore, id_strategia, misure_da_bp, obiettivo,
+from engine.fabbrica.valutatore import (Costi, Misure, Strategia, Valutatore, ValutatoreLista, id_strategia, misure_lista, obiettivo,
                                         qualita_1, trade_completi)
 from engine.giudizio import t_stat
 from engine.indicatori import aggiungi_indicatori
@@ -47,27 +47,33 @@ TOLLERANZA = 1e-9
 PREFISSO = "PROVA_FAB_VAL_"
 
 
+def misure_da_bp(x):
+    """Le misure di trade lontani fra loro (nessuno a meno di H barre da un altro): il t è giudizio.t_stat (§14.2)."""
+    x = np.asarray(x, dtype=float)
+    return misure_lista(x, x, np.arange(x.size) * 1000, 16, 672)
+
+
 def _prepara(cartella, symbol, prezzo, seme):
     df = sintetici.mercato(32_500, seme=seme, minuti=15, inizio="2024-01-01", prezzo=prezzo)
     sintetici.scrivi_storico(cartella, symbol, "M15", df)
     if "_PERP_" in symbol:
         sintetici.scrivi_funding(cartella, symbol, df, seme=seme)
-    cfg = config_standard(symbol, "M15")
+    cfg = config_standard([symbol], "M15")
     cfg["confini"] = dict(CONFINI)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in BLOCCHI_P_L2}   # i blocchi di P-L2, come prima
-    pezzi = carica_pezzi(symbol, "M15", Confini.da_config(cfg["confini"]), cartella)
+    pezzi = carica_pezzi([symbol], "M15", Confini.da_config(cfg["confini"]), cartella)[symbol]
     costi = pezzi.costi("ricerca")
     dfi = aggiungi_indicatori(pezzi.ricerca)
     cache = Cache(dfi, 800)
     blocchi = blocchi_da_config(cfg)
     lati = lati_config(cfg)
-    controllo = ControlloDegenerazione(cache)
-    rimaste, _ = togli_degeneri(blocchi, cache, lati, controllo)
+    rimaste, _ = togli_degeneri(blocchi, {symbol: cache}, lati)
     tenuti = {lato: [b.nome for b in blocchi if lato in b.lati and disponibile(b.nome, lato, rimaste)] for lato in lati}
     teorie = teorie_turno_1(cfg, blocchi, tenuti)                  # le teorie dei due turni, con tutti i blocchi rimasti
     teorie += teorie_turno_2([t for t in teorie if len(t.filtri) == 1], cfg, blocchi, tenuti)
     return {"cfg": cfg, "costi": costi, "df": dfi, "cache": cache, "blocchi": blocchi, "teorie": teorie,
-            "valutatore": Valutatore(blocchi, cache, Costi(dfi, costi))}
+            "valutatore": Valutatore(blocchi, cache, Costi(dfi, costi)),
+            "lista": ValutatoreLista(blocchi, {symbol: cache}, {symbol: Costi(dfi, costi)})}
 
 
 def _casuale(teoria: Teoria, blocchi: dict, rng) -> Strategia:
@@ -248,8 +254,9 @@ def esegui() -> int:
         print("\nMisure e condizione di qualità 1")
         m = misure_da_bp([10.0, -5.0, 20.0, -30.0, 40.0])
         # curva 0, 10, 5, 25, -5, 35: drawdown 25 - (-5) = 30; peso 40 / (10 + 20 + 40)
-        check("15. misure a mano: 5 trade, totale 35, EV 7, drawdown 30, peso 4/7, totale/drawdown 35/30",
-              (m.trade, m.totale_bp, m.ev_bp, m.dd_bp) == (5, 35.0, 7.0, 30.0) and abs(m.peso_max - 40 / 70) < 1e-12
+        check("15. misure a mano (in ATR): 5 trade, totale 35, EV 7, drawdown 30, peso 4/7, totale/drawdown 35/30",
+              (m.trade, m.totale_atr, m.ev_atr, m.dd_atr, m.ev_bp) == (5, 35.0, 7.0, 30.0, 7.0)
+              and abs(m.peso_max - 40 / 70) < 1e-12
               and abs(m.totale_su_dd - 35 / 30) < 1e-12 and m.t == t_stat([10.0, -5.0, 20.0, -30.0, 40.0]))
         vuote = misure_da_bp([])
         check("16. nessun trade: t e EV NaN, l'obiettivo è NaN", vuote.trade == 0 and math.isnan(vuote.t) and math.isnan(obiettivo(vuote)))
@@ -258,7 +265,7 @@ def esegui() -> int:
         pochi = misure_da_bp([5.0, 7.0, -1.0])
         check("18. l'obiettivo è il t anche se la condizione di qualità non passa (decisione del 07/11)",
               obiettivo(pochi) == pochi.t and not qualita_1(pochi, perp["cfg"]["qualita_1"])[0])
-        q = {"trade_min": 4, "ev_min_bp": 0, "peso_max": 0.5, "totale_su_dd_min": 1.0}
+        q = {"trade_min": 4, "ev_min": 0, "peso_max": 0.5, "totale_su_dd_min": 1.0}
         casi = {"trade": [1.0, 2.0, 3.0], "ev": [1.0, -2.0, 1.0, -1.0], "peso": [10.0, 1.0, 1.0, -1.0],
                 "dd": [1.0, -5.0, 1.0, 1.0, 1.0, 3.0], "passa": [2.0, 3.0, -1.0, 2.0, 3.0]}
         motivi = {k: qualita_1(misure_da_bp(x), q) for k, x in casi.items()}
@@ -273,25 +280,28 @@ def esegui() -> int:
         b2 = Strategia.da_teoria(teoria, {"DONCHIAN": {"canale_barre": np.int64(48)}, "ADX": {"periodo_barre": 24, "soglia": 20},
                                           "X3": {"durata_barre": 16, "perc_stop": 90, "target": 90}})
         check("20. stessa strategia da due strade (ordine delle chiavi, interi di numpy): stessa impronta",
-              id_strategia(a, PERP, "M15") == id_strategia(s, PERP, "M15") == id_strategia(b2, PERP, "M15") and a == s)
+              id_strategia(a, [PERP], "M15") == id_strategia(s, [PERP], "M15") == id_strategia(b2, [PERP], "M15") and a == s)
         cambiata = Strategia.da_teoria(teoria, {"DONCHIAN": {"canale_barre": 49}, "ADX": {"periodo_barre": 24, "soglia": 20},
                                                 "X3": {"durata_barre": 16, "perc_stop": 90, "target": 90}})
-        check("21. un parametro cambiato, un altro symbol o timeframe, un altro lato: impronta diversa",
-              len({id_strategia(s, PERP, "M15"), id_strategia(cambiata, PERP, "M15"), id_strategia(s, SPOT, "M15"),
-                   id_strategia(s, PERP, "H1"), id_strategia(Strategia(-1, s.trigger, s.filtri, s.uscita, s.valori), PERP, "M15")}) == 5)
+        check("21. un parametro cambiato, un'altra lista di monete o timeframe, un altro lato: impronta diversa",
+              len({id_strategia(s, [PERP], "M15"), id_strategia(cambiata, [PERP], "M15"), id_strategia(s, [SPOT], "M15"),
+                   id_strategia(s, [PERP], "H1"), id_strategia(Strategia(-1, s.trigger, s.filtri, s.uscita, s.valori), [PERP], "M15"),
+                   id_strategia(s, [PERP, "BINANCE_PERP_ETHUSDT"], "M15")}) == 6
+              and errore(lambda: id_strategia(s, PERP, "M15")))
         check("22. valori per un blocco che la teoria non ha: errore", errore(lambda: Strategia.da_teoria(teoria, {"E47": {}})))
         check("23. Misure si scrive come dizionario", isinstance(m, Misure) and set(m.come_dict()) == {
-            "trade", "totale_bp", "ev_bp", "t", "dd_bp", "peso_max", "totale_su_dd"})
+            "trade", "totale_atr", "ev_atr", "t", "dd_atr", "peso_max", "totale_su_dd", "ev_bp"})
 
         # ------------------------------------------------------------------ la velocità, da leggere
         n = 300
         rng = np.random.default_rng(31)
         strategie = [_casuale(perp["teorie"][int(rng.integers(len(perp["teorie"])))], blocchi, rng) for _ in range(n)]
+        vl = perp["lista"]
         for x in strategie:
-            v.valuta(x)                                  # prima passata: le soglie e le maschere entrano in cache
+            vl.valuta(x)                                 # prima passata: le soglie e le maschere entrano in cache
         t1 = time.perf_counter()
         for x in strategie:
-            v.valuta(x)
+            vl.valuta(x)
         al_secondo = n / (time.perf_counter() - t1)
         check("24. velocità del percorso corto, cache calda (da leggere)", al_secondo > 0,
               f"{al_secondo:.0f} valutazioni al secondo su {len(perp['df']):,} barre".replace(",", "."))

@@ -7,17 +7,22 @@ congelati, sul pezzo di selezione.
     sel.scelte           # le strategie con esito «scelta»: le sole che possono andare oltre (cassaforte, L4b)
     controlla_ammessa(sel.tabella, id_strategia)   # si ferma se la strategia non è fra le scelte
 
-- Il pezzo (pezzo_selezione): ricerca + selezione attaccati, così indicatori e soglie adattive non ripartono da zero;
+- Più monete (20/11, docs/82 §14): tutto quello che segue vale sulla lista, con i trade di tutte le monete in un solo
+  elenco (valutatore.ValutatoreLista): EV in ATR, t con i trade sovrapposti. La tabella per moneta (per_moneta) è solo
+  da leggere.
+- Il pezzo (pezzo_selezione, per moneta): ricerca + selezione attaccati, così indicatori e soglie adattive non ripartono da zero;
   finisce all'ultima barra della selezione, nessuna barra della cassaforte. I segnali prima della prima barra della
   selezione si spengono: ogni trade nasce nella selezione. Come in tutto il motore, un trade ancora aperto all'ultima
   barra resta fuori dai trade (motore_veloce, U7): non si chiude con un prezzo inventato. I costi sono quelli del pezzo
   di selezione (Pezzi.costi("selezione")), con il funding dei due pezzi attaccato.
-- Condizione di qualità 2 (qualita_2): almeno `trade_min` trade; giudizio.verdetto senza SCARTATA con EV in bp e
-  P(EV<0) sotto `p_ev_neg_max` (bootstrap di giudizio.p_ev_negativo, 10.000 ricampionamenti, seme 0, sui bp); il
-  trade migliore al massimo `peso_max` dei guadagni; totale / drawdown almeno `totale_su_dd_min`.
-- Test individuale, che decide: t netto in bp sulla selezione >= giudizio.soglia_rumore(1, alfa) = 1,96 con alfa 5%.
+- Condizione di qualità 2 (qualita_2): almeno `trade_min` trade; il trade migliore al massimo `peso_max` dei guadagni;
+  totale / drawdown almeno `totale_su_dd_min`. Dal 20/11 (docs/82 §14.3, accettata da Mattia) senza P(EV<0): il t
+  decide già (con t = 1,96 la P(EV<0) è circa 2,5%), e il bootstrap pesca un trade alla volta, quindi non vede i trade
+  sovrapposti su più monete.
+- Test individuale, che decide: t netto in ATR sulla selezione >= giudizio.soglia_rumore(1, alfa) = 1,96 con alfa 5%.
 - Famiglie fra le strategie che passano (famiglie_strategie), lato per lato, sui segnali finali (trigger, filtri,
-  quarantena) di ricerca + selezione: solo segnali, non è una prova. Due strategie stanno insieme se famiglie.famiglie
+  quarantena) di ricerca + selezione: solo segnali, non è una prova. Con più monete le barre di tutte le monete messe
+  in fila (rosa_lista.in_fila): due strategie sono parenti se entrano sulle stesse barre della stessa moneta. Due strategie stanno insieme se famiglie.famiglie
   le unisce (famiglia 60%, lift 1,3) o se famiglie.sovrapposizioni le dà doppioni (quota 70%, lift 1,3). Di ogni
   famiglia resta la strategia con il t di selezione più alto (a parità, l'id più piccolo): esito «scelta»; le altre
   «stessa famiglia». Le strategie temporanee stanno in un registro isolato, che torna identico anche dopo un errore.
@@ -37,19 +42,19 @@ import pandas as pd
 from engine import registry as reg
 from engine.famiglie import famiglie as famiglie_misurate
 from engine.famiglie import sovrapposizioni
-from engine.giudizio import SCARTATA, p_ev_negativo, soglia_rumore, verdetto
+from engine.giudizio import soglia_rumore
 from engine.indicatori import aggiungi_indicatori
 
 from .blocchi import blocchi_da_config
-from .cache import Cache
+from .cache import Cache, MemoriaComune
 from .dati import imposta_mercato_crypto
 from .generatore import NOME_LATO, Teoria, _registro_isolato, _serie
-from .valutatore import Costi, Misure, Strategia, Valutatore, id_strategia, misure_da_bp
+from .rosa_lista import in_fila
+from .valutatore import Costi, Misure, Strategia, Valutatore, ValutatoreLista, id_strategia
 
 PEZZO = "selezione"
 FASE = "selezione"
 LIMITE_CACHE_MB = 1500
-N_BOOT, SEME_BOOT = 10_000, 0                 # P(EV<0) come nel Lab (giudizio.p_ev_negativo)
 # Le regole delle famiglie già decise (docs/50 §7.5, docs/82 P6): passate per esteso, anche dove sono i predefiniti.
 SOGLIA_FAMIGLIA, QUOTA_DOPPIONE, LIFT_MIN = 0.60, 0.70, 1.3
 PREFISSO = "FAB_SEL_"                         # le strategie registrate per il tempo della misura delle famiglie
@@ -82,25 +87,23 @@ def pezzo_selezione(pezzi) -> PezzoSelezione:
     return PezzoSelezione(df, inizio, costi)
 
 
-class ValutatoreSelezione(Valutatore):
-    """Il valutatore della fabbrica con i segnali spenti prima della barra `inizio`: ogni trade nasce dopo."""
-
-    def __init__(self, blocchi, cache, costi: Costi, inizio: int):
-        super().__init__(blocchi, cache, costi)
-        self.inizio = int(inizio)
-        self._utili = self._utili.copy()
-        self._utili[: self.inizio] = False
+def valutatore_lista(config: dict, pezzi_per_moneta: dict, limite_mb: float = LIMITE_CACHE_MB) -> ValutatoreLista:
+    """
+    Il valutatore della lista sui pezzi attaccati di ogni moneta ({symbol: PezzoSelezione o PezzoCassaforte}), con i
+    segnali spenti prima della barra `inizio` di ogni moneta: ogni trade nasce nel pezzo. Una cache sola per la lista.
+    """
+    blocchi = blocchi_da_config(config)
+    comune = MemoriaComune(limite_mb)
+    caches = {m: Cache(p.df, limite_mb, comune) for m, p in pezzi_per_moneta.items()}
+    return ValutatoreLista(blocchi, caches, {m: Costi(p.df, p.costi) for m, p in pezzi_per_moneta.items()},
+                           inizio={m: p.inizio for m, p in pezzi_per_moneta.items()})
 
 
 # ------------------------------------------------------------------ le regole
-def qualita_2(m: Misure, p_neg: float, q: dict) -> tuple[bool, str]:
-    """Condizione di qualità 2 (docs/82 P6): (passa, motivo). Il motivo è vuoto se passa."""
+def qualita_2(m: Misure, q: dict) -> tuple[bool, str]:
+    """Condizione di qualità 2 (docs/82 P6; senza P(EV<0) dal 20/11, §14.3): (passa, motivo). Vuoto se passa."""
     if m.trade < q["trade_min"]:
         return False, f"{m.trade} trade, meno di {q['trade_min']}"
-    v = verdetto(ev=m.ev_bp, p_neg=p_neg, n_trades=m.trade, p_max=q["p_ev_neg_max"], min_trades=q["trade_min"],
-                 ev_min=0.0)
-    if v["esito"] == SCARTATA:
-        return False, f"verdetto SCARTATA: {v['motivo'].replace('pips', 'bp')}"
     if not m.peso_max <= q["peso_max"]:
         return False, f"il trade migliore pesa il {100 * m.peso_max:.1f}% dei guadagni, oltre il {100 * q['peso_max']:.0f}%"
     if not m.totale_su_dd >= q["totale_su_dd_min"]:
@@ -113,11 +116,9 @@ def soglia_test(alfa: float) -> float:
     return soglia_rumore(1, alfa)
 
 
-def giudica(bp, config: dict) -> dict:
+def giudica(m: Misure, config: dict) -> dict:
     """Le misure di una strategia sulla selezione e il giudizio: condizione 2, poi il test individuale, che decide."""
-    m = misure_da_bp(bp)
-    p_neg = p_ev_negativo(np.asarray(bp, dtype=float), n_boot=N_BOOT, seed=SEME_BOOT) if m.trade else math.nan
-    passa_q2, motivo_q2 = qualita_2(m, p_neg, config["qualita_2"])
+    passa_q2, motivo_q2 = qualita_2(m, config["qualita_2"])
     soglia = soglia_test(config["test_individuale"]["alfa"])
     passa_t = bool(m.t == m.t and m.t >= soglia)
     if not passa_q2:
@@ -127,7 +128,7 @@ def giudica(bp, config: dict) -> dict:
                   else "test individuale: t non calcolabile")
     else:
         motivo = ""
-    return {**m.come_dict(), "p_ev_neg": p_neg, "qualita_2": passa_q2, "motivo_q2": motivo_q2,
+    return {**m.come_dict(), "qualita_2": passa_q2, "motivo_q2": motivo_q2,
             "soglia_test": soglia, "test": passa_t, "passa": passa_q2 and passa_t, "motivo": motivo}
 
 
@@ -138,11 +139,11 @@ def teoria_da_id(id_teoria: str) -> Teoria:
     return Teoria(1 if lato == "L" else -1, trigger, tuple(f for f in filtri.split("+") if f and f != "-"), uscita)
 
 
-def strategia_da_riga(riga, symbol: str, timeframe: str) -> Strategia:
+def strategia_da_riga(riga, monete, timeframe: str) -> Strategia:
     """La strategia di una riga delle sopravvissute (teoria, valori in JSON); si ferma se l'impronta non torna."""
     valori = riga["valori"] if isinstance(riga["valori"], dict) else json.loads(riga["valori"])
     s = Strategia.da_teoria(teoria_da_id(riga["teoria"]), valori)
-    if id_strategia(s, symbol, timeframe) != riga["id_strategia"]:
+    if id_strategia(s, monete, timeframe) != riga["id_strategia"]:
         raise ValueError(f"la strategia {riga['id_strategia']} non torna dai suoi valori: le sopravvissute sono cambiate.")
     return s
 
@@ -205,25 +206,33 @@ def famiglie_strategie(maschere: dict, df: pd.DataFrame, lato: int, punteggi: di
 
 
 # ------------------------------------------------------------------ la selezione
+COLONNE = ["teoria", "id_strategia", "lato", "trade", "totale_atr", "ev_atr", "ev_bp", "t", "dd_atr", "peso_max",
+           "totale_su_dd", "qualita_2", "motivo_q2", "soglia_test", "test", "famiglia", "esito", "motivo", "valori"]
+COLONNE_MONETA = ["id_strategia", "moneta", "trade", "ev_atr", "ev_bp", "t"]     # §14.1 punto 5: solo da leggere
+
+
 @dataclass
 class Selezione:
     tabella: pd.DataFrame
     famiglie: pd.DataFrame
     sovrapposizioni: pd.DataFrame
     conto: dict = field(default_factory=dict)
+    per_moneta: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=COLONNE_MONETA))
 
     @property
     def scelte(self) -> pd.DataFrame:
         return self.tabella[self.tabella["esito"] == "scelta"].reset_index(drop=True)
 
 
-COLONNE = ["teoria", "id_strategia", "lato", "trade", "totale_bp", "ev_bp", "t", "dd_bp", "peso_max", "totale_su_dd",
-           "p_ev_neg", "qualita_2", "motivo_q2", "soglia_test", "test", "famiglia", "esito", "motivo", "valori"]
+def righe_per_moneta(id_strat: str, misure: dict) -> list[dict]:
+    """La tabella per moneta di una strategia ({symbol: Misure}): trade, EV in ATR e in bp, t. Solo da leggere."""
+    return [{"id_strategia": id_strat, "moneta": m, "trade": x.trade, "ev_atr": x.ev_atr, "ev_bp": x.ev_bp, "t": x.t}
+            for m, x in misure.items()]
 
 
 def _righe_prove(id_ricerca: str, tabella: pd.DataFrame) -> list[dict]:
     return [{"id_ricerca": id_ricerca, "pezzo": PEZZO, "fase": FASE, "teoria": r.teoria, "id_strategia": r.id_strategia,
-             "trade": r.trade, "ev_bp": r.ev_bp, "t": r.t} for r in tabella.itertuples()]
+             "trade": r.trade, "ev_atr": r.ev_atr, "t": r.t} for r in tabella.itertuples()]
 
 
 def seleziona(sopravvissute: pd.DataFrame, pezzi, config: dict, id_ricerca: str = "", prove=None) -> Selezione:
@@ -232,35 +241,36 @@ def seleziona(sopravvissute: pd.DataFrame, pezzi, config: dict, id_ricerca: str 
     strategia con misure, condizione 2, test individuale, famiglia, esito e motivo (vedi la testa del file). Con
     `prove` (registro.FileProve della ricerca) ogni strategia valutata diventa una riga del file delle prove.
     """
-    symbol, timeframe = config["symbol"], config["timeframe"]
+    monete, timeframe = config["monete"], config["timeframe"]
     if not len(sopravvissute):
         return Selezione(pd.DataFrame(columns=COLONNE), *famiglie_strategie({}, pd.DataFrame(), 1, {}))
-    p = pezzo_selezione(pezzi)
-    blocchi = [b for b in blocchi_da_config(config)]
-    cache = Cache(p.df, LIMITE_CACHE_MB)
-    costi = Costi(p.df, p.costi)
-    valutatore = ValutatoreSelezione(blocchi, cache, costi, p.inizio)
-    tutto = Valutatore(blocchi, cache, costi)          # per i segnali delle famiglie: ricerca + selezione
-    righe, strategie = [], {}
+    p = {m: pezzo_selezione(pezzi[m]) for m in monete}
+    valutatore = valutatore_lista(config, p)
+    righe, strategie, per_moneta = [], {}, []
     for r in sopravvissute.to_dict("records"):
-        s = strategia_da_riga(r, symbol, timeframe)
+        s = strategia_da_riga(r, monete, timeframe)
         i = r["id_strategia"]
         if i in strategie:
             continue
         strategie[i] = s
-        g = giudica(valutatore.bp(s), config)
+        g = giudica(valutatore.valuta(s), config)
         righe.append({"teoria": r["teoria"], "id_strategia": i, "lato": NOME_LATO[s.lato], **g,
                       "valori": json.dumps(s.come_dict()["valori"], ensure_ascii=False, sort_keys=True)})
+        per_moneta += righe_per_moneta(i, valutatore.per_moneta_misure(s))
     tabella = pd.DataFrame(righe)
     if prove is not None:
         prove.aggiungi(_righe_prove(id_ricerca, tabella))
     tabella["famiglia"] = None
     tabella["esito"] = np.where(tabella["passa"], "scelta", "scartata")
     fam, sov = [], []
+    # per i segnali delle famiglie: ricerca + selezione di tutte le monete, messe in fila
+    tutto = {m: Valutatore(list(v.blocchi.values()), v.cache, v.costi) for m, v in valutatore.per_moneta.items()}
+    finto = pd.DataFrame(index=pd.RangeIndex(len(in_fila([np.zeros(len(p[m].df), bool) for m in monete]))))
     for lato in (1, -1):
         passano = tabella[tabella["passa"] & (tabella["lato"] == NOME_LATO[lato])]
-        maschere = {i: tutto.segnali(strategie[i])["segnale"] for i in passano["id_strategia"]}
-        f, o = famiglie_strategie(maschere, p.df, lato, dict(zip(passano["id_strategia"], passano["t"])))
+        maschere = {i: in_fila([tutto[m].segnali(strategie[i])["segnale"] for m in monete])
+                    for i in passano["id_strategia"]}
+        f, o = famiglie_strategie(maschere, finto, lato, dict(zip(passano["id_strategia"], passano["t"])))
         fam.append(f)
         sov.append(o)
     famiglie = pd.concat([f for f in fam if len(f)], ignore_index=True) if any(len(f) for f in fam) else fam[0]
@@ -275,7 +285,7 @@ def seleziona(sopravvissute: pd.DataFrame, pezzi, config: dict, id_ricerca: str 
             tabella.at[k, "esito"] = "stessa famiglia"
             tabella.at[k, "motivo"] = f"stessa famiglia di {f.famiglia}, che ha il t di selezione più alto"
     tabella = tabella.drop(columns=["passa"])[COLONNE]
-    return Selezione(tabella, famiglie, sovr)
+    return Selezione(tabella, famiglie, sovr, per_moneta=pd.DataFrame(per_moneta, columns=COLONNE_MONETA))
 
 
 def controlla_ammessa(tabella: pd.DataFrame, id_strat: str) -> None:
@@ -300,4 +310,4 @@ def con_conto(sel: Selezione, conto: dict) -> Selezione:
     pos = t.columns.get_loc("test") + 1
     t.insert(pos, "prove_asset", conto.get("asset"))
     t.insert(pos + 1, "soglia_da_leggere", conto.get("soglia_da_leggere"))
-    return Selezione(t, sel.famiglie, sel.sovrapposizioni, dict(conto))
+    return Selezione(t, sel.famiglie, sel.sovrapposizioni, dict(conto), sel.per_moneta)
