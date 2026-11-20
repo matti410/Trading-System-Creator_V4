@@ -1,12 +1,12 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab. **20/11:** §13 fatta (ramo `fabbrica-rosa`), filtri: scelta A.
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab. **20/11:** §13 fatta (ramo `fabbrica-rosa`), filtri: scelta A. **20/11 sera:** proposta nuova in §14 (la fabbrica su più monete), solo testo.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
 §10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11) · §12 I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera) ·
-§13 I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11)
+§13 I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11) · §14 La fabbrica su più monete (proposta del 20/11)
 
 ---
 
@@ -1509,3 +1509,120 @@ Oggi «un blocco per famiglia» sceglie anche fra i filtri (21 long e 22 short s
 - **B:** il passo resta solo per i filtri. BTC 1.548 teorie, tetto 240.000, 8,1–14,7 min; ETH 930, 220.000, 7,2–13,2.
 
 *Consiglio:* **A**: un passo in meno e nessuna regola a parte, per circa 2–4 minuti di ricerca in più su M15.
+
+## §14 · La fabbrica su più monete (proposta del 20/11)
+
+**Stato:** proposta, solo testo, sulle decisioni di Mattia del 20/11; nessun codice prima del via. Per la fabbrica cade
+la regola del 18/10 «niente pooling fra symbol»; nel Lab resta.
+
+### §14.1 · Lo schema
+
+1. Una strategia è **una regola applicata a una lista di monete**, di base Binance perp BTC, ETH, XRP, SOL, ADA. I trade
+   di tutte vanno in **un solo elenco**: EV, t e condizioni di qualità si calcolano lì. Una moneta sola è una lista di una.
+2. **Stesse date di calendario** per ricerca, selezione e cassaforte; una moneta più giovane ha solo meno barre. La
+   cassaforte resta chiusa per tutte fino alla cella 5.
+3. **Ogni trade in ATR:** il netto diviso l'ATR giornaliero a 5 giornate chiuse noto al segnale
+   (`indicatori.atr_giornaliero_chiuso`: l'unità «atr» che V4 ha già, `stagionalita.in_unita` per la rosa,
+   `metriche.atr_per_trade` per i trade). Un trade da 1 ATR pesa uguale su BTC e su SOL. I bp accanto, da leggere.
+4. **Costi e funding** di ogni trade dalla sua moneta. Una strategia è **una prova** nel conto e un trigger è **un test**
+   nel BH, con 1 o con 5 monete.
+5. **Nessuna scelta di monete:** la strategia vale per tutte quelle della config; la scheda mostra il totale e una
+   tabella per moneta, solo da leggere.
+
+### §14.2 · L'incertezza raggruppata per giorno
+
+**Una regola per ogni t:** i contributi di tutte le monete si sommano per giorno UTC; poi i giorni si trattano come oggi
+le barre in `stagionalita.errore_sovrapposti`: due giorni più vicini della durata del trade più lungo (arrotondata in su
+al giorno) più uno contano per intero. Su M15: il giorno stesso e quello dopo.
+- **Rosa:** il contributo di ogni barra è quello di oggi (`scarto_orario`: l'evento contro il mercato della stessa ora
+  della sua moneta); cambia solo il raggruppamento, per giorno su tutte le monete. Durata = l'orizzonte.
+- **Valutatore** (passo 1, zoom, altopiano), **selezione** e **cassaforte:** t = EV diviso l'incertezza dei trade
+  raggruppati per giorno d'ingresso; durata = le barre massime dell'uscita. Prende il posto di `giudizio.t_stat`, che
+  tratta i trade come indipendenti.
+- **Famiglie** (rosa e selezione): la somiglianza si misura sulle barre di tutte le monete messe in fila; due trigger sono
+  parenti se scattano sulle stesse barre della stessa moneta. **rho** (rosa): la serie giornaliera di un trigger è la
+  somma delle sue monete.
+
+Così due monete che si muovono identiche non raddoppiano il t (primo collaudo, §14.7).
+
+### §14.3 · Un controllo solo in selezione
+
+Oggi la selezione chiede P(EV<0) < 5% (condizione 2) **e** t ≥ 1,96 (test individuale). Con t = 1,96 la P(EV<0) è circa
+2,5%: chi passa il t passa anche l'altra. Nelle 10 selezioni su disco (1.339 strategie) nessuna ha passato il t e
+fallito P(EV<0); 16 il contrario. **Consiglio: tenere il t e togliere P(EV<0)**: il t decide già, e il bootstrap pesca
+un trade alla volta, quindi non vede i trade dello stesso giorno su più monete. La condizione 2 resta con trade minimi,
+peso del trade migliore e totale / drawdown.
+
+### §14.4 · Money management e stress test
+
+**Il giorno intero.** Sulla storia vera i trade che si aprono nello stesso giorno, su qualunque moneta, prendono i lotti
+dal capitale di inizio giornata e la leva conta la somma delle loro posizioni (tetto 2). Monte Carlo e stress test pescano
+giorni interi invece di trade singoli. Lotti minimi e passi dalla moneta di ogni trade. Un trade al giorno = oggi.
+
+### §14.5 · Cosa vede Mattia nel notebook
+
+- **Titolo e glossario:** «su un asset» → «su una o più monete insieme». Voci nuove: *Lista di monete*; *ATR* («quanto si
+  muove di solito la moneta in un giorno»); *Incertezza per giorno* («i trade dello stesso giorno contano come un
+  blocco»). Riscritte: Asset, EV (in ATR), t, Rosa dei trigger, Cassaforte.
+- **Avvio:** le ricerche per lista, es. «BINANCE PERP · BTC, ETH, XRP, SOL, ADA · M15».
+- **1 Configura:** il campo `moneta` diventa `monete`, di base «BTC, ETH, XRP, SOL, ADA» («BTC» = una sola). Le date dei
+  tre pezzi, uguali per tutte, con le barre per moneta; la riga della rosa (§14.6); teorie, prove e minuti (§14.7).
+- **2 e 3:** nessun cambio, salvo i minuti negli esempi.
+- **4 e 5:** EV in ATR («0,05 ATR = un ventesimo di un giorno tipico, al netto») e t per giorno; via la colonna P(EV<0);
+  sotto, chiusa, la tabella per moneta (trade, EV, t), solo da leggere.
+- **6:** MM e stress sul giorno intero («rischio 0,5% a trade: tre monete nello stesso giorno = 1,5% quel giorno»);
+  `trade_da_vedere` = «ETH 3». **7:** la scheda con la tabella per moneta.
+
+### §14.6 · La misura: segnali e rosa sulle 5 monete (20/11)
+
+Pezzo di ricerca della config standard, dal 02/01/2020 al 14/07/2023 14:15 UTC: BTC ed ETH 123.801 barre, XRP 123.384,
+ADA 120.985, SOL 99.197. Lo schema di §14.1–§14.2 in uno script fuori dal repo (ADA scaricata a parte, solo candele):
+nessuna ricerca, conto e studio non toccati. Controllo: le somme per giorno coincidono con `scarto_orario` (1e-18).
+
+| | 5 monete | solo BTC, regola nuova | solo BTC, oggi (§13.3) |
+|---|---|---|---|
+| misurati (trigger × lato) | 3.034 | 3.007 | 3.008 |
+| candidate a 4 / 16 / 32 barre | 302 / 104 / 23 | 120 / 26 / 11 | — |
+| **entrano** long + short | **11 + 6** | **10 + 9** | **13 + 10** |
+| di cui del catalogo | 5: E21, E36, E39 long; E36, E39 short | 2 | 2 |
+
+Con 5 monete le candidate crescono, ma famiglie e rho ne fanno entrare 17. Filtri non degeneri su tutte: 29 per lato.
+
+### §14.7 · Tempi, memoria, file, collaudi
+
+| M15 | solo BTC oggi | 5 monete |
+|---|---|---|
+| teorie turno 1 / turno 2 al massimo | 2.139 / 4.350 | 1.530 / 4.200 |
+| prove al massimo / tetto | 309.360 / 310.000 | 279.000 / 280.000 |
+| ricerca (stima della cella 1) | 10,5–19,2 min | **46–83 min** |
+| preparazione, in cella 1 e in cella 2 | circa 2 min | circa 10 min |
+
+**M5** (3 volte le barre): ricerca **2,3–4,2 ore**, preparazione circa 30 minuti. **Memoria:** le 5 monete insieme in un
+processo arrivano a 4,3 GB su M15 (misurato), circa 13 GB su M5: per questo la preparazione va **una moneta alla volta**
+e tiene solo eventi e somme per giorno (la memoria di una moneta). In ricerca ogni processo tiene le 5 monete e una cache
+sola per la lista, col tetto di oggi: circa 6–8 GB con 3 processi.
+
+**File.** Non additivi, dichiarati: `engine/fabbrica/config.py` (versione 5: `monete` al posto di `symbol`, `ev_min` in
+ATR, `qualita_2` senza `p_ev_neg_max`), `dati.py`, `cache.py`, `generatore.py` (un blocco degenere su una moneta esce
+per tutte), `valutatore.py` (`t_per_giorno`), `ricerca.py`, `selezione.py`, `cassaforte.py`, `sessione.py`, `schede.py`,
+`engine/vetrina_fabbrica.py`, il notebook, `docs/00`, `81`, `82`, `CLAUDE.md` (ADA nel perimetro della fabbrica). Nuovo:
+`engine/fabbrica/rosa_lista.py` (riusa i pezzi di `rosa.py` e `famiglie.famiglie`). Solo aggiunte: `engine/simboli.py`
+(la riga BINANCE_PERP_ADAUSDT, da `load_markets`), `money_management.py` e `montecarlo.py` (colonna facoltativa
+`giorno`). Non cambiano: motore, `rosa.py`, `famiglie.py`, cataloghi, Lab, Grid Search. Le ricerche della versione 4
+restano su disco e nel conto.
+
+**Collaudi.** Due copie della stessa moneta = stesso scarto e stesso t di una sola (rosa e valutatore); due monete
+indipendenti con lo stesso vantaggio piantato = t circa 1,4 volte; prezzi × 10 = stessi numeri in ATR; per ogni moneta i
+trade del valutatore = `MotoreVeloce.run` con i suoi costi e funding; una strategia = una riga nel conto; nessuna barra
+di cassaforte letta prima della cella 5; MM con un trade al giorno = oggi al bit, due trade nello stesso giorno = stesso
+capitale e leva sommata; fermata e ripresa = corsa unica; il notebook intero due volte; suite completa prima della PR.
+Niente prove d'identità: Lab e Grid Search non cambiano.
+
+### §14.8 · Scelte aperte
+
+- **S1 · I tempi.** Su M5 la ricerca supera le 2 ore, contro la regola «nessun calcolo che chieda ore» (`docs/81` §4).
+  **A:** si accetta (la ricerca riprende se interrotta). **B:** prove per teoria del passo 1 da 40 a 20 per tutti: circa
+  40% in meno, su M5 ancora 1,4–2,5 ore. *Consiglio:* **A**: B cerca peggio e su M5 resta sopra l'ora.
+- **S2 · La preparazione due volte.** Oggi celle 1 e 2 rifanno degeneri e rosa (§13.5). **A:** come oggi (10 minuti in più
+  su M15, 30 su M5). **B:** la cella 1 salva la rosa nella cartella della ricerca e la 2 la rilegge. *Consiglio:* **B**:
+  un file in più, 10–30 minuti in meno a ogni ricerca.
