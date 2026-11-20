@@ -4,8 +4,9 @@ Il generatore della fabbrica (docs/82 P3, lavoro L3a; C2, docs/82 §11.3–§11.
     blocchi = blocchi_da_config(config)
     controllo = ControlloDegenerazione(cache)                    # cache del pezzo di ricerca
     rimaste, tolte = togli_degeneri(blocchi, cache, lati, controllo)
-    famiglie, misura = misura_famiglie(blocchi, cache, lati, rimaste)
-    tenuti, tabella = un_blocco_per_famiglia(blocchi, misura, controllo, lati, rimaste)
+    entrano, rosa = rosa_dei_trigger(blocchi, cache, lati, rimaste, symbol, config["rosa"], processi)
+    filtri = filtri_rimasti(blocchi, lati, rimaste)
+    tenuti = {lato: entrano[lato] + filtri[lato] for lato in lati}   # i blocchi della ricerca
     teorie = teorie_turno_1(config, blocchi, tenuti)             # T+U e T+F+U
     resoconto = resoconto_teorie(config, blocchi, tenuti, rimaste, teorie)   # quante teorie e perché
     teorie_2 = teorie_turno_2(scelte, config, blocchi, tenuti)   # alle T+F scelte si aggiunge un secondo filtro
@@ -16,14 +17,13 @@ Il generatore della fabbrica (docs/82 P3, lavoro L3a; C2, docs/82 §11.3–§11.
 - Valori degeneri (07/11): per ogni trigger e filtro con parametri e per ogni combinazione della griglia del passo 1 si
   misura collaudo_catalogo.verifica_degenerazione sul pezzo di ricerca, per lato. Le degeneri escono dalla griglia; un
   blocco senza valori su un lato esce da quel lato. C2 (12/11, scelta A): anche i blocchi del catalogo passano dal
-  controllo; uno degenere su un lato esce da quel lato, e uno «STATO» (vero su due barre di fila) esce con il motivo
-  STATO_CATALOGO e la ricerca prosegue. Per i blocchi con parametri della fabbrica ERRORE, STATO e NON_BOOLEANA restano
+  controllo; uno degenere su un lato esce da quel lato, e uno «STATO» (vero su due barre di fila: non è un evento su
+  questi dati) esce da quel lato e la ricerca prosegue. Per i blocchi con parametri della fabbrica ERRORE, STATO e NON_BOOLEANA restano
   errori del blocco: si ferma. Le uscite non passano dal controllo.
-- Un blocco per famiglia (C2, docs/82 §11.3): le famiglie si MISURANO con famiglie.py sul pezzo di ricerca, ai valori
-  centrali, lato per lato, trigger fra trigger e filtri fra filtri, fra i blocchi rimasti dopo i degeneri. In ogni
-  famiglia resta un blocco: uno dei 14 di P-L2 se c'è (due o più: quello che scatta più spesso), altrimenti quello che
-  scatta più spesso (trigger: segnali; filtri: barre vere), a parità il nome più piccolo. La famiglia dichiarata (solo
-  ADX e ATR relativo) non entra nella scelta dei tenuti (D1 = B): vale solo nel generatore, mai nella stessa teoria.
+- La rosa dei trigger (docs/82 §13, 20/11): dopo i valori degeneri, tutti i trigger, del catalogo e generati, passano
+  dalla rosa del Lab sul pezzo di ricerca; entra nella ricerca chi è nella rosa ad almeno un orizzonte. I filtri
+  entrano tutti (quelli rimasti dopo i valori degeneri). La famiglia dichiarata (solo ADX e ATR relativo) vale solo
+  nel generatore: mai nella stessa teoria.
 - Le misure registrano condizioni temporanee in un registro isolato e poi lo rimettono com'era, identico.
 - Sullo spot solo long, anche se la config dicesse altro. Un blocco senza lato short (E19) sta solo sul long.
 """
@@ -41,15 +41,12 @@ import pandas as pd
 from engine import registry as reg
 from engine.collaudo_catalogo import verifica_degenerazione
 from engine.exchange import solo_long
-from engine.famiglie import famiglie as famiglie_misurate
 
 from .ottimizzatore import Categoria, Intero, Spazio
 
 LATI = {"long": 1, "short": -1}
 NOME_LATO = {1: "long", -1: "short"}
 ESITI_ERRORE = ("ERRORE", "STATO", "NON_BOOLEANA")       # non sono valori degeneri: è codice sbagliato
-# C2 (Mattia, 12/11, scelta A): un blocco del catalogo «STATO» sul pezzo di ricerca esce da quel lato con questo motivo.
-STATO_CATALOGO = "vero su due barre di fila: non è un evento su questi dati"
 _REGISTRI = ("_ENTRY_REGISTRY", "_EXIT_REGISTRY", "_FILTER_REGISTRY", "_BIDIR_ENTRY_REGISTRY", "_ENTRY_DIRECTION",
              "_FILTER_DIRECTION", "_FILTER_PAIR", "_EXIT_DIRECTION", "_EXIT_PAIR")
 
@@ -182,13 +179,14 @@ def togli_degeneri(blocchi, cache, lati, controllo: ControlloDegenerazione | Non
     trigger e filtro con parametri; tolte = una riga per combinazione tolta (blocco, lato, valori, esito, quota di
     barre vere). Un filtro neutro si misura una volta e vale per i due lati: nell'elenco il lato è «entrambi».
     C2: un blocco del catalogo degenere (o «STATO») su un lato ha rimaste[(nome, lato)] = () ed è una riga di tolte con
-    valori {}; un blocco del catalogo buono non ha la chiave.
+    valori {}; un blocco del catalogo buono non ha la chiave. Tutte le combinazioni si misurano insieme (20/11).
     """
     controllo = controllo or ControlloDegenerazione(cache)
+    da_fare = [b for b in blocchi if b.tipo != "uscita"]
+    controllo.esiti([(b, lato, c) for b in da_fare for lato in _lati_blocco(b, lati)
+                     for c in (_combinazioni(b) if b.parametri else [{}])])
     rimaste, tolte = {}, []
-    for b in blocchi:
-        if b.tipo == "uscita":
-            continue
+    for b in da_fare:
         combinazioni = _combinazioni(b) if b.parametri else [{}]
         suoi = _lati_blocco(b, lati)
         for lato in suoi:
@@ -211,142 +209,54 @@ def disponibile(nome: str, lato: int, rimaste: dict) -> bool:
     return bool(rimaste.get((nome, lato), (None,)))
 
 
-# ------------------------------------------------------------------ le famiglie
-def _maschera_centrale(b, cache, lato):
-    return b.maschera(cache, lato, b.centrali() if b.parametri else None)
+# ------------------------------------------------------------------ la rosa dei trigger (docs/82 §13, 20/11)
+def _trigger_da_misurare(blocchi, lati, rimaste: dict) -> dict:
+    """{nome nella rosa: (blocco, lato)}: ogni trigger rimasto dopo i valori degeneri, lato per lato («E36_short»)."""
+    return {f"{b.nome}_{NOME_LATO[lato]}": (b, lato) for lato in lati for b in blocchi
+            if b.tipo == "trigger" and lato in b.lati and disponibile(b.nome, lato, rimaste)}
 
 
-def misura_famiglie(blocchi, cache, lati, rimaste: dict | None = None) -> tuple[dict, pd.DataFrame]:
+def _misura_rosa(cache, da_misurare: dict, symbol: str, regole: dict, processi: int) -> dict:
+    """La rosa del Lab ({H: tabella}) sui trigger, in un registro isolato che all'uscita torna com'era."""
+    from engine.rosa import rosa_orizzonti_entry
+    from engine.simboli import pip_symbol
+    condizioni = {n: b.condizione(cache, lato) for n, (b, lato) in da_misurare.items()}   # prima: il catalogo
+    with _registro_isolato():
+        for n, (_, lato) in da_misurare.items():
+            reg.register_entry(n, direction=lato)(condizioni[n])
+        rose, _ = rosa_orizzonti_entry(cache.df, regole["orizzonti_barre"], pip_symbol(symbol), nomi=list(da_misurare),
+                                       q=regole["q"], soglia_famiglia=regole["soglia_famiglia"],
+                                       rho_max=regole["rho_max"], min_eventi=regole["min_eventi"], fuso="UTC",
+                                       unita="bp", processi=processi)
+    return rose
+
+
+def rosa_dei_trigger(blocchi, cache, lati, rimaste: dict, symbol: str, regole: dict, processi: int = 1):
     """
-    ({lato: {blocco: famiglia}}, misura). C2 (D1 = B): la famiglia è solo quella MISURATA da famiglie.py sul df della
-    cache, ai valori centrali, lato per lato, trigger fra trigger e filtri fra filtri; il nome della famiglia è il nome
-    più piccolo del gruppo. Si misurano i blocchi che sul lato esistono e non sono usciti con i valori degeneri
-    (`rimaste`). La famiglia dichiarata sta nella colonna «dichiarata» e vale solo nel generatore. Le uscite non si
-    misurano. misura: lato, tipo, blocco, dichiarata, gruppo_misurato, piu_vicina, somiglianza (%), vere (segnali o
-    barre vere, da famiglie.py), famiglia.
+    La rosa dei trigger (docs/82 §13): tutti i trigger rimasti dopo i valori degeneri, del catalogo e generati, passano
+    dalla rosa del Lab (rosa.rosa_orizzonti_entry, colonna nella_rosa) sul pezzo di ricerca della cache, agli orizzonti
+    di `regole` (il campo «rosa» della config). Entra nella ricerca chi è nella rosa ad almeno un orizzonte.
+    Ritorna (entrano, tabella): entrano = {lato: [blocchi, nell'ordine della config]}; tabella = una riga per trigger
+    misurato e orizzonte (orizzonte, lato, blocco, eventi, scarto_bp, t, candidata, nella_rosa): ognuna è una prova.
     """
-    rimaste = rimaste or {}
-    righe, finali = [], {}
-    for lato in lati:
-        finali[lato] = {}
-        for tipo, tipo_reg in (("trigger", "entry"), ("filtro", "filtro")):
-            gruppo = [b for b in blocchi if b.tipo == tipo and lato in b.lati and disponibile(b.nome, lato, rimaste)]
-            if not gruppo:
-                continue
-            maschere = {b.nome: _maschera_centrale(b, cache, lato) for b in gruppo}   # prima: il catalogo si registra
-            with _registro_isolato():
-                for b in gruppo:
-                    nome = f"FAB_FAM_{b.nome}"
-                    funzione = (lambda d, _m=maschere[b.nome]: _serie(_m, d.index))
-                    if tipo == "trigger":
-                        reg.register_entry(nome, direction=lato)(funzione)
-                    else:
-                        reg.register_filter(nome)(funzione)
-                tabella = famiglie_misurate(cache.df, tipo=tipo_reg, nomi=[f"FAB_FAM_{b.nome}" for b in gruppo])
-            per_nome = {r["nome"][len("FAB_FAM_"):]: r for r in tabella.to_dict("records")}
-            membri: dict = {}
-            for b in gruppo:
-                membri.setdefault(int(per_nome[b.nome]["famiglia"]), []).append(b.nome)
-            for nomi in membri.values():
-                for n in nomi:
-                    finali[lato][n] = min(nomi)
-            for b in gruppo:
-                r = per_nome[b.nome]
-                vicina = r["piu_vicina"]
-                righe.append({"lato": NOME_LATO[lato], "tipo": tipo, "blocco": b.nome, "dichiarata": b.famiglia,
-                              "gruppo_misurato": int(r["famiglia"]),
-                              "piu_vicina": vicina[len("FAB_FAM_"):] if isinstance(vicina, str) else None,
-                              "somiglianza": float(r["somiglianza"]), "vere": int(r.get("vere", 0)),
-                              "famiglia": finali[lato][b.nome]})
-    colonne = ["lato", "tipo", "blocco", "dichiarata", "gruppo_misurato", "piu_vicina", "somiglianza", "vere", "famiglia"]
-    return finali, pd.DataFrame(righe, columns=colonne)
+    da_misurare = _trigger_da_misurare(blocchi, lati, rimaste)
+    rose = _misura_rosa(cache, da_misurare, symbol, regole, processi)
+    tabella = []
+    for h, rosa in rose.items():
+        for r in rosa.to_dict("records"):
+            b, lato = da_misurare[r["candidato"]]
+            tabella.append({"orizzonte": int(h), "lato": NOME_LATO[lato], "blocco": b.nome, "eventi": int(r["eventi"]),
+                            "scarto_bp": float(r["scarto_bp"]), "t": float(r["t_netto"]),
+                            "candidata": bool(r["candidata"]), "nella_rosa": bool(r["nella_rosa"])})
+    dentro = {(r["lato"], r["blocco"]) for r in tabella if r["nella_rosa"]}
+    entrano = {lato: [b.nome for b in blocchi if (NOME_LATO[lato], b.nome) in dentro] for lato in lati}
+    return entrano, tabella
 
 
-# ------------------------------------------------------------------ un blocco per famiglia (C2, docs/82 §11.3)
-# I 14 trigger e filtri della lista di P-L2 (docs/82 §8): in una famiglia misurata hanno la precedenza.
-QUATTORDICI = ("E5", "E36", "E47", "E49", "E51", "RSI_RIENTRO", "DONCHIAN", "F2_MID_VOLATILITY", "F3_VOLUME_ABOVE_AVG",
-               "TREND_CONTEXT", "F25_CHOP_TREND", "F20_SESSION_OVERLAP", "ADX", "ATR_RELATIVO")
-TENUTO, TOLTO = "tenuto", "tolto"
-_DEGENERI_IN_PAROLE = {"SEMPRE_FALSA": "mai vero", "SEMPRE_VERA": "sempre vero",
-                       "QUASI_SEMPRE_VERA": "vero su almeno il 95% delle barre", "RARA": "scatta meno di 30 volte"}
-COLONNE_TENUTI = ["lato", "tipo", "famiglia", "blocco", "esito", "motivo", "scatta", "quota_barre", "piu_simile",
-                  "somiglianza"]
-
-
-def _scatta(b, lato: int, controllo: ControlloDegenerazione) -> tuple[int, float]:
-    """(segnali o barre vere, quota di barre vere) dal controllo dei degeneri, ai valori centrali per i blocchi con
-    parametri: nessun calcolo nuovo. Per un trigger le barre vere sono i segnali (un evento è una barra sola)."""
-    valori = b.centrali() if b.parametri else {}
-    _, quota = controllo.esiti([(b, lato, valori)])[0]
-    return int(round(quota * len(controllo.cache.df))), float(quota)
-
-
-def _n(x: int) -> str:
-    return f"{int(x):,}".replace(",", ".")
-
-
-def un_blocco_per_famiglia(blocchi, misura: pd.DataFrame, controllo: ControlloDegenerazione, lati,
-                           rimaste: dict | None = None) -> tuple[dict, list[dict]]:
-    """
-    (tenuti, tabella). tenuti = {lato: [nomi dei trigger e filtri tenuti, nell'ordine della config]}. tabella = una
-    riga per blocco e lato (COLONNE_TENUTI): famiglia misurata, tenuto o tolto, motivo, quanto scatta (segnali per i
-    trigger, barre vere per i filtri, e la quota di barre), il blocco più simile e quanto gli somiglia (%). I blocchi
-    usciti con i valori degeneri (o «STATO») sono righe «tolto» con il loro motivo e senza famiglia.
-    Regola (docs/82 §11.3): in ogni famiglia resta uno dei 14 di P-L2 se c'è; se ce ne sono due o più, quello che
-    scatta più spesso; senza i 14, quello che scatta più spesso; a parità il nome più piccolo.
-    """
-    rimaste = rimaste or {}
-    misurati = {(r["lato"], r["blocco"]): r for r in misura.to_dict("records")} if len(misura) else {}
-    ordine = {b.nome: i for i, b in enumerate(blocchi)}
-    tenuti, tabella = {}, []
-    for lato in lati:
-        nl = NOME_LATO[lato]
-        tenuti[lato] = []
-        for tipo in ("trigger", "filtro"):
-            unita = "segnali" if tipo == "trigger" else "barre vere"
-            gruppo = [b for b in blocchi if b.tipo == tipo and lato in b.lati]
-            vivi = [b for b in gruppo if disponibile(b.nome, lato, rimaste)]
-            conta = {b.nome: _scatta(b, lato, controllo) for b in gruppo}
-            famiglie: dict = {}
-            for b in vivi:
-                famiglie.setdefault(misurati[(nl, b.nome)]["famiglia"], []).append(b.nome)
-            scelto = {}
-            for fam, membri in famiglie.items():
-                dei14 = [n for n in membri if n in QUATTORDICI]
-                scelto[fam] = sorted(dei14 or membri, key=lambda n: (-conta[n][0], n))[0]
-            for b in gruppo:
-                n = b.nome
-                riga = {"lato": nl, "tipo": tipo, "famiglia": None, "blocco": n, "esito": TOLTO, "motivo": "",
-                        "scatta": conta[n][0], "quota_barre": conta[n][1], "piu_simile": None, "somiglianza": None}
-                if not disponibile(n, lato, rimaste):
-                    if b.parametri:
-                        riga["motivo"] = "tutte le combinazioni della griglia sono degeneri"
-                    else:
-                        esito = controllo.esiti([(b, lato, {})])[0][0]
-                        riga["motivo"] = (STATO_CATALOGO if esito == "STATO" else
-                                          f"degenere sul pezzo di ricerca ({_DEGENERI_IN_PAROLE.get(esito, esito)})")
-                    tabella.append(riga)
-                    continue
-                m = misurati[(nl, n)]
-                fam = m["famiglia"]
-                membri = famiglie[fam]
-                t = scelto[fam]
-                dei14 = [x for x in membri if x in QUATTORDICI]
-                riga.update(famiglia=fam, piu_simile=m["piu_vicina"], somiglianza=float(m["somiglianza"]))
-                if n == t:
-                    riga["esito"] = TENUTO
-                    riga["motivo"] = ("solo nella sua famiglia" if len(membri) == 1 else
-                                      "uno dei 14 di oggi" if len(dei14) == 1 else
-                                      "dei 14 di oggi, scatta più spesso" if dei14 else "scatta più spesso")
-                elif t in QUATTORDICI and n not in QUATTORDICI:
-                    riga["motivo"] = f"stessa famiglia di {t}, che è uno dei 14 di oggi"
-                else:
-                    riga["motivo"] = (f"stessa famiglia di {t}, che scatta più spesso ({_n(conta[t][0])} {unita} "
-                                      f"contro {_n(conta[n][0])})")
-                tabella.append(riga)
-            tenuti[lato] += [b.nome for b in vivi if scelto[misurati[(nl, b.nome)]["famiglia"]] == b.nome]
-        tenuti[lato] = sorted(tenuti[lato], key=ordine.get)
-    return tenuti, tabella
+def filtri_rimasti(blocchi, lati, rimaste: dict) -> dict:
+    """{lato: [filtri]}: tutti i filtri rimasti dopo i valori degeneri (docs/82 §13, scelta A di Mattia del 20/11)."""
+    return {lato: [b.nome for b in blocchi if b.tipo == "filtro" and lato in b.lati and disponibile(b.nome, lato, rimaste)]
+            for lato in lati}
 
 
 # ------------------------------------------------------------------ le teorie dei due turni

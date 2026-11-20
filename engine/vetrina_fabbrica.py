@@ -24,6 +24,10 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
   ha i due turni nell'imbuto. Le celle 4–7 su una ricerca della versione 1 si fermano con «ricerca non trovata» (D5).
 - Dal 15/11 (docs/82 §12, D4 = A) la config è la versione 3: le celle 4–7 si fermano allo stesso modo anche su una
   ricerca della versione 2.
+- Dal 20/11 (docs/82 §13) la config è la versione 4: tutti i trigger, del catalogo e generati, passano dalla rosa del
+  Lab. La cella 1 dice quanti trigger sono misurati e quanti entrano, lato per lato, con la tabella di chi entra; la 2
+  dice quanto dura la preparazione; la 3 ha la rosa in testa all'imbuto. Le celle 4–7 su una ricerca della versione 3
+  si fermano con «ricerca non trovata».
 - Cella 5 (10/11): i numeri scritti entrano in cassaforte, ogni volta che la cella si lancia, anche se sono già
   entrati; nessuna frase di conferma. Vuoto = nessun ingresso: la cella mostra l'esito di quelle già entrate, se ce
   ne sono.
@@ -204,8 +208,10 @@ class Configurazione:
     esclusi: list
     barre_ricerca: int
     resoconto: dict = field(default_factory=dict)
-    tenuti_tolti: list = field(default_factory=list)
+    rosa: list = field(default_factory=list)
     turno_2_massimo: int = 0
+    tenuti: dict = field(default_factory=dict)
+    preparazione_s: float = 0.0
 
 
 def stima_minuti(budget: int, barre_ricerca: int, processi: int) -> tuple[float, float]:
@@ -321,7 +327,8 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
     conf = Configurazione(str(cartella_dati), config, id_ricerca, nuova, confini.limiti(), len(prep.teorie),
                           prep.budget_massimo, stima_minuti(prep.budget_massimo, len(pezzi.ricerca),
                                                             config["processi"]),
-                          esclusi, len(pezzi.ricerca), prep.resoconto, list(prep.tenuti_tolti), prep.turno_2_massimo)
+                          esclusi, len(pezzi.ricerca), prep.resoconto, list(prep.rosa), prep.turno_2_massimo,
+                          dict(prep.tenuti), prep.durata_s)
     lim = conf.limiti
     _titolo(f"{config['symbol']} {config['timeframe']} · ricerca {id_ricerca} "
             f"({'nuova' if nuova else 'già esiste: riprende'})")
@@ -331,7 +338,7 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
         {"pezzo": "selezione", "da": _data(lim["selezione"][0]), "a": _data(lim["selezione"][1]), "stato": "aperto"},
         {"pezzo": "cassaforte", "da": _data(lim["cassaforte"][0]), "a": _data(lim["cassaforte"][1]),
          "stato": "chiusa"}])))
-    _tenuti_tolti(conf.resoconto, conf.tenuti_tolti)
+    _rosa_dei_trigger(conf)
     da, a = conf.stima_minuti
     _nota(f"Turno 1: {_f(conf.teorie)} teorie; turno 2: al massimo {_f(conf.turno_2_massimo)}; al massimo "
           f"{_f(conf.budget_massimo)} prove (tetto {_f(config['budget']['totale'])}), {_minuti_da_a(da, a)} con "
@@ -361,24 +368,54 @@ def _minuti_da_a(da: float, a: float) -> str:
     return f"circa {_f(da, 0)}–{_f(a, 0)} minuti"
 
 
-def _tenuti_tolti(resoconto: dict, tabella: list) -> None:
-    """Cella 1 (docs/82 §11.8): una riga per lato, poi la tabella dei tolti; quella completa in una sezione chiusa."""
-    for lato, b in resoconto.get("blocchi", {}).items():
-        t, f = b["trigger"], b["filtro"]
-        _nota(f"{lato}: {t['blocchi']} trigger → {t['tenuti']} tenuti, {f['blocchi']} filtri → {f['tenuti']} tenuti "
-              "(un blocco per famiglia).")
-    if not tabella:
-        return
-    tab = pd.DataFrame(tabella)
-    tab["scatta"] = [f"{_f(int(n))} {'segnali' if tipo == 'trigger' else 'barre vere'}"
-                     for n, tipo in zip(tab["scatta"], tab["tipo"])]
-    tolti = tab[tab["esito"] == "tolto"][["lato", "tipo", "blocco", "motivo", "scatta"]]
-    if len(tolti):
-        _mostra((f"Blocchi tolti ({len(tolti)}): un blocco per famiglia, e i blocchi che sul pezzo di ricerca non "
-                 "scattano come serve", tolti.reset_index(drop=True)))
-    _dettaglio(f"Tutti i blocchi, tenuti e tolti ({len(tab)} righe)",
-               ("", tab[["lato", "tipo", "famiglia", "blocco", "esito", "motivo", "scatta", "piu_simile",
-                         "somiglianza"]].astype(str)))
+def _quanti(tenuti: list, tipo: str, per_nome: dict) -> int:
+    return sum(1 for n in tenuti if per_nome[n].tipo == tipo)
+
+
+def _rosa_dei_trigger(conf: Configurazione) -> None:
+    """Cella 1 (docs/82 §13.2): la rosa dei trigger in una riga, i lati senza trigger, i filtri, la tabella di chi entra."""
+    from engine.fabbrica.blocchi import blocchi_da_config, trigger_generati
+    from engine.fabbrica.generatore import NOME_LATO
+    per_nome = {b.nome: b for b in blocchi_da_config(conf.config)}
+    rosa, tenuti = conf.rosa, conf.tenuti
+    misurati = {(r["lato"], r["blocco"]) for r in rosa}
+    entrano = [n for lato in tenuti for n in tenuti[lato] if per_nome[n].tipo == "trigger"]
+    generati = sum(1 for n in entrano if n in trigger_generati())
+    per_lato = " e ".join(f"{_quanti(tenuti[lato], 'trigger', per_nome)} {NOME_LATO[lato]}" for lato in tenuti)
+    orizzonti = ", ".join(str(h) for h in conf.config["rosa"]["orizzonti_barre"])
+    _nota(f"Rosa dei trigger ({orizzonti} barre), pezzo di ricerca: {_f(len(misurati))} misurati → nella ricerca "
+          f"{per_lato} ({_f(len(entrano) - generati)} del catalogo, {_f(generati)} generati); {_f(len(rosa))} prove, che "
+          "la cella 2 scrive nel conto.")
+    for lato in tenuti:
+        if not _quanti(tenuti[lato], "trigger", per_nome):
+            altro = [NOME_LATO[x] for x in tenuti if x != lato]
+            _avviso(f"{NOME_LATO[lato]}: nessun trigger nella rosa: il lato {NOME_LATO[lato]} esce, la ricerca prosegue "
+                    f"con il {altro[0]}.")
+    _nota("Filtri: tutti quelli che sul pezzo di ricerca scattano come serve, "
+          + " e ".join(f"{_quanti(tenuti[lato], 'filtro', per_nome)} {NOME_LATO[lato]}" for lato in tenuti) + ".")
+    _dettaglio(f"I trigger nella ricerca ({len(entrano)})", ("", _tabella_rosa(conf)))
+
+
+def _tabella_rosa(conf: Configurazione) -> pd.DataFrame:
+    """Una riga per trigger che entra: nome, regola in parole, lato, eventi, t netto a ogni orizzonte, nella rosa a."""
+    from engine.fabbrica.blocchi import blocchi_da_config
+    from engine.fabbrica.schede import nome_breve
+    centrali = {b.nome: b.centrali() for b in blocchi_da_config(conf.config)}     # i valori misurati dalla rosa
+    dentro = {(r["lato"], r["blocco"]) for r in conf.rosa if r["nella_rosa"]}
+    righe = {}
+    for r in conf.rosa:
+        if (r["lato"], r["blocco"]) not in dentro:
+            continue
+        riga = righe.setdefault((r["lato"], r["blocco"]), {
+            "trigger": r["blocco"], "regola": nome_breve(r["blocco"], centrali[r["blocco"]], conf.config["timeframe"]).split(" · ", 1)[-1], "lato": r["lato"],
+            "eventi": r["eventi"], "nella rosa a": []})
+        riga[f"t a {r['orizzonte']} barre"] = round(r["t"], 2)
+        if r["nella_rosa"]:
+            riga["nella rosa a"].append(f"{r['orizzonte']} barre")
+    tab = pd.DataFrame(list(righe.values()))
+    if len(tab):
+        tab["nella rosa a"] = tab["nella rosa a"].map(", ".join)
+    return tab
 
 
 def _minuti(m: float) -> str:
@@ -428,6 +465,7 @@ def ricerca(conf: Configurazione, data: str | None = None):
     dice di rilanciare la cella e ritorna None.
     """
     from engine.fabbrica.ricerca import lancia
+    _nota(f"Preparazione (valori degeneri e rosa dei trigger): {_minuti(conf.preparazione_s / 60)}, come nella cella 1.")
     try:
         r = lancia(conf.config, conf.cartella_dati, verbose=False, data=data, avanzamento=_stampa_avanzamento())
     except KeyboardInterrupt:
@@ -436,7 +474,7 @@ def ricerca(conf: Configurazione, data: str | None = None):
     riepilogo = {"id_ricerca": r.id_ricerca, "symbol": conf.config["symbol"], "timeframe": conf.config["timeframe"],
                  "finita": r.finita, "durata_s": r.durata_s, "prove": r.prove, "budget_massimo": r.budget_massimo,
                  "imbuto": r.imbuto, "conto": r.conto, "blocchi_esclusi": conf.esclusi,
-                 "tenuti_tolti": r.tenuti_tolti,
+                 "rosa_entrano": [x for x in r.rosa if x["nella_rosa"]], "rosa_prove": len(r.rosa),
                  "valori_degeneri_avvio": len(r.degeneri_avvio), "valori_degeneri_zoom": len(r.degeneri_zoom)}
     with open(os.path.join(r.cartella, FILE_RIEPILOGO + ".tmp"), "w", encoding="utf-8") as f:
         f.write(registro.json_riga(riepilogo) + "\n")
@@ -471,7 +509,8 @@ def imbuto(r) -> pd.DataFrame:
     import matplotlib.pyplot as plt
     i = r.imbuto
     c = _cassaforte_dal_registro(r)
-    passi = [("turno 1: teorie", i["turno_1"]), ("turno 1: tenute", i["turno_1_tenute"]),
+    passi = [("rosa: trigger misurati", i["rosa_misurati"]), ("rosa: trigger nella ricerca", i["rosa_entrano"]),
+             ("turno 1: teorie", i["turno_1"]), ("turno 1: tenute", i["turno_1_tenute"]),
              ("turno 2: teorie", i["turno_2"]), ("turno 2: tenute", i["turno_2_tenute"]),
              ("zoom: teorie", i["passo_2"]), ("altopiano: reggono", i["altopiano"]),
              ("selezione: passano", i.get("selezione", 0)), ("scelte (una per famiglia)", i.get("scelte", 0)),
@@ -542,8 +581,8 @@ def tipo_motivo(motivo) -> str:
 
 # ------------------------------------------------------------------ 4 · Le strategie rimaste
 def _controlla_versione(r) -> None:
-    """Celle 4–7 (D5 = B; docs/82 §12, D4 = A): una ricerca di una versione precedente (1 o 2) si ferma con «ricerca non
-    trovata» e dice di rilanciare la 2."""
+    """Celle 4–7 (D5 = B; docs/82 §12, D4 = A; §13): una ricerca di una versione precedente (1, 2 o 3) si ferma con
+    «ricerca non trovata» e dice di rilanciare la 2."""
     from engine.fabbrica.config import VERSIONE
     if _config_ricerca(r).get("versione") != VERSIONE:
         raise ValueError(VERSIONE_VECCHIA)

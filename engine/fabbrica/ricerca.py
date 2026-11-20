@@ -1,16 +1,18 @@
 """
-La ricerca della fabbrica (docs/82 P4, P5, P6, P7, lavori L3b e L4a; C2, docs/82 §11): un blocco per famiglia, passo 1
-in due turni, zoom, altopiano, selezione, ripresa.
+La ricerca della fabbrica (docs/82 P4, P5, P6, P7, lavori L3b e L4a; C2, docs/82 §11; §13): la rosa dei trigger,
+passo 1 in due turni, zoom, altopiano, selezione, ripresa.
 
     esito = lancia(config, cartella_dati)     # salva la config, legge i pezzi, prova, scrive; se interrotta riprende
     esito.imbuto                              # turno 1 → turno 2 → passo 2 → altopiano → selezione → scelte
-    esito.tenuti_tolti                        # un blocco per famiglia: una riga per blocco e lato, con il motivo
+    esito.rosa                                # la rosa dei trigger: una riga per trigger misurato e orizzonte
     esito.sopravvissute                       # una riga per teoria che regge l'altopiano
     esito.selezione.tabella                   # una riga per sopravvissuta sul pezzo di selezione (selezione.py)
     esito.conto                               # le prove di questa ricerca, dell'asset e la soglia, solo da leggere
 
-Avvio (prepara, C2). Sul solo pezzo di ricerca, solo segnali: valori degeneri e «STATO» (generatore.togli_degeneri),
-famiglie misurate, un blocco per famiglia (generatore.un_blocco_per_famiglia), teorie del turno 1, budget massimo.
+Avvio (prepara, docs/82 §13). Sul solo pezzo di ricerca: valori degeneri e «STATO» (generatore.togli_degeneri); la
+rosa del Lab su tutti i trigger, del catalogo e generati (generatore.rosa_dei_trigger): entra chi è nella rosa ad almeno
+un orizzonte; tutti i filtri rimasti; teorie del turno 1, budget massimo. Ogni trigger misurato, per ogni orizzonte, è
+una prova (fase «rosa»), scritta da lancia una volta sola.
 
 Passo 1 (P4). Sul solo pezzo di ricerca, una teoria alla volta, al massimo `per_teoria_passo_1` prove sui valori larghi:
 griglia completa se i punti ammessi ci stanno, altrimenti il genetico tarato in ampiezza (AMPIEZZA). L'obiettivo è il t
@@ -71,9 +73,9 @@ from .cache import Cache
 from .config import (budget_massimo, cartella_asset, controlla_budget, controlla_config, impronta_config,
                      salva_config)
 from .dati import Confini, carica_pezzi, imposta_mercato_crypto
-from .generatore import (NOME_LATO, ControlloDegenerazione, SpazioTeoria, Teoria, lati_config, misura_famiglie,
-                         resoconto_teorie, seme_teoria, teorie_turno_1, teorie_turno_2, togli_degeneri,
-                         un_blocco_per_famiglia)
+from .generatore import (NOME_LATO, ControlloDegenerazione, SpazioTeoria, Teoria, filtri_rimasti, lati_config,
+                         resoconto_teorie, rosa_dei_trigger, seme_teoria, teorie_turno_1, teorie_turno_2,
+                         togli_degeneri)
 from .ottimizzatore import AMPIEZZA, PREDEFINITE, Categoria, Intero, Reale, Spazio, genetico
 from .valutatore import Costi, Strategia, Valutatore, id_strategia, obiettivo, qualita_1
 
@@ -83,6 +85,9 @@ PEZZO = "ricerca"
 FILE_PASSO_1, FILE_PASSO_2, FILE_STATO = "passo_1.jsonl", "passo_2.jsonl", "stato.json"
 FILE_TURNO_2 = "turno_2.jsonl"                 # C2: il turno 2 del passo 1, una teoria alla volta come il turno 1
 FASE_TURNO_1, FASE_TURNO_2 = "passo_1", "passo_1_turno_2"
+FASE_ROSA = "rosa"                             # docs/82 §13: una prova per trigger misurato e orizzonte
+NESSUN_TRIGGER = ("nessun trigger è nella rosa, né long né short, sul pezzo di ricerca: la ricerca non può partire "
+                  "(non resta un trigger).")
 FILE_SELEZIONE = "selezione.json"
 
 
@@ -561,8 +566,9 @@ def _in_ordine(funzione, compiti: list, prep: "Preparazione", processi: int):
 @dataclass
 class Preparazione:
     """
-    Indicatori, valori degeneri, famiglie, un blocco per famiglia, teorie del turno 1 e budget: tutto quello che si fa
-    prima della prima prova. `teorie` = quelle del turno 1; `turno_2_massimo` = le teorie del turno 2 al massimo.
+    Indicatori, valori degeneri, rosa dei trigger, teorie del turno 1 e budget: tutto quello che si fa prima della prima
+    prova. `tenuti` = {lato: i trigger nella rosa e i filtri rimasti}; `rosa` = una riga per trigger misurato e
+    orizzonte; `teorie` = quelle del turno 1; `turno_2_massimo` = le teorie del turno 2 al massimo.
     """
     config: dict
     df: pd.DataFrame
@@ -571,15 +577,13 @@ class Preparazione:
     lati: list
     rimaste: dict
     tolte: list
-    famiglie: dict
-    misura: pd.DataFrame
     teorie: list
     resoconto: dict
     budget_massimo: int
     lavoro: _Lavoro
     durata_s: float
     tenuti: dict = field(default_factory=dict)
-    tenuti_tolti: list = field(default_factory=list)
+    rosa: list = field(default_factory=list)
     turno_2_massimo: int = 0
 
     def per_processi(self) -> tuple:
@@ -595,9 +599,9 @@ def massimo_turno_2(config: dict, teorie_tf: int, filtri_lato_max: int) -> int:
 
 def prepara(config: dict, pezzi, controlla: bool = True) -> Preparazione:
     """
-    Sul solo pezzo di ricerca: niente prove, solo segnali (valori degeneri e «STATO», famiglie misurate, un blocco per
-    famiglia), poi le teorie del turno 1 e il budget massimo. `controlla`=False (cella 1, config standard): il massimo
-    non si confronta con il totale, perché il totale (il tetto, D6) si calcola da questo massimo.
+    Sul solo pezzo di ricerca: valori degeneri e «STATO», la rosa dei trigger (docs/82 §13), poi le teorie del turno 1 e
+    il budget massimo. Si ferma se nessun trigger è nella rosa su nessun lato. `controlla`=False (cella 1, config
+    standard): il massimo non si confronta con il totale, perché il totale (il tetto, D6) si calcola da questo massimo.
     """
     t0 = time.perf_counter()
     imposta_mercato_crypto()
@@ -607,8 +611,12 @@ def prepara(config: dict, pezzi, controlla: bool = True) -> Preparazione:
     lati = lati_config(config)
     controllo = ControlloDegenerazione(cache)
     rimaste, tolte = togli_degeneri(blocchi, cache, lati, controllo)
-    famiglie, misura = misura_famiglie(blocchi, cache, lati, rimaste)
-    tenuti, tabella = un_blocco_per_famiglia(blocchi, misura, controllo, lati, rimaste)
+    entrano, rosa = rosa_dei_trigger(blocchi, cache, lati, rimaste, config["symbol"], config["rosa"],
+                                     config["processi"])
+    if not any(entrano.values()):
+        raise ValueError(NESSUN_TRIGGER)
+    filtri = filtri_rimasti(blocchi, lati, rimaste)
+    tenuti = {lato: entrano[lato] + filtri[lato] for lato in lati}
     teorie = teorie_turno_1(config, blocchi, tenuti)
     if not teorie:
         raise ValueError("nessuna teoria: tutti i blocchi sono usciti o la config non ne forma nessuna.")
@@ -619,9 +627,8 @@ def prepara(config: dict, pezzi, controlla: bool = True) -> Preparazione:
     massimo = (controlla_budget if controlla else budget_massimo)(len(teorie), config, teorie_tf, filtri_max)
     costi = pezzi.costi(PEZZO)
     lavoro = _Lavoro(config, df, costi, rimaste, cache=cache, controllo=controllo)
-    return Preparazione(config, df, costi, blocchi, lati, rimaste, tolte, famiglie, misura, teorie, resoconto, massimo,
-                        lavoro, time.perf_counter() - t0, tenuti, tabella,
-                        massimo_turno_2(config, teorie_tf, filtri_max))
+    return Preparazione(config, df, costi, blocchi, lati, rimaste, tolte, teorie, resoconto, massimo, lavoro,
+                        time.perf_counter() - t0, tenuti, rosa, massimo_turno_2(config, teorie_tf, filtri_max))
 
 
 # ------------------------------------------------------------------ i file della ricerca
@@ -645,6 +652,13 @@ def _scrivi_stato(cartella: str, stato: dict) -> None:
     os.replace(percorso + ".tmp", percorso)
 
 
+def righe_prove_rosa(id_ricerca: str, rosa: list[dict]) -> list[dict]:
+    """Le prove della rosa (docs/82 §13): una per trigger misurato e orizzonte, «ROSA_H16_E36_short»."""
+    return [{"id_ricerca": id_ricerca, "pezzo": PEZZO, "fase": FASE_ROSA, "teoria": FASE_ROSA,
+             "id_strategia": f"ROSA_H{r['orizzonte']}_{r['blocco']}_{r['lato']}", "trade": r["eventi"],
+             "ev_bp": r["scarto_bp"], "t": r["t"]} for r in rosa]
+
+
 def _righe_prove(id_ricerca: str, teoria: str, righe) -> list[dict]:
     return [{"id_ricerca": id_ricerca, "pezzo": PEZZO, "fase": r["fase"], "teoria": teoria, "id_strategia": r["id"],
              "trade": r["trade"], "ev_bp": r["ev_bp"], "t": r["t"]} for r in righe]
@@ -659,12 +673,12 @@ def _controlla_gia_fatte(fatte: list[dict], attese: list[str], nome: str) -> Non
 
 # ------------------------------------------------------------------ il registro della ricerca
 def _evento_avvio(id_ricerca, config, pezzi, prep: Preparazione) -> dict:
-    misura = prep.misura.replace({np.nan: None}).to_dict("records") if len(prep.misura) else []
     return {"tipo": "avvio_ricerca", "id_ricerca": id_ricerca, "impronta_config": impronta_config(config),
             "symbol": config["symbol"], "timeframe": config["timeframe"], "impronte_dati": dict(pezzi.impronte),
             "barre": {"ricerca": len(pezzi.ricerca), "selezione": len(pezzi.selezione)},
-            "teorie": prep.resoconto, "famiglie": misura, "degeneri_avvio": prep.tolte,
-            "tenuti_tolti": prep.tenuti_tolti, "turno_2_massimo": prep.turno_2_massimo,
+            "teorie": prep.resoconto, "rosa_entrano": [r for r in prep.rosa if r["nella_rosa"]],
+            "rosa_misurati": len(prep.rosa), "degeneri_avvio": prep.tolte,
+            "tenuti": {NOME_LATO[lato]: n for lato, n in prep.tenuti.items()}, "turno_2_massimo": prep.turno_2_massimo,
             "budget_massimo": prep.budget_massimo}
 
 
@@ -672,7 +686,7 @@ def _registra_avvio(base: str, evento: dict) -> None:
     """Scrive l'avvio una volta sola; a una ripresa controlla che dati e teorie siano gli stessi."""
     for e in registro.leggi_registro(base):
         if e.get("tipo") == "avvio_ricerca" and e.get("id_ricerca") == evento["id_ricerca"]:
-            for k in ("impronta_config", "impronte_dati", "teorie", "degeneri_avvio", "tenuti_tolti"):
+            for k in ("impronta_config", "impronte_dati", "teorie", "degeneri_avvio", "tenuti"):
                 if (json.dumps(e.get(k), sort_keys=True, default=registro.nativo)
                         != json.dumps(json.loads(registro.json_riga(evento[k])), sort_keys=True)):
                     raise ValueError(f"ripresa di {evento['id_ricerca']}: «{k}» è cambiato dall'avvio "
@@ -701,7 +715,7 @@ class EsitoRicerca:
     tempi: dict = field(default_factory=dict)
     selezione: "sel_mod.Selezione | None" = None
     conto: dict = field(default_factory=dict)
-    tenuti_tolti: list = field(default_factory=list)       # C2: un blocco per famiglia, una riga per blocco e lato
+    rosa: list = field(default_factory=list)               # docs/82 §13: una riga per trigger misurato e orizzonte
 
 
 def _tabelle(ris_1: list[dict], ris_2: list[dict], al_passo_2: list[str], ris_t2: list[dict] = ()):
@@ -764,6 +778,7 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
     prep = prepara(config, pezzi)
     _registra_avvio(base, _evento_avvio(id_ricerca, config, pezzi, prep))
     prove = registro.FileProve(cartella)
+    prove.aggiungi(righe_prove_rosa(id_ricerca, prep.rosa))      # a una ripresa sono già scritte: non si contano due volte
     per_id = {t.id: t for t in prep.teorie}
     tempi = {"preparazione_s": prep.durata_s}
     fatte_ora = [0]                  # teorie finite in questa chiamata, turni e passo 2
@@ -894,11 +909,14 @@ def _selezione(cartella, vive, pezzi, config, id_ricerca, prove) -> "sel_mod.Sel
 
 def _esito(id_ricerca, cartella, finita, prep, ris_1, ris_2, al_passo_2, prove, t_inizio, tempi, selezione=None,
            conto=None, ris_t2=(), n_turno_2: int | None = None) -> EsitoRicerca:
-    """L'esito, anche a metà. imbuto (C2): turno_1 (teorie), turno_1_tenute, turno_2 (teorie; 0 finché il turno 1 non
-    è finito), turno_2_tenute, passo_2 (teorie fatte allo zoom), altopiano, e a ricerca finita selezione e scelte."""
+    """L'esito, anche a metà. imbuto (C2, §13): rosa_misurati e rosa_entrano (trigger), turno_1 (teorie),
+    turno_1_tenute, turno_2 (teorie; 0 finché il turno 1 non è finito), turno_2_tenute, passo_2 (teorie fatte allo
+    zoom), altopiano, e a ricerca finita selezione e scelte."""
     p1, p2, vive = _tabelle(ris_1, ris_2, al_passo_2, ris_t2)
     tenute = p1.groupby("turno")["tenuta"].sum() if len(p1) else {}
-    imbuto = {"turno_1": len(prep.teorie), "turno_1_tenute": int(tenute.get(1, 0)) if len(p1) else 0,
+    imbuto = {"rosa_misurati": len({(r["lato"], r["blocco"]) for r in prep.rosa}),
+              "rosa_entrano": len({(r["lato"], r["blocco"]) for r in prep.rosa if r["nella_rosa"]}),
+              "turno_1": len(prep.teorie), "turno_1_tenute": int(tenute.get(1, 0)) if len(p1) else 0,
               "turno_2": int(n_turno_2 or 0), "turno_2_tenute": int(tenute.get(2, 0)) if len(p1) else 0,
               "passo_2": len(ris_2), "altopiano": len(vive)}
     if selezione is not None:
@@ -908,4 +926,4 @@ def _esito(id_ricerca, cartella, finita, prep, ris_1, ris_2, al_passo_2, prove, 
     return EsitoRicerca(id_ricerca, cartella, finita, imbuto, p1, p2, vive,
                         sum(1 for k in prove.chiavi if k[0] == id_ricerca), prep.budget_massimo, prep.tolte,
                         _degeneri_zoom(ris_2, prep.tolte), prep.resoconto, time.perf_counter() - t_inizio, tempi,
-                        selezione, dict(conto or {}), list(prep.tenuti_tolti))
+                        selezione, dict(conto or {}), list(prep.rosa))

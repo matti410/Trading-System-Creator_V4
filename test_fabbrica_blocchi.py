@@ -396,7 +396,10 @@ def esegui() -> int:
     check("41. ogni blocco del catalogo dà la stessa maschera della condizione", not diversi and tot == 26, f"{tot} confronti {diversi}")
     check("42. e sui dati del collaudo ogni condizione scatta (X0 per costruzione no)", not mai, str(mai))
     nomi_catalogo = set(entry_long.TRIGGER_LONG) | set(entry_short.TRIGGER_SHORT)
-    check("43. il registro contiene solo le condizioni dei dizionari", set(reg.list_entries()) == nomi_catalogo)
+    from engine.generatore.catalogo import carica_catalogo, trigger_del_catalogo
+    generati = set().union(*trigger_del_catalogo(carica_catalogo()))        # docs/82 §13: anche i trigger generati
+    check("43. il registro contiene solo le condizioni dei dizionari e i trigger generati",
+          set(reg.list_entries()) == nomi_catalogo | generati)
     check("44. il blocco legge dal registro: la condizione è quella registrata", reg.get_entry("E5_QUICK_PULLBACK") is entry_long.entry_quick_pullback)
     reg.clear_registry()
     ricaricata = _uno("E5").maschera(Cache(df_ind, 1), 1)
@@ -804,7 +807,7 @@ def esegui() -> int:
     sbagliati = []
     for tf in MINUTI_TIMEFRAME:
         cfg = config_standard("BINANCE_PERP_BTCUSDT", tf)
-        if cfg["versione"] != 3 or VERSIONE != 3:
+        if cfg["versione"] != 4 or VERSIONE != 4:
             sbagliati.append((tf, "versione", cfg["versione"]))
         scritti = {n: cfg["blocchi"][n] for n in attesi}
         if scritti != {n: {k: list(v) for k, v in g.items()} for n, g in attesi.items()}:
@@ -815,7 +818,7 @@ def esegui() -> int:
             if b.griglia != attesi[b.nome] or any(not isinstance(p, (Intero, Reale)) or p.minimo != p.massimo
                                                    for p in b.parametri):
                 sbagliati.append((tf, b.nome, b.griglia))
-    check("125. config standard (versione 3) da M1 a D1: un valore per parametro, gli stessi in barre su ogni timeframe "
+    check("125. config standard (versione 4) da M1 a D1: un valore per parametro, gli stessi in barre su ogni timeframe "
           "(D5 = A), e lo spazio dello zoom ha un punto solo", not sbagliati, str(sbagliati[:3]))
     vuota = {n: _uno(n, standard=True).griglia for n in attesi}
     check("126. {} nella config = i valori standard", vuota == attesi)

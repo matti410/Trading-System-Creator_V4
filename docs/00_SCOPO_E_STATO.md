@@ -24,6 +24,12 @@ barre (RSI 14 e 30, Donchian 20, ADX 14 e 25, ATR relativo 14, 100 e 1,0), gli s
 zoom cercano solo le uscite, l'altopiano li sposta di ±15%; config versione 3 (le ricerche della 2 restano su disco e
 nel conto, le celle 4–7 su una di esse dicono di rilanciare la 2). La stima della cella 1 viene dalle due ricerche vere
 della versione 3 del 15/11 (BTC perp M15 9,2 minuti, ETH perp H1 3,5, con 3 processi).
+Dal 20/11 (`82` §13, ramo `fabbrica-rosa`): **la rosa dei trigger** al posto di «un blocco per famiglia». All'avvio, sul
+pezzo di ricerca, tutti i trigger (45 del catalogo e i 1.492 generati, una coppia long/short ciascuno) passano dalla rosa
+del Lab a 4, 16 e 32 barre; entra chi è nella rosa ad almeno un orizzonte; i filtri entrano tutti; ogni trigger misurato,
+per orizzonte, è una prova nel conto (fase «rosa»). Config versione 4 (campo `rosa`); le ricerche della 3 restano su
+disco e nel conto, le celle 4–7 su una di esse dicono di rilanciare la 2. Su BTC perp M15: 3.008 trigger misurati, nella
+ricerca 13 long e 10 short, 2.139 teorie, tetto 310.000; la cella 1 impiega circa 2 minuti in più.
 **Incarico 83 (15/11/2026): il generatore di indicatori e trigger prezzo + volume** (`83_PROPOSTA_GENERATORE_INDICATORI.md`,
 PR #117): `engine/generatore/`, si lancia con `python -m engine.generatore --n N`; tetto N = 112 scelto da Mattia il 16/11
 (`dati_catalogo/generati_v1.json`, 2.984 trigger). Il collegamento al ML e alla fabbrica sono lavori a parte.

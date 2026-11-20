@@ -60,7 +60,7 @@ ATTESI = {
 }
 CAMPI_SCHEDA = ("id_strategia", "id_ricerca", "impronta_config", "impronte_dati", "symbol", "timeframe", "lato",
                 "blocchi", "uscita", "regole", "esiti", "altopiano", "test_individuale", "prove", "cassaforte", "mm",
-                "stress", "software", "blocchi_esclusi", "verifica", "turno", "blocchi_tenuti_tolti")
+                "stress", "software", "blocchi_esclusi", "verifica", "turno", "rosa_trigger")
 
 
 def check(nome: str, ok: bool, dettaglio: str = "") -> None:
@@ -138,6 +138,15 @@ def _testi():
             (10, 15): "2,5 ore (10 barre)", (5, 1440): "120 ore (5 barre)", (1, 1): "1 minuto (1 barra)"}
     sbagliati = {k: sch.durata(*k) for k, v in casi.items() if sch.durata(*k) != v}
     check("2. le durate in parole, in ore e in barre del timeframe", not sbagliati, f"diversi: {sbagliati}")
+    st_g = Strategia(-1, "G0045_P50_SU", (), "X0", (("G0045_P50_SU", ()), ("X0", (("durata_barre", 8),
+                                                                                    ("perc_stop", 90), ("target", None)))))
+    riga_g = sch.regole_in_parole(st_g, "M15")["righe"][0]
+    check("2b. docs/82 §13: un trigger generato ha la sua regola in parole dalla ricetta, sui due lati; il nome breve "
+          "porta la ricetta", riga_g == "Entra short all'apertura della barra dopo quella in cui l'indicatore "
+                                      "corr(rng, v, 5) attraversa il suo 50° percentile delle ultime 500 barre (barra "
+                                      "esclusa) verso l'alto."
+          and sch.nome_breve("G0045_P50_SU", {}, "M15").startswith("G0045_P50_SU · l'indicatore corr(rng, v, 5)"),
+          riga_g)
 
     st = Strategia(1, "DONCHIAN", ("F3_VOLUME_ABOVE_AVG",), "X3",
                    (("DONCHIAN", (("canale_barre", 48),)), ("F3_VOLUME_ABOVE_AVG", ()),
@@ -272,17 +281,18 @@ def _giro(radice, symbol, timeframe, confini):
           and letta["verifica"] is None and letta["impronte_dati"]["cassaforte"]
           and [x["passo"] for x in letta["esiti"]] == [f"passo 1, turno {letta['turno']}", "zoom e altopiano",
                                                        "selezione", "cassaforte"]
-          and letta["turno"] in (1, 2) and letta["blocchi_tenuti_tolti"] == json.loads(json.dumps(e.tenuti_tolti))
-          and len(letta["blocchi_tenuti_tolti"]) > 0)
+          and letta["turno"] in (1, 2) and letta["rosa_trigger"]["prove"] == len(e.rosa) > 0
+          and letta["rosa_trigger"]["entrano"] == json.loads(json.dumps([r for r in e.rosa if r["nella_rosa"]]))
+          and letta["rosa_trigger"]["entrano"])
     with open(md, encoding="utf-8") as f:
         testo = f.read()
     sezioni = ("## Regole", "## Da dove viene", "## Il cammino", "## Da leggere", "## Verifica dei trade",
                "## Money management e stress test", "## Blocchi tolti su questo timeframe",
-               "## Blocchi tenuti e tolti (un blocco per famiglia)")
+               "## La rosa dei trigger")
     check(f"{n + 2}. il .md ha le sezioni, le regole in parole, «non calcolati» senza la 6, e finisce con la frase "
           f"«{sch.FRASE_FINALE}»", all(x in testo for x in sezioni) and testo.rstrip().endswith(sch.FRASE_FINALE)
           and all(r in testo for r in letta["regole"]) and "esegui la 6" in testo
-          and f"- Turno {letta['turno']} del passo 1" in testo and "trigger → " in testo
+          and f"- Turno {letta['turno']} del passo 1" in testo and "trigger misurati sul pezzo di ricerca" in testo
           and sch.leggi_scheda(md) == letta)
     altra = json.loads(json.dumps(letta))
     chiave = next(iter(altra["strategia"]["valori"][altra["strategia"]["trigger"]]), None)

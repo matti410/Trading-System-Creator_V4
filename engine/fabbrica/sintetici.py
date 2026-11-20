@@ -101,6 +101,25 @@ def mercato_piantato(n: int = 16_000, seme: int = 0, minuti: int = 15, inizio: s
     return pd.DataFrame({"Open": o, "High": h, "Low": l, "Close": c, "Volume": volume}, index=indice)
 
 
+def mercato_con_generato(nome: str, n: int = 20_300, seme: int = 1, minuti: int = 15, inizio: str = "2024-01-01",
+                         prezzo: float = 30_000.0, spinta: float = 0.002, durata_barre: int = 8) -> pd.DataFrame:
+    """
+    (docs/82 §13) Un vantaggio piantato in un trigger generato, per il collaudo della rosa: sul `mercato` con lo stesso
+    seme si calcolano gli eventi del trigger `nome` (il long della coppia), e le `durata_barre` barre dopo ognuno hanno
+    `spinta` di rendimento in più, restituita piano piano nelle RESTITUZIONE × `durata_barre` barre dopo (come
+    mercato_piantato: il prezzo non scappa). Gli eventi sul mercato nuovo cambiano un po' (circa metà restano gli
+    stessi): il vantaggio è di chi entra su quelli rimasti.
+    """
+    from .blocchi import _dal_registro
+    base = mercato(n, seme=seme, minuti=minuti, inizio=inizio, prezzo=prezzo)
+    eventi = np.flatnonzero(_dal_registro("trigger", nome)(base).fillna(False).to_numpy(dtype=bool))
+    impulso = np.r_[np.full(durata_barre, spinta), np.full(RESTITUZIONE * durata_barre, -spinta / RESTITUZIONE)]
+    extra = np.zeros(n + len(impulso) + 1)
+    for i in eventi:
+        extra[i + 1: i + 1 + len(impulso)] += impulso
+    return mercato(n, seme=seme, minuti=minuti, inizio=inizio, prezzo=prezzo, spinta=extra[:n])
+
+
 def scrivi_storico(cartella, symbol: str, timeframe: str, df: pd.DataFrame) -> str:
     """dati/<SYMBOL>_<TIMEFRAME>.csv: Date in UTC senza fuso scritto, Open, High, Low, Close, Volume."""
     os.makedirs(str(cartella), exist_ok=True)

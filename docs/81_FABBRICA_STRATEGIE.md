@@ -66,9 +66,10 @@ e indicatore TradingView sono fuori da questo incarico.
 2. **Config scritta e salvata prima del lancio**, con impronta (hash): blocchi ammessi, intervalli, modelli,
    condizioni di qualità, budget, seed. Un rilancio con config diversa è una ricerca nuova: le prove si sommano nel
    conto.
-3. **Generatore:** all'avvio, sul pezzo di ricerca e solo sui segnali, un blocco per famiglia misurata (`famiglie.py`):
-   resta uno dei 14 blocchi di P-L2 se c'è, altrimenti quello che scatta più spesso (`docs/82` §11.3); poi le teorie dai
-   blocchi tenuti. ADX e ATR relativo, che hanno la stessa famiglia dichiarata, non stanno mai nella stessa teoria.
+3. **La rosa dei trigger** (dal 20/11, `docs/82` §13): all'avvio, sul solo pezzo di ricerca, tutti i trigger (del
+   catalogo e generati) passano dalla rosa del Lab, a 4, 16 e 32 barre; entra nella ricerca chi è nella rosa ad almeno
+   un orizzonte. Ogni trigger misurato, per ogni orizzonte, è una prova nel conto. I filtri entrano tutti. Poi le teorie.
+   ADX e ATR relativo, che hanno la stessa famiglia dichiarata, non stanno mai nella stessa teoria.
 4. **Passo 1, scrematura in due turni:** passo largo (circa N valori per parametro), ottimizzatore tarato in ampiezza,
    sui soli dati di ricerca; condizione di qualità 1 → teoria tenuta o scartata. Turno 1: le teorie con al massimo un
    filtro; turno 2: alle 150 teorie con un filtro dal t più alto si aggiunge un secondo filtro. Ogni prova dei due turni
