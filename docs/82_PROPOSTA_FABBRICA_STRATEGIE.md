@@ -1,12 +1,12 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab. **20/11:** §13 fatta (ramo `fabbrica-rosa`), filtri: scelta A. **20/11 sera:** proposta nuova in §14 (la fabbrica su più monete), solo testo; corretta la sera stessa con le decisioni di Mattia (orologio comune, misura rifatta, S1 = A, S2 = B).
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab. **20/11:** §13 fatta (ramo `fabbrica-rosa`), filtri: scelta A. **20/11 sera:** proposta nuova in §14 (la fabbrica su più monete), solo testo; corretta la sera stessa con le decisioni di Mattia (orologio comune, misura rifatta, S1 = A, S2 = B). **20/11 notte:** §14 fatta (ramo `fabbrica-piu-monete`, §14.9).
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
 §10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11) · §12 I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera) ·
-§13 I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11) · §14 La fabbrica su più monete (proposta del 20/11)
+§13 I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11) · §14 La fabbrica su più monete (proposta del 20/11, fatta il 20/11)
 
 ---
 
@@ -1512,10 +1512,11 @@ Oggi «un blocco per famiglia» sceglie anche fra i filtri (21 long e 22 short s
 
 ## §14 · La fabbrica su più monete (proposta del 20/11)
 
-**Stato:** proposta, solo testo, sulle decisioni di Mattia del 20/11, corretta la sera del 20/11: un orologio comune in
+**Stato:** fatta il 20/11 (ramo `fabbrica-piu-monete`), alla lettera di §14.1–§14.8: cosa c'è nel codice, i collaudi e
+la misura in §14.9. Proposta sulle decisioni di Mattia del 20/11, corretta la sera del 20/11: un orologio comune in
 barre al posto del giorno (§14.2), la misura rifatta (§14.6), il money management in ordine d'ingresso (§14.4), nella
-fabbrica decide l'ATR (§14.1); §14.3 accettata; S1 = A e S2 = B (§14.8). Nessun codice prima del via. Per la fabbrica
-cade la regola del 18/10 «niente pooling fra symbol»; nel Lab resta.
+fabbrica decide l'ATR (§14.1); §14.3 accettata; S1 = A e S2 = B (§14.8). Per la fabbrica cade la regola del 18/10
+«niente pooling fra symbol»; nel Lab resta.
 
 ### §14.1 · Lo schema
 
@@ -1645,3 +1646,40 @@ Lab e Grid Search non cambiano.
   (`docs/81` §4): la ricerca riprende se interrotta. Le prove per teoria restano 40.
 - **S2 · La preparazione una volta: B.** La cella 1 salva la rosa nella cartella della ricerca, con l'impronta della
   config; la cella 2 la rilegge invece di rifarla (cambia §13.5, «nessun file nuovo»).
+
+### §14.9 · Fatta (20/11): cosa c'è nel codice, collaudi, misura
+
+**Codice** (ramo `fabbrica-piu-monete`), come §14.7: config versione 5 (`monete`, `ev_min` in ATR, `qualita_2` senza
+`p_ev_neg_max`); `dati.carica_pezzi` su una lista e `dati.orologio` (il numero della barra = (ora − prima ora della lista)
+/ durata della barra); `cache.MemoriaComune` (una cache per la lista, col tetto di oggi); `generatore.ControlloLista` (un
+blocco degenere su una moneta esce per tutte); `rosa_lista.py` (nuovo); `valutatore.ValutatoreLista` e
+`valutatore.t_sovrapposti`; la rosa salvata in `rosa.json` nella cartella della ricerca (S2); selezione e cassaforte sulla
+lista, con la tabella per moneta; `sessione.py` (MM del Lab sulla tabella di tutte le monete, stress test a giorni
+interi, verifica moneta per moneta); schede versione 2; `money_management.py` e `montecarlo.py` con le colonne facoltative
+`ingresso`, `uscita`, `giorno` e `lotto_*` (senza, tutto come prima); BINANCE_PERP_ADAUSDT in `simboli.py`; il notebook.
+La cartella di una lista è `dati/fabbrica/BINANCE_PERP_BTCUSDT+ETHUSDT+…_M15`; con una moneta quella di prima.
+
+**Collaudi** (`test_fabbrica_monete.py`, nuovo, più le suite della fabbrica aggiornate): l'orologio (SOL più giovane
+allineata per ora a BTC; una copia di BTC con barre tolte ha lo stesso orologio); una moneta: la rosa = la rosa del Lab
+in ATR al bit, il t = `giudizio.t_stat` senza trade a meno di H barre, il MM senza trade sovrapposti = oggi al bit; due
+copie della stessa moneta = stesso scarto e stesso t; due monete indipendenti con lo stesso vantaggio = t circa 1,4
+volte; prezzi × 10 = stessi numeri in ATR; due trade aperti insieme, leva sommata, Monte Carlo a giorni interi; trade del
+valutatore = `MotoreVeloce.run` per ogni moneta; una strategia = una riga nel conto; cassaforte avvelenata; cella 2 con
+la rosa salvata = rosa rifatta; fermata e ripresa; 3 processi = 1; la cella 6 su due monete; il notebook intero due volte.
+
+**Sui dati veri** (copia dei CSV del 20/11; nessuna ricerca, conto e studio veri non toccati): SOL perp dal 14/09/2020
+07:00 sta sul numero 24.604 dell'orologio di BTC, e ognuna delle sue 216.825 barre ha lo stesso numero della barra di
+BTC della stessa ora. BTC non ha barre mancanti nel pezzo di ricerca (124.048 su 124.048): l'identità con il Lab non
+cambia per questo, e la rosa di BTC da sola è quella del Lab in ATR, al bit (9.030 righe, 3.010 trigger misurati, 7 long
+e 10 short nella rosa).
+
+**Tempi e memoria, M15, 5 monete** (BTC, ETH, XRP, SOL, ADA; pezzo di ricerca dal 02/01/2020 al 17/07/2023 04:00: BTC ed
+ETH 124.048 barre, XRP 123.631, ADA 121.232, SOL 99.444): cella 1 9 minuti, di cui 7,2 di preparazione (valori degeneri
+e rosa, una moneta alla volta, 3 processi per la rosa) e il resto lo scaricamento di ADA da zero; picco di memoria 3,8 GB
+(processo principale e processi della rosa). Rosa: 3.035 trigger misurati, 9 long e 7 short nella ricerca (6 del
+catalogo, 10 generati), 9.105 prove. Turno 1 1.488 teorie, turno 2 al massimo 4.350, al massimo 283.320 prove (tetto
+290.000); la stima della cella 1 dice 46–85 minuti con 3 processi. Cella 2: la rosa si rilegge in 36 secondi (picco
+0,9 GB). Il valutatore sulle 5 monete, in un processo, a cache fredda: 16,6 prove al secondo (12 teorie, 384 prove), un
+processo arriva a 1,0 GB con 0,2 GB di cache; col tetto della cache (1,5 GB) un processo della ricerca sta sotto 2,5 GB,
+circa 7 GB con 3 processi. A quella velocità fredda le 283.320 prove al massimo sarebbero circa 95 minuti con 3 processi:
+il tempo vero si vede alla prima ricerca.
