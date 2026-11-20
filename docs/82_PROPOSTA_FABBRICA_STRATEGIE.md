@@ -1,11 +1,12 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»).
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab; in attesa del via.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
-§10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11) · §12 I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera)
+§10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11) · §12 I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera) ·
+§13 I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11)
 
 ---
 
@@ -1414,3 +1415,92 @@ dello zoom delle uscite (§12.10) è un lavoro separato, dopo. Voce in §8: «Va
 ### §12.10 · Visto a parte (non entra nella proposta, si decide insieme)
 
 - La lentezza dello zoom su M5 (e, stimata, su M1) viene dalle soglie adattive delle uscite al passo fine, non dai quattro blocchi (§12.6): se Mattia vuole, se ne parla a parte, con una misura dedicata.
+
+## §13 · I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11)
+
+**Stato:** proposta, solo testo (PR #121), riscritta il 20/11 con lo schema di Mattia e la sua regola del 20/11 (una
+strada sola, la più semplice). Il codice parte con il suo via.
+
+### §13.1 · Lo schema
+
+1. All'avvio, sul solo pezzo di ricerca, **tutti** i trigger (catalogo ufficiale e generati) passano dalla rosa del Lab.
+2. Entra nella ricerca chi è nella rosa ad almeno uno dei tre orizzonti: 4, 16 e 32 barre.
+3. Ogni trigger misurato, per ogni orizzonte, è una prova nel conto della fabbrica, da leggere sulla scheda.
+4. Poi tutto come oggi: ricerca genetica, costi, regole, selezione, cassaforte, money management e stress.
+5. Decide il test individuale, come oggi.
+
+**La rosa** è quella del Lab (`rosa.rosa_orizzonti_entry`, colonna `nella_rosa`): t netto sopra il mercato della stessa
+ora; Benjamini-Hochberg al 20% su tutti i misurati, long e short insieme; scarto positivo nelle due metà; poi uno per
+famiglia fra le candidate e |rho| al massimo 0,3 con quelli già presi dello stesso lato. Si misura chi ha almeno 200
+eventi. Prima resta il controllo dei valori degeneri di oggi, uguale per tutti. **Si toglie:** l'interruttore, la
+scrematura a parte, ogni differenza fra ufficiali e generati, «un blocco per famiglia» all'avvio (lo fa la rosa).
+
+### §13.2 · Cosa si vede nel notebook (numeri di BTC)
+
+- **Cella 1:** «Rosa dei trigger (4, 16, 32 barre): 3.008 misurati → nella ricerca 13 long e 10 short (2 ufficiali, 21
+  generati); 9.024 prove nel conto.» Sotto, chiusa, la tabella di chi entra (nome, regola in parole, lato, eventi, t ai
+  tre orizzonti); poi la riga di oggi con teorie, tetto e minuti.
+- **Cella 2:** una riga in più all'inizio, «preparazione: rosa dei trigger, circa 2 minuti».
+- **Cella 3:** in testa all'imbuto, «trigger: 3.008 misurati → 23 nella rosa».
+- **Celle 4–7** su una ricerca della versione 3: si fermano con il messaggio di oggi, «ricerca di una versione
+  precedente: resta su disco e nel conto, rilancia la cella 2».
+- **Scheda:** per un trigger generato la regola in parole; il conto comprende le prove della rosa.
+
+### §13.3 · Quanti trigger entrano (misura del 20/11)
+
+BTC ed ETH perp M15, pezzo di ricerca della config standard (122.169 barre), catalogo `generati_v1.json`. Solo segnali e
+rosa: nessuna ricerca, conto e studio non toccati.
+
+| | BTC long | BTC short | ETH long | ETH short |
+|---|---|---|---|---|
+| misurati: ufficiali + generati | 41 + 1.463 | 41 + 1.463 | 41 + 1.465 | 40 + 1.465 |
+| nella rosa a 4 / 16 / 32 barre | 10 / 3 / 1 | 8 / 2 / 0 | 11 / 1 / 1 | 2 / 0 / 0 |
+| **entrano**: ufficiali + generati | **0 + 13** | **2 + 8** | **2 + 10** | **0 + 2** |
+| oggi nella ricerca | 36 | 36 | 36 | 36 |
+
+La ricerca si restringe: da 72 trigger a 23 (BTC) e 14 (ETH). Gli ufficiali che entrano: E36 ed E51 short (BTC), E21 ed
+E25 long (ETH).
+
+### §13.4 · Teorie, tetto e tempi
+
+| M15, filtri tutti (§13.7) | oggi | BTC | ETH |
+|---|---|---|---|
+| teorie turno 1 / turno 2 al massimo | 4.860 / 3.150 | 2.139 / 4.350 | 1.302 / 4.350 |
+| prove al massimo / tetto | 370.200 / 380.000 | 309.360 / 310.000 | 275.880 / 280.000 |
+| ricerca, stima della cella 1 | 12,5–22,9 min | 10,5–19,2 min | 9,3–17,1 min |
+
+Il tetto si calcola con la regola di oggi sui trigger che entrano: segue la rosa, non la limita. Il turno 2 sale perché i
+filtri passano da 21–22 a 30. **Preparazione:** + 1,7 minuti ogni volta (degeneri dei generati 46 s, rosa 54–57 s,
+memoria 1,15 GB), pagati nelle celle 1 e 2. **M5, stima** (3 volte le barre): circa 5 minuti ogni volta, memoria circa
+3 GB; trigger, teorie e tetto su M5 si vedono alla cella 1.
+
+### §13.5 · Config, conto, file
+
+- **Config versione 4**, campo scritto per intero (se cambia una regola cambia l'impronta): `"rosa": {"orizzonti_barre":
+  [4, 16, 32], "q": 0.2, "soglia_famiglia": 0.6, "rho_max": 0.3, "min_eventi": 200, "catalogo_generato": 1}`.
+  Selezione e cassaforte rifanno un generato dal nome, senza rifare la rosa.
+- **Conto:** una riga per trigger misurato e orizzonte nel file delle prove (fase `rosa`, `id_strategia`
+  «ROSA_H16_<nome>», trade = eventi, `t` = t netto), scritte nella cella 2; una ripresa non le conta due volte.
+- Il calcolo si rifà nelle celle 1 e 2: nessun file nuovo.
+- **File:** `engine/fabbrica/config.py` (versione 4, campo `rosa`); `blocchi.py` (un blocco per ogni generato);
+  `generatore.py` (`rosa_trigger`; `misura_famiglie` e `un_blocco_per_famiglia` si tolgono con i loro collaudi, **non
+  additivo**); `ricerca.py` (`prepara`: degeneri → rosa → teorie; `lancia`: le righe della rosa); `schede.py` (regola
+  in parole); `engine/vetrina_fabbrica.py` (le righe di §13.2); il notebook (testo sopra la cella 1, glossario);
+  `docs/00`, `81`, `82`. Non cambiano: motore, `rosa.py`, `famiglie.py`, i due cataloghi, Lab e Grid Search.
+
+### §13.6 · I collaudi
+
+- Rosa: entrano esattamente i trigger con `nella_rosa` ad almeno un orizzonte, stessi numeri della rosa del Lab;
+  ufficiali e generati nello stesso BH; sotto i 200 eventi né misurato né contato; sullo spot solo long.
+- Conto: una riga per misurato e orizzonte, mai due volte. Config: versione 3 fermata con il messaggio.
+- Dati sintetici: un vantaggio piantato in un generato arriva in rosa e in teorie; budget mai superato; 1 processo = 3;
+  fermata e ripresa = corsa unica; selezione e cassaforte senza chiamare la rosa; il notebook intero due volte.
+- Prima della PR la suite completa; niente prove d'identità (Lab e Grid Search non cambiano).
+
+### §13.7 · L'unica scelta aperta: i filtri
+
+Oggi «un blocco per famiglia» sceglie anche fra i filtri (21 long e 22 short su 30); la rosa misura solo i trigger.
+- **A:** il passo si toglie del tutto, entrano tutti i filtri non degeneri (i numeri di §13.4).
+- **B:** il passo resta solo per i filtri. BTC 1.548 teorie, tetto 240.000, 8,1–14,7 min; ETH 930, 220.000, 7,2–13,2.
+
+*Consiglio:* **A**: un passo in meno e nessuna regola a parte, per circa 2–4 minuti di ricerca in più su M15.

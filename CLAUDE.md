@@ -1,5 +1,7 @@
 # Istruzioni per Claude Code — Trading-System-Creator_V4
 
+**REGOLA DI MATTIA (20/11/2026), PRIMA DI TUTTE: tutto DEVE essere super semplice e intuitivo, anche per un non esperto: la pipeline, il notebook, la documentazione e la logica con cui si costruisce il codice. Una strada sola, uguale per tutti i casi; niente interruttori, gate interni, eccezioni o trattamenti diversi per cose che fanno lo stesso lavoro. Ogni passo si deve poter dire in una frase. Una complicazione si propone solo con il vantaggio concreto, e decide Mattia prima che venga scritta. Nel dubbio, la versione più semplice.**
+
 L'utente (Mattia) NON è un informatico. Rispondi sempre in italiano e, a ogni passo,
 spiega in parole semplici: cosa hai fatto, come eseguire ogni comando, cosa dovrebbe
 vedere come risultato. Ragiona come un trader algoritmico esperto.
