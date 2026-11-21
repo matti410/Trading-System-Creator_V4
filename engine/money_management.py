@@ -40,6 +40,27 @@ I LIMITI DEI LOTTI (dizionario `limiti`, ogni voce facoltativa)
 Con limiti vuoti (o tutti None) i lotti sono continui e nessun trade si salta:
 e' il caso dei test di identita' (regola di Mattia del 16/10/2026).
 
+PIU' MONETE INSIEME (20/11/2026, docs/82 §14.4; colonne facoltative)
+--------------------------------------------------------------------
+Senza queste colonne tutto come prima. La fabbrica su piu' monete le aggiunge:
+    ingresso, uscita   istanti d'ingresso e d'uscita; la tabella e' in ordine
+                       d'INGRESSO. ripercorri: ogni trade prende i lotti dal
+                       capitale dei trade gia' chiusi in quel momento (un trade
+                       ancora aperto non conta finche' non chiude); la leva
+                       somma il nozionale delle posizioni aperte in quel momento
+                       (se il trade nuovo supera il tetto, i suoi lotti scendono).
+                       Un trade chiuso nello stesso istante in cui un altro entra
+                       conta come chiuso. Senza trade sovrapposti = come prima,
+                       al bit.
+    giorno             il giorno d'ingresso: il Monte Carlo ripesca GIORNI interi
+                       (tutti i trade che si aprono quel giorno, su qualunque
+                       moneta), con la stessa regola dentro il giorno; alla fine
+                       del giorno i suoi trade sono tutti chiusi. Con un trade per
+                       giorno = come prima, al bit.
+    lotto_minimo, lotto_passo, lotto_massimo
+                       i limiti dei lotti della moneta di ogni trade, al posto di
+                       quelli del dizionario `limiti` (che resta per la leva).
+
 NESSUN LOOKAHEAD: i lotti del trade k usano solo il capitale dopo il trade
 k-1 e le colonne «al momento della decisione» del trade k.
 
@@ -126,11 +147,37 @@ def optimal_f(r, griglia=None) -> tuple[float, float]:
 
 def _limite(limiti, nome):
     v = (limiti or {}).get(nome)
+    if isinstance(v, np.ndarray):                 # 20/11/2026: un limite per trade (colonne lotto_*)
+        return v.astype(float)
     return None if v is None or (isinstance(v, (int, float)) and v <= 0) else float(v)
 
 
-def _lotti(capitale, f, rischio_unita, valore, nozionale, limiti):
-    """Versione vettoriale (array numpy) di `lotti_rischio_fisso`: (lotti, codice)."""
+COLONNE_LIMITI = {"minimo": "lotto_minimo", "passo": "lotto_passo", "massimo": "lotto_massimo"}
+
+
+def _limiti_tabella(tabella: pd.DataFrame, limiti: dict | None) -> dict | None:
+    """I limiti di ogni trade: le colonne lotto_* della tabella (20/11/2026) al posto delle voci del dizionario."""
+    if not any(c in tabella.columns for c in COLONNE_LIMITI.values()):
+        return limiti
+    out = dict(limiti or {})
+    for voce, colonna in COLONNE_LIMITI.items():
+        if colonna in tabella.columns:
+            out[voce] = tabella[colonna].to_numpy(dtype=float)
+    return out
+
+
+def _limiti_di(limiti: dict | None, indici) -> dict | None:
+    """I limiti dei trade `indici`: le voci per trade (array) prese a quegli indici, le altre come sono."""
+    if limiti is None or not any(isinstance(v, np.ndarray) for v in limiti.values()):
+        return limiti
+    return {k: (v[indici] if isinstance(v, np.ndarray) else v) for k, v in limiti.items()}
+
+
+def _lotti(capitale, f, rischio_unita, valore, nozionale, limiti, aperto=None):
+    """
+    Versione vettoriale (array numpy) di `lotti_rischio_fisso`: (lotti, codice). `aperto` (20/11/2026): il nozionale
+    delle posizioni gia' aperte, che il tetto della leva toglie; None = nessuna, come prima.
+    """
     capitale = np.asarray(capitale, dtype=float)
     rischio_usd = np.asarray(rischio_unita, dtype=float) * np.asarray(valore, dtype=float)
     minimo, passo = _limite(limiti, "minimo"), _limite(limiti, "passo")
@@ -154,11 +201,14 @@ def _lotti(capitale, f, rischio_unita, valore, nozionale, limiti):
         codice = np.where(sopra, 2, codice)
     if leva is not None and nozionale is not None:
         noz = np.asarray(nozionale, dtype=float)
+        disponibile = np.maximum(capitale, 0.0) * leva
+        if aperto is not None:
+            disponibile = np.maximum(disponibile - np.asarray(aperto, dtype=float), 0.0)
         with np.errstate(divide="ignore", invalid="ignore"):
-            tetto = giu(np.where(noz > 0, np.maximum(capitale, 0.0) * leva / noz, np.inf))
+            tetto = giu(np.where(noz > 0, disponibile / noz, np.inf))
         sopra = (codice != 3) & (lotti > tetto + 1e-12)
         lotti = np.where(sopra, tetto, lotti)
-        sotto = sopra & (minimo is not None) & (lotti < (minimo or 0.0) - 1e-12)
+        sotto = sopra & (minimo is not None) & (lotti < (0.0 if minimo is None else minimo) - 1e-12)
         codice = np.where(sopra, np.where(sotto, 4, 1), codice)
     codice = np.where(ignoto, 5, codice)
     lotti = np.where(np.isin(codice, _SALTATI), 0.0, lotti)
@@ -208,8 +258,12 @@ def ripercorri(tabella: pd.DataFrame, capitale: float, f: float,
         capitale_dopo, massimo (capitale massimo fin li'), drawdown_pct,
         perdita_pct_conto (perdita del trade in % del capitale prima)
     Il capitale non scende sotto zero; a zero i trade successivi si saltano.
+    Con le colonne `ingresso` e `uscita` (20/11/2026, piu' monete): vedi la testa del modulo.
     """
     _controlla_tabella(tabella)
+    limiti = _limiti_tabella(tabella, limiti)
+    if "ingresso" in tabella.columns:
+        return _ripercorri_ingressi(tabella, capitale, f, limiti)
     pips = tabella["pips_netti"].to_numpy(dtype=float)
     rischio = tabella["rischio_pips"].to_numpy(dtype=float)
     v_in = tabella["valore_entrata"].to_numpy(dtype=float)
@@ -222,7 +276,7 @@ def ripercorri(tabella: pd.DataFrame, capitale: float, f: float,
     c, picco = float(capitale), float(capitale)
     for i in range(n):
         lt, cod = _lotti(np.array([c]), f, rischio[i:i + 1], v_in[i:i + 1],
-                         None if noz is None else noz[i:i + 1], limiti)
+                         None if noz is None else noz[i:i + 1], _limiti_di(limiti, slice(i, i + 1)))
         lt, cod = float(lt[0]), int(cod[0])
         g = lt * pips[i] * v_out[i]
         out["capitale_prima"][i] = c
@@ -235,6 +289,63 @@ def ripercorri(tabella: pd.DataFrame, capitale: float, f: float,
         out["massimo"][i] = picco
         out["drawdown_pct"][i] = (picco - c) / picco * 100.0 if picco > 0 else 0.0
         esiti.append(_CODICI[cod])
+    r = pd.DataFrame(out, index=tabella.index)
+    r.insert(2, "esito", esiti)
+    return r
+
+
+def _ripercorri_ingressi(tabella: pd.DataFrame, capitale: float, f: float, limiti) -> pd.DataFrame:
+    """
+    ripercorri con piu' monete (20/11/2026, docs/82 §14.4): i trade in ordine d'ingresso; prima di ogni ingresso si
+    chiudono i trade usciti fino a quell'istante (in ordine d'uscita), poi i lotti dal capitale dei soli trade chiusi,
+    con la leva sul nozionale gia' aperto. capitale_dopo, massimo e drawdown_pct di un trade sono quelli dopo la sua
+    chiusura. Stesse operazioni di ripercorri, nello stesso ordine quando nessun trade e' aperto all'ingresso di un
+    altro: senza trade sovrapposti i numeri sono quelli di prima, al bit.
+    """
+    import heapq
+    ingresso = pd.DatetimeIndex(tabella["ingresso"]).asi8
+    uscita = pd.DatetimeIndex(tabella["uscita"]).asi8
+    if (np.diff(ingresso) < 0).any():
+        raise ValueError("tabella dei trade con la colonna ingresso: serve l'ordine d'ingresso.")
+    pips = tabella["pips_netti"].to_numpy(dtype=float)
+    rischio = tabella["rischio_pips"].to_numpy(dtype=float)
+    v_in = tabella["valore_entrata"].to_numpy(dtype=float)
+    v_out = tabella["valore_uscita"].to_numpy(dtype=float)
+    noz = tabella["nozionale_lotto"].to_numpy(dtype=float) if "nozionale_lotto" in tabella else None
+    n = len(tabella)
+    out = {k: np.empty(n) for k in ("capitale_prima", "lotti", "guadagno", "capitale_dopo",
+                                    "massimo", "drawdown_pct", "perdita_pct_conto")}
+    esiti = []
+    c, picco = float(capitale), float(capitale)
+    aperti, aperto = [], {}            # (uscita, riga) in un heap; riga -> nozionale aperto
+
+    def chiudi(i):
+        nonlocal c, picco
+        c = max(c + out["guadagno"][i], 0.0)
+        picco = max(picco, c)
+        out["capitale_dopo"][i] = c
+        out["massimo"][i] = picco
+        out["drawdown_pct"][i] = (picco - c) / picco * 100.0 if picco > 0 else 0.0
+        aperto.pop(i)
+
+    for i in range(n):
+        while aperti and aperti[0][0] <= ingresso[i]:
+            chiudi(heapq.heappop(aperti)[1])
+        gia = sum(aperto.values()) if aperto else 0.0
+        lt, cod = _lotti(np.array([c]), f, rischio[i:i + 1], v_in[i:i + 1],
+                         None if noz is None else noz[i:i + 1], _limiti_di(limiti, slice(i, i + 1)),
+                         aperto=np.array([gia]))
+        lt, cod = float(lt[0]), int(cod[0])
+        g = lt * pips[i] * v_out[i]
+        out["capitale_prima"][i] = c
+        out["lotti"][i] = lt
+        out["guadagno"][i] = g
+        out["perdita_pct_conto"][i] = (max(-g, 0.0) / c * 100.0) if c > 0 else 0.0
+        esiti.append(_CODICI[cod])
+        aperto[i] = lt * noz[i] if noz is not None else 0.0
+        heapq.heappush(aperti, (uscita[i], i))
+    while aperti:
+        chiudi(heapq.heappop(aperti)[1])
     r = pd.DataFrame(out, index=tabella.index)
     r.insert(2, "esito", esiti)
     return r
@@ -281,8 +392,13 @@ def montecarlo_mm(tabella: pd.DataFrame, capitale: float, frazioni, n_trade: int
         e se percorsi=True anche "percorsi": capitale dopo ogni trade
         (n_sim x (n_trade + 1)).
     `indici` (facoltativo) fissa le sequenze a mano: serve ai test.
+    Con la colonna `giorno` (20/11/2026, piu' monete): si ripescano giorni interi (vedi la testa del modulo e
+    _montecarlo_giorni); `indici` sono allora giorni.
     """
     _controlla_tabella(tabella)
+    limiti = _limiti_tabella(tabella, limiti)
+    if "giorno" in tabella.columns:
+        return _montecarlo_giorni(tabella, capitale, frazioni, n_trade, n_sim, limiti, seed, percorsi, indici)
     pips = tabella["pips_netti"].to_numpy(dtype=float)
     rischio = tabella["rischio_pips"].to_numpy(dtype=float)
     v_in = tabella["valore_entrata"].to_numpy(dtype=float)
@@ -312,7 +428,7 @@ def montecarlo_mm(tabella: pd.DataFrame, capitale: float, frazioni, n_trade: int
             storia[:, 0] = c
         for t in range(lung):
             j = indici[:, t]
-            lt, cod = _lotti(c, f, rischio[j], v_in[j], None if noz is None else noz[j], limiti)
+            lt, cod = _lotti(c, f, rischio[j], v_in[j], None if noz is None else noz[j], _limiti_di(limiti, j))
             c = np.maximum(c + lt * pips[j] * v_out[j], 0.0)
             picco = np.maximum(picco, c)
             with np.errstate(divide="ignore", invalid="ignore"):
@@ -329,6 +445,149 @@ def montecarlo_mm(tabella: pd.DataFrame, capitale: float, frazioni, n_trade: int
                         "leva": leva, "bloccato": bloccato}
         if percorsi:
             risultati[f]["percorsi"] = storia
+    return risultati
+
+
+class _Giorni:
+    """
+    I giorni della tabella (colonna `giorno`, trade in ordine d'ingresso) come liste di eventi, per _montecarlo_giorni:
+    per ogni giorno le aperture e le chiusure dei suoi trade con la regola di _ripercorri_ingressi (prima di ogni
+    ingresso si chiudono i trade usciti fino a quell'istante, in ordine d'uscita); alla fine del giorno si chiudono
+    tutti quelli rimasti. Il giorno in piu',
+    in fondo, e' vuoto: e' il -1 degli indici (un tratto di storia vera che finisce).
+    """
+
+    def __init__(self, tabella: pd.DataFrame):
+        from .montecarlo import gruppi_giorni
+        if "ingresso" not in tabella.columns or "uscita" not in tabella.columns:
+            raise ValueError("la colonna giorno vuole anche le colonne ingresso e uscita.")
+        self.primo, self.quanti = gruppi_giorni(tabella["giorno"])
+        ingresso = pd.DatetimeIndex(tabella["ingresso"]).asi8
+        uscita = pd.DatetimeIndex(tabella["uscita"]).asi8
+        self.n = int(self.primo.size)
+        self.posti = int(self.quanti.max()) if self.n else 0
+        e_max = 2 * self.posti
+        self.tipo = np.zeros((self.n + 1, e_max), dtype=np.int8)          # 0 niente, 1 apre, 2 chiude
+        self.riga = np.zeros((self.n + 1, e_max), dtype=np.int64)
+        self.posto = np.zeros((self.n + 1, e_max), dtype=np.int64)
+        self.eventi = np.zeros(self.n + 1, dtype=np.int64)
+        import heapq
+        for d in range(self.n):
+            ev, aperti = [], []            # la regola di _ripercorri_ingressi, dentro il giorno
+            for k, r in enumerate(range(self.primo[d], self.primo[d] + self.quanti[d])):
+                while aperti and aperti[0][0] <= ingresso[r]:
+                    _, kk, rr = heapq.heappop(aperti)
+                    ev.append((2, rr, kk))
+                ev.append((1, r, k))
+                heapq.heappush(aperti, (uscita[r], k, r))
+            while aperti:
+                _, kk, rr = heapq.heappop(aperti)
+                ev.append((2, rr, kk))
+            for e, (tipo, r, k) in enumerate(ev):
+                self.tipo[d, e], self.riga[d, e], self.posto[d, e] = tipo, r, k
+            self.eventi[d] = len(ev)
+
+    def tratti(self, n_trade: int) -> tuple[np.ndarray, int]:
+        """
+        I tratti di storia vera per controlla_storia: da ogni giorno, i giorni dopo di fila finche' ci sono `n_trade`
+        trade; senza abbastanza trade, un tratto solo da tutta la storia. Ritorna (indici con -1 in fondo, lunghezza).
+        """
+        tot = int(self.quanti.sum())
+        lung = min(int(n_trade), tot)
+        dopo = np.cumsum(self.quanti[::-1])[::-1]                    # trade dal giorno d alla fine
+        inizi = np.flatnonzero(dopo >= lung) if lung == int(n_trade) else np.array([0])
+        cum = np.r_[0, np.cumsum(self.quanti)]
+        fine = np.searchsorted(cum, cum[inizi] + lung, side="left")  # il giorno dopo l'ultimo che serve
+        k = int((fine - inizi).max())
+        indici = inizi[:, None] + np.arange(k)[None, :]
+        indici = np.where(indici < fine[:, None], indici, -1)
+        return indici, lung
+
+
+def _montecarlo_giorni(tabella, capitale, frazioni, n_trade, n_sim, limiti, seed, percorsi, indici) -> dict:
+    """
+    montecarlo_mm a giorni interi (20/11/2026, docs/82 §14.4): ogni sequenza e' fatta di giorni pescati con
+    reimmissione (rng.integers come i trade di prima); dentro il giorno la regola di ripercorri con ingresso e uscita
+    (capitale dai trade chiusi, leva sul nozionale aperto); la sequenza finisce alla chiusura numero `n_trade`.
+    Con un trade per giorno le operazioni sono quelle di prima, nello stesso ordine: stessi numeri, al bit.
+    """
+    pips = tabella["pips_netti"].to_numpy(dtype=float)
+    rischio = tabella["rischio_pips"].to_numpy(dtype=float)
+    v_in = tabella["valore_entrata"].to_numpy(dtype=float)
+    v_out = tabella["valore_uscita"].to_numpy(dtype=float)
+    noz = tabella["nozionale_lotto"].to_numpy(dtype=float) if "nozionale_lotto" in tabella else None
+    if len(tabella) == 0:
+        raise ValueError("tabella dei trade vuota.")
+    G = _Giorni(tabella)
+    if indici is None:
+        rng = np.random.default_rng(seed)
+        indici = rng.integers(0, G.n, size=(int(n_sim), int(n_trade)))
+    indici = np.where(np.asarray(indici) < 0, G.n, np.asarray(indici))
+    m, k = indici.shape
+    n_trade = int(n_trade)
+    ok = np.isfinite(rischio) & (rischio > 0)
+    minimo = _limite(limiti, "minimo")
+    if isinstance(minimo, np.ndarray):
+        soglia_blocco = float(np.median((minimo * rischio * v_in)[ok])) if ok.any() else np.nan
+    else:
+        rischio_med = float(np.median(rischio[ok] * v_in[ok])) if ok.any() else np.nan
+    risultati = {}
+    righe = np.arange(m)
+    for f in np.atleast_1d(frazioni):
+        f = float(f)
+        c = np.full(m, float(capitale))
+        picco = c.copy()
+        dd = np.zeros(m)
+        saltati = np.zeros(m, dtype=int)
+        leva = np.zeros(m, dtype=int)
+        chiusi = np.zeros(m, dtype=np.int64)
+        g_aperto = np.zeros((m, max(G.posti, 1)))
+        n_aperto = np.zeros((m, max(G.posti, 1)))
+        aperto = np.zeros(m)
+        storia = np.full((m, n_trade + 1), np.nan) if percorsi else None
+        if percorsi:
+            storia[:, 0] = c
+        for t in range(k):
+            attivi = chiusi < n_trade
+            if not attivi.any():
+                break
+            d = indici[:, t]
+            fino = int(G.eventi[d[attivi]].max())
+            for e in range(fino):
+                tipo = G.tipo[d, e]
+                ap = attivi & (tipo == 1)
+                if ap.any():
+                    s_, r_, p_ = righe[ap], G.riga[d[ap], e], G.posto[d[ap], e]
+                    lt, cod = _lotti(c[s_], f, rischio[r_], v_in[r_], None if noz is None else noz[r_],
+                                     _limiti_di(limiti, r_), aperto=aperto[s_])
+                    g_aperto[s_, p_] = lt * pips[r_] * v_out[r_]
+                    n_aperto[s_, p_] = lt * noz[r_] if noz is not None else 0.0
+                    aperto[s_] = aperto[s_] + n_aperto[s_, p_]
+                    saltati[s_] += np.isin(cod, _SALTATI)
+                    leva[s_] += np.isin(cod, _LEVA)
+                ch = attivi & (tipo == 2)
+                if ch.any():
+                    s_, p_ = righe[ch], G.posto[d[ch], e]
+                    c[s_] = np.maximum(c[s_] + g_aperto[s_, p_], 0.0)
+                    aperto[s_] = aperto[s_] - n_aperto[s_, p_]
+                    picco[s_] = np.maximum(picco[s_], c[s_])
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        dd[s_] = np.maximum(dd[s_], np.where(picco[s_] > 0, (picco[s_] - c[s_]) / picco[s_], 0.0))
+                    chiusi[s_] += 1
+                    if percorsi:
+                        storia[s_, chiusi[s_]] = c[s_]
+                    attivi = chiusi < n_trade
+        if isinstance(minimo, np.ndarray):
+            bloccato = c * f < soglia_blocco - 1e-12 if np.isfinite(soglia_blocco) else c <= 0
+        elif minimo is not None and np.isfinite(rischio_med):
+            bloccato = c * f / rischio_med < minimo - 1e-12
+        else:
+            bloccato = c <= 0
+        risultati[f] = {"finale": c, "drawdown_pct": dd * 100.0, "saltati": saltati,
+                        "leva": leva, "bloccato": bloccato}
+        if percorsi:
+            # una sequenza che finisce prima (un tratto di storia vera corto) tiene l'ultimo capitale
+            risultati[f]["percorsi"] = pd.DataFrame(storia.T).ffill().to_numpy().T
     return risultati
 
 
@@ -413,13 +672,22 @@ def controlla_storia(tabella: pd.DataFrame, capitale: float, drawdown_max_pct: f
         f_montecarlo, lunghezza (trade per tratto), tratti (quanti tratti)
     """
     _controlla_tabella(tabella)
-    tratti = tratti_storia(len(tabella), n_trade)
-    mc = montecarlo_mm(tabella, capitale, frazioni, tratti.shape[1], limiti=limiti, indici=tratti)
+    if "giorno" in tabella.columns:            # 20/11/2026: tratti di giorni interi (docs/82 §14.4)
+        G = _Giorni(tabella)
+        tratti, lung = G.tratti(n_trade)
+        mc = montecarlo_mm(tabella, capitale, frazioni, lung, limiti=limiti, indici=tratti)
+        inizio = G.primo[tratti[:, 0]]
+        bordi = np.c_[inizio, inizio + lung - 1]
+    else:
+        tratti = tratti_storia(len(tabella), n_trade)
+        lung = tratti.shape[1]
+        mc = montecarlo_mm(tabella, capitale, frazioni, lung, limiti=limiti, indici=tratti)
+        bordi = np.c_[tratti[:, 0], tratti[:, -1]]
     righe = []
     for f, r in mc.items():
         j = int(np.argmax(r["drawdown_pct"]))
         righe.append({"f": f, "drawdown_storia": float(r["drawdown_pct"][j]), "tratto": j,
-                      "inizio": int(tratti[j, 0]), "fine": int(tratti[j, -1])})
+                      "inizio": int(bordi[j, 0]), "fine": int(bordi[j, 1])})
     t = pd.DataFrame(righe)
     scelta = None
     if f_montecarlo is not None:
@@ -433,7 +701,7 @@ def controlla_storia(tabella: pd.DataFrame, capitale: float, drawdown_max_pct: f
     if deciso == "Monte Carlo" and f_montecarlo is not None:
         scelta = f_montecarlo                       # identica al bit alla scelta del Monte Carlo
     return {"f": scelta, "deciso": deciso, "tabella": t, "f_montecarlo": f_montecarlo,
-            "lunghezza": int(tratti.shape[1]), "tratti": int(tratti.shape[0])}
+            "lunghezza": int(lung), "tratti": int(tratti.shape[0])}
 
 
 def _unita_fissa(tabella, per_nozionale):
@@ -478,8 +746,27 @@ def montecarlo_fisso(tabella: pd.DataFrame, capitale: float, esposizione: float,
     u = _unita_fissa(tabella, per_nozionale)
     if indici is None:
         rng = np.random.default_rng(seed)
-        indici = rng.integers(0, len(tabella), size=(int(n_sim), int(n_trade)))
-    return _percorsi_fissi(u[np.asarray(indici)], float(capitale), float(esposizione))
+        indici = rng.integers(0, _quanti_da_pescare(tabella), size=(int(n_sim), int(n_trade)))
+    return _percorsi_fissi(_guadagni_pescati(tabella, u, indici, int(n_trade)), float(capitale), float(esposizione))
+
+
+def _quanti_da_pescare(tabella: pd.DataFrame) -> int:
+    """I trade, o i giorni con la colonna `giorno` (20/11/2026)."""
+    if "giorno" in tabella.columns:
+        from .montecarlo import gruppi_giorni
+        return int(gruppi_giorni(tabella["giorno"])[0].size)
+    return len(tabella)
+
+
+def _guadagni_pescati(tabella: pd.DataFrame, u: np.ndarray, indici, n_trade: int) -> np.ndarray:
+    """I guadagni unitari delle sequenze: u[indici], o con la colonna `giorno` i trade dei giorni pescati, in ordine
+    d'ingresso, tagliati a n_trade (20/11/2026)."""
+    if "giorno" not in tabella.columns:
+        return u[np.asarray(indici)]
+    from .montecarlo import gruppi_giorni, sequenze_giorni
+    primo, quanti = gruppi_giorni(tabella["giorno"])
+    pos = sequenze_giorni(primo, quanti, indici, n_trade)
+    return np.where(pos >= 0, u[np.maximum(pos, 0)], 0.0)
 
 
 def confronto_esposizione_fissa(tabella: pd.DataFrame, capitale: float, f: float, n_trade: int,
@@ -499,10 +786,10 @@ def confronto_esposizione_fissa(tabella: pd.DataFrame, capitale: float, f: float
     """
     _controlla_tabella(tabella)
     rng = np.random.default_rng(seed)
-    indici = rng.integers(0, len(tabella), size=(int(n_sim), int(n_trade)))
+    indici = rng.integers(0, _quanti_da_pescare(tabella), size=(int(n_sim), int(n_trade)))
     perc = montecarlo_mm(tabella, capitale, [f], int(n_trade), limiti=limiti, indici=indici)[float(f)]
     obiettivo = float(np.percentile(perc["drawdown_pct"], percentile))
-    g = _unita_fissa(tabella, per_nozionale)[indici]
+    g = _guadagni_pescati(tabella, _unita_fissa(tabella, per_nozionale), indici, int(n_trade))
 
     def dd(e):
         return float(np.percentile(_percorsi_fissi(g, float(capitale), e)["drawdown_pct"], percentile))

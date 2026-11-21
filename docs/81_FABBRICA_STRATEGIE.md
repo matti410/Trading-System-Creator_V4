@@ -31,8 +31,10 @@ costi reali.
 La fabbrica è un **progetto separato dal Lab**: usa gli stessi file dei dati e le stesse funzioni del motore, in sola
 lettura, ma ha regole, registro e conto delle prove suoi.
 
-Si lavora **su un asset alla volta** (symbol e timeframe scelti nella config), su qualsiasi timeframe da M1 a D1:
-nulla nel codice è legato a M15. BINANCE_PERP_BTCUSDT M15 serve a costruire e collaudare la pipeline: i suoi
+Dal 20/11 (`docs/82` §14) si lavora **su una lista di monete** dello stesso exchange e mercato (di base Binance perp
+BTC, ETH, XRP, SOL, ADA; una moneta sola è una lista di una) e su un timeframe da M1 a D1: nulla nel codice è legato a
+M15. Una strategia è una regola applicata a tutte le monete della lista, e nella fabbrica decide l'ATR. Prima del 20/11
+si lavorava su un asset alla volta. BINANCE_PERP_BTCUSDT M15 serve a costruire e collaudare la pipeline: i suoi
 risultati sono collaudo, non verdetto.
 
 Uscita dell'incarico: per ogni strategia sopravvissuta, la scheda con regole esatte e valori dei parametri. Articoli
@@ -57,10 +59,16 @@ e indicatore TradingView sono fuori da questo incarico.
 - **Cassaforte:** l'ultimo pezzo di dati dell'asset, mai usato per costruire le strategie. Ogni strategia ci entra
   quante volte si vuole (10/11); ogni ingresso è registrato, solo come annotazione da leggere.
 - **Test individuale:** il t netto della strategia contro la soglia per una prova sola. È il test che decide.
+- **Lista di monete (20/11, `docs/82` §14):** le monete su cui si prova ogni strategia, insieme, con le stesse date; i
+  trade di tutte vanno in un solo elenco. Una moneta più giovane ha solo meno barre.
+- **ATR (20/11):** quanto si muove di solito la moneta in un giorno (l'ATR giornaliero a 5 giornate chiuse noto al
+  segnale): nella fabbrica ogni trade e ogni evento della rosa si contano in ATR; i bp accanto, da leggere.
+- **Trade sovrapposti (20/11):** due trade, o due eventi della rosa, di qualunque moneta a meno di H barre sull'orologio
+  comune contano per intero nell'incertezza del t.
 
 ## §3 · La pipeline
 
-1. **Dati in tre pezzi** dello stesso asset: ricerca, selezione, cassaforte. A ogni avvio i dati si aggiornano
+1. **Dati in tre pezzi** di ogni moneta della lista, con le stesse date per tutte (20/11): ricerca, selezione, cassaforte. A ogni avvio i dati si aggiornano
    dall'exchange; i pezzi vanno dall'inizio (il 02/01/2020, o la prima mezzanotte UTC con i dati se il symbol parte dopo, 14/11) all'ultima mezzanotte UTC chiusa, nelle proporzioni della config
    standard (circa 51% / 29% / 20%).
 2. **Config scritta e salvata prima del lancio**, con impronta (hash): blocchi ammessi, intervalli, modelli,
@@ -69,6 +77,8 @@ e indicatore TradingView sono fuori da questo incarico.
 3. **La rosa dei trigger** (dal 20/11, `docs/82` §13): all'avvio, sul solo pezzo di ricerca, tutti i trigger (del
    catalogo e generati) passano dalla rosa del Lab, a 4, 16 e 32 barre; entra nella ricerca chi è nella rosa ad almeno
    un orizzonte. Ogni trigger misurato, per ogni orizzonte, è una prova nel conto. I filtri entrano tutti. Poi le teorie.
+   Dal 20/11 (`docs/82` §14.2) la rosa si misura sulla lista, in ATR, con le monete su un orologio comune in barre; la
+   cella 1 la salva nella cartella della ricerca e la cella 2 la rilegge.
    ADX e ATR relativo, che hanno la stessa famiglia dichiarata, non stanno mai nella stessa teoria.
 4. **Passo 1, scrematura in due turni:** passo largo (circa N valori per parametro), ottimizzatore tarato in ampiezza,
    sui soli dati di ricerca; condizione di qualità 1 → teoria tenuta o scartata. Turno 1: le teorie con al massimo un
@@ -79,7 +89,7 @@ e indicatore TradingView sono fuori da questo incarico.
    vicini (proporre la misura). Dal 15/11 (`docs/82` §12) RSI, Donchian, ADX e ATR relativo stanno sul valore standard
    nei due turni del passo 1 e nello zoom, che cerca solo i valori delle uscite; si muovono di ±15% solo nell'altopiano.
 6. **Selezione:** sui dati di selezione, parametri congelati, condizione di qualità 2 e test individuale; famiglie fra
-   le sopravvissute.
+   le sopravvissute. Dal 20/11 (`docs/82` §14.3) la condizione 2 non ha più P(EV<0): decide già il t.
 7. **Conto delle prove, da leggere:** ogni strategia valutata è contata; la scheda mostra il totale e la soglia che
    corrisponderebbe a quel totale, accanto al test individuale. Il conto **non decide**.
 8. **Cassaforte:** le strategie scelte si congelano e si scrivono nel registro **prima** di leggere una barra; poi si
@@ -87,7 +97,9 @@ e indicatore TradingView sono fuori da questo incarico.
    solo in aggiunta, che non ferma niente (10/11), e tiene il numero di strategie entrate in quella cassaforte (da
    leggere). Una strategia può rientrare quante volte si
    vuole (10/11); un parametro cambiato è una strategia nuova.
-9. **MM, stress test, verifica dei trade:** riuso di quanto fa il Lab alle schermate 7, 9 e 8.
+9. **MM, stress test, verifica dei trade:** riuso di quanto fa il Lab alle schermate 7, 9 e 8. Dal 20/11 (`docs/82`
+   §14.4) MM e stress test su tutte le monete insieme (trade in ordine d'ingresso, leva sulle posizioni aperte, Monte
+   Carlo a giorni interi); la verifica moneta per moneta.
 10. **Scheda:** un `.md` e un `.json` per strategia: blocchi, regole in parole, valori, dati usati, prove contate,
     esito di ogni passo.
 
@@ -110,7 +122,8 @@ e indicatore TradingView sono fuori da questo incarico.
 - La cassaforte non si legge prima del passo 8: un test lo garantisce.
 - Seed fisso → stessi risultati. Una ricerca interrotta deve poter riprendere.
 - Velocità: nella proposta, stima del tempo per backtest × budget su BINANCE_PERP_BTCUSDT M15, e un tempo obiettivo
-  per una ricerca standard sul PC di Mattia. Nessun calcolo che chieda ore a ogni ricerca.
+  per una ricerca standard sul PC di Mattia. Nessun calcolo che chieda ore a ogni ricerca. Eccezione (Mattia, 20/11,
+  `docs/82` §14.8, S1 = A): su M5 con più monete la ricerca dura più di 2 ore e si accetta (riprende se interrotta).
 - Solo OHLCV e funding, gli stessi del Lab: nessun tipo di dato nuovo. Dal 09/11 la cella 1 li aggiorna dall'exchange
   a ogni avvio.
 

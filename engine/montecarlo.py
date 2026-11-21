@@ -115,15 +115,72 @@ def drawdown_da_zero(pips) -> float:
     return float((np.maximum.accumulate(eq) - eq).max())
 
 
-def _simula(x: np.ndarray, lunghezza: int, n_sim: int, rng) -> tuple[np.ndarray, np.ndarray]:
-    """n_sim sequenze di `lunghezza` trade, pescati con reimmissione.
+# ------------------------------------------------------------------------
+# Giorni interi (20/11/2026, docs/82 §14.4): la fabbrica su piu' monete ripesca GIORNI interi, cioe' tutti i trade
+# che si aprono quel giorno (su qualunque moneta), nel loro ordine d'ingresso, e taglia la sequenza a `lunghezza`
+# trade. Un giorno brutto su cinque monete resta un giorno brutto. Senza `giorni` tutto come prima; con un trade per
+# giorno i numeri sono quelli di prima, al bit (le stesse estrazioni del generatore casuale).
+# ------------------------------------------------------------------------
+
+def gruppi_giorni(giorni) -> tuple[np.ndarray, np.ndarray]:
+    """
+    (primo, quanti) di ogni giorno, nell'ordine in cui compare: `giorni` e' il giorno di ogni trade, con i trade in
+    ordine d'ingresso, cosi' i trade dello stesso giorno sono di fila. Si ferma se un giorno ricompare piu' avanti.
+    """
+    g = np.asarray(pd.Series(giorni).to_numpy())
+    if g.size == 0:
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
+    nuovo = np.r_[True, g[1:] != g[:-1]]
+    primo = np.flatnonzero(nuovo)
+    if len(set(g[primo].tolist())) != primo.size:
+        raise ValueError("giorni: i trade devono essere in ordine d'ingresso (lo stesso giorno di fila).")
+    quanti = np.diff(np.r_[primo, g.size])
+    return primo.astype(np.int64), quanti.astype(np.int64)
+
+
+def sequenze_giorni(primo, quanti, indici, lunghezza: int) -> np.ndarray:
+    """
+    Le posizioni dei trade di ogni sequenza: per ogni riga di `indici` (giorni; -1 = giorno vuoto) i trade di quei
+    giorni uno dopo l'altro, tagliati a `lunghezza`; -1 dove i giorni finiscono prima. Matrice (righe, lunghezza).
+    """
+    indici = np.asarray(indici)
+    m, k = indici.shape
+    vuoto = indici < 0
+    d = np.where(vuoto, 0, indici)
+    conti = np.where(vuoto, 0, np.asarray(quanti)[d])
+    fino = np.cumsum(conti, axis=1)                         # trade fino al giorno t compreso
+    grande = int(fino[:, -1].max(initial=0)) + int(lunghezza) + 1
+    righe = np.arange(m)[:, None] * grande
+    p = np.arange(int(lunghezza))[None, :]
+    t = (np.searchsorted((fino + righe).ravel(), (p + righe).ravel(), side="right").reshape(m, -1)
+         - np.arange(m)[:, None] * k)
+    dentro = t < k
+    t = np.minimum(t, k - 1)
+    prima = np.where(t > 0, np.take_along_axis(fino, np.maximum(t - 1, 0), axis=1), 0)
+    giorno = np.take_along_axis(d, t, axis=1)
+    pos = np.asarray(primo)[giorno] + (p - prima)
+    return np.where(dentro, pos, -1)
+
+
+def _cammini(x: np.ndarray, m: int, lunghezza: int, rng, giorni) -> np.ndarray:
+    """m sequenze di `lunghezza` trade: trade pescati con reimmissione o, con `giorni` = (primo, quanti), giorni interi."""
+    if giorni is None:
+        return rng.choice(x, size=(m, lunghezza), replace=True)
+    primo, quanti = giorni
+    pos = sequenze_giorni(primo, quanti, rng.integers(0, primo.size, size=(m, lunghezza)), lunghezza)
+    return x[pos]           # ogni giorno ha almeno un trade: `lunghezza` giorni bastano sempre
+
+
+def _simula(x: np.ndarray, lunghezza: int, n_sim: int, rng, giorni=None) -> tuple[np.ndarray, np.ndarray]:
+    """n_sim sequenze di `lunghezza` trade, pescati con reimmissione (con `giorni`: giorni interi, vedi sopra).
     Ritorna (drawdown massimi, P&L finali), in pips."""
     dd = np.empty(n_sim)
     pnl = np.empty(n_sim)
     fatte = 0
+    blocco = _BLOCCO if giorni is None else max(1, min(_BLOCCO, 4_000_000 // max(int(lunghezza), 1)))
     while fatte < n_sim:
-        m = min(_BLOCCO, n_sim - fatte)
-        cammini = rng.choice(x, size=(m, lunghezza), replace=True)
+        m = min(blocco, n_sim - fatte)
+        cammini = _cammini(x, m, lunghezza, rng, giorni)
         eq = np.concatenate([np.zeros((m, 1)), np.cumsum(cammini, axis=1)], axis=1)
         dd[fatte:fatte + m] = (np.maximum.accumulate(eq, axis=1) - eq).max(axis=1)
         pnl[fatte:fatte + m] = eq[:, -1]
@@ -141,12 +198,24 @@ def _controlla(pips) -> np.ndarray:
     return x
 
 
+def _con_giorni(pips, giorni):
+    """(trade finiti, (primo, quanti) dei loro giorni o None): `giorni` uno per trade, None = come prima."""
+    x = _controlla(pips)
+    if giorni is None:
+        return x, None
+    g = np.asarray(pd.Series(giorni).to_numpy())
+    v = np.asarray(pips, dtype=float)
+    if g.size != v.size:
+        raise ValueError("giorni: uno per trade.")
+    return x, gruppi_giorni(g[np.isfinite(v)])
+
+
 # ========================================================================
 # 3 · Yardstick e Monte Carlo completo
 # ========================================================================
 
 def yardstick(pips, orizzonti=ORIZZONTI, percentili=PERCENTILI,
-              n_sim: int = 20_000, seed: int = 0) -> pd.DataFrame:
+              n_sim: int = 20_000, seed: int = 0, giorni=None) -> pd.DataFrame:
     """
     La tabella degli yardstick: per ogni orizzonte (numero di trade) i
     percentili del drawdown massimo e del P&L, e la probabilita' di essere in
@@ -158,12 +227,15 @@ def yardstick(pips, orizzonti=ORIZZONTI, percentili=PERCENTILI,
     size, mettere in pausa o fermare il sistema oltre il 95°-99°).
 
     Colonne: orizzonte, dd_p50 ... dd_p99, pnl_p50 ... pnl_p99, p_pnl_negativo (%).
+
+    giorni  (20/11/2026, docs/82 §14.4) facoltativo: il giorno d'ingresso di ogni trade, con i trade in ordine
+            d'ingresso; si ripescano giorni interi (gruppi_giorni). None = trade singoli, come prima.
     """
-    x = _controlla(pips)
+    x, gg = _con_giorni(pips, giorni)
     rng = np.random.default_rng(seed)
     righe = []
     for h in orizzonti:
-        dd, pnl = _simula(x, int(h), int(n_sim), rng)
+        dd, pnl = _simula(x, int(h), int(n_sim), rng, gg)
         riga = {"orizzonte": int(h)}
         for p, v in zip(percentili, np.percentile(dd, percentili)):
             riga[f"dd_p{p}"] = float(v)
@@ -175,7 +247,7 @@ def yardstick(pips, orizzonti=ORIZZONTI, percentili=PERCENTILI,
 
 
 def montecarlo_completo(pips, n_sim: int = 20_000, percentili=PERCENTILI,
-                        soglia_dd: float | None = None, seed: int = 0) -> dict:
+                        soglia_dd: float | None = None, seed: int = 0, giorni=None) -> dict:
     """
     Monte Carlo sull'intera lunghezza del campione (tanti trade quanti ce ne
     sono). Ritorna un dict con:
@@ -184,10 +256,11 @@ def montecarlo_completo(pips, n_sim: int = 20_000, percentili=PERCENTILI,
         pnl_p50 ... pnl_p99, p_pnl_negativo (%), e se c'e' soglia_dd anche
         p_dd_oltre_soglia (%): quante sequenze superano quel drawdown
         _dd, _pnl: le distribuzioni complete (per i grafici)
+    giorni (20/11/2026, docs/82 §14.4): come in yardstick; la sequenza vera e' quella dei trade nell'ordine dato.
     """
-    x = _controlla(pips)
+    x, gg = _con_giorni(pips, giorni)
     rng = np.random.default_rng(seed)
-    dd, pnl = _simula(x, x.size, int(n_sim), rng)
+    dd, pnl = _simula(x, x.size, int(n_sim), rng, gg)
     out = {"n_trade": int(x.size), "dd_reale": drawdown_da_zero(x)}
     for p, v in zip(percentili, np.percentile(dd, percentili)):
         out[f"dd_p{p}"] = float(v)
@@ -319,7 +392,7 @@ def sizing(yardstick_o_mc, dd_accettabile_usd: float, valore_pip: float,
 
 def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
                        n_sim_grafici: int = 5_000, n_spaghetti: int = 100,
-                       titolo: str = "", seed: int = 0, unita: str = "pips"):
+                       titolo: str = "", seed: int = 0, unita: str = "pips", giorni=None):
     """
     I grafici del notebook del corso, in pips netti (`unita`, 23/10/2026: solo
     l'etichetta degli assi, es. "bp" sulle crypto; i numeri sono quelli passati):
@@ -328,15 +401,16 @@ def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
         2. drawdown e P&L per orizzonte (due righe di istogrammi)
         3. n_spaghetti curve di equity simulate
         4. mediana con la banda 5°-95°
+    giorni (20/11/2026, docs/82 §14.4): come in yardstick, giorni interi.
     """
     import matplotlib.pyplot as plt
 
-    x = _controlla(pips)
+    x, gg = _con_giorni(pips, giorni)
     rng = np.random.default_rng(seed + 1)
     suff = f" · {titolo}" if titolo else ""
 
     if mc is None:
-        mc = montecarlo_completo(x, n_sim=n_sim_grafici, seed=seed)
+        mc = montecarlo_completo(pips, n_sim=n_sim_grafici, seed=seed, giorni=giorni)
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.hist(mc["_dd"], bins=60)
     ax.axvline(mc["dd_p95"], color="red", linestyle="--", label="95° percentile")
@@ -349,7 +423,7 @@ def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
     fig2, assi = plt.subplots(2, len(orizzonti), figsize=(4.5 * len(orizzonti), 7))
     assi = np.atleast_2d(assi)
     for j, h in enumerate(orizzonti):
-        dd, pnl = _simula(x, int(h), n_sim_grafici, rng)
+        dd, pnl = _simula(x, int(h), n_sim_grafici, rng, gg)
         assi[0, j].hist(dd, bins=50)
         assi[0, j].set_title(f"drawdown dopo {h} trade")
         assi[1, j].hist(pnl, bins=50)
@@ -361,7 +435,7 @@ def grafici_montecarlo(pips, mc: dict | None = None, orizzonti=ORIZZONTI,
 
     cammini = np.concatenate(
         [np.zeros((n_sim_grafici, 1)),
-         np.cumsum(rng.choice(x, size=(n_sim_grafici, x.size), replace=True), axis=1)],
+         np.cumsum(_cammini(x, n_sim_grafici, x.size, rng, gg), axis=1)],
         axis=1)
     fig3, (a1, a2) = plt.subplots(2, 1, figsize=(10, 9))
     a1.plot(cammini[:n_spaghetti].T, linewidth=0.6, alpha=0.6)

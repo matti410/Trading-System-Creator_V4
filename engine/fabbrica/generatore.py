@@ -2,9 +2,10 @@
 Il generatore della fabbrica (docs/82 P3, lavoro L3a; C2, docs/82 §11.3–§11.4): dai blocchi alle teorie dei due turni.
 
     blocchi = blocchi_da_config(config)
-    controllo = ControlloDegenerazione(cache)                    # cache del pezzo di ricerca
-    rimaste, tolte = togli_degeneri(blocchi, cache, lati, controllo)
-    entrano, rosa = rosa_dei_trigger(blocchi, cache, lati, rimaste, symbol, config["rosa"], processi)
+    controllo = ControlloLista({m: ControlloDegenerazione(caches[m]) for m in monete})   # le cache del pezzo di ricerca
+    rimaste, tolte = togli_degeneri(blocchi, caches, lati, controllo)
+    segnali[m] = segnali_trigger(blocchi, caches[m], lati)     # una moneta alla volta (docs/82 §14.7)
+    entrano, rosa = rosa_dei_trigger(blocchi, lati, rimaste, basi, segnali, config["rosa"], n_orologio, settimana)
     filtri = filtri_rimasti(blocchi, lati, rimaste)
     tenuti = {lato: entrano[lato] + filtri[lato] for lato in lati}   # i blocchi della ricerca
     teorie = teorie_turno_1(config, blocchi, tenuti)             # T+U e T+F+U
@@ -19,9 +20,11 @@ Il generatore della fabbrica (docs/82 P3, lavoro L3a; C2, docs/82 §11.3–§11.
   blocco senza valori su un lato esce da quel lato. C2 (12/11, scelta A): anche i blocchi del catalogo passano dal
   controllo; uno degenere su un lato esce da quel lato, e uno «STATO» (vero su due barre di fila: non è un evento su
   questi dati) esce da quel lato e la ricerca prosegue. Per i blocchi con parametri della fabbrica ERRORE, STATO e NON_BOOLEANA restano
-  errori del blocco: si ferma. Le uscite non passano dal controllo.
+  errori del blocco: si ferma. Le uscite non passano dal controllo. Più monete (20/11, docs/82 §14.7): il controllo si
+  fa su ogni moneta (ControlloLista); una combinazione degenere su una moneta esce per tutte.
 - La rosa dei trigger (docs/82 §13, 20/11): dopo i valori degeneri, tutti i trigger, del catalogo e generati, passano
-  dalla rosa del Lab sul pezzo di ricerca; entra nella ricerca chi è nella rosa ad almeno un orizzonte. I filtri
+  dalla rosa del Lab sul pezzo di ricerca; entra nella ricerca chi è nella rosa ad almeno un orizzonte. Più monete
+  (§14.2): la rosa di rosa_lista.py, su tutte le monete della lista con l'orologio comune, in ATR. I filtri
   entrano tutti (quelli rimasti dopo i valori degeneri). La famiglia dichiarata (solo ADX e ATR relativo) vale solo
   nel generatore: mai nella stessa teoria.
 - Le misure registrano condizioni temporanee in un registro isolato e poi lo rimettono com'era, identico.
@@ -40,7 +43,6 @@ import pandas as pd
 
 from engine import registry as reg
 from engine.collaudo_catalogo import verifica_degenerazione
-from engine.exchange import solo_long
 
 from .ottimizzatore import Categoria, Intero, Spazio
 
@@ -104,8 +106,9 @@ def seme_teoria(seme_ricerca: int, id_teoria: str) -> int:
 
 def lati_config(config: dict) -> list[int]:
     """I lati della config, come 1 e -1; sullo spot solo il long."""
+    from .config import solo_long_lista
     lati = [LATI[x] for x in config["lati"]]
-    return [1] if solo_long(config["symbol"]) else lati
+    return [1] if solo_long_lista(config["monete"]) else lati
 
 
 # ------------------------------------------------------------------ la degenerazione
@@ -157,6 +160,45 @@ class ControlloDegenerazione:
         return self.esiti([(blocco, lato, valori)])[0][0] != "OK"
 
 
+class ControlloLista:
+    """
+    (20/11, docs/82 §14.7) Il controllo dei valori degeneri sulla lista di monete: un ControlloDegenerazione per moneta,
+    nell'ordine della lista. Una combinazione è degenere se lo è su almeno una moneta: esce per tutte.
+    """
+
+    def __init__(self, controlli: dict):
+        self.controlli = dict(controlli)
+
+    def esiti(self, richieste) -> list[tuple]:
+        """Per ogni (blocco, lato, valori): (esito, quota di barre vere, moneta). «OK» solo se è OK su tutte le monete;
+        altrimenti l'esito della prima moneta su cui non lo è, con la sua quota e il suo nome."""
+        richieste = list(richieste)
+        per = {m: c.esiti(richieste) for m, c in self.controlli.items()}
+        prima = next(iter(per.values()))
+        out = []
+        for i in range(len(richieste)):
+            brutta = next(((per[m][i][0], per[m][i][1], m) for m in per if per[m][i][0] != "OK"), None)
+            out.append(brutta or ("OK", prima[i][1], ""))
+        return out
+
+    def degenere(self, blocco, lato: int, valori: dict) -> bool:
+        return self.esiti([(blocco, lato, valori)])[0][0] != "OK"
+
+    def stato(self) -> dict:
+        """Gli esiti già misurati, per moneta: si passano ai processi della ricerca."""
+        return {m: dict(c._esiti) for m, c in self.controlli.items()}
+
+    def aggiorna(self, stato: dict) -> None:
+        for m, esiti in (stato or {}).items():
+            self.controlli[m]._esiti.update(esiti)
+
+
+def richieste_degeneri(blocchi, lati) -> list[tuple]:
+    """Tutte le combinazioni da controllare all'avvio: (blocco, lato, valori) per ogni trigger e filtro."""
+    return [(b, lato, c) for b in blocchi if b.tipo != "uscita" for lato in _lati_blocco(b, lati)
+            for c in (_combinazioni(b) if b.parametri else [{}])]
+
+
 def _del_catalogo(b) -> bool:
     """Un trigger o un filtro del catalogo: senza parametri, la maschera viene dal registro."""
     return b.tipo in ("trigger", "filtro") and not b.parametri and b._calcola is None
@@ -173,18 +215,18 @@ def _combinazioni(blocco) -> list[dict]:
     return [dict(zip(nomi, c)) for c in itertools.product(*(blocco.griglia[n] for n in nomi))]
 
 
-def togli_degeneri(blocchi, cache, lati, controllo: ControlloDegenerazione | None = None) -> tuple[dict, list]:
+def togli_degeneri(blocchi, caches: dict, lati, controllo: ControlloLista | None = None) -> tuple[dict, list]:
     """
-    (rimaste, tolte). rimaste[(nome, lato)] = le combinazioni non degeneri, nell'ordine della griglia, per ogni
-    trigger e filtro con parametri; tolte = una riga per combinazione tolta (blocco, lato, valori, esito, quota di
-    barre vere). Un filtro neutro si misura una volta e vale per i due lati: nell'elenco il lato è «entrambi».
-    C2: un blocco del catalogo degenere (o «STATO») su un lato ha rimaste[(nome, lato)] = () ed è una riga di tolte con
-    valori {}; un blocco del catalogo buono non ha la chiave. Tutte le combinazioni si misurano insieme (20/11).
+    (rimaste, tolte) sulla lista di monete (`caches` = {symbol: Cache del pezzo di ricerca}). rimaste[(nome, lato)] =
+    le combinazioni non degeneri su tutte le monete, nell'ordine della griglia, per ogni trigger e filtro con
+    parametri; tolte = una riga per combinazione tolta (blocco, lato, valori, esito, quota di barre vere, moneta: la
+    prima su cui è degenere). Un filtro neutro si misura una volta e vale per i due lati: nell'elenco il lato è
+    «entrambi». C2: un blocco del catalogo degenere (o «STATO») su un lato ha rimaste[(nome, lato)] = () ed è una riga di
+    tolte con valori {}; un blocco del catalogo buono non ha la chiave. Tutte le combinazioni si misurano insieme (20/11).
     """
-    controllo = controllo or ControlloDegenerazione(cache)
+    controllo = controllo or ControlloLista({m: ControlloDegenerazione(c) for m, c in caches.items()})
     da_fare = [b for b in blocchi if b.tipo != "uscita"]
-    controllo.esiti([(b, lato, c) for b in da_fare for lato in _lati_blocco(b, lati)
-                     for c in (_combinazioni(b) if b.parametri else [{}])])
+    controllo.esiti(richieste_degeneri(blocchi, lati))
     rimaste, tolte = {}, []
     for b in da_fare:
         combinazioni = _combinazioni(b) if b.parametri else [{}]
@@ -192,15 +234,15 @@ def togli_degeneri(blocchi, cache, lati, controllo: ControlloDegenerazione | Non
         for lato in suoi:
             esiti = controllo.esiti([(b, lato, c) for c in combinazioni])
             if b.parametri:
-                rimaste[(b.nome, lato)] = tuple(c for c, (e, _) in zip(combinazioni, esiti) if e == "OK")
+                rimaste[(b.nome, lato)] = tuple(c for c, (e, _, _) in zip(combinazioni, esiti) if e == "OK")
             elif esiti[0][0] != "OK":
                 rimaste[(b.nome, lato)] = ()
             if b.neutro and lato != suoi[0]:
                 continue
-            for c, (e, quota) in zip(combinazioni, esiti):
+            for c, (e, quota, moneta) in zip(combinazioni, esiti):
                 if e != "OK":
                     tolte.append({"blocco": b.nome, "lato": "entrambi" if b.neutro and len(suoi) > 1 else NOME_LATO[lato],
-                                  "valori": dict(c), "esito": e, "quota_vere": quota})
+                                  "valori": dict(c), "esito": e, "quota_vere": quota, "moneta": moneta})
     return rimaste, tolte
 
 
@@ -209,44 +251,57 @@ def disponibile(nome: str, lato: int, rimaste: dict) -> bool:
     return bool(rimaste.get((nome, lato), (None,)))
 
 
-# ------------------------------------------------------------------ la rosa dei trigger (docs/82 §13, 20/11)
+# ------------------------------------------------------------------ la rosa dei trigger (docs/82 §13 e §14, 20/11)
+def _gruppo_segnale(b, lato: int) -> str:
+    """Il gruppo del segnale di un trigger: un generato ha la stessa maschera sui due lati (il nome del blocco); gli
+    altri uno per lato («E36_short»)."""
+    from .blocchi import trigger_generati
+    return b.nome if b.nome in trigger_generati() else f"{b.nome}_{NOME_LATO[lato]}"
+
+
+def segnali_trigger(blocchi, cache, lati) -> dict:
+    """
+    (docs/82 §14.7) I segnali di tutti i trigger su una moneta, compressi a un bit per barra: {gruppo: maschera}. La
+    maschera è quella della fabbrica (ai valori centrali per i blocchi con parametri), già nella cache dopo il controllo
+    dei valori degeneri.
+    """
+    import numpy as np
+    out = {}
+    for lato in lati:
+        for b in blocchi:
+            if b.tipo == "trigger" and lato in b.lati:
+                g = _gruppo_segnale(b, lato)
+                if g not in out:
+                    out[g] = np.packbits(b.maschera(cache, lato, b.centrali() if b.parametri else None))
+    return out
+
+
 def _trigger_da_misurare(blocchi, lati, rimaste: dict) -> dict:
     """{nome nella rosa: (blocco, lato)}: ogni trigger rimasto dopo i valori degeneri, lato per lato («E36_short»)."""
     return {f"{b.nome}_{NOME_LATO[lato]}": (b, lato) for lato in lati for b in blocchi
             if b.tipo == "trigger" and lato in b.lati and disponibile(b.nome, lato, rimaste)}
 
 
-def _misura_rosa(cache, da_misurare: dict, symbol: str, regole: dict, processi: int) -> dict:
-    """La rosa del Lab ({H: tabella}) sui trigger, in un registro isolato che all'uscita torna com'era."""
-    from engine.rosa import rosa_orizzonti_entry
-    from engine.simboli import pip_symbol
-    condizioni = {n: b.condizione(cache, lato) for n, (b, lato) in da_misurare.items()}   # prima: il catalogo
-    with _registro_isolato():
-        for n, (_, lato) in da_misurare.items():
-            reg.register_entry(n, direction=lato)(condizioni[n])
-        rose, _ = rosa_orizzonti_entry(cache.df, regole["orizzonti_barre"], pip_symbol(symbol), nomi=list(da_misurare),
-                                       q=regole["q"], soglia_famiglia=regole["soglia_famiglia"],
-                                       rho_max=regole["rho_max"], min_eventi=regole["min_eventi"], fuso="UTC",
-                                       unita="bp", processi=processi)
-    return rose
-
-
-def rosa_dei_trigger(blocchi, cache, lati, rimaste: dict, symbol: str, regole: dict, processi: int = 1):
+def rosa_dei_trigger(blocchi, lati, rimaste: dict, basi: dict, segnali: dict, regole: dict, n_orologio: int,
+                     settimana: int, processi: int = 1):
     """
-    La rosa dei trigger (docs/82 §13): tutti i trigger rimasti dopo i valori degeneri, del catalogo e generati, passano
-    dalla rosa del Lab (rosa.rosa_orizzonti_entry, colonna nella_rosa) sul pezzo di ricerca della cache, agli orizzonti
-    di `regole` (il campo «rosa» della config). Entra nella ricerca chi è nella rosa ad almeno un orizzonte.
+    La rosa dei trigger (docs/82 §13 e §14.2): tutti i trigger rimasti dopo i valori degeneri, del catalogo e generati,
+    passano dalla rosa di rosa_lista.misura_rosa (la rosa del Lab sulla lista di monete, in ATR) sul pezzo di ricerca,
+    agli orizzonti di `regole` (il campo «rosa» della config). Entra nella ricerca chi è nella rosa ad almeno un
+    orizzonte. `basi` e `segnali` = rosa_lista.base_moneta e segnali_trigger di ogni moneta.
     Ritorna (entrano, tabella): entrano = {lato: [blocchi, nell'ordine della config]}; tabella = una riga per trigger
-    misurato e orizzonte (orizzonte, lato, blocco, eventi, scarto_bp, t, candidata, nella_rosa): ognuna è una prova.
+    misurato e orizzonte (orizzonte, lato, blocco, eventi, scarto_atr, t, candidata, nella_rosa): ognuna è una prova.
     """
+    from .rosa_lista import misura_rosa
     da_misurare = _trigger_da_misurare(blocchi, lati, rimaste)
-    rose = _misura_rosa(cache, da_misurare, symbol, regole, processi)
+    rose = misura_rosa(basi, segnali, {n: (_gruppo_segnale(b, lato), lato) for n, (b, lato) in da_misurare.items()},
+                       regole, n_orologio, settimana, processi)
     tabella = []
     for h, rosa in rose.items():
         for r in rosa.to_dict("records"):
             b, lato = da_misurare[r["candidato"]]
             tabella.append({"orizzonte": int(h), "lato": NOME_LATO[lato], "blocco": b.nome, "eventi": int(r["eventi"]),
-                            "scarto_bp": float(r["scarto_bp"]), "t": float(r["t_netto"]),
+                            "scarto_atr": float(r["scarto_atr"]), "t": float(r["t_netto"]),
                             "candidata": bool(r["candidata"]), "nella_rosa": bool(r["nella_rosa"])})
     dentro = {(r["lato"], r["blocco"]) for r in tabella if r["nella_rosa"]}
     entrano = {lato: [b.nome for b in blocchi if (NOME_LATO[lato], b.nome) in dentro] for lato in lati}
@@ -342,7 +397,8 @@ def resoconto_teorie(config: dict, blocchi, tenuti: dict, rimaste: dict, teorie)
         for a, c in itertools.combinations(filtri, 2):
             if per_nome[a].famiglia == per_nome[c].famiglia:
                 out["coppie_stessa_famiglia"].append({"lato": nl, "filtri": [a, c], "famiglia": per_nome[a].famiglia})
-    if solo_long(config["symbol"]):
+    from .config import solo_long_lista
+    if solo_long_lista(config["monete"]):
         out["solo_long"] = "spot: lo short non esiste"
     return out
 

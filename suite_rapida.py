@@ -70,7 +70,7 @@ DURATE = {
     "test_fabbrica_registro": 3, "test_fabbrica_ricerca": 300,
     "test_fabbrica_selezione": 30, "test_fabbrica_cassaforte": 80, "test_fabbrica_schede": 35,
     "test_vetrina_fabbrica": 60, "test_notebook_fabbrica": 80, "test_generatore": 180,
-    "test_lab_trigger_generati": 185
+    "test_lab_trigger_generati": 185, "test_fabbrica_monete": 220
 }
 INSIEME = 3          # suite che girano insieme, nella rapida e nella completa
 RISULTATO = re.compile(r"RISULTATO:\s*(\d+)\s*/\s*(\d+)")

@@ -116,8 +116,8 @@ def esegui() -> int:
     print("\nA · Le tabelle dei symbol da exchange")
     attesi = {f"{ex}_{m}_{c}USDT" for ex in ("BINANCE", "BYBIT") for m in ("SPOT", "PERP")
               for c in ("BTC", "ETH", "SOL", "XRP")}
-    check("A1. 16 symbol: Binance e Bybit, spot e perpetual, BTC ETH SOL XRP",
-          set(SIMBOLI_EXCHANGE) == attesi, f"{len(SIMBOLI_EXCHANGE)} symbol")
+    check("A1. 17 symbol: Binance e Bybit, spot e perpetual, BTC ETH SOL XRP; ADA perp di Binance per la fabbrica "
+          "(docs/82 §14)", set(SIMBOLI_EXCHANGE) == attesi | {"BINANCE_PERP_ADAUSDT"}, f"{len(SIMBOLI_EXCHANGE)} symbol")
     pip_moneta = {"BTC": 1.0, "ETH": 0.1, "SOL": 0.01, "XRP": 0.0001}
     check("A2. pip fisso per moneta (BTC 1, ETH 0,1, SOL 0,01, XRP 0,0001), uguale su ogni mercato",
           all(pip_symbol(s) == pip_moneta[s.split("_")[2][:-4]] for s in attesi))
@@ -133,7 +133,7 @@ def esegui() -> int:
               and np.isclose(np.log10(pip_symbol(s) / X.passo_prezzo(s)),
                              round(np.log10(pip_symbol(s) / X.passo_prezzo(s)))) for s in attesi))
     check("A6. LOTTI_EXCHANGE e LEVA_EXCHANGE: stessi symbol di SIMBOLI_EXCHANGE",
-          set(LOTTI_EXCHANGE) == attesi and set(LEVA_EXCHANGE) == attesi)
+          set(LOTTI_EXCHANGE) == set(SIMBOLI_EXCHANGE) and set(LEVA_EXCHANGE) == set(SIMBOLI_EXCHANGE))
     coerenti = all(0 < m <= x and np.isclose(m / p, round(m / p)) and np.isclose(x / p, round(x / p))
                    for m, p, x in LOTTI_EXCHANGE.values())
     check("A7. lotti coerenti: minimo e massimo multipli del passo", coerenti)

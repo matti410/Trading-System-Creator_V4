@@ -3,7 +3,7 @@ Le funzioni chiamate dalle celle del notebook della fabbrica (docs/82 §7). Nasc
 sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella:
 
     avvio(cartella_dati, macchina="pc")                     # Avvio: dati trovati, ricerche, ultima cassaforte usata
-    conf = configura(cartella_dati, "BINANCE", "PERP", "BTC", "M15")              # 1 · Configura (aggiorna i dati)
+    conf = configura(cartella_dati, "BINANCE", "PERP", "BTC, ETH, XRP, SOL, ADA", "M15")   # 1 · Configura
     r = ricerca(conf)                                        # 2 · La ricerca (riprende se interrotta)
     imbuto(r)                                                # 3 · L'imbuto
     strategie_rimaste(r)                                     # 4 · Le strategie rimaste (numerate)
@@ -33,6 +33,12 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
   ne sono.
 - Cella 6: money management e stress test, e sempre la verifica dei trade (docs/81 §3 passo 9); la lente su un trade è
   facoltativa. Il riassunto va in <ricerca>/mm/<id_strategia>.json, e da lì nella scheda.
+- Dal 20/11 (docs/82 §14) la config è la versione 5: la fabbrica lavora su una lista di monete (campo `monete` della
+  cella 1, di base «BTC, ETH, XRP, SOL, ADA»; «BTC» = una sola). La cella 1 aggiorna i dati di ogni moneta, mostra le
+  date dei tre pezzi (uguali per tutte) con le barre per moneta, calcola la rosa e la salva nella cartella della
+  ricerca: la 2 la rilegge (S2). EV in ATR nelle celle 4 e 5, sotto, chiusa, la tabella per moneta; niente P(EV<0).
+  La 6 fa money management e stress test su tutte le monete insieme e la verifica moneta per moneta; «trade da
+  vedere» = «ETH 3». Le celle 4–7 su una ricerca della versione 4 si fermano con «ricerca non trovata».
 """
 from __future__ import annotations
 
@@ -46,6 +52,8 @@ import pandas as pd
 
 from engine.fabbrica import cassaforte as cas_mod
 from engine.fabbrica import registro
+from engine.fabbrica.config import MONETE_STANDARD
+from engine.fabbrica.schede import nome_monete
 from engine.fabbrica.sessione import apri_sessione
 
 ORDINE_ESITI = {"scelta": 0, "stessa famiglia": 1, "scartata": 2}
@@ -65,16 +73,16 @@ VERSIONE_VECCHIA = ("ricerca non trovata: è una ricerca di una versione precede
 _ESITI_CASSAFORTE: dict = {}                 # id_ricerca -> l'ultimo esito della cassaforte letto in questa sessione
 
 
-def sessione_da_strategia(cartella_dati, id_ricerca: str, id_strategia: str, esito=None):
+def sessione_da_strategia(cartella_dati, id_ricerca: str, id_strategia: str, moneta: str, esito=None):
     """
-    La Sessione del Lab (vetrina.Sessione) per una strategia entrata in cassaforte, per le schermate 7, 9 e 8:
-    in-sample = ricerca + selezione, out-of-sample = la cassaforte (engine/fabbrica/sessione.py). `esito` = quello di
-    cassaforte.entra, se c'è già; altrimenti si rifà con cassaforte.esito_cassaforte (nessun ingresso nuovo).
-    Le condizioni temporanee nel catalogo si tolgono con engine.fabbrica.sessione.chiudi(s).
+    La Sessione del Lab (vetrina.Sessione) per una strategia entrata in cassaforte, su una moneta della lista, per le
+    schermate 7, 9 e 8: in-sample = ricerca + selezione, out-of-sample = la cassaforte (engine/fabbrica/sessione.py).
+    `esito` = quello di cassaforte.entra, se c'è già; altrimenti si rifà con cassaforte.esito_cassaforte (nessun
+    ingresso nuovo). Le condizioni temporanee nel catalogo si tolgono con engine.fabbrica.sessione.chiudi(s).
     """
     if esito is None:
         esito = cas_mod.esito_cassaforte(cartella_dati, id_ricerca)
-    return apri_sessione(esito, id_strategia)
+    return apri_sessione(esito, id_strategia, moneta)
 
 
 # ------------------------------------------------------------------ la presentazione (quella del Lab)
@@ -174,7 +182,9 @@ def avvio(cartella_dati, macchina: str = "pc") -> dict:
                     stato = json.load(f)
             entrate = {s["id_strategia"] for e in eventi if e.get("tipo") == cas_mod.INGRESSO
                        and e.get("id_ricerca") == id_r for s in e["strategie"]}
-            ricerche.append({"symbol": config["symbol"], "timeframe": config["timeframe"], "ricerca": id_r,
+            # docs/82 §14.5: le ricerche per lista; quelle delle versioni prima hanno un symbol solo
+            monete = nome_monete(config["monete"]) if "monete" in config else nome_monete([config.get("symbol", "?_?_?")])
+            ricerche.append({"monete": monete, "timeframe": config["timeframe"], "ricerca": id_r,
                              "a che punto": {"finita": "finita"}.get(stato.get("fase"), stato.get("fase", "—")),
                              "entrate in cassaforte": len(entrate),
                              "ultima cassaforte usata fino al": _data(tratti[-1][1]) if tratti else "nessuna"})
@@ -185,8 +195,8 @@ def avvio(cartella_dati, macchina: str = "pc") -> dict:
         vista["ultima barra (UTC)"] = [_data(t) if t is not None else "—" for t in vista["ultima barra (UTC)"]]
         _mostra((f"Dati trovati: {len(dati)} file", vista))
     else:
-        _avviso(f"Nella cartella {cartella} non ci sono ancora CSV dei symbol da exchange: la cella 1 scarica quello "
-                "del symbol e del timeframe scelti.")
+        _avviso(f"Nella cartella {cartella} non ci sono ancora CSV dei symbol da exchange: la cella 1 scarica quelli "
+                "delle monete e del timeframe scelti.")
     if len(ric):
         _mostra(("Ricerche già fatte dalla fabbrica", ric))
     else:
@@ -206,18 +216,20 @@ class Configurazione:
     budget_massimo: int
     stima_minuti: tuple
     esclusi: list
-    barre_ricerca: int
+    barre_ricerca: int                       # le barre del pezzo di ricerca, tutte le monete insieme
     resoconto: dict = field(default_factory=dict)
     rosa: list = field(default_factory=list)
     turno_2_massimo: int = 0
     tenuti: dict = field(default_factory=dict)
     preparazione_s: float = 0.0
+    barre: dict = field(default_factory=dict)        # {pezzo: {symbol: barre}} (docs/82 §14.5)
 
 
 def stima_minuti(budget: int, barre_ricerca: int, processi: int) -> tuple[float, float]:
     """
     (da, a) minuti per `budget` prove, dalla velocità vera delle due ricerche di RICERCHE_VERE (3 processi), in
-    proporzione alle barre del pezzo di ricerca; con 1 o 2 processi più lenta (FATTORE_PROCESSI).
+    proporzione alle barre del pezzo di ricerca (con più monete la somma delle loro barre, docs/82 §14.7); con 1 o 2
+    processi più lenta (FATTORE_PROCESSI).
     """
     fattore = FATTORE_PROCESSI.get(int(processi), 1.0)
     minuti = [budget / (prove / secondi * barre / max(int(barre_ricerca), 1) * fattore) / 60.0
@@ -227,7 +239,7 @@ def stima_minuti(budget: int, barre_ricerca: int, processi: int) -> tuple[float,
 
 def _gia_salvata(config: dict, cartella_dati) -> bool:
     from engine.fabbrica.config import cartella_asset, impronta_config
-    base = cartella_asset(cartella_dati, config["symbol"], config["timeframe"])
+    base = cartella_asset(cartella_dati, config["monete"], config["timeframe"])
     fine = "_" + impronta_config(config)[:12]
     return os.path.isdir(base) and any(n.endswith(fine) for n in os.listdir(base))
 
@@ -281,63 +293,86 @@ def aggiorna_dati(cartella_dati, symbol: str, timeframe: str) -> dict:
             "prima_barra": _prima_data_csv(percorso)}
 
 
-def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe: str, processi: int = 3,
+def monete_da_testo(exchange: str, mercato: str, testo: str) -> list[str]:
+    """«BTC, ETH, XRP» → i symbol interi della lista (docs/82 §14.5), nell'ordine scritto; vuoto = la lista standard."""
+    from engine.exchange import simboli_exchange
+    nomi = [p for p in re.split(r"[,\s;]+", str(testo or "").upper()) if p] or list(MONETE_STANDARD)
+    monete = [f"{str(exchange).upper()}_{str(mercato).upper()}_{n.removesuffix('USDT')}USDT" for n in nomi]
+    fuori = [m for m in monete if m not in simboli_exchange()]
+    if fuori:
+        raise ValueError(f"{', '.join(fuori)}: non è un symbol da exchange della tabella (engine/simboli.py).")
+    if len(set(monete)) != len(monete):
+        raise ValueError(f"monete {testo!r}: una moneta è scritta due volte.")
+    return monete
+
+
+def configura(cartella_dati, exchange: str, mercato: str, monete: str, timeframe: str, processi: int = 3,
               config: dict | None = None, data: str | None = None) -> Configurazione:
     """
-    Cella 1. Aggiorna i dati (aggiorna_dati), poi la config standard sul symbol e sul timeframe scelti (da M1 a D1), con
-    i confini fino all'ultima mezzanotte UTC chiusa (config.confini_standard, 09/11: nello stesso giorno UTC, stessa
-    ricerca), controllata e bloccata con l'impronta.
+    Cella 1. Aggiorna i dati di ogni moneta della lista (aggiorna_dati), poi la config standard sulla lista e sul
+    timeframe scelti (da M1 a D1, docs/82 §14), con i confini fino all'ultima mezzanotte UTC chiusa (config.
+    confini_standard, 09/11: nello stesso giorno UTC, stessa ricerca; stesse date per tutte le monete, una moneta più
+    giovane ha solo meno barre), controllata e bloccata con l'impronta. Poi la preparazione (valori degeneri e rosa dei
+    trigger), che si salva nella cartella della ricerca: la cella 2 la rilegge (S2).
     Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un trigger o un'uscita; i blocchi tolti
-    sul timeframe si elencano con il motivo. `config` (scritta a mano, per i collaudi) prende il posto di quella
-    standard e resta com'è, confini compresi.
+    sul timeframe si elencano con il motivo. `monete` = «BTC, ETH, XRP, SOL, ADA» (vuoto = quella lista; «BTC» = una
+    sola). `config` (scritta a mano, per i collaudi) prende il posto di quella standard e resta com'è, confini compresi.
     """
-    from engine.exchange import simboli_exchange
     from engine.fabbrica.blocchi import MINUTI_TIMEFRAME
     from engine.fabbrica.config import (config_standard, confini_standard, controlla_config, controlla_tipi_rimasti,
                                         impronta_config, salva_config, tetto_budget)
     from engine.fabbrica.dati import Confini, carica_pezzi
-    from engine.fabbrica.ricerca import prepara
+    from engine.fabbrica.ricerca import prepara, scrivi_rosa
     from engine.fabbrica.schede import esclusi_dalla_config
-    symbol = f"{str(exchange).upper()}_{str(mercato).upper()}_{str(moneta).upper()}USDT"
-    if symbol not in simboli_exchange():
-        raise ValueError(f"{symbol}: non è un symbol da exchange della tabella (engine/simboli.py).")
+    simboli = monete_da_testo(exchange, mercato, monete)
     if timeframe not in MINUTI_TIMEFRAME:
         raise ValueError(f"timeframe {timeframe!r}: usa uno di {list(MINUTI_TIMEFRAME)}.")
-    dati = aggiorna_dati(cartella_dati, symbol, timeframe)
+    dati = {m: aggiorna_dati(cartella_dati, m, timeframe) for m in simboli}
+    prima = min(d["prima_barra"] for d in dati.values() if d["prima_barra"] is not None)
     standard = config is None
     if standard:
-        confini_std = confini_standard(timeframe, dati["ultima_barra"], dati["prima_barra"])
-        config = config_standard(symbol, timeframe, processi=int(processi), confini=confini_std)
+        confini_std = confini_standard(timeframe, min(d["ultima_barra"] for d in dati.values()), prima)
+        config = config_standard(simboli, timeframe, processi=int(processi), confini=confini_std)
     config = controlla_config(config)
-    if (config["symbol"], config["timeframe"]) != (symbol, timeframe):
-        raise ValueError(f"la config è di {config['symbol']} {config['timeframe']}, i campi dicono {symbol} {timeframe}.")
+    if (config["monete"], config["timeframe"]) != (simboli, timeframe):
+        raise ValueError(f"la config è di {config['monete']} {config['timeframe']}, i campi dicono {simboli} {timeframe}.")
     controlla_tipi_rimasti(config)
     esclusi = esclusi_dalla_config(config)
     confini = Confini.da_config(config["confini"])
     try:
-        pezzi = carica_pezzi(config["symbol"], config["timeframe"], confini, cartella_dati)
+        pezzi = carica_pezzi(config["monete"], config["timeframe"], confini, cartella_dati)
     except (FileNotFoundError, ValueError) as e:
         raise ValueError(f"La cella si ferma: {e}") from e
+    print("Preparazione: valori degeneri e rosa dei trigger, una moneta alla volta…", flush=True)
     prep = prepara(config, pezzi, controlla=not standard)
     if standard:          # D6: il tetto del budget è il massimo sui blocchi tenuti, arrotondato in su ai 10.000
-        config = controlla_config(config_standard(symbol, timeframe, processi=int(processi), confini=confini_std,
+        config = controlla_config(config_standard(simboli, timeframe, processi=int(processi), confini=confini_std,
                                                   totale=tetto_budget(prep.budget_massimo)))
     nuova = not _gia_salvata(config, cartella_dati)
     id_ricerca = salva_config(config, cartella_dati, data)
+    from engine.fabbrica.config import cartella_asset
+    scrivi_rosa(os.path.join(cartella_asset(cartella_dati, config["monete"], config["timeframe"]), id_ricerca),
+                config, pezzi, prep)
+    barre = {"ricerca": pezzi.barre("ricerca"), "selezione": pezzi.barre("selezione")}
+    totale_ricerca = sum(barre["ricerca"].values())
     conf = Configurazione(str(cartella_dati), config, id_ricerca, nuova, confini.limiti(), len(prep.teorie),
-                          prep.budget_massimo, stima_minuti(prep.budget_massimo, len(pezzi.ricerca),
-                                                            config["processi"]),
-                          esclusi, len(pezzi.ricerca), prep.resoconto, list(prep.rosa), prep.turno_2_massimo,
-                          dict(prep.tenuti), prep.durata_s)
+                          prep.budget_massimo, stima_minuti(prep.budget_massimo, totale_ricerca, config["processi"]),
+                          esclusi, totale_ricerca, prep.resoconto, list(prep.rosa), prep.turno_2_massimo,
+                          dict(prep.tenuti), prep.durata_s, barre)
     lim = conf.limiti
-    _titolo(f"{config['symbol']} {config['timeframe']} · ricerca {id_ricerca} "
+    _titolo(f"{nome_monete(config['monete'])} · {config['timeframe']} · ricerca {id_ricerca} "
             f"({'nuova' if nuova else 'già esiste: riprende'})")
-    _nota(_riga_inizio(config, dati.get("prima_barra")))
-    _mostra(("I tre pezzi (UTC)", pd.DataFrame([
-        {"pezzo": "ricerca", "da": _data(lim["ricerca"][0]), "a": _data(lim["ricerca"][1]), "stato": "aperto"},
-        {"pezzo": "selezione", "da": _data(lim["selezione"][0]), "a": _data(lim["selezione"][1]), "stato": "aperto"},
-        {"pezzo": "cassaforte", "da": _data(lim["cassaforte"][0]), "a": _data(lim["cassaforte"][1]),
-         "stato": "chiusa"}])))
+    _nota(_riga_inizio(config, prima))
+    corte = {m: m.rsplit("_", 1)[1].removesuffix("USDT") for m in config["monete"]}
+    righe = []
+    for pezzo, stato in (("ricerca", "aperto"), ("selezione", "aperto"), ("cassaforte", "chiusa")):
+        riga = {"pezzo": pezzo, "da": _data(lim[pezzo][0]), "a": _data(lim[pezzo][1]), "stato": stato}
+        for m in config["monete"]:
+            riga[f"barre {corte[m]}"] = _f(barre[pezzo][m]) if pezzo in barre else "—"
+        righe.append(riga)
+    _mostra(("I tre pezzi (UTC), le stesse date per tutte le monete", pd.DataFrame(righe)))
+    _nota(f"Preparazione: {_minuti(prep.durata_s / 60)}; rosa e valori degeneri salvati nella cartella della ricerca: "
+          "la 2 li rilegge.")
     _rosa_dei_trigger(conf)
     da, a = conf.stima_minuti
     _nota(f"Turno 1: {_f(conf.teorie)} teorie; turno 2: al massimo {_f(conf.turno_2_massimo)}; al massimo "
@@ -351,13 +386,15 @@ def configura(cartella_dati, exchange: str, mercato: str, moneta: str, timeframe
 
 
 def _riga_inizio(config: dict, prima_barra) -> str:
-    """(14/11) L'inizio usato; se non è il 02/01/2020, il perché in una riga (i dati del symbol partono dopo)."""
+    """(14/11) L'inizio usato; se non è il 02/01/2020, il perché in una riga (i dati partono dopo)."""
     from engine.fabbrica.config import CONFINI_STANDARD
     inizio = pd.Timestamp(config["confini"]["inizio"], tz="UTC")
-    testo = f"Inizio della ricerca: {inizio:%d/%m/%Y %H:%M} UTC."
+    testo = f"Inizio della ricerca: {inizio:%d/%m/%Y %H:%M} UTC, lo stesso per tutte le monete."
     if config["confini"]["inizio"] != CONFINI_STANDARD["inizio"] and prima_barra is not None:
-        testo += (f" {config['symbol']}: dati dal {_data(prima_barra)} UTC, la ricerca parte dal {inizio:%d/%m/%Y}, la "
-                  "prima mezzanotte UTC con i dati.")
+        testo += (f" I dati partono dal {_data(prima_barra)} UTC: la ricerca parte dal {inizio:%d/%m/%Y}, la prima "
+                  "mezzanotte UTC con i dati.")
+    if len(config["monete"]) > 1:
+        testo += " Una moneta più giovane ha solo meno barre."
     return testo
 
 
@@ -465,13 +502,15 @@ def ricerca(conf: Configurazione, data: str | None = None):
     dice di rilanciare la cella e ritorna None.
     """
     from engine.fabbrica.ricerca import lancia
-    _nota(f"Preparazione (valori degeneri e rosa dei trigger): {_minuti(conf.preparazione_s / 60)}, come nella cella 1.")
+    _nota("Preparazione: rosa dei trigger e valori degeneri dalla cella 1 (salvati nella cartella della ricerca).")
     try:
         r = lancia(conf.config, conf.cartella_dati, verbose=False, data=data, avanzamento=_stampa_avanzamento())
     except KeyboardInterrupt:
         _avviso("Ricerca interrotta. Rilancia questa cella: riparte da dove era, senza rifare le teorie già finite.")
         return None
-    riepilogo = {"id_ricerca": r.id_ricerca, "symbol": conf.config["symbol"], "timeframe": conf.config["timeframe"],
+    if not r.tempi.get("rosa_letta"):
+        _nota(f"La rosa salvata dalla cella 1 non c'era: rifatta qui ({_minuti(r.tempi['preparazione_s'] / 60)}).")
+    riepilogo = {"id_ricerca": r.id_ricerca, "monete": conf.config["monete"], "timeframe": conf.config["timeframe"],
                  "finita": r.finita, "durata_s": r.durata_s, "prove": r.prove, "budget_massimo": r.budget_massimo,
                  "imbuto": r.imbuto, "conto": r.conto, "blocchi_esclusi": conf.esclusi,
                  "rosa_entrano": [x for x in r.rosa if x["nella_rosa"]], "rosa_prove": len(r.rosa),
@@ -548,13 +587,9 @@ def imbuto(r) -> pd.DataFrame:
 
 # (15/11) Il tipo di un motivo di scarto, senza i numeri della singola strategia: (schema, testo). Il primo schema che
 # combacia decide; i gruppi tra parentesi dello schema riempiono il testo (le soglie della config, uguali per tutte).
+# Dal 20/11 (docs/82 §14.3) la condizione 2 non ha più il verdetto con P(EV<0).
 _TIPI_MOTIVO = (
     (r"^condizione 2: \d+ trade, meno di (\d+)$", "condizione 2, meno di {0} trade"),
-    (r"^condizione 2: verdetto SCARTATA: EV netto \S+ \w+ <= (\S+)$", "condizione 2, EV netto ≤ {0}"),
-    (r"^condizione 2: verdetto SCARTATA: guadagno ", "condizione 2, guadagno ≤ 0"),
-    (r"^condizione 2: verdetto SCARTATA: \|t\| ", "condizione 2, |t| sotto la soglia di rumore"),
-    (r"^condizione 2: verdetto SCARTATA: t \S+ oltre soglia ma NEGATIVO", "condizione 2, t negativo"),
-    (r"^condizione 2: verdetto SCARTATA: P\(EV<0\) \S+ >= (\S+)$", "condizione 2, P(EV<0) ≥ {0}"),
     (r"^condizione 2: il trade migliore pesa il \S+ dei guadagni, oltre il (\S+)$",
      "condizione 2, il trade migliore pesa oltre il {0} dei guadagni"),
     (r"^condizione 2: totale / drawdown \S+, sotto (\S+)$", "condizione 2, totale / drawdown sotto {0}"),
@@ -581,8 +616,8 @@ def tipo_motivo(motivo) -> str:
 
 # ------------------------------------------------------------------ 4 · Le strategie rimaste
 def _controlla_versione(r) -> None:
-    """Celle 4–7 (D5 = B; docs/82 §12, D4 = A; §13): una ricerca di una versione precedente (1, 2 o 3) si ferma con
-    «ricerca non trovata» e dice di rilanciare la 2."""
+    """Celle 4–7 (D5 = B; docs/82 §12, D4 = A; §13; §14): una ricerca di una versione precedente (da 1 a 4) si ferma
+    con «ricerca non trovata» e dice di rilanciare la 2."""
     from engine.fabbrica.config import VERSIONE
     if _config_ricerca(r).get("versione") != VERSIONE:
         raise ValueError(VERSIONE_VECCHIA)
@@ -603,7 +638,7 @@ def numerate(r) -> pd.DataFrame:
 def _regola_breve(riga, config) -> str:
     from engine.fabbrica.schede import regole_in_parole
     from engine.fabbrica.selezione import strategia_da_riga
-    st = strategia_da_riga(riga, config["symbol"], config["timeframe"])
+    st = strategia_da_riga(riga, config["monete"], config["timeframe"])
     return " ".join(regole_in_parole(st, config["timeframe"])["righe"])
 
 
@@ -625,10 +660,10 @@ def strategie_rimaste(r) -> pd.DataFrame:
     for x in t.to_dict("records"):
         ric = p2.loc[x["teoria"]] if x["teoria"] in p2.index else {}
         righe.append({"numero": x["numero"], "lato": x["lato"], "regola": _regola_breve(x, config),
-                      "trade ricerca": ric.get("trade"), "EV ricerca (bp)": ric.get("ev_bp"),
-                      "t ricerca": ric.get("t"), "trade selezione": x["trade"], "EV selezione (bp)": x["ev_bp"],
-                      "t selezione": x["t"], "esito": x["esito"], "motivo": x["motivo"],
-                      "id_strategia": x["id_strategia"]})
+                      "trade ricerca": ric.get("trade"), "EV ricerca (ATR)": ric.get("ev_atr"),
+                      "t ricerca": ric.get("t"), "trade selezione": x["trade"], "EV selezione (ATR)": x["ev_atr"],
+                      "EV selezione (bp)": x["ev_bp"], "t selezione": x["t"], "esito": x["esito"],
+                      "motivo": x["motivo"], "id_strategia": x["id_strategia"]})
     tab = pd.DataFrame(righe)
     vive = tab[tab["esito"] != "scartata"].drop(columns=["motivo", "id_strategia"])
     _titolo(f"Le strategie rimaste · ricerca {r.id_ricerca}")
@@ -637,13 +672,26 @@ def strategie_rimaste(r) -> pd.DataFrame:
     else:
         _nota("Nessuna strategia è arrivata viva alla fine della selezione.")
     soglia = float(t["soglia_test"].iloc[0]) if len(t) else None
-    _nota(f"Decide il t di selezione contro {_f(soglia)}. Da leggere: {_f(r.conto.get('asset'))} prove su questo "
-          f"asset, soglia corrispondente {_f(r.conto.get('soglia_da_leggere'))}. «Stessa famiglia»: entrano quasi "
-          "negli stessi momenti di una scelta, che le rappresenta.")
+    _nota(f"Decide il t di selezione contro {_f(soglia)}. EV in ATR: 0,05 ATR = un ventesimo di un giorno tipico della "
+          f"moneta, al netto dei costi; i bp accanto. Da leggere: {_f(r.conto.get('asset'))} prove su questa lista, "
+          f"soglia corrispondente {_f(r.conto.get('soglia_da_leggere'))}. «Stessa famiglia»: entrano quasi negli stessi "
+          "momenti di una scelta, che le rappresenta.")
+    _per_moneta(r.selezione.per_moneta, t[["id_strategia", "numero"]], "selezione")
     scartate = tab[tab["esito"] == "scartata"].drop(columns=["id_strategia"])
     if len(scartate):
         _dettaglio(f"Le scartate ({len(scartate)})", ("", scartate))
     return tab
+
+
+def _per_moneta(tab, numeri: pd.DataFrame, pezzo: str) -> None:
+    """(docs/82 §14.5) La tabella per moneta (trade, EV, t), chiusa, solo da leggere."""
+    if tab is None or not len(tab):
+        return
+    v = tab.merge(numeri, on="id_strategia").sort_values(["numero"], kind="mergesort")
+    v = pd.DataFrame({"numero": v["numero"], "moneta": v["moneta"].map(lambda m: m.rsplit("_", 1)[1].removesuffix("USDT")),
+                      f"trade {pezzo}": v["trade"], f"EV {pezzo} (ATR)": v["ev_atr"], f"EV {pezzo} (bp)": v["ev_bp"],
+                      f"t {pezzo}": v["t"]})
+    _dettaglio("Moneta per moneta (solo da leggere: la strategia vale per tutta la lista)", ("", v))
 
 
 # ------------------------------------------------------------------ 5 · La cassaforte
@@ -704,11 +752,12 @@ def cassaforte(r, strategie: str = ""):
     num = numerate(r).set_index("id_strategia")["numero"]
     tab = c.tabella
     vista = pd.DataFrame({"numero": [num.get(i) for i in tab["id_strategia"]], "lato": tab["lato"],
-                          "t selezione": tab["t_selezione"], "EV selezione (bp)": tab["ev_bp_selezione"],
-                          "trade cassaforte": tab["trade"], "EV cassaforte (bp)": tab["ev_bp"],
-                          "t cassaforte": tab["t"], "esito": tab["esito"]})
+                          "t selezione": tab["t_selezione"], "EV selezione (ATR)": tab["ev_atr_selezione"],
+                          "trade cassaforte": tab["trade"], "EV cassaforte (ATR)": tab["ev_atr"],
+                          "EV cassaforte (bp)": tab["ev_bp"], "t cassaforte": tab["t"], "esito": tab["esito"]})
     _titolo(f"La cassaforte · tratto {c.tratto['id']}")
     _mostra(("", vista.sort_values("numero")))
+    _per_moneta(c.per_moneta, numerate(r)[["id_strategia", "numero"]], "cassaforte")
     _nota(f"Decide il t in cassaforte contro {_f(float(tab['soglia_test'].iloc[0]))}. Da leggere: strategie entrate "
           f"finora in questo tratto {_f(c.conto.get('entrate_nel_tratto'))}; prove su questo asset "
           f"{_f(c.conto.get('asset'))}, soglia corrispondente {_f(c.conto.get('soglia_da_leggere'))}.")
@@ -733,6 +782,11 @@ RIMANDI = (
      "Per guardare un altro trade cambia il numero in «trade da vedere» e rilancia la cella."),
     (r"[Pp]oi vai alla schermata \d+\.", "Poi vai alla 7 · Le schede."),
     (r"[^.;]*\bschermat[ae]\b[^.;]*[.;]", ""),          # ogni altra frase che rimanda a una schermata del Lab
+    # docs/82 §14.4: con più monete i lotti sono quelli della moneta di ogni trade
+    (r"lotti da [\d.,]+ a passi di [\d.,]+, massimo [\d.,]+, ",
+     "lotti con il minimo, il passo e il massimo della moneta di ogni trade, "),
+    (r"Esempio: con [^.]*?(?:pips|\$ per pip\)) sono [\d.,]+ lotti\. Sotto [\d.,]+ lotti il trade si salta;",
+     "Il lotto minimo e il passo sono quelli della moneta di ogni trade: sotto il minimo il trade si salta;"),
 )
 _AIUTANTI = ("_riquadro", "_nota", "_avviso", "_spiegazione", "_titolo", "_mostra", "_dettaglio")
 
@@ -761,14 +815,17 @@ def _riscrivi_tabella(df, nomi: dict):
 
 
 @contextlib.contextmanager
-def _testi_fabbrica(s):
-    """Dentro il blocco, i testi che le funzioni del Lab mostrano sono quelli della fabbrica (vedi RIMANDI)."""
+def _testi_fabbrica(ss: dict):
+    """Dentro il blocco, i testi che le funzioni del Lab mostrano sono quelli della fabbrica (vedi RIMANDI). `ss` = le
+    Sessioni delle monete ({symbol: Sessione}): i nomi temporanei di tutte diventano i nomi brevi dei blocchi."""
     from engine.fabbrica.schede import nome_breve
     v = _v()
-    st = s.fabbrica["strategia"]
-    nomi = {temp: nome_breve(blocco, st.valori_di(blocco), s.timeframe) for blocco, temp in
-            s.fabbrica.get("nomi", {}).items()}
-    nomi[s.filtro] = " + ".join(nome_breve(b, st.valori_di(b), s.timeframe) for b in st.blocchi)
+    nomi = {}
+    for s in ss.values():
+        st = s.fabbrica["strategia"]
+        nomi.update({temp: nome_breve(blocco, st.valori_di(blocco), s.timeframe) for blocco, temp in
+                     s.fabbrica.get("nomi", {}).items()})
+        nomi[s.filtro] = " + ".join(nome_breve(b, st.valori_di(b), s.timeframe) for b in st.blocchi)
     orig = {n: getattr(v, n) for n in _AIUTANTI}
 
     def testo(nome):
@@ -798,16 +855,35 @@ def _riassunto(x):
     return _pulito(x)
 
 
+def trade_da_vedere_in(testo: str, monete: list) -> tuple | None:
+    """
+    (docs/82 §14.5) Il campo «trade da vedere» della 6: «ETH 3» = il trade 3 di ETH in cassaforte, «in-sample ETH 5» = il
+    trade 5 di ETH nell'in-sample; con una moneta sola basta il numero («3», «in-sample 5»). Ritorna (symbol, periodo,
+    numero) o None se vuoto.
+    """
+    testo = (testo or "").strip().upper()
+    if not testo:
+        return None
+    m = re.fullmatch(r"(IN-SAMPLE\s+)?(?:([A-Z]+)\s+)?(\d+)", testo)
+    corte = {x.rsplit("_", 1)[1].removesuffix("USDT"): x for x in monete}
+    if not m or (m.group(2) is None and len(monete) > 1) or (m.group(2) is not None and m.group(2) not in corte):
+        raise ValueError(f"trade da vedere {testo!r}: scrivi la moneta e il numero (es. «{next(iter(corte))} 3»), o "
+                         f"«in-sample {next(iter(corte))} 5»; monete della lista: {', '.join(corte)}.")
+    moneta = corte[m.group(2)] if m.group(2) else monete[0]
+    return moneta, ("in-sample" if m.group(1) else "out-of-sample"), int(m.group(3))
+
+
 def mm_e_stress(r, numero: int, capitale: float = 10_000.0, drawdown_max_pct: float = 20.0, anni: float = 1.0,
                 modello: str = "rischio fisso", leva: float = 0, trade_da_vedere: str = "",
                 simulazioni: int | None = None, simulazioni_stress: int | None = None) -> dict:
     """
     Cella 6. Per la strategia `numero` della 4, entrata in cassaforte: money management (schermata 7 del Lab, calibrato
-    su ricerca + selezione), stress test (schermata 9) e sempre la verifica dei trade (schermata 8). `trade_da_vedere`
-    (facoltativo): «3» = il trade 3 della cassaforte, «in-sample 5» = il trade 5 dell'in-sample, sulla lente.
+    su ricerca + selezione) e stress test (schermata 9) su tutte le monete insieme (docs/82 §14.4), e sempre la verifica
+    dei trade (schermata 8), moneta per moneta. `trade_da_vedere` (facoltativo): «ETH 3» = il trade 3 di ETH in
+    cassaforte, «in-sample ETH 5» = il trade 5 di ETH nell'in-sample, sulla lente (trade_da_vedere_in).
     Il riassunto va in <ricerca>/mm/<id_strategia>.json per la scheda. simulazioni*: meno solo nei collaudi.
     """
-    from engine import vetrina, vetrina_verifica
+    from engine import vetrina_verifica
     from engine.fabbrica import sessione as ses
     _controlla_versione(r)
     t = numerate(r).set_index("numero")
@@ -817,24 +893,24 @@ def mm_e_stress(r, numero: int, capitale: float = 10_000.0, drawdown_max_pct: fl
     c = esito_cassaforte(r)
     if id_s not in c.trade:
         raise ValueError(f"la strategia {numero} non è entrata in cassaforte: falla entrare alla 5.")
-    vista = None
-    testo = (trade_da_vedere or "").strip().lower()
-    if testo:
-        m = re.fullmatch(r"(in-sample\s+)?(\d+)", testo)
-        if not m:
-            raise ValueError(f"trade da vedere {trade_da_vedere!r}: scrivi un numero (es. «3»), o «in-sample 5».")
-        vista = ("in-sample" if m.group(1) else "out-of-sample", int(m.group(2)))
-    with ses.sessione(c, id_s) as s, _testi_fabbrica(s):
-        _titolo(f"Strategia {numero} · money management")
-        mm = ses.money_management(s, capitale=capitale, drawdown_max_pct=drawdown_max_pct, anni=anni,
+    vista = trade_da_vedere_in(trade_da_vedere, list(c.config["monete"]))
+    with ses.sessioni(c, id_s) as ss, _testi_fabbrica(ss):
+        _titolo(f"Strategia {numero} · money management, {nome_monete(ss)} insieme")
+        mm = ses.money_management(ss, capitale=capitale, drawdown_max_pct=drawdown_max_pct, anni=anni,
                                   modello=modello, leva=leva, simulazioni=simulazioni)
-        _titolo(f"Strategia {numero} · stress test")
-        st = (vetrina.stress_test(s) if simulazioni_stress is None
-              else vetrina.stress_test(s, simulazioni=int(simulazioni_stress)))
+        if len(ss) > 1:
+            _nota("Più monete insieme: ogni trade prende i lotti dal capitale dei trade già chiusi in quel momento, e "
+                  "la leva somma le posizioni aperte su tutte le monete (rischio 0,5% a trade: tre trade aperti insieme "
+                  "su tre monete = 1,5% in quel momento). Le storie simulate pescano giorni interi. Pips e lotti sono "
+                  "quelli della moneta di ogni trade: le righe in pips e in lotti mescolano monete diverse, la "
+                  "percentuale e i drawdown no.")
+        _titolo(f"Strategia {numero} · stress test, {nome_monete(ss)} insieme")
+        st = (ses.stress_test(ss, mm) if simulazioni_stress is None
+              else ses.stress_test(ss, mm, simulazioni=int(simulazioni_stress)))
         _titolo(f"Strategia {numero} · verifica dei trade")
-        ver = ses.verifica_trade(s)
+        ver = ses.verifica_trade(ss)
         if vista is not None:
-            vetrina_verifica.lente(s, periodo=vista[0], numero=vista[1], mostra_trigger=False)
+            vetrina_verifica.lente(ss[vista[0]], periodo=vista[1], numero=vista[2], mostra_trigger=False)
     riassunto = {
         "quando": registro.adesso(), "id_strategia": id_s,
         "parametri": {"capitale": float(capitale), "drawdown_max_pct": float(drawdown_max_pct), "anni": float(anni),

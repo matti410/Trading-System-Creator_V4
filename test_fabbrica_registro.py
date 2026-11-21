@@ -28,7 +28,7 @@ PERP = "BINANCE_PERP_BTCUSDT"
 
 def _riga(id_ricerca, id_strategia, t=1.5, fase="passo_1", pezzo="ricerca"):
     return {"id_ricerca": id_ricerca, "pezzo": pezzo, "fase": fase, "teoria": "L|E47|-|X0", "id_strategia": id_strategia,
-            "trade": 120, "ev_bp": 3.25, "t": t}
+            "trade": 120, "ev_atr": 3.25, "t": t}
 
 
 def esegui() -> int:
@@ -47,7 +47,7 @@ def esegui() -> int:
         return False
 
     with tempfile.TemporaryDirectory() as dati:
-        base = cartella_asset(dati, PERP, "M15")
+        base = cartella_asset(dati, [PERP], "M15")
         ric_a, ric_b = os.path.join(base, "20260101_aaaa"), os.path.join(base, "20260102_bbbb")
 
         # ------------------------------------------------------------------ il file delle prove
@@ -81,17 +81,17 @@ def esegui() -> int:
 
         # ------------------------------------------------------------------ il conto
         print("\nIl conto delle prove")
-        k = registro.conto_prove(dati, PERP, "M15")
+        k = registro.conto_prove(dati, [PERP], "M15")
         check("8. conto dell'asset = righe del file", k == 7, str(k))
         registro.aggiungi_prove(ric_b, [_riga("B", "s1"), _riga("B", "s2")], "pc")
-        check("9. due ricerche si sommano, anche con le stesse strategie", registro.conto_prove(dati, PERP, "M15") == 9)
+        check("9. due ricerche si sommano, anche con le stesse strategie", registro.conto_prove(dati, [PERP], "M15") == 9)
         registro.aggiungi_prove(ric_b, [_riga("B", "s1"), _riga("B", "s7")], "colab")
         check("10. la stessa ricerca su due macchine: le prove uguali si contano una volta",
-              registro.conto_prove(dati, PERP, "M15") == 10)
-        check("11. un altro asset ha il suo conto", registro.conto_prove(dati, PERP, "H1") == 0
-              and registro.conto_prove(dati, "BYBIT_SPOT_ETHUSDT", "M15") == 0)
+              registro.conto_prove(dati, [PERP], "M15") == 10)
+        check("11. un altro asset ha il suo conto", registro.conto_prove(dati, [PERP], "H1") == 0
+              and registro.conto_prove(dati, ["BYBIT_SPOT_ETHUSDT"], "M15") == 0)
         open(os.path.join(ric_b, "prove_vuoto.csv"), "w").close()
-        check("12. un file vuoto non conta e non rompe", registro.conto_prove(dati, PERP, "M15") == 10)
+        check("12. un file vuoto non conta e non rompe", registro.conto_prove(dati, [PERP], "M15") == 10)
 
         # ------------------------------------------------------------------ il registro dell'asset
         print("\nIl registro dell'asset: annotazioni, solo in aggiunta (10/11, senza catena)")

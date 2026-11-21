@@ -32,9 +32,10 @@ from engine.fabbrica.config import cartella_asset, config_standard
 from engine.fabbrica.dati import Confini, carica_pezzi
 from engine.fabbrica.generatore import Teoria, stato_registro
 from engine.fabbrica.ricerca import lancia
-from engine.fabbrica.selezione import (PREFISSO, ValutatoreSelezione, ammesse, controlla_ammessa, famiglie_strategie,
+from engine.fabbrica.selezione import (PREFISSO, ammesse, controlla_ammessa, famiglie_strategie,
                                        giudica, pezzo_selezione, seleziona, soglia_test, strategia_da_riga, teoria_da_id)
-from engine.fabbrica.valutatore import Costi, Strategia, id_strategia, trade_completi
+from engine.fabbrica.valutatore import Costi, Strategia, Valutatore, id_strategia, trade_completi
+from engine.indicatori import atr_giornaliero_chiuso
 from engine.giudizio import soglia_rumore, t_stat
 
 warnings.simplefilter("ignore")
@@ -75,7 +76,7 @@ def _fotografia(cartella, salta="fabbrica"):
 
 
 def _cfg(symbol, blocchi, confini, **altro):
-    cfg = config_standard(symbol, "M15", seme=0, processi=1)
+    cfg = config_standard([symbol], "M15", seme=0, processi=1)
     cfg["confini"] = dict(confini)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in blocchi}
     cfg.update(altro)
@@ -83,8 +84,15 @@ def _cfg(symbol, blocchi, confini, **altro):
 
 
 def _riga(s: Strategia, symbol: str) -> dict:
-    return {"teoria": s.teoria_id, "id_strategia": id_strategia(s, symbol, "M15"),
+    return {"teoria": s.teoria_id, "id_strategia": id_strategia(s, [symbol], "M15"),
             "valori": json.dumps(s.come_dict()["valori"], ensure_ascii=False, sort_keys=True)}
+
+
+def _m(x):
+    """Le misure di trade lontani fra loro (in ATR, docs/82 §14): senza trade a meno di H barre il t è t_stat."""
+    from engine.fabbrica.valutatore import misure_lista
+    x = np.asarray(x, dtype=float)
+    return misure_lista(x, x, np.arange(x.size) * 1000, 16, 672)
 
 
 def _con_t(t_voluto: float, n: int = 100) -> np.ndarray:
@@ -153,60 +161,64 @@ def giro_a_mano(cartella, guadagni_sel, aperto_alla_fine=True):
     confini = {"inizio": "2024-01-01 00:00", "ricerca_ore": n_ric / 4, "selezione_ore": n_sel / 4,
                "cassaforte_ore": n_cas / 4}
     cfg = _cfg(SPOT, ("DONCHIAN", "X0"), confini)
-    pezzi = carica_pezzi(SPOT, "M15", Confini.da_config(confini), cartella)
+    pezzi = carica_pezzi([SPOT], "M15", Confini.da_config(confini), cartella)
     sel = seleziona(pd.DataFrame([_riga(DONCHIAN_16, SPOT)]), pezzi, cfg)
     return sel, pezzi, cfg, df, segnali
 
 
 def esegui() -> int:
     t0 = time.perf_counter()
-    q2 = config_standard(PERP, "M15")["qualita_2"]
+    q2 = config_standard([PERP], "M15")["qualita_2"]
     cfg_q = {"qualita_2": q2, "test_individuale": {"alfa": 0.05}}
 
     # ------------------------------------------------------------------ le regole, su bp fatti a mano
     print("Le regole: condizione di qualità 2 e test individuale (docs/82 P6)")
     check("1. la soglia del test individuale è quella di una prova sola: 1,96",
           soglia_test(0.05) == soglia_rumore(1, 0.05) and abs(soglia_test(0.05) - 1.959964) < 1e-6)
-    sotto, sopra = giudica(_con_t(1.95), cfg_q), giudica(_con_t(1.97), cfg_q)
+    sotto, sopra = giudica(_m(_con_t(1.95)), cfg_q), giudica(_m(_con_t(1.97)), cfg_q)
     check("2. t appena sotto 1,96: passa la condizione 2, non il test individuale, che decide",
           abs(sotto["t"] - 1.95) < 1e-12 and sotto["qualita_2"] and not sotto["test"] and not sotto["passa"]
-          and sotto["motivo"].startswith("test individuale"), f"t {sotto['t']:.6f}, P(EV<0) {sotto['p_ev_neg']:.1f}%")
+          and sotto["motivo"].startswith("test individuale"), f"t {sotto['t']:.6f}")
     check("3. t appena sopra 1,96: passa", abs(sopra["t"] - 1.97) < 1e-12 and sopra["passa"] and sopra["motivo"] == "",
           f"t {sopra['t']:.6f}")
     alterni = np.tile([2.0, -1.0], 25)
     casi = {
         "49 trade": (alterni[:49], "49 trade, meno di 50"),
-        "EV zero": (np.tile([1.0, -1.0], 50), "verdetto SCARTATA: EV netto"),
-        "P(EV<0) oltre il 5%": (np.tile([1.27, -1.0], 50), "verdetto SCARTATA: P(EV<0)"),
         "un trade pesa troppo": (np.r_[np.tile([2.0, -1.0], 99), 2.0, 60.0], "il trade migliore pesa"),
         "totale / drawdown sotto 0,5": (np.r_[np.full(300, 2.0)[:150], np.full(101, -4.0), np.full(150, 2.0)],
                                         "totale / drawdown"),
     }
     motivi, sbagliati = {}, []
     for nome, (bp, atteso) in casi.items():
-        g = giudica(bp, cfg_q)
+        g = giudica(_m(bp), cfg_q)
         motivi[nome] = g["motivo_q2"]
         if g["qualita_2"] or not g["motivo_q2"].startswith(atteso) or g["passa"]:
             sbagliati.append(nome)
     check(f"4. {len(casi)} casi fatti a mano: ognuno fermato dalla regola giusta della condizione 2", not sbagliati,
           f"sbagliati: {sbagliati}" if sbagliati else "")
-    g_tdd = giudica(casi["totale / drawdown sotto 0,5"][0], cfg_q)
-    g_peso = giudica(casi["un trade pesa troppo"][0], cfg_q)
+    g_tdd = giudica(_m(casi["totale / drawdown sotto 0,5"][0]), cfg_q)
+    g_peso = giudica(_m(casi["un trade pesa troppo"][0]), cfg_q)
     check("5. le due regole sopra fermano strategie che il t da solo farebbe passare",
           g_tdd["t"] > 1.96 and g_peso["t"] > 1.96 and not g_tdd["passa"] and not g_peso["passa"],
           f"t {g_tdd['t']:.2f} e {g_peso['t']:.2f}")
-    g50 = giudica(alterni, cfg_q)
+    g50 = giudica(_m(alterni), cfg_q)
     check("6. 50 trade esatti: la regola dei trade passa (alterni +2 / -1, t sopra 1,96)", g50["passa"] and g50["trade"] == 50,
           f"t {g50['t']:.2f}")
-    vuota = giudica(np.array([]), cfg_q)
+    vuota = giudica(_m(np.array([])), cfg_q)
     check("7. nessun trade: scartata, nessun errore", not vuota["passa"] and vuota["trade"] == 0)
+    zero, p_neg = giudica(_m(np.tile([1.0, -1.0], 50)), cfg_q), giudica(_m(np.tile([1.27, -1.0], 50)), cfg_q)
+    check("7b. docs/82 §14.3: la condizione 2 non ha più P(EV<0) né il verdetto: P(EV<0) oltre il 5% passa la condizione "
+          "2 e la ferma il t, che decide; EV zero non passa", p_neg["qualita_2"] and not p_neg["passa"]
+          and p_neg["motivo"].startswith("test individuale") and not zero["passa"] and "p_ev_neg" not in p_neg
+          and "p_ev_neg_max" not in q2, p_neg["motivo"])
 
     with tempfile.TemporaryDirectory() as radice:
         # ------------------------------------------------------------------ il mercato fatto a mano
         print("\nUna strategia con il segnale noto su dati fatti a mano (DONCHIAN 16 barre, esce dopo 4)")
         A = os.path.join(radice, "mano_a")
         gs = [0.6, 0.4] * 30
-        sel_a, pezzi_a, cfg_a, df_a, seg_a = giro_a_mano(A, gs)
+        sel_a, lista_a, cfg_a, df_a, seg_a = giro_a_mano(A, gs)
+        pezzi_a = lista_a[SPOT]
         p = pezzo_selezione(pezzi_a)
         r = sel_a.tabella.iloc[0]
         costi_sel = pezzi_a.costi("selezione")
@@ -217,7 +229,7 @@ def esegui() -> int:
               and p.df.index[p.inizio - 1] == pezzi_a.ricerca.index[-1],
               f"ultima barra {p.df.index[-1]:%d/%m %H:%M}, cassaforte dal {pezzi_a.confini.tratto_cassaforte[0]:%d/%m %H:%M}")
         cache = Cache(p.df, 500)
-        v = ValutatoreSelezione(blocchi_da_config(cfg_a), cache, Costi(p.df, p.costi), p.inizio)
+        v = Valutatore(blocchi_da_config(cfg_a), cache, Costi(p.df, p.costi), p.inizio)
         tr = trade_completi(DONCHIAN_16, v, p.costi)
         primo_sel = int(pd.DatetimeIndex(df_a.index).searchsorted(pezzi_a.selezione.index[0]))
         ingressi_attesi = [p.df.index.get_loc(df_a.index[k + 1]) for k in seg_a if primo_sel <= k < len(df_a) - 400 - 3]
@@ -230,10 +242,14 @@ def esegui() -> int:
               int(tr["ExitBar"].max()) <= len(p.df) - 1 and (tr["ExitBar"] - tr["EntryBar"] == 4).all()
               and p.df.index.get_loc(df_a.index[seg_a[-1]]) == len(p.df) - 3,
               f"ultimo segnale a {len(p.df) - 1 - p.df.index.get_loc(df_a.index[seg_a[-1]])} barre dalla fine")
-        check("11. bp netti, EV e t uguali a quelli fatti a mano (commissione, spread di un passo)",
+        atr = atr_giornaliero_chiuso(p.df).to_numpy()
+        in_atr_a_mano = attesi / 10_000.0 * INGRESSO / atr[tr["EntryBar"].to_numpy() - 1]
+        check("11. bp netti uguali a quelli fatti a mano (commissione, spread di un passo); EV e t in ATR (docs/82 §14.1): "
+              "il netto diviso l'ATR al segnale; i trade sono a 80 barre l'uno dall'altro, quindi il t è t_stat",
               np.allclose(tr["BpNetti"].to_numpy(), attesi, atol=1e-9, rtol=0)
-              and abs(r["ev_bp"] - attesi.mean()) < 1e-9 and abs(r["t"] - t_stat(attesi)) < 1e-9,
-              f"EV {r['ev_bp']:.4f} bp contro {attesi.mean():.4f} a mano")
+              and abs(r["ev_bp"] - attesi.mean()) < 1e-9 and abs(r["ev_atr"] - in_atr_a_mano.mean()) < 1e-9
+              and abs(r["t"] - t_stat(in_atr_a_mano)) < 1e-6,
+              f"EV {r['ev_bp']:.4f} bp contro {attesi.mean():.4f} a mano; {r['ev_atr']:.4f} ATR")
         check("12. passa la regola: condizione 2 e test individuale, esito «scelta»",
               bool(r["qualita_2"]) and bool(r["test"]) and r["esito"] == "scelta", f"t {r['t']:.1f}")
         B = os.path.join(radice, "mano_b")
@@ -246,8 +262,8 @@ def esegui() -> int:
         sel_c = giro_a_mano(C, gs_c)[0].tabella.iloc[0]
         ev_c = np.mean([bp_a_mano(g, costi_sel) for g in gs_c])
         check("14. guadagni lordi più piccoli dei costi: EV netto negativo come a mano, non passa",
-              abs(sel_c["ev_bp"] - ev_c) < 1e-9 and ev_c < 0 and not sel_c["qualita_2"] and sel_c["esito"] == "scartata"
-              and "EV netto" in sel_c["motivo"], f"EV {sel_c['ev_bp']:.3f} bp; {sel_c['motivo']}")
+              abs(sel_c["ev_bp"] - ev_c) < 1e-9 and ev_c < 0 and sel_c["esito"] == "scartata" and not sel_c["test"],
+              f"EV {sel_c['ev_bp']:.3f} bp; {sel_c['motivo']}")
 
         # ------------------------------------------------------------------ il percorso corto contro il motore
         print("\nIl percorso corto contro il motore completo, sul perpetual con il funding")
@@ -258,10 +274,10 @@ def esegui() -> int:
         sintetici.scrivi_storico(Pd, PERP, "M15", df_p)
         sintetici.scrivi_funding(Pd, PERP, df_p, seme=7)
         cfg_p = _cfg(PERP, ("E47", "DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "X0", "X3", "X1"), confini_p)
-        pezzi_p = carica_pezzi(PERP, "M15", Confini.da_config(confini_p), Pd)
+        pezzi_p = carica_pezzi([PERP], "M15", Confini.da_config(confini_p), Pd)[PERP]
         pp = pezzo_selezione(pezzi_p)
         cache_p = Cache(pp.df, 800)
-        vp = ValutatoreSelezione(blocchi_da_config(cfg_p), cache_p, Costi(pp.df, pp.costi), pp.inizio)
+        vp = Valutatore(blocchi_da_config(cfg_p), cache_p, Costi(pp.df, pp.costi), pp.inizio)
         prove_s = []
         for lato in (1, -1):
             for canale, uscita, durata, stop, target in ((16, "X0", 16, 90, None), (40, "X3", 32, 80, 90),
@@ -338,10 +354,10 @@ def esegui() -> int:
         check("24. id della teoria avanti e indietro; una riga con valori cambiati si ferma",
               teoria_da_id("S|E47|ADX+F3_VOLUME_ABOVE_AVG|X3") == Teoria(-1, "E47", ("ADX", "F3_VOLUME_ABOVE_AVG"), "X3")
               and teoria_da_id("L|DONCHIAN|-|X0").id == "L|DONCHIAN|-|X0"
-              and strategia_da_riga(_riga(DONCHIAN_16, SPOT), SPOT, "M15") == DONCHIAN_16
+              and strategia_da_riga(_riga(DONCHIAN_16, SPOT), [SPOT], "M15") == DONCHIAN_16
               and errore(lambda: strategia_da_riga({**_riga(DONCHIAN_16, SPOT), "valori": json.dumps(
                   {"DONCHIAN": {"canale_barre": 17}, "X0": {"durata_barre": 4, "perc_stop": 90, "target": None}})},
-                  SPOT, "M15")))
+                  [SPOT], "M15")))
 
         # ------------------------------------------------------------------ tutta la pipeline
         print("\nIl vantaggio piantato fino alla selezione: DONCHIAN long a 20 barre (il valore standard, docs/82 §12), "
@@ -391,13 +407,13 @@ def esegui() -> int:
         check("28. ogni strategia valutata in selezione è una riga del file delle prove (pezzo «selezione»)",
               sorted(righe_sel["id_strategia"]) == sorted(e.sopravvissute["id_strategia"])
               and len(righe_sel) == len(tab) and (righe_sel["fase"] == "selezione").all())
-        k = registro.conto_prove(V, SPOT, "M15")
+        k = registro.conto_prove(V, [SPOT], "M15")
         check("29. conto delle prove: totale dell'asset e soglia corrispondente accanto al test, solo da leggere",
               e.conto["asset"] == k == len(csv_v) and e.conto["questa_ricerca"] == k
               and (tab["prove_asset"] == k).all() and np.allclose(tab["soglia_da_leggere"], soglia_rumore(k))
               and list(tab.columns).index("soglia_da_leggere") == list(tab.columns).index("test") + 2,
               f"k = {k}, soglia {soglia_rumore(k):.2f}")
-        fine = [x for x in registro.leggi_registro(cartella_asset(V, SPOT, "M15")) if x["tipo"] == "fine_ricerca"]
+        fine = [x for x in registro.leggi_registro(cartella_asset(V, [SPOT], "M15")) if x["tipo"] == "fine_ricerca"]
         check("30. registro: la fine porta imbuto con selezione e scelte, conto e una riga per strategia selezionata",
               len(fine) == 1 and fine[0]["imbuto"] == e.imbuto and fine[0]["prove"]["asset"] == k
               and [x["id_strategia"] for x in fine[0]["selezione"]] == list(tab["id_strategia"])
@@ -429,9 +445,9 @@ def esegui() -> int:
                       for n in ("passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl")))
         X = os.path.join(radice, "X")
         sintetici.scrivi_storico(X, SPOT, "M15", df_v)
-        registro.aggiungi_prove(os.path.join(cartella_asset(X, SPOT, "M15"), "20250101_altra"),
+        registro.aggiungi_prove(os.path.join(cartella_asset(X, [SPOT], "M15"), "20250101_altra"),
                                 [{"id_ricerca": "altra", "pezzo": "ricerca", "fase": "passo_1", "teoria": "x",
-                                  "id_strategia": f"s{i}", "trade": 1, "ev_bp": 1.0, "t": 1.0} for i in range(500)])
+                                  "id_strategia": f"s{i}", "trade": 1, "ev_atr": 1.0, "t": 1.0} for i in range(500)])
         ex = lancia(cfg_v, X, verbose=False, data=DATA)
         tx = ex.selezione.tabella
         fisse = [c for c in tab.columns if c not in ("prove_asset", "soglia_da_leggere")]

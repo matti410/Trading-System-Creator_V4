@@ -8,7 +8,8 @@ vedere come risultato. Ragiona come un trader algoritmico esperto.
 
 ## Il progetto
 Strumento Python per scovare strategie di trading. DAL 20/10/2026 IL PERIMETRO E' SOLO
-CRYPTO DA EXCHANGE (Binance, Bybit; spot e perpetual; BTC, ETH, SOL, XRP). Il lato broker
+CRYPTO DA EXCHANGE (Binance, Bybit; spot e perpetual; BTC, ETH, SOL, XRP; per la fabbrica anche
+ADA perpetual di Binance, dal 20/11/2026, docs/82 §14). Il lato broker
 (MT5, CFD, EURUSD e gli altri 8 symbol) e' SOSPESO: il codice resta nel repo, non si
 cancella, ma non si sviluppa e non si usa per misurare. Dataset di sviluppo e di
 identita': BINANCE_PERP_BTCUSDT (prima era EURUSD). Decisione in docs/63 §10.0.
@@ -87,7 +88,7 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   su Colab da Google Drive (Il mio Drive/Trading-System-Creator_V4/dati/).
 - Dati da exchange crypto (dal 19/10/2026): scarica_dati_crypto.py, sul PC (Binance e Bybit
   bloccano Colab), 16 symbol = Binance e Bybit x spot e perpetual x BTC, ETH, SOL, XRP, M15
-  dal 2/1/2020. Date gia' in UTC, nessun rollover. Solo le funzioni di ccxt ammesse qui sopra,
+  dal 2/1/2020, piu' BINANCE_PERP_ADAUSDT per la fabbrica (20/11/2026, docs/82 §14). Date gia' in UTC, nessun rollover. Solo le funzioni di ccxt ammesse qui sopra,
   MAI chiavi API, MAI funzioni di ordine o di saldo.
   Costi: commissione taker per lato dal listino ufficiale, livello base (COMMISSIONI in
   engine/exchange.py); valori nuovi solo dal listino, con la fonte. Il funding dei perpetual
@@ -113,7 +114,7 @@ In locale scrivi tu le modifiche nei file (docs/50 §9.1); la consegna "a parti"
   fatta in uno va portata nell'altro.
 - Sospeso dal 20/10/2026: archivio/Trading_System_Lab.ipynb (broker CFD). Non si aggiorna e non si
   collauda; in testa ha la riga «sospeso dal 20/10/2026, non mantenuto». Non va cancellato.
-- Terzo notebook, separato e non allineato agli altri due: Fabbrica_Strategie_Crypto.ipynb (la fabbrica, docs/81_FABBRICA_STRATEGIE.md); le celle chiamano solo engine/vetrina_fabbrica.py.
+- Terzo notebook, separato e non allineato agli altri due: Fabbrica_Strategie_Crypto.ipynb (la fabbrica, docs/81_FABBRICA_STRATEGIE.md); le celle chiamano solo engine/vetrina_fabbrica.py. Dal 20/11/2026 (docs/82 §14) la fabbrica lavora su una lista di monete (di base Binance perp BTC, ETH, XRP, SOL, ADA; una moneta sola e' una lista di una) e nella fabbrica decide l'ATR; nel Lab restano una moneta e il bp.
 - I Lab non hanno codice nelle celle: chiamano le funzioni di engine/vetrina.py. Allineare
   vuol dire di solito modificare vetrina.py. Dati e costi si leggono con carica_storico e
   costi_storico.

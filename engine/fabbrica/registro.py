@@ -4,7 +4,7 @@ Il registro della fabbrica (docs/82 P7 e §6, lavoro L3b).
     prove = FileProve(cartella_ricerca)                # prove_<macchina>.csv della ricerca, solo in aggiunta
     prove.aggiungi(righe)                               # una riga per strategia valutata; quelle già scritte si saltano
     aggiungi_prove(cartella_ricerca, righe)             # lo stesso, in una chiamata
-    conto_prove(cartella_dati, symbol, timeframe)       # k: tutte le ricerche e tutte le macchine dell'asset
+    conto_prove(cartella_dati, monete, timeframe)       # k: tutte le ricerche e tutte le macchine della lista
     scrivi_evento(cartella_asset, evento)               # registro_<macchina>.jsonl: solo in aggiunta
     leggi_registro(cartella_asset)                      # gli eventi di tutte le macchine
 
@@ -19,6 +19,9 @@ Il registro della fabbrica (docs/82 P7 e §6, lavoro L3b).
   scritto nell'Avvio, con imposta_macchina (un secondo PC: «pc2»), così due PC con Drive non scrivono lo stesso file.
 - Una riga rimasta a metà (il PC si è spento mentre scriveva) nel file delle prove si toglie alla lettura dopo: la
   teoria si rifà e le sue prove si riscrivono, una volta sola.
+- Dal 20/11 (docs/82 §14) l'asset è la lista di monete (config.nome_lista): una moneta sola ha la cartella di prima, e le
+  sue ricerche della versione 4 restano nel suo conto. La colonna dell'EV è in ATR (ev_atr); i file scritti prima,
+  con ev_bp, si leggono come gli altri: il conto guarda solo la chiave.
 """
 from __future__ import annotations
 
@@ -30,7 +33,7 @@ import os
 
 import pandas as pd
 
-COLONNE_PROVE = ("id_ricerca", "pezzo", "fase", "teoria", "id_strategia", "trade", "ev_bp", "t")
+COLONNE_PROVE = ("id_ricerca", "pezzo", "fase", "teoria", "id_strategia", "trade", "ev_atr", "t")
 CHIAVE_PROVA = ("id_ricerca", "pezzo", "id_strategia")
 
 
@@ -135,15 +138,15 @@ def aggiungi_prove(cartella_ricerca, righe, nome_macchina: str | None = None) ->
     return FileProve(cartella_ricerca, nome_macchina).aggiungi(righe)
 
 
-def file_prove_asset(cartella_dati, symbol: str, timeframe: str) -> list[str]:
+def file_prove_asset(cartella_dati, monete, timeframe: str) -> list[str]:
     from .config import cartella_asset
-    return sorted(glob.glob(os.path.join(cartella_asset(cartella_dati, symbol, timeframe), "*", "prove_*.csv")))
+    return sorted(glob.glob(os.path.join(cartella_asset(cartella_dati, monete, timeframe), "*", "prove_*.csv")))
 
 
-def conto_prove(cartella_dati, symbol: str, timeframe: str) -> int:
-    """k: le prove dell'asset, tutte le ricerche e tutte le macchine, ognuna una volta (chiave CHIAVE_PROVA)."""
+def conto_prove(cartella_dati, monete, timeframe: str) -> int:
+    """k: le prove della lista di monete, tutte le ricerche e tutte le macchine, ognuna una volta (chiave CHIAVE_PROVA)."""
     chiavi = set()
-    for percorso in file_prove_asset(cartella_dati, symbol, timeframe):
+    for percorso in file_prove_asset(cartella_dati, monete, timeframe):
         if not os.path.getsize(percorso):
             continue
         df = pd.read_csv(percorso, usecols=list(CHIAVE_PROVA), dtype=str, keep_default_na=False)

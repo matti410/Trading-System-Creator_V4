@@ -30,6 +30,16 @@ del Lab a 4, 16 e 32 barre; entra chi è nella rosa ad almeno un orizzonte; i fi
 per orizzonte, è una prova nel conto (fase «rosa»). Config versione 4 (campo `rosa`); le ricerche della 3 restano su
 disco e nel conto, le celle 4–7 su una di esse dicono di rilanciare la 2. Su BTC perp M15: 3.008 trigger misurati, nella
 ricerca 13 long e 10 short, 2.139 teorie, tetto 310.000; la cella 1 impiega circa 2 minuti in più.
+Dal 20/11 (`82` §14, ramo `fabbrica-piu-monete`): **la fabbrica su più monete**. Una strategia è una regola applicata a una
+lista di monete dello stesso exchange e mercato (di base Binance perp BTC, ETH, XRP, SOL, ADA; «BTC» = una sola): i trade di
+tutte in un solo elenco, stesse date per tutte (una moneta più giovane ha solo meno barre). Nella fabbrica decide l'ATR
+(ogni trade e ogni evento della rosa diviso l'ATR giornaliero a 5 giornate chiuse noto al segnale; i bp accanto); il t
+conta i trade sovrapposti su un orologio comune in barre (`stagionalita.errore_sovrapposti`); con una moneta la rosa è
+quella del Lab in ATR, al bit. La condizione 2 non ha più P(EV<0). Money management e stress test su tutte le monete
+insieme (trade in ordine d'ingresso, leva sulle posizioni aperte, Monte Carlo a giorni interi; colonne facoltative in
+`money_management.py` e `montecarlo.py`, senza le quali tutto come prima). La cella 1 salva la rosa nella cartella della
+ricerca e la 2 la rilegge. Config versione 5 (`monete`, `ev_min` in ATR); le ricerche della 4 restano su disco e nel conto.
+Nel Lab restano una moneta e il bp. ADA perp di Binance in `simboli.py` (per la fabbrica).
 **Incarico 83 (15/11/2026): il generatore di indicatori e trigger prezzo + volume** (`83_PROPOSTA_GENERATORE_INDICATORI.md`,
 PR #117): `engine/generatore/`, si lancia con `python -m engine.generatore --n N`; tetto N = 112 scelto da Mattia il 16/11
 (`dati_catalogo/generati_v1.json`, 2.984 trigger). Il collegamento al ML e alla fabbrica sono lavori a parte.
@@ -46,7 +56,8 @@ E46–E52, E50 spento come doppione di E3.
   condizioni di ingresso, filtri, uscite, diagnostiche. Non è la ricerca di un
   edge su un symbol.
 - **Perimetro, dal 20/10 (`63` §10.0): solo crypto da exchange** — Binance e
-  Bybit, spot e perpetual, BTC, ETH, SOL, XRP, M15 dal 2/1/2020 (anche M5–H4).
+  Bybit, spot e perpetual, BTC, ETH, SOL, XRP, M15 dal 2/1/2020 (anche M5–H4); per la
+  fabbrica anche ADA perp di Binance (20/11, `82` §14).
   Il lato broker (MT5, CFD, i 9 symbol del broker) è **sospeso**: resta nel
   repo, non si sviluppa e non si usa per misurare.
 - **Dataset di sviluppo e di identità:** BINANCE_PERP_BTCUSDT. **Giro di
@@ -175,7 +186,7 @@ Regole complete di ogni passo: `00_ARCHIVIO.md`, «Il metodo».
 - **Versioni bloccate:** `TA-Lib==0.8.1`, `backtesting==0.6.6`, `numba==0.68.0`.
 - **Test:** `python suite_rapida.py` durante il lavoro (le suite del codice
   cambiato, 2–3 minuti); **prima di ogni Pull request** `python suite_rapida.py
-  --tutte`, 64 suite (dal 17/11 anche `test_lab_trigger_generati`), 3 alla volta, circa 28 minuti; alla fine deve stampare
+  --tutte`, 65 suite (dal 17/11 anche `test_lab_trigger_generati`, dal 20/11 `test_fabbrica_monete`), 3 alla volta, circa 28 minuti; alla fine deve stampare
   «SUITE COMPLETA: n/n» con n = totale.
 - **Catalogo:** 143 condizioni (85 entry, 38 filtri, 10 uscite, 10
   entry-metro); dalle fonti testuali 65 prove (+12 dei trigger intraday E46–E52, 02/11, `79`), dalla mappa 2 (E45,

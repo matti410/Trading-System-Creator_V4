@@ -4,6 +4,8 @@ La cache della fabbrica (docs/82 P-L2, lavoro L2): indicatori, maschere e soglie
     cache = Cache(df, limite_mb=500)
     cache.indicatore("rsi", barre=24)
     cache.soglie_uscita(ore=4, perc_sl=90, perc_tp=None)
+    comune = MemoriaComune(limite_mb=1500)            # docs/82 §14.7: una cache sola per la lista, col tetto di oggi
+    caches = {m: Cache(df_m, 1500, comune) for m, df_m in ...}
 
 Il limite di memoria si rispetta sempre: quando si supera, si buttano i valori usati meno di recente e, se servono di
 nuovo, si ricalcolano. Il risultato non cambia. Gli array restituiti sono in sola lettura: una modifica per sbaglio
@@ -62,23 +64,54 @@ INDICATORI = {
 }
 
 
-class Cache:
-    """Vedi la testa del file. `calcoli` conta i calcoli veri, `presi` quelli evitati."""
+class MemoriaComune:
+    """
+    (20/11, docs/82 §14.7) La memoria di più cache insieme, con un tetto solo: le cache delle monete di una lista. Quando
+    si supera il tetto si buttano i valori usati meno di recente, di qualunque moneta.
+    """
 
-    def __init__(self, df: pd.DataFrame, limite_mb: float):
+    def __init__(self, limite_mb: float):
+        if limite_mb < 0:
+            raise ValueError("limite_mb non può essere negativo")
+        self.limite_byte = int(limite_mb * 1024 * 1024)
+        self.valori: OrderedDict = OrderedDict()
+        self.byte = 0
+        self._prossima = 0
+
+    def nuova_cache(self) -> int:
+        self._prossima += 1
+        return self._prossima
+
+
+class Cache:
+    """
+    Vedi la testa del file. `calcoli` conta i calcoli veri, `presi` quelli evitati. `comune` (20/11, docs/82 §14.7):
+    la MemoriaComune della lista; senza, la cache ha la sua, con il tetto `limite_mb`.
+    """
+
+    def __init__(self, df: pd.DataFrame, limite_mb: float, comune: MemoriaComune | None = None):
         if limite_mb < 0:
             raise ValueError("limite_mb non può essere negativo")
         self.df = df
-        self.limite_byte = int(limite_mb * 1024 * 1024)
+        self._m = comune if comune is not None else MemoriaComune(limite_mb)
+        self._id = self._m.nuova_cache()
         self.minuti_barra = passo_barre(pd.DatetimeIndex(df.index)) / pd.Timedelta(minutes=1)
-        self._valori: OrderedDict = OrderedDict()
-        self._byte = 0
         self.calcoli = 0
         self.presi = 0
 
     @property
+    def limite_byte(self) -> int:
+        return self._m.limite_byte
+
+    @property
     def memoria_byte(self) -> int:
-        return self._byte
+        """I byte tenuti da questa cache."""
+        return sum(a.nbytes for (i, _), a in self._m.valori.items() if i == self._id)
+
+    @property
+    def _valori(self) -> dict:
+        """I valori tenuti da questa cache, per chiave (per i collaudi)."""
+        return {k: a for (i, k), a in self._m.valori.items() if i == self._id}
 
     def barre(self, ore: float) -> int:
         return barre_da_ore(ore, self.minuti_barra)
@@ -90,18 +123,20 @@ class Cache:
     def _metti(self, chiave: tuple, valore) -> np.ndarray:
         a = np.array(valore)
         a.flags.writeable = False
-        if a.nbytes <= self.limite_byte:
-            self._valori[chiave] = a
-            self._byte += a.nbytes
-            while self._byte > self.limite_byte:
-                _, vecchio = self._valori.popitem(last=False)
-                self._byte -= vecchio.nbytes
+        m = self._m
+        if a.nbytes <= m.limite_byte:
+            m.valori[(self._id, chiave)] = a
+            m.byte += a.nbytes
+            while m.byte > m.limite_byte:
+                _, vecchio = m.valori.popitem(last=False)
+                m.byte -= vecchio.nbytes
         return a
 
     def _guarda(self, chiave: tuple) -> np.ndarray | None:
-        a = self._valori.get(chiave)
+        k = (self._id, chiave)
+        a = self._m.valori.get(k)
         if a is not None:
-            self._valori.move_to_end(chiave)
+            self._m.valori.move_to_end(k)
             self.presi += 1
         return a
 

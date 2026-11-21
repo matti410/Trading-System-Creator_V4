@@ -96,6 +96,9 @@ SIMBOLI_EXCHANGE = {
     "BYBIT_PERP_ETHUSDT":   ("crypto", 0.1,    1.0, "USDT", 2),
     "BYBIT_PERP_SOLUSDT":   ("crypto", 0.01,   1.0, "USDT", 2),
     "BYBIT_PERP_XRPUSDT":   ("crypto", 0.0001, 1.0, "USDT", 4),
+    # 20/11/2026 (docs/82 §14): ADA perp per la fabbrica su più monete, letto con load_markets il 20/11/2026
+    # (passo di prezzo 0,0001, contratto 1); pip 0,0001 come XRP, circa 1/10.000 del prezzo tipico.
+    "BINANCE_PERP_ADAUSDT": ("crypto", 0.0001, 1.0, "USDT", 4),
 }
 
 # Valute di quotazione che il conto conta in dollari senza cambio: USD e,
@@ -209,6 +212,7 @@ LOTTI_EXCHANGE = {
     "BYBIT_PERP_ETHUSDT":   (0.01,    0.01,    10000.0),
     "BYBIT_PERP_SOLUSDT":   (0.1,     0.1,     96000.0),
     "BYBIT_PERP_XRPUSDT":   (0.1,     0.1,     7500000.0),
+    "BINANCE_PERP_ADAUSDT": (1.0,     1.0,     3000000.0),       # 20/11/2026, docs/82 §14
 }
 
 

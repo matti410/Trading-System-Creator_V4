@@ -806,8 +806,8 @@ def esegui() -> int:
           VALORI_STANDARD == attesi)
     sbagliati = []
     for tf in MINUTI_TIMEFRAME:
-        cfg = config_standard("BINANCE_PERP_BTCUSDT", tf)
-        if cfg["versione"] != 4 or VERSIONE != 4:
+        cfg = config_standard(["BINANCE_PERP_BTCUSDT"], tf)
+        if cfg["versione"] != 5 or VERSIONE != 5:
             sbagliati.append((tf, "versione", cfg["versione"]))
         scritti = {n: cfg["blocchi"][n] for n in attesi}
         if scritti != {n: {k: list(v) for k, v in g.items()} for n, g in attesi.items()}:
@@ -818,7 +818,7 @@ def esegui() -> int:
             if b.griglia != attesi[b.nome] or any(not isinstance(p, (Intero, Reale)) or p.minimo != p.massimo
                                                    for p in b.parametri):
                 sbagliati.append((tf, b.nome, b.griglia))
-    check("125. config standard (versione 4) da M1 a D1: un valore per parametro, gli stessi in barre su ogni timeframe "
+    check("125. config standard (versione 5) da M1 a D1: un valore per parametro, gli stessi in barre su ogni timeframe "
           "(D5 = A), e lo spazio dello zoom ha un punto solo", not sbagliati, str(sbagliati[:3]))
     vuota = {n: _uno(n, standard=True).griglia for n in attesi}
     check("126. {} nella config = i valori standard", vuota == attesi)

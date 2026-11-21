@@ -58,9 +58,9 @@ ATTESI = {
                               "F20_SESSION_OVERLAP", "OVERNIGHT_RETURN", "F22_FAR_FROM_ROLLOVER", "VWAP_GAP_WIDENING",
                               "VWAP_SESSION_CLOSE")}},
 }
-CAMPI_SCHEDA = ("id_strategia", "id_ricerca", "impronta_config", "impronte_dati", "symbol", "timeframe", "lato",
+CAMPI_SCHEDA = ("id_strategia", "id_ricerca", "impronta_config", "impronte_dati", "monete", "timeframe", "lato",
                 "blocchi", "uscita", "regole", "esiti", "altopiano", "test_individuale", "prove", "cassaforte", "mm",
-                "stress", "software", "blocchi_esclusi", "verifica", "turno", "rosa_trigger")
+                "stress", "software", "blocchi_esclusi", "verifica", "turno", "rosa_trigger", "per_moneta")
 
 
 def check(nome: str, ok: bool, dettaglio: str = "") -> None:
@@ -82,7 +82,7 @@ def _zitto(funzione, *a, **k):
 
 
 def _cfg(symbol, timeframe="M15", confini=CONFINI, blocchi=BLOCCHI):
-    cfg = config_standard(symbol, timeframe, seme=0, processi=1)
+    cfg = config_standard([symbol], timeframe, seme=0, processi=1)
     cfg["confini"] = dict(confini)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in blocchi}
     cfg["qualita_1"]["trade_min"] = 30
@@ -191,7 +191,7 @@ def _testi():
 
     rotti = []
     for tf in MINUTI_TIMEFRAME:
-        cfg = config_standard(SPOT, tf)
+        cfg = config_standard([SPOT], tf)
         per_tipo = {"trigger": [], "filtro": [], "uscita": []}
         for b in blocchi_da_config(cfg):
             per_tipo[b.tipo].append(b)
@@ -235,7 +235,7 @@ def _esclusi():
           "scritto per un blocco della config standard corrisponde a un blocco tolto (il catalogo intero: "
           "test_fabbrica_blocchi, n. 119-120)", {k for k in MOTIVI_ESCLUSIONE if k[0] in BLOCCHI_STANDARD} == usati
           and all(len(m) == 2 and m[1] for m in MOTIVI_ESCLUSIONE.values()))
-    cfg = config_standard(SPOT, "D1")
+    cfg = config_standard([SPOT], "D1")
     tolti = sch.esclusi_dalla_config(cfg)
     cfg_r = dict(cfg, blocchi={k: v for k, v in cfg["blocchi"].items() if k != "ADX"})
     tolti_r = {e["blocco"]: e["tipo"] for e in sch.esclusi_dalla_config(cfg_r)}
@@ -269,16 +269,17 @@ def _giro(radice, symbol, timeframe, confini):
     sc = sch.componi_scheda(e, c, id0, None)
     md, js = sch.scrivi_scheda(sc, os.path.join(radice, f"schede_{timeframe}"))
     letta = sch.leggi_scheda(js)
-    with ses.sessione(c, id0) as s:
-        trades_is = s.trades_is.copy()
+    with ses.sessioni(c, id0) as ss:
+        trades_is = ss[symbol].trades_is.copy()
     rifatti = sch.trade_da_scheda(letta, d)
     check(f"{n}. dalla sola scheda .json gli stessi trade, al bit: in-sample (quelli della Sessione) e cassaforte "
-          f"(quelli di entra)", rifatti["in_sample"].equals(trades_is) and rifatti["cassaforte"].equals(c.trade[id0])
-          and len(rifatti["cassaforte"]) > 0,
-          f"{len(rifatti['in_sample'])} trade in-sample, {len(rifatti['cassaforte'])} in cassaforte")
+          f"(quelli di entra)", rifatti["in_sample"][symbol].equals(trades_is)
+          and rifatti["cassaforte"][symbol].equals(c.trade[id0][symbol]) and len(rifatti["cassaforte"][symbol]) > 0,
+          f"{len(rifatti['in_sample'][symbol])} trade in-sample, {len(rifatti['cassaforte'][symbol])} in cassaforte")
     check(f"{n + 1}. il .json ha i campi di §6, più i blocchi tolti e la verifica; si rilegge identico",
           all(k in letta for k in CAMPI_SCHEDA) and letta == json.loads(json.dumps(sc)) and letta["mm"] is None
-          and letta["verifica"] is None and letta["impronte_dati"]["cassaforte"]
+          and letta["verifica"] is None and letta["impronte_dati"][symbol]["cassaforte"] and letta["monete"] == [symbol]
+          and {r["pezzo"] for r in letta["per_moneta"]} == {"selezione", "cassaforte"}
           and [x["passo"] for x in letta["esiti"]] == [f"passo 1, turno {letta['turno']}", "zoom e altopiano",
                                                        "selezione", "cassaforte"]
           and letta["turno"] in (1, 2) and letta["rosa_trigger"]["prove"] == len(e.rosa) > 0
@@ -293,6 +294,7 @@ def _giro(radice, symbol, timeframe, confini):
           f"«{sch.FRASE_FINALE}»", all(x in testo for x in sezioni) and testo.rstrip().endswith(sch.FRASE_FINALE)
           and all(r in testo for r in letta["regole"]) and "esegui la 6" in testo
           and f"- Turno {letta['turno']} del passo 1" in testo and "trigger misurati sul pezzo di ricerca" in testo
+          and "Moneta per moneta" in testo and "ev_atr" in testo
           and sch.leggi_scheda(md) == letta)
     altra = json.loads(json.dumps(letta))
     chiave = next(iter(altra["strategia"]["valori"][altra["strategia"]["trigger"]]), None)
@@ -301,14 +303,14 @@ def _giro(radice, symbol, timeframe, confini):
     else:
         altra["strategia"]["lato"] = -altra["strategia"]["lato"]
     impronta_rotta = json.loads(json.dumps(letta))
-    impronta_rotta["impronte_dati"]["cassaforte"] = "0" * 64
+    impronta_rotta["impronte_dati"][symbol]["cassaforte"] = "0" * 64
     non_entrata = json.loads(json.dumps(altra))
     st_nuova = Strategia(int(altra["strategia"]["lato"]), altra["strategia"]["trigger"],
                          tuple(altra["strategia"]["filtri"]), altra["strategia"]["uscita"],
                          tuple((k, tuple(sorted(altra["strategia"]["valori"].get(k, {}).items())))
                                for k in (altra["strategia"]["trigger"], *altra["strategia"]["filtri"],
                                          altra["strategia"]["uscita"])))
-    non_entrata["id_strategia"] = id_strategia(st_nuova, symbol, timeframe)
+    non_entrata["id_strategia"] = id_strategia(st_nuova, [symbol], timeframe)
     ferma_entrata = False
     try:
         sch.trade_da_scheda(non_entrata, d)

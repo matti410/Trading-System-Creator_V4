@@ -65,7 +65,7 @@ def _zitto(funzione, *a, **k):
 
 
 def _cfg(timeframe="M15", confini=CONFINI, blocchi=BLOCCHI):
-    cfg = config_standard(SPOT, timeframe, seme=0, processi=1)
+    cfg = config_standard([SPOT], timeframe, seme=0, processi=1)
     cfg["confini"] = dict(confini)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in blocchi}
     cfg["qualita_1"]["trade_min"] = 30
@@ -116,11 +116,11 @@ def _con_exchange(ex):
 
 
 def _eventi(d, tipo):
-    return [e for e in registro.leggi_registro(cartella_asset(d, SPOT, "M15")) if e.get("tipo") == tipo]
+    return [e for e in registro.leggi_registro(cartella_asset(d, [SPOT], "M15")) if e.get("tipo") == tipo]
 
 
 def _registro_bytes(d):
-    base = cartella_asset(d, SPOT, "M15")
+    base = cartella_asset(d, [SPOT], "M15")
     out = {}
     for n in sorted(os.listdir(base)):
         if n.startswith("registro_"):
@@ -244,9 +244,9 @@ def _celle(radice):
     # sul mercato sintetico le scartate possono mancare: la selezione di prova ha i motivi di XRP perp H1 del 15/11
     import dataclasses
     from types import SimpleNamespace
-    prova = ["condizione 2: verdetto SCARTATA: EV netto -5.587 bp <= 0"] * 2 + [
-        "condizione 2: verdetto SCARTATA: EV netto -12.533 bp <= 0", "condizione 2: verdetto SCARTATA: P(EV<0) 40.6% >= 5%",
-        "condizione 2: verdetto SCARTATA: P(EV<0) 7.0% >= 5%", "test individuale: t 1.38 sotto 1.96"]
+    prova = ["condizione 2: totale / drawdown 0.31, sotto 0.5"] * 2 + [
+        "condizione 2: totale / drawdown -0.94, sotto 0.5", "condizione 2: 40 trade, meno di 50",
+        "condizione 2: 12 trade, meno di 50", "test individuale: t 1.38 sotto 1.96"]
     finta = pd.concat([r.selezione.tabella, pd.DataFrame({"esito": ["scartata"] * len(prova), "motivo": prova})],
                       ignore_index=True)
     r_prova = dataclasses.replace(r, selezione=SimpleNamespace(tabella=finta))
@@ -259,10 +259,7 @@ def _celle(radice):
     scarti = next(t[0][1] for titolo, t in visti_dettagli if titolo == "I motivi di scarto")
     sel = scarti[scarti["passo"] == "selezione"]
     scartate = finta[finta["esito"] == "scartata"]
-    casi = {"condizione 2: verdetto SCARTATA: EV netto -5.587 bp <= 0": "condizione 2, EV netto ≤ 0",
-            "condizione 2: verdetto SCARTATA: EV netto -12.533 bp <= 0": "condizione 2, EV netto ≤ 0",
-            "condizione 2: verdetto SCARTATA: P(EV<0) 40.6% >= 5%": "condizione 2, P(EV<0) ≥ 5%",
-            "condizione 2: 40 trade, meno di 50": "condizione 2, meno di 50 trade",
+    casi = {"condizione 2: 40 trade, meno di 50": "condizione 2, meno di 50 trade",
             "condizione 2: il trade migliore pesa il 17.2% dei guadagni, oltre il 15%":
                 "condizione 2, il trade migliore pesa oltre il 15% dei guadagni",
             "condizione 2: totale / drawdown 0.31, sotto 0.5": "condizione 2, totale / drawdown sotto 0,5",
@@ -272,7 +269,8 @@ def _celle(radice):
             "nessuna strategia passa la condizione 1": "nessuna strategia passa la condizione 1"}
     sbagliati = {k: vf.tipo_motivo(k) for k, v in casi.items() if vf.tipo_motivo(k) != v}
     check("11b. (15/11) i motivi di scarto della 3 per tipo: una riga per tipo con il numero (per esempio «condizione 2, "
-          "EV netto ≤ 0»), non una per valore; la somma è il numero delle scartate",
+          "meno di 50 trade»), non una per valore; la somma è il numero delle scartate (dal 20/11, docs/82 §14.3, "
+          "senza P(EV<0))",
           not sbagliati and sel["motivo"].is_unique and int(sel["quante"].sum()) == len(scartate)
           and set(sel["motivo"]) == set(scartate["motivo"].map(vf.tipo_motivo)),
           f"{len(scartate)} scartate in {len(sel)} righe; sbagliati {sbagliati}")
@@ -333,16 +331,17 @@ def _celle(radice):
     check("21. nella 6 nessun rimando alle schermate del Lab e nessun nome FAB_SES_…: la lente dice il nome del blocco",
           "schermat" not in visto.lower() and "FAB_SES" not in visto and "Trigger scattato" in visto
           and any(x in visto for x in ("Donchian", "RSI ", "E5 ·")) and "poi vai alla 7" in visto.lower())
-    vero_stress = vetrina.stress_test
+    from engine.fabbrica import sessione as ses_mod
+    vero_stress = ses_mod.stress_test
 
     def rotto(*a, **k):
         raise RuntimeError("errore a metà della cella 6")
 
-    vetrina.stress_test = rotto
+    ses_mod.stress_test = rotto
     try:
         fermata = errore(lambda: _zitto(vf.mm_e_stress, r, numero, simulazioni=200), RuntimeError)
     finally:
-        vetrina.stress_test = vero_stress
+        ses_mod.stress_test = vero_stress
     check("22. dopo la 6, anche fermata da un errore a metà, le funzioni del Lab sono le stesse e stampano esattamente "
           "i testi di prima; il catalogo è pulito", fermata and all(getattr(vetrina, n) is f for n, f in aiutanti.items())
           and _testi_lab() == lab_prima and stato_registro() == catalogo)
@@ -392,7 +391,7 @@ def _celle(radice):
           and riga["ultima cassaforte usata fino al"] == vf._data(c.tratto["a"])
           and "barre dopo" not in a2["ricerche"].columns, riga["ultima cassaforte usata fino al"])
     check("25. i file di questa macchina hanno il nome scritto nell'Avvio (registro_pc2.jsonl, prove_pc2.csv)",
-          os.path.exists(os.path.join(cartella_asset(d, SPOT, "M15"), "registro_pc2.jsonl"))
+          os.path.exists(os.path.join(cartella_asset(d, [SPOT], "M15"), "registro_pc2.jsonl"))
           and os.path.exists(os.path.join(r.cartella, "prove_pc2.csv")))
     return r, conf
 
@@ -413,7 +412,7 @@ def _testi_lab() -> str:
 
 
 def _nessuna_ricerca(cartella) -> bool:
-    base = cartella_asset(cartella, SPOT, "M15")
+    base = cartella_asset(cartella, [SPOT], "M15")
     return not os.path.isdir(base) or not os.listdir(base)
 
 
@@ -433,8 +432,11 @@ def _d1(radice):
     confini = {"inizio": "2024-01-01 00:00", "ricerca_ore": 24 * 1300, "selezione_ore": 24 * 300,
                "cassaforte_ore": 24 * 100}
     sintetici.scrivi_storico(d, SPOT, "D1", _mercato(1440, confini, extra=5))
-    cfg = config_standard(SPOT, "D1", seme=0, processi=1)
+    cfg = config_standard([SPOT], "D1", seme=0, processi=1)
     cfg["confini"] = confini
+    # docs/82 §14 (20/11): in ATR, su queste 1.300 giornate sintetiche nessun trigger passa il controllo dei falsi
+    # positivi al 20%; il collaudo guarda i blocchi tolti, non la rosa: la rosa con q = 1
+    cfg["rosa"]["q"] = 1.0
     conf = _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "D1", 1, cfg, DATA)
     tolti = {e["blocco"]: e["tipo"] for e in conf.esclusi}
     check("26. D1 con la config standard: la cella elenca i 24 blocchi tolti con il motivo (F20 limite logico) e "
@@ -496,7 +498,7 @@ def _dati_e_confini(radice):
           and all(vf._data(lim[x][0]) in testo for x in ("ricerca", "selezione", "cassaforte")),
           f"{attesi}" if isinstance(conf, vf.Configurazione) else repr(conf)[:300])
     # la config standard (con i trigger generati: su D1 la rosa ne fa entrare qualcuno) con i confini scritti a mano
-    a_mano = dict(config_standard(SPOT, "D1", seme=0, processi=1), confini={"inizio": "2020-01-02 00:00", "ricerca_ore": 24 * 1200,
+    a_mano = dict(config_standard([SPOT], "D1", seme=0, processi=1), confini={"inizio": "2020-01-02 00:00", "ricerca_ore": 24 * 1200,
                                        "selezione_ore": 24 * 700, "cassaforte_ore": 24 * 400})
     vf._scarica = _con_exchange(_Exchange())
     conf_m, _t = _parlato(vf.configura, d1, "BYBIT", "SPOT", "ETH", "D1", 1, a_mano, DATA)
@@ -549,7 +551,7 @@ def _c2(radice, r, conf):
           and f"Turno 1: {conf.teorie} teorie; turno 2: al massimo" in testo and "minut" in testo
           and conf.turno_2_massimo > 0, testo[testo.find("Rosa"):][:300])
     import dataclasses
-    vecchia = os.path.join(cartella_asset(d, SPOT, "M15"), "20261109_versione1")
+    vecchia = os.path.join(cartella_asset(d, [SPOT], "M15"), "20261109_versione1")
     os.makedirs(vecchia)
     with open(os.path.join(r.cartella, "config.json"), encoding="utf-8") as f:
         cfg_v1 = dict(json.load(f), versione=1)
@@ -558,8 +560,8 @@ def _c2(radice, r, conf):
     r1 = dataclasses.replace(r, cartella=vecchia, id_ricerca="20261109_versione1")
     # docs/82 §12, D4 = A (15/11) e §13 (20/11): anche le ricerche delle versioni 2 e 3 si fermano
     vecchie = [r1]
-    for v in (2, 3):
-        cartella_v = os.path.join(cartella_asset(d, SPOT, "M15"), f"2026111{v}_versione{v}")
+    for v in (2, 3, 4):
+        cartella_v = os.path.join(cartella_asset(d, [SPOT], "M15"), f"2026111{v}_versione{v}")
         os.makedirs(cartella_v)
         with open(os.path.join(cartella_v, "config.json"), "w", encoding="utf-8") as f:
             json.dump(dict(cfg_v1, versione=v), f)
@@ -567,17 +569,18 @@ def _c2(radice, r, conf):
     cfg_v2 = dict(cfg_v1, versione=2)
     ferme = [errore(lambda f=f, rr=rr: _zitto(f, rr, *a), ValueError, vf.VERSIONE_VECCHIA) for rr in vecchie
              for f, a in ((vf.strategie_rimaste, ()), (vf.cassaforte, ("1",)), (vf.mm_e_stress, (1,)), (vf.schede, ()))]
-    check("34. una ricerca della versione 1, 2 o 3 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una "
-          "ricerca di una versione precedente della fabbrica, rilancia la cella 2 per una ricerca nuova» (D4 = A, §13)",
-          all(ferme) and len(ferme) == 12
+    check("34. una ricerca della versione da 1 a 4 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una "
+          "ricerca di una versione precedente della fabbrica, rilancia la cella 2 per una ricerca nuova» (D4 = A, §13, "
+          "§14)", all(ferme) and len(ferme) == 16
           and vf.VERSIONE_VECCHIA == "ricerca non trovata: è una ricerca di una versione precedente della fabbrica, "
                                      "rilancia la cella 2 per una ricerca nuova", str(ferme))
     from engine.fabbrica.config import controlla_config
-    check("35. le config versione 1, 2 e 3 non si rilanciano: la ricerca ha una strada sola, la versione 4 (§13)",
+    check("35. le config dalla versione 1 alla 4 non si rilanciano: la ricerca ha una strada sola, la versione 5 (§14)",
           errore(lambda: controlla_config(cfg_v1), ValueError, "versione 1")
           and errore(lambda: controlla_config(cfg_v2), ValueError, "versione 2")
           and errore(lambda: controlla_config(dict(cfg_v1, versione=3)), ValueError, "versione 3")
-          and controlla_config(dict(cfg_v1, versione=4)) is not None)
+          and errore(lambda: controlla_config(dict(cfg_v1, versione=4)), ValueError, "versione 4")
+          and controlla_config(dict(cfg_v1, versione=5)) is not None)
 
     print("\n1 · Configura: un symbol con i dati che partono dopo il 02/01/2020 (14/11, scelta B)")
     tardi = os.path.join(radice, "H4_tardi")
@@ -595,13 +598,14 @@ def _c2(radice, r, conf):
           "perché, e prosegue", ok and conf_t.config["confini"]["inizio"] == "2020-01-07 00:00"
           and lim["ricerca"][0] == pd.Timestamp("2020-01-07", tz="UTC")
           and abs(ore[0] / sum(ore) - 30624 / 59581.25) < 0.001 and abs(ore[2] / sum(ore) - 11779.5 / 59581.25) < 0.001
-          and "Inizio della ricerca: 07/01/2020 00:00 UTC. BYBIT_SPOT_ETHUSDT: dati dal 06/01/2020 08:00 UTC, la "
-              "ricerca parte dal 07/01/2020" in testo_t,
+          and "Inizio della ricerca: 07/01/2020 00:00 UTC, lo stesso per tutte le monete. I dati partono dal 06/01/2020 "
+              "08:00 UTC: la ricerca parte dal 07/01/2020" in testo_t,
           testo_t[testo_t.find("Inizio"):][:200] if ok else repr(conf_t)[:300])
     d1 = os.path.join(radice, "D1_standard")
     _, testo_d1 = _parlato(vf.configura, d1, "BYBIT", "SPOT", "ETH", "D1", 1, None, DATA)
-    check("37. dati dal 02/01/2020: la cella scrive «Inizio della ricerca: 02/01/2020 00:00 UTC.» e nient'altro",
-          "Inizio della ricerca: 02/01/2020 00:00 UTC.\n" in testo_d1 and "la prima mezzanotte" not in testo_d1)
+    check("37. dati dal 02/01/2020: la cella scrive «Inizio della ricerca: 02/01/2020 00:00 UTC, lo stesso per tutte le "
+          "monete.» e nient'altro", "Inizio della ricerca: 02/01/2020 00:00 UTC, lo stesso per tutte le monete.\n"
+          in testo_d1 and "la prima mezzanotte" not in testo_d1)
 
 
 if __name__ == "__main__":

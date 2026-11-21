@@ -70,7 +70,7 @@ def _a_mano(cfg):
 
 
 def _config(processi=1, seme=0, standard=False):
-    cfg = config_standard(PERP, "M15", seme=seme, processi=processi)
+    cfg = config_standard([PERP], "M15", seme=seme, processi=processi)
     cfg["confini"] = dict(CONFINI)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k in BLOCCHI_PICCOLI}
     cfg["qualita_1"]["trade_min"] = 30
@@ -304,13 +304,14 @@ def esegui() -> int:
         csv_f = pd.read_csv(registro.FileProve(e.cartella).percorso, dtype=str, keep_default_na=False)
         check("14. finita: config, turno 1, turno 2, passo 2, prove e stato su disco",
               e.finita and all(os.path.exists(os.path.join(e.cartella, n)) for n in
-                               ("config.json", "passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl", "stato.json"))
+                               ("config.json", "rosa.json", "passo_1.jsonl", "turno_2.jsonl", "passo_2.jsonl",
+                                "stato.json"))
               and json.load(open(os.path.join(e.cartella, "stato.json"), encoding="utf-8"))["fase"] == "finita",
               f"imbuto {e.imbuto}, {e.prove} prove, {e.durata_s:.0f} s")
         somma = sum(len(r["prove"]) for r in r1 + rt2 + r2) + len(e.selezione.tabella) + len(e.rosa)
         check("15. conteggio esatto: righe del file = prove della rosa, dei due turni, del passo 2 e della selezione = "
               "conto dell'asset",
-              len(csv_f) == somma == e.prove == registro.conto_prove(F, PERP, "M15"), f"{len(csv_f)}, {somma}, {e.prove}")
+              len(csv_f) == somma == e.prove == registro.conto_prove(F, [PERP], "M15"), f"{len(csv_f)}, {somma}, {e.prove}")
         fasi = csv_f["fase"].value_counts().to_dict()
         check("16. ogni prova del turno 2 nel conto con la fase «passo_1_turno_2», quelle del turno 1 con «passo_1»; ogni "
               "strategia una riga sola per pezzo", fasi.get("passo_1_turno_2") == sum(len(r["prove"]) for r in rt2) > 0
@@ -371,7 +372,7 @@ def esegui() -> int:
                            "scelte": int((t_sel["esito"] == "scelta").sum())}
               and len(e.sopravvissute) == e.imbuto["altopiano"]
               and list(e.passo_1["turno"]) == [1] * n1 + [2] * len(rt2) and n1 >= 8, str(e.imbuto))
-        eventi = registro.leggi_registro(cartella_asset(F, PERP, "M15"))
+        eventi = registro.leggi_registro(cartella_asset(F, [PERP], "M15"))
         avvio = [x for x in eventi if x["tipo"] == "avvio_ricerca"]
         fine = [x for x in eventi if x["tipo"] == "fine_ricerca"]
         check("25. registro: avvio con impronta della config, teorie e perché, i trigger della rosa e i blocchi della "
@@ -407,19 +408,19 @@ def esegui() -> int:
               "le prove della rosa una volta sola)",
               _file(c) == _file(e))
         check("29. stesse tabelle e stesso conto delle prove", c.passo_1.equals(e.passo_1) and c.passo_2.equals(e.passo_2)
-              and c.prove == e.prove and registro.conto_prove(R, PERP, "M15") == e.prove and c.imbuto == e.imbuto)
-        ev_r = registro.leggi_registro(cartella_asset(R, PERP, "M15"))
+              and c.prove == e.prove and registro.conto_prove(R, [PERP], "M15") == e.prove and c.imbuto == e.imbuto)
+        ev_r = registro.leggi_registro(cartella_asset(R, [PERP], "M15"))
         check("30. la ripresa non scrive un secondo avvio né una seconda fine",
               [x["tipo"] for x in ev_r] == ["avvio_ricerca", "fine_ricerca"])
         d = lancia(cfg, R, verbose=False, data=DATA)
         check("31. rilanciare una ricerca finita non aggiunge niente", _file(d) == _file(e)
-              and len(registro.leggi_registro(cartella_asset(R, PERP, "M15"))) == 2)
+              and len(registro.leggi_registro(cartella_asset(R, [PERP], "M15"))) == 2)
 
         # ------------------------------------------------------------------ processi
         print("\n1 processo o 3")
-        falsa = os.path.join(cartella_asset(P, PERP, "M15"), "20250101_falsa")
+        falsa = os.path.join(cartella_asset(P, [PERP], "M15"), "20250101_falsa")
         registro.aggiungi_prove(falsa, [{"id_ricerca": "falsa", "pezzo": "ricerca", "fase": "passo_1", "teoria": "x",
-                                         "id_strategia": f"s{i}", "trade": 1, "ev_bp": 1.0, "t": 1.0} for i in range(5)])
+                                         "id_strategia": f"s{i}", "trade": 1, "ev_atr": 1.0, "t": 1.0} for i in range(5)])
         cfg3 = _config(processi=3)
         tre = lancia(cfg3, P, verbose=False, data=DATA)
         f3, f1 = _file(tre), _file(e)
@@ -428,7 +429,7 @@ def esegui() -> int:
               "nell'impronta)", stesse and tre.id_ricerca == e.id_ricerca and f3["prove"] == f1["prove"]
               and tre.passo_2.equals(e.passo_2))
         check("33. con il conto alterato (5 prove di un'altra ricerca) gli esiti non cambiano: cambia solo il numero",
-              stesse and registro.conto_prove(P, PERP, "M15") == tre.prove + 5)
+              stesse and registro.conto_prove(P, [PERP], "M15") == tre.prove + 5)
 
         # ------------------------------------------------------------------ seme e due ricerche
         print("\nIl seme e due ricerche sullo stesso asset")
@@ -441,7 +442,7 @@ def esegui() -> int:
         check("34. seme diverso: il genetico prova altri punti; la griglia completa resta uguale",
               any(q1[t] != q2[t] for t in genetiche) and all(q1[r["teoria"]] == q2[r["teoria"]] for r in r1
                                                            if r["modo"] == "griglia completa"))
-        check("35. due ricerche sullo stesso asset si sommano", registro.conto_prove(F, PERP, "M15") == e.prove + e1.prove,
+        check("35. due ricerche sullo stesso asset si sommano", registro.conto_prove(F, [PERP], "M15") == e.prove + e1.prove,
               f"{e.prove} + {e1.prove}")
         check("36. registro delle condizioni identico prima e dopo una ricerca", stato_registro() == istantanea)
         dopo = _fotografia(F)
@@ -452,7 +453,7 @@ def esegui() -> int:
 
         # ------------------------------------------------------------------ le combinazioni degeneri
         print("\nLe combinazioni degeneri")
-        pezzi = carica_pezzi(PERP, "M15", Confini.da_config(CONFINI), S)
+        pezzi = carica_pezzi([PERP], "M15", Confini.da_config(CONFINI), S)
         prep = prepara(cfg, pezzi)
         # una griglia di RSI che arriva alla soglia 3: le soglie basse su un RSI lungo non scattano quasi mai
         cfg_deg = _config()
@@ -475,9 +476,9 @@ def esegui() -> int:
         t_ok, contata_ok = pt.valuta({"RSI_RIENTRO": {"periodo_barre": 25, "soglia": 26}, "X0": dict(uscita)}, "zoom_2")
         check("39. una combinazione nuova buona passa da verifica_degenerazione e conta una prova",
               contata_ok and len(pt.nuove) == 1 and (rsi.nome, 1, (("periodo_barre", 25), ("soglia", 26)))
-              in lav.controllo._esiti)
+              in lav.controllo.controlli[PERP]._esiti)
         tolte = {(n, l): (c[1:] if n == "RSI_RIENTRO" and l == 1 else c) for (n, l), c in prep.rimaste.items()}
-        lav_t = _Lavoro(cfg, prep.df, prep.costi, tolte, cache=prep.lavoro.cache, controllo=prep.lavoro.controllo)
+        lav_t = _Lavoro(cfg, prep.dfs, prep.costi, tolte, caches=prep.lavoro.caches, controllo=prep.lavoro.controllo)
         ris = lav_t.passo_1(teoria_rsi)
         via = prep.rimaste[("RSI_RIENTRO", 1)][0]
         check("40. passo 1: un punto tolto all'avvio come degenere non consuma una delle 40 prove",
@@ -489,7 +490,7 @@ def esegui() -> int:
         V = os.path.join(radice, "V")
         df_v = sintetici.mercato_piantato(BARRE, seme=5, minuti=15, inizio="2024-01-01", prezzo=2_000.0)
         sintetici.scrivi_storico(V, SPOT, "M15", df_v)
-        cfg_v = config_standard(SPOT, "M15", seme=0, processi=1)
+        cfg_v = config_standard([SPOT], "M15", seme=0, processi=1)
         cfg_v["confini"] = dict(CONFINI)
         cfg_v["blocchi"] = {k: v for k, v in cfg_v["blocchi"].items() if k in ("E47", "DONCHIAN", "RSI_RIENTRO",
                                                                                 "F3_VOLUME_ABOVE_AVG", "X0")}
@@ -512,7 +513,7 @@ def esegui() -> int:
         df_s = sintetici.mercato(BARRE, seme=3, minuti=15, inizio="2024-01-01", prezzo=30_000.0)
         sintetici.scrivi_storico(S2, PERP, "M15", df_s)
         sintetici.scrivi_funding(S2, PERP, df_s, seme=3)
-        cfg_s = config_standard(PERP, "M15", seme=0, processi=1)
+        cfg_s = config_standard([PERP], "M15", seme=0, processi=1)
         cfg_s["confini"] = dict(CONFINI)
         cfg_s["qualita_1"]["trade_min"] = 30
         cfg_s["budget"].update({"per_teoria_passo_1": 2, "teorie_turno_2": 3, "teorie_passo_2": 2, "giri_zoom": 1,
@@ -553,7 +554,7 @@ def esegui() -> int:
 def qualita_1_passa(riga, cfg) -> bool:
     """La condizione 1 rifatta dalle misure scritte nella riga."""
     from engine.fabbrica.valutatore import Misure
-    m = Misure(*(riga[k] for k in ("trade", "totale_bp", "ev_bp", "t", "dd_bp", "peso_max", "totale_su_dd")))
+    m = Misure(*(riga[k] for k in ("trade", "totale_atr", "ev_atr", "t", "dd_atr", "peso_max", "totale_su_dd", "ev_bp")))
     return qualita_1(m, cfg["qualita_1"])[0]
 
 
@@ -571,7 +572,7 @@ CASI_TF = (
 
 def _cfg_tf(symbol, tf, confini, processi=1):
     """La config standard senza i trigger generati (la rosa con i generati ha i suoi collaudi: 42 e §13)."""
-    cfg = config_standard(symbol, tf, seme=0, processi=processi)
+    cfg = config_standard([symbol], tf, seme=0, processi=processi)
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items() if k not in trigger_generati()}
     cfg["confini"] = dict(confini)
     cfg["qualita_1"]["trade_min"] = 30
@@ -651,7 +652,7 @@ def _caso_timeframe(check, radice, symbol, tf, minuti, confini, n) -> int:
     fasi = csv_f["fase"].value_counts().to_dict()
     check(f"{n + 3}. {nome}: conto delle prove esatto (turno 1, turno 2 con la sua fase, zoom, altopiano, selezione) = "
           "conto dell'asset; sotto il budget massimo, che sta sotto il tetto",
-          e.finita and len(csv_f) == e.prove == registro.conto_prove(cartelle["A"], symbol, tf)
+          e.finita and len(csv_f) == e.prove == registro.conto_prove(cartelle["A"], [symbol], tf)
           and fasi.get("passo_1") == int(t1["prove"].sum()) and fasi.get("rosa") == len(e.rosa)
           and fasi.get("passo_1_turno_2", 0) == int(p1[p1["turno"] == 2]["prove"].sum())
           and e.prove - len(e.rosa) <= e.budget_massimo <= cfg["budget"]["totale"], f"{e.prove} prove, {fasi}")
@@ -692,7 +693,7 @@ def _rosa_nella_ricerca(check, radice, n) -> int:
         sintetici.scrivi_funding(c, PERP, df, seme=1)
 
     def cfg_g(blocchi, processi=1):
-        cfg = config_standard(PERP, "M15", seme=0, processi=processi)
+        cfg = config_standard([PERP], "M15", seme=0, processi=processi)
         cfg["confini"] = dict(CONFINI)
         cfg["blocchi"] = {k: {} for k in blocchi}
         cfg["qualita_1"]["trade_min"] = 30
@@ -713,7 +714,7 @@ def _rosa_nella_ricerca(check, radice, n) -> int:
           len(rosa_csv) == len(e.rosa) > 0 and set(rosa_csv["teoria"]) == {"rosa"}
           and f"ROSA_H16_{G}_long" in set(rosa_csv["id_strategia"])
           and set(rosa_csv["trade"]) == {str(r["eventi"]) for r in e.rosa}
-          and len(csv_f) == e.prove == registro.conto_prove(cartelle["A"], PERP, "M15")
+          and len(csv_f) == e.prove == registro.conto_prove(cartelle["A"], [PERP], "M15")
           and e.prove - len(e.rosa) <= e.budget_massimo, f"{len(rosa_csv)} righe della rosa")
     a = lancia(cfg, cartelle["R"], ferma_dopo=2, verbose=False, data=DATA)
     b = lancia(cfg, cartelle["R"], verbose=False, data=DATA)
@@ -755,7 +756,7 @@ def _valori_standard(check, radice, n) -> int:
               Teoria(1, "E5", (), "X1"))
     sbagliati = {}
     for tf, punti in attesi.items():
-        bl = blocchi_da_config(config_standard(PERP, tf))
+        bl = blocchi_da_config(config_standard([PERP], tf))
         for t in teorie:
             st = spazio_teoria(t, bl, {})
             ammessi = st.punti_ammessi()
@@ -803,7 +804,7 @@ def _valori_standard(check, radice, n) -> int:
                     if v["valore"] not in attesi_v[v["parametro"]]:
                         fuori.append((v["parametro"], v["valore"]))
     # e i vicini calcolati direttamente, su ogni blocco (nella ricerca piccola non tutti sono candidati)
-    bl_m15 = {b.nome: b for b in blocchi_da_config(config_standard(PERP, "M15"))}
+    bl_m15 = {b.nome: b for b in blocchi_da_config(config_standard([PERP], "M15"))}
     uscita = {"durata_barre": 16, "perc_stop": 90, "target": None}
     diretti = {}
     for t in (Teoria(1, "RSI_RIENTRO", ("ATR_RELATIVO",), "X0"), Teoria(1, "DONCHIAN", ("ADX",), "X0")):
@@ -820,7 +821,7 @@ def _valori_standard(check, radice, n) -> int:
           and all(r["prove_altopiano"] <= 60 for r in r2), f"{ {k: sorted(v) for k, v in visti.items()} }")
     csv_z = pd.read_csv(registro.FileProve(e.cartella).percorso, dtype=str, keep_default_na=False)
     check(f"{n + 4}. conto delle prove come oggi: una riga per prova, sotto il budget massimo",
-          len(csv_z) == e.prove == registro.conto_prove(Z, PERP, "M15") and e.prove - len(e.rosa) <= e.budget_massimo
+          len(csv_z) == e.prove == registro.conto_prove(Z, [PERP], "M15") and e.prove - len(e.rosa) <= e.budget_massimo
           and e.budget_massimo == budget_massimo(e.imbuto["turno_1"], cfg, sum(1 for r in r1 if "|-|" not in r["teoria"]),
                                                  max(e.resoconto["blocchi"][x]["filtro"]["tenuti"]
                                                      for x in e.resoconto["blocchi"])),
@@ -830,7 +831,7 @@ def _valori_standard(check, radice, n) -> int:
     Q = os.path.join(radice, "Q")
     sintetici.scrivi_storico(Q, SPOT, "M15", sintetici.mercato_piantato(BARRE, seme=5, minuti=15, inizio="2024-01-01",
                                                                        prezzo=2_000.0, canale_barre=40))
-    cfg_q = config_standard(SPOT, "M15", seme=0, processi=1)
+    cfg_q = config_standard([SPOT], "M15", seme=0, processi=1)
     cfg_q["confini"] = dict(CONFINI)
     cfg_q["blocchi"] = {k: v for k, v in cfg_q["blocchi"].items() if k in ("E47", "DONCHIAN", "RSI_RIENTRO",
                                                                             "F3_VOLUME_ABOVE_AVG", "X0")}
