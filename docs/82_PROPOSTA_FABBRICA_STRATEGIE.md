@@ -1,12 +1,12 @@
 # 82 · Proposta: la fabbrica di strategie
 
 **Data:** 5 novembre 2026, aggiornata l'8 novembre. **Risponde a:** `81_FABBRICA_STRATEGIE.md`, versione del 06/11 (qui «l'incarico»).
-**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab. **20/11:** §13 fatta (ramo `fabbrica-rosa`), filtri: scelta A. **20/11 sera:** proposta nuova in §14 (la fabbrica su più monete), solo testo; corretta la sera stessa con le decisioni di Mattia (orologio comune, misura rifatta, S1 = A, S2 = B). **20/11 notte:** §14 fatta (ramo `fabbrica-piu-monete`, §14.9).
+**Stato:** L1–L5b scritti (L5b, il notebook, il 09/11); collaudati solo su dati sintetici. Revisione chiusa con Mattia il 05/11, il 06/11, il 07/11 e l'08/11 (§8). Il codice parte con il via di Mattia, lavoro per lavoro. **11/11:** proposta nuova in §11 (catalogo intero e ricerca in due turni), solo testo, rivista la sera dell'11/11, in attesa del via. **14/11 sera:** proposta nuova in §12 (i quattro blocchi con parametri sul valore standard). **15/11:** §12 decisa da Mattia e scritta (PR #115), con le due ricerche vere della D6 (§12, «Stato»). **18/11:** proposta nuova in §13 (i trigger generati nella fabbrica), solo testo. **20/11:** §13 riscritta, più semplice (regola di Mattia del 20/11): tutti i trigger dalla rosa del Lab. **20/11:** §13 fatta (ramo `fabbrica-rosa`), filtri: scelta A. **20/11 sera:** proposta nuova in §14 (la fabbrica su più monete), solo testo; corretta la sera stessa con le decisioni di Mattia (orologio comune, misura rifatta, S1 = A, S2 = B). **20/11 notte:** §14 fatta (ramo `fabbrica-piu-monete`, §14.9). **22/11:** proposta nuova in §15 (la rosa al netto del costo di andata e ritorno), solo testo, con la misura.
 
 **Indice:** §0 In breve · §1 Le regole del progetto toccate · §2 I file nuovi · §3 La pipeline, punto per punto ·
 §4 L'ottimizzatore · §5 La velocità · §6 Config e scheda · §7 Il notebook · §8 Decisioni di Mattia (05/11) · §9 I lavori e i tempi ·
 §10 Cosa ho letto · §11 Catalogo intero e ricerca in due turni (proposta dell'11/11) · §12 I quattro blocchi con parametri sul valore standard (proposta del 14/11 sera) ·
-§13 I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11) · §14 La fabbrica su più monete (proposta del 20/11, fatta il 20/11)
+§13 I trigger generati nella fabbrica (proposta del 18/11, riscritta il 20/11) · §14 La fabbrica su più monete (proposta del 20/11, fatta il 20/11) · §15 La rosa al netto del costo di andata e ritorno (proposta del 22/11)
 
 ---
 
@@ -1683,3 +1683,199 @@ catalogo, 10 generati), 9.105 prove. Turno 1 1.488 teorie, turno 2 al massimo 4.
 processo arriva a 1,0 GB con 0,2 GB di cache; col tetto della cache (1,5 GB) un processo della ricerca sta sotto 2,5 GB,
 circa 7 GB con 3 processi. A quella velocità fredda le 283.320 prove al massimo sarebbero circa 95 minuti con 3 processi:
 il tempo vero si vede alla prima ricerca.
+
+## §15 · La rosa al netto del costo di andata e ritorno (proposta del 22/11)
+
+**Stato:** proposta, solo testo, con la misura (ramo `rosa-netta-costi`). Regola nuova di Mattia del 22/11. Il codice
+parte con il via di Mattia sulle scelte di §15.6.
+
+**Indice:** §15.1 La regola · §15.2 La misura · §15.3 Quanti trigger entrano · §15.4 Tempi della cella 1 · §15.5 Cosa
+cambia nel notebook e nei file · §15.6 Le scelte aperte
+
+### §15.1 · La regola
+
+**Nella rosa della fabbrica lo scarto di ogni evento è al netto del costo di andata e ritorno della sua moneta.**
+
+1. L'evento resta quello di oggi: segnale alla barra i, ingresso all'Open di i+1, uscita al Close di i+H.
+2. **Il costo dell'evento** = commissione taker × (prezzo d'ingresso + prezzo d'uscita) + un passo di prezzo (lo
+   spread). È la formula del valutatore (`valutatore.netti`, le operazioni di `metriche.bp_per_trade`), con i costi della
+   moneta dell'evento (`exchange.COMMISSIONI`, `passo_prezzo`). Il funding no: resta solo nel valutatore.
+3. **In ATR:** il costo si divide per l'ATR al segnale, lo stesso dello scarto (giornaliero, 5 giornate chiuse).
+4. **Scarto netto dell'evento** = verso × (rendimento − mercato della stessa ora della sua moneta) − costo. Il mercato
+   della stessa ora resta lordo: è il riferimento, non un trade.
+5. Il t, le due metà, il BH, le famiglie e rho seguono le regole di oggi (§13.1, §14.2), sullo scarto netto. Il costo
+   entra nel contributo di ogni evento all'incertezza (`errore_sovrapposti` sull'orologio comune), come lo scarto.
+6. **Long e short si misurano ognuno per sé:** al netto lo short non è più il long con il segno cambiato, perché paga
+   anche lui il costo.
+7. Una regola sola, da M1 a D1, su perpetual e spot (sullo spot la commissione è quella dello spot). **Nel Lab non
+   cambia niente**: con una moneta la rosa della fabbrica non è più quella del Lab al bit; lo è a costo zero.
+
+### §15.2 · La misura
+
+Solo il pezzo di ricerca, in uno script fuori dal repo: le candele sono scaricate dall'exchange **fino alla fine del
+pezzo di ricerca** (nessuna barra di selezione o cassaforte letta), con `exchange.scarica_storico` (solo `fetch_ohlcv`).
+Nessuna ricerca, nessuna riga nel conto, studio non toccato. Config standard della cella 1 di oggi (ultima mezzanotte
+chiusa 22/11/2026), 5 monete Binance perp, 3 processi per la rosa. Pezzo di ricerca dal 02/01/2020 al 18/07/2023:
+
+| barre | BTC | ETH | XRP | SOL | ADA | totale |
+|---|---|---|---|---|---|---|
+| M15 | 124.146 | 124.146 | 123.729 | 99.542 | 121.330 | 592.893 |
+| H1 | 31.037 | 31.037 | 30.933 | 24.886 | 30.333 | 148.226 |
+| H4 | 7.759 | 7.759 | 7.733 | 6.222 | 7.583 | 37.056 |
+
+**Collaudo della misura:** con costo zero la rosa nuova è la rosa di oggi al bit (H4, 7.965 righe: stessi scarti,
+stessi t, stessa rosa). La colonna «oggi» qui sotto è il codice di oggi (`generatore.rosa_dei_trigger`) sullo stesso
+pezzo.
+
+**a) Il costo medio di andata e ritorno, per moneta** (media su tutte le barre usabili del pezzo; quasi uguale ai tre
+orizzonti, qui a 16 barre):
+
+| | BTC | ETH | XRP | SOL | ADA |
+|---|---|---|---|---|---|
+| M15, in ATR | 0,0232 | 0,0177 | 0,0204 | 0,0201 | 0,0216 |
+| H1, in ATR | 0,0232 | 0,0177 | 0,0204 | 0,0200 | 0,0215 |
+| H4, in ATR | 0,0232 | 0,0177 | 0,0205 | 0,0186 | 0,0213 |
+| accanto, in bp (M15) | 10,1 | 10,2 | 12,6 | 19,1 | 15,0 |
+
+Il costo è circa **0,02 ATR** su ogni moneta e ogni timeframe: l'ATR è giornaliero e il costo è per trade, quindi non
+dipende dalla barra. Di commissione sono 10 bp (2 × 0,05%); il resto è il passo di prezzo, che pesa di più dove il
+prezzo è basso (SOL, ADA, XRP). Per confronto, lo scarto lordo tipico di un trigger misurato (mediana del valore
+assoluto) è:
+
+| orizzonte | 4 barre | 16 barre | 32 barre |
+|---|---|---|---|
+| M15 | 0,0009 ATR | 0,0017 | 0,0024 |
+| H1 | 0,0028 | 0,0061 | 0,0088 |
+| H4 | 0,0129 | 0,0223 | 0,0307 |
+
+### §15.3 · Quanti trigger entrano
+
+**b) Oggi e con la regola nuova**, long / short:
+
+| | M15 oggi | M15 nuova | H1 oggi | H1 nuova | H4 oggi | H4 nuova |
+|---|---|---|---|---|---|---|
+| misurati (trigger × lato) | 3.035 | 3.035 | 2.852 | 2.852 | 2.655 | 2.655 |
+| candidate a 4 barre | 217 / 64 | 0 / 0 | 3 / 0 | 0 / 0 | 20 / 26 | 0 / 0 |
+| candidate a 16 barre | 84 / 13 | 0 / 0 | 18 / 33 | 0 / 0 | 1 / 0 | 0 / 0 |
+| candidate a 32 barre | 15 / 2 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| nella rosa a 4 / 16 / 32, long | 7 / 3 / 1 | 0 | 1 / 2 / 0 | 0 | 2 / 1 / 0 | 0 |
+| nella rosa a 4 / 16 / 32, short | 6 / 2 / 1 | 0 | 0 / 2 / 0 | 0 | 1 / 0 / 0 | 0 |
+| **entrano** long + short | **9 + 6** | **0 + 0** | **3 + 2** | **0 + 0** | **3 + 1** | **0 + 0** |
+| teorie turno 1 / prove al massimo | 1.395 / 279.600 | — | 465 / 242.400 | — | 360 / 232.200 | — |
+
+Con la regola nuova **nessun trigger entra**, su nessun timeframe: oggi la cella 1 si fermerebbe con «non resta un
+trigger» (§15.6, S3). Il 9 + 7 di §14.9 su M15 era su un pezzo più corto di un giorno (124.048 barre di BTC); sullo
+stesso pezzo di qui il codice di oggi dà 9 + 6. Al netto, per orizzonte (4 / 16 / 32 barre):
+
+| | M15 | H1 | H4 |
+|---|---|---|---|
+| righe con scarto netto > 0 | 4 / 20 / 27 su 3.035 | 84 / 241 / 305 su 2.852 | 500 / 699 / 842 su 2.655 |
+| righe con t netto > 1,96 | 0 / 0 / 0 | 0 / 12 / 1 | 24 / 30 / 36 |
+| il t netto più alto | 1,57 (G0008_P75_SU long, 16 barre, 839 eventi) | 2,36 (E22 long, 16 barre, 2.083 eventi) | 3,62 (G0072_ZERO_SU long, 16 barre, 207 eventi) |
+
+Il BH al 20% su circa 2.700–3.000 misurati per orizzonte chiede al primo trigger un t di circa 3,8: oggi lo passano i
+trigger con t lordo alto, che trascinano anche gli altri nella lista; al netto i t scendono tutti e nessuno arriva
+alla soglia del primo.
+
+**c) I trigger che entrano con la regola nuova:** nessuno. Per vedere come cambia la misura, ecco quelli che entrano
+oggi, con scarto lordo e netto (ATR), t lordo e netto ed eventi; nessuno è nella rosa nuova.
+
+| tf | trigger | lato | orizzonte | eventi | scarto lordo | scarto netto | t lordo | t netto |
+|---|---|---|---|---|---|---|---|---|
+| H4 | G0004_P75_SU | long | 4 | 391 | 0,1426 | 0,1198 | 3,37 | 2,84 |
+| H4 | G0017_P90_GIU | long | 4 | 3.058 | 0,0389 | 0,0188 | 3,07 | 1,48 |
+| H4 | G0072_ZERO_SU | long | 16 | 207 | 0,4234 | 0,3998 | 3,83 | 3,62 |
+| H4 | G0069_P25_GIU | short | 4 | 2.679 | 0,0567 | 0,0374 | 4,02 | 2,65 |
+| H1 | G0062_P90_SU | long | 4 | 4.300 | 0,0317 | 0,0108 | 3,99 | 1,36 |
+| H1 | G0009_ZERO_GIU | long | 16 | 1.825 | 0,0620 | 0,0403 | 3,16 | 2,06 |
+| H1 | G0062_P75_SU | long | 16 | 7.176 | 0,0391 | 0,0186 | 4,31 | 2,06 |
+| H1 | G0016_P75_GIU | short | 16 | 748 | 0,0601 | 0,0402 | 2,74 | 1,83 |
+| H1 | G0030_P50_GIU | short | 16 | 7.092 | 0,0348 | 0,0149 | 4,11 | 1,76 |
+| M15 | G0058_ZERO_GIU | long | 4 | 960 | 0,0184 | −0,0057 | 3,09 | −0,97 |
+| M15 | E39 | long | 4 | 3.078 | 0,0066 | −0,0140 | 2,10 | −4,47 |
+| M15 | G0044_P25_SU | long | 4 | 4.637 | 0,0068 | −0,0128 | 2,55 | −4,84 |
+| M15 | G0048_P25_GIU | long | 4 | 3.952 | 0,0064 | −0,0143 | 2,21 | −4,94 |
+| M15 | G0072_P10_SU | long | 4 | 4.055 | 0,0057 | −0,0137 | 2,12 | −5,05 |
+| M15 | G0048_P75_GIU | long | 4 | 4.049 | 0,0069 | −0,0145 | 2,49 | −5,18 |
+| M15 | G0080_P90_SU | long | 4 | 40.420 | 0,0062 | −0,0150 | 5,18 | −12,55 |
+| M15 | G0058_ZERO_GIU | long | 16 | 960 | 0,0349 | 0,0108 | 2,81 | 0,87 |
+| M15 | E36 | long | 16 | 3.120 | 0,0201 | −0,0006 | 3,17 | −0,10 |
+| M15 | E21 | long | 16 | 45.752 | 0,0096 | −0,0113 | 5,14 | −6,04 |
+| M15 | E21 | long | 32 | 45.747 | 0,0145 | −0,0064 | 4,63 | −2,06 |
+| M15 | E36 | short | 4 | 3.016 | 0,0094 | −0,0110 | 2,46 | −2,87 |
+| M15 | E39 | short | 4 | 3.036 | 0,0066 | −0,0138 | 2,08 | −4,35 |
+| M15 | G0016_P90_GIU | short | 4 | 2.847 | 0,0073 | −0,0145 | 2,45 | −4,85 |
+| M15 | G0005_ZERO_SU | short | 4 | 7.229 | 0,0055 | −0,0150 | 2,50 | −6,73 |
+| M15 | G0056_P90_GIU | short | 4 | 7.499 | 0,0050 | −0,0153 | 2,69 | −8,28 |
+| M15 | G0088_P75_SU | short | 4 | 94.045 | 0,0024 | −0,0182 | 4,49 | −34,06 |
+| M15 | E36 | short | 16 | 3.016 | 0,0262 | 0,0057 | 4,04 | 0,88 |
+| M15 | G0005_ZERO_SU | short | 16 | 7.229 | 0,0153 | −0,0052 | 3,51 | −1,19 |
+| M15 | G0005_ZERO_SU | short | 32 | 7.229 | 0,0227 | 0,0021 | 3,51 | 0,33 |
+
+I numeri sono collaudo della regola, non un verdetto (`docs/00`).
+
+### §15.4 · Tempi della cella 1
+
+Misurati nello script, con gli stessi passi della cella 1 (3 processi per la rosa):
+
+| | H4 | H1 | M15 (riferimento) |
+|---|---|---|---|
+| lettura e indicatori | 2,5 s | 8,6 s | 34 s |
+| valori degeneri e segnali, una moneta alla volta | 34 s | 90 s | 314 s |
+| rosa oggi | 13 s | 21 s | 76 s |
+| rosa nuova | 15 s | 32 s | 128 s |
+| **preparazione, oggi → nuova** | **49 → 51 s** | **2,0 → 2,2 min** | **7,0 → 7,9 min** |
+
+La rosa nuova costa da 1,1 a 1,7 volte quella di oggi perché long e short si misurano ognuno per sé (§15.1 punto 6).
+In più, la prima volta, lo scaricamento dei dati che mancano: sul Drive non ci sono ancora H1 di SOL e ADA né H4 di
+ETH, XRP, SOL e ADA; fino al 2023 una moneta ha preso 8–12 s su H1 e 3–4 s su H4, fino a oggi circa il doppio. Dalla
+seconda volta pochi secondi. La cella 2 rilegge la rosa salvata (S2 di §14.8): nessun cambio.
+
+### §15.5 · Cosa cambia nel notebook e nei file
+
+**Notebook** (solo markdown, le celle restano una chiamata):
+- **Glossario, Rosa dei trigger:** «…entra nella ricerca solo se guadagna più del mercato alla stessa ora della sua
+  moneta **al netto del costo di andata e ritorno (commissione e spread; il funding no)**, in tutte e due le metà dei
+  dati, e difficilmente per caso…». **Costo:** «…Tutti i numeri sono già al netto, anche nella rosa.»
+- **1 Configura, «Come leggere»:** una riga in più, il costo di andata e ritorno di ogni moneta (per esempio «BTC 0,023
+  ATR, 10 bp»); l'esempio della rosa si rifà con la misura dopo il codice; se nessun trigger entra, cosa si vede (S3).
+- **2–7:** nessun cambio.
+
+**File.** Non additivi, dichiarati:
+- `engine/fabbrica/rosa_lista.py`: `base_moneta` riceve commissione e passo della moneta e tiene il costo di ogni
+  barra in ATR; `_misura` toglie il costo da ogni evento (scarto, contributo al t, due metà); long e short misurati
+  ognuno per sé (`_opposto` non serve più nella rosa).
+- `engine/fabbrica/generatore.py`: `rosa_dei_trigger` passa i costi; la tabella ha la colonna `costo_atr` (il costo
+  medio dei suoi eventi: lordo = netto + costo).
+- `engine/fabbrica/ricerca.py`: `prepara` prende i costi di ogni moneta (`pezzi[m].costi("ricerca")`, già usati dal
+  valutatore) prima della rosa.
+- `engine/fabbrica/config.py`: **versione 6**, senza campi nuovi (la regola è nel codice, nessun interruttore): le
+  ricerche della 5 restano su disco e nel conto, le celle 4–7 su una di esse dicono di rilanciare la 2, come oggi.
+- `engine/vetrina_fabbrica.py`: la riga dei costi alla cella 1 e il caso di S3. `schede.py`: «La rosa dei trigger»
+  dice «al netto del costo di andata e ritorno».
+- Il notebook (markdown), `docs/00`, `docs/81_FABBRICA_STRATEGIE.md` (§2 e §3 punto 3), `docs/82`.
+
+Non cambiano: `engine/rosa.py`, il motore, il valutatore, selezione, cassaforte, MM, i cataloghi, Lab e Grid Search.
+
+**Collaudi:** `test_fabbrica_monete.py`: «una moneta = la rosa del Lab al bit» diventa «a costo zero = la rosa del Lab al
+bit»; nuovi: un costo costante noto c → scarto netto = lordo − c per ogni trigger, long e short; a costo zero short =
+long col segno cambiato; due copie della stessa moneta = stesso scarto netto e stesso t; prezzi × 10 = stessi numeri
+in ATR; sullo spot la commissione dello spot. `test_fabbrica_generatore.py` aggiornata (colonna `costo_atr`, versione
+6). Prima della PR la suite completa; niente prove d'identità (Lab e Grid Search non cambiano).
+
+### §15.6 · Le scelte aperte
+
+- **S1 · Le due metà al netto.** A: sì, ogni metà deve avere lo scarto netto positivo (come misurato qui). B: le metà
+  restano lorde. *Consiglio:* **A**: la regola dice «ogni evento al netto», una strada sola.
+- **S2 · rho sulla serie lorda.** A: rho fra due trigger dello stesso lato resta sulla serie giornaliera lorda (come
+  misurato qui). B: sulla netta. *Consiglio:* **A**: rho misura se due trigger si somigliano, non quanto guadagnano;
+  sulla netta il costo, uguale per tutti, farebbe sembrare simili due trigger che scattano negli stessi giorni.
+- **S3 · Cosa vede Mattia quando nessun trigger entra** (il caso misurato su M15, H1 e H4). A: il messaggio di oggi,
+  «nessun trigger è nella rosa… (non resta un trigger)». B: prima del messaggio la riga della rosa e i costi, per
+  esempio «Rosa dei trigger: 3.035 misurati → nella ricerca 0. Costo di andata e ritorno: BTC 0,023 ATR (10 bp), ETH
+  0,018 (10 bp)…; il t netto più alto è 1,57». *Consiglio:* **B**: una riga sola che dice perché la cella si ferma.
+- **S4 · Le prove della rosa quando la cella 1 si ferma.** Oggi le righe della rosa si scrivono nel conto alla cella 2:
+  se la cella 1 si ferma, i trigger misurati non entrano nel conto. A: come oggi. B: le righe della rosa si scrivono
+  alla cella 1, sempre, una volta per config (mai due, come oggi). *Consiglio:* **B**: «ogni trigger misurato è una
+  prova» senza eccezioni, e una prova conta da quando se ne vede il risultato (`docs/00`); con S3 = B il risultato si
+  vede alla cella 1. Cambia anche `ricerca.lancia` (non scrive più le righe della rosa).
