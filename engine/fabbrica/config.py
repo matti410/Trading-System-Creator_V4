@@ -27,6 +27,8 @@ La config della fabbrica (docs/82 P2 e §6, lavoro L3a).
   della condizione 1 è in ATR; la condizione 2 non ha più P(EV<0) (§14.3). La cartella della lista è
   dati/fabbrica/<EXCHANGE>_<MERCATO>_<COPPIA>+<COPPIA>…_<TIMEFRAME>: con una moneta è quella di prima, così le ricerche
   della versione 4 di quella moneta restano nel suo conto.
+- Dal 22/11 (docs/82 §15) solo la versione 6: la rosa dei trigger è al netto del costo di andata e ritorno e decide il
+  test individuale (t netto >= la soglia di `test_individuale.alfa`, 1,96), niente BH: il campo `rosa` perde `q`.
 """
 from __future__ import annotations
 
@@ -45,9 +47,11 @@ from .dati import Confini
 
 # 3 dal 15/11 (docs/82 §12, D4 = A): i quattro blocchi con parametri sul valore standard. 4 dal 20/11 (docs/82 §13):
 # tutti i trigger, del catalogo e generati, passano dalla rosa del Lab (campo «rosa»). 5 dal 20/11 (docs/82 §14): una
-# lista di monete, l'ATR che decide, la condizione 2 senza P(EV<0). Una strada sola: le ricerche delle versioni
-# precedenti restano su disco e nel conto, le celle 4–7 su una di esse si fermano con «rilancia la cella 2».
-VERSIONE = 5
+# lista di monete, l'ATR che decide, la condizione 2 senza P(EV<0). 6 dal 22/11 (docs/82 §15): la rosa al netto del
+# costo di andata e ritorno, decide il test individuale (niente BH, il campo «rosa» senza «q»). Una strada sola: le
+# ricerche delle versioni precedenti restano su disco e nel conto, le celle 4–7 su una di esse si fermano con «rilancia
+# la cella 2».
+VERSIONE = 6
 CAMPI = ("versione", "monete", "timeframe", "confini", "lati", "blocchi", "rosa", "modelli", "qualita_1", "qualita_2",
          "altopiano", "test_individuale", "budget", "seme", "processi")
 SOTTOCAMPI = {
@@ -57,11 +61,12 @@ SOTTOCAMPI = {
                   "prove_max"),
     "test_individuale": ("alfa",),
     "budget": ("totale", "per_teoria_passo_1", "teorie_turno_2", "teorie_passo_2", "giri_zoom", "prove_per_giro"),
-    "rosa": ("orizzonti_barre", "q", "soglia_famiglia", "rho_max", "min_eventi", "catalogo_generato"),
+    "rosa": ("orizzonti_barre", "soglia_famiglia", "rho_max", "min_eventi", "catalogo_generato"),
 }
 # La rosa dei trigger (docs/82 §13, 20/11): la regola della rosa del Lab (engine/rosa.py), scritta per intero nella
 # config, così se un giorno cambia un valore cambia anche l'impronta. Gli orizzonti sono in barre, su ogni timeframe.
-ROSA_STANDARD = {"orizzonti_barre": [4, 16, 32], "q": 0.2, "soglia_famiglia": 0.6, "rho_max": 0.3, "min_eventi": 200,
+# Dal 22/11 (§15) la soglia è quella del test individuale (`test_individuale.alfa`): il BH e il suo «q» non ci sono più.
+ROSA_STANDARD = {"orizzonti_barre": [4, 16, 32], "soglia_famiglia": 0.6, "rho_max": 0.3, "min_eventi": 200,
                  "catalogo_generato": 1}
 FILTRI_MAX = 2                         # i modelli di docs/82 P3: T+U, T+F+U, T+F+F+U
 # docs/82 §14.1: la lista di base, Binance perp. «BTC» = una moneta sola.
@@ -152,7 +157,7 @@ def solo_long_lista(monete) -> bool:
 def controlla_config(config: dict) -> dict:
     """Controlla campi e intervalli; si ferma con un errore che dice cosa manca o cosa è fuori posto."""
     if isinstance(config, dict) and "versione" in config and config["versione"] != VERSIONE:
-        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §14): "
+        _errore(f"versione {config['versione']!r}: questa fabbrica legge solo la versione {VERSIONE} (docs/82 §15): "
                 "una ricerca di una versione precedente resta su disco e nel conto, rilancia la cella 2 per una "
                 "ricerca nuova")
     _campi(config, CAMPI, "la config")
@@ -213,7 +218,6 @@ def _controlla_rosa(rosa: dict) -> None:
         _errore(f"rosa.orizzonti_barre deve essere una lista di orizzonti diversi, non {o!r}")
     for h in o:
         _intero(h, "rosa.orizzonti_barre", 1)
-    _numero(rosa["q"], "rosa.q", 0.0, 1.0, aperto_sotto=True)
     _numero(rosa["soglia_famiglia"], "rosa.soglia_famiglia", 0.0, 1.0, aperto_sotto=True)
     _numero(rosa["rho_max"], "rosa.rho_max", 0.0, 1.0)
     _intero(rosa["min_eventi"], "rosa.min_eventi", 1)
@@ -381,7 +385,7 @@ def confini_standard(timeframe: str, ultima_barra, prima_barra=None) -> dict:
 def config_standard(monete, timeframe: str = "M15", seme: int = 0, processi: int = 3,
                     confini: dict | None = None, totale: int | None = None) -> dict:
     """
-    La config di §6, versione 5 (docs/82 §14), sulla lista `monete` (symbol interi, stesso exchange e mercato), con
+    La config di §6, versione 6 (docs/82 §14 e §15), sulla lista `monete` (symbol interi, stesso exchange e mercato), con
     tutti i blocchi di BLOCCHI_STANDARD ammessi sul timeframe e le loro
     griglie (per RSI_RIENTRO, DONCHIAN, ADX e ATR_RELATIVO un valore solo per parametro, in barre), più tutti i trigger
     generati dopo DONCHIAN, e la regola della rosa (ROSA_STANDARD). I

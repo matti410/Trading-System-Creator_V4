@@ -58,7 +58,8 @@ e indicatore TradingView sono fuori da questo incarico.
 - **Budget:** il numero massimo di strategie provate. Ogni strategia provata è una **prova**.
 - **Cassaforte:** l'ultimo pezzo di dati dell'asset, mai usato per costruire le strategie. Ogni strategia ci entra
   quante volte si vuole (10/11); ogni ingresso è registrato, solo come annotazione da leggere.
-- **Test individuale:** il t netto della strategia contro la soglia per una prova sola. È il test che decide.
+- **Test individuale:** il t netto della strategia contro la soglia per una prova sola. È il test che decide. Dal 22/11
+  (`docs/82` §15) decide anche chi entra nella rosa dei trigger: t netto di almeno 1,96, al posto del BH.
 - **Lista di monete (20/11, `docs/82` §14):** le monete su cui si prova ogni strategia, insieme, con le stesse date; i
   trade di tutte vanno in un solo elenco. Una moneta più giovane ha solo meno barre.
 - **ATR (20/11):** quanto si muove di solito la moneta in un giorno (l'ATR giornaliero a 5 giornate chiuse noto al
@@ -78,7 +79,11 @@ e indicatore TradingView sono fuori da questo incarico.
    catalogo e generati) passano dalla rosa del Lab, a 4, 16 e 32 barre; entra nella ricerca chi è nella rosa ad almeno
    un orizzonte. Ogni trigger misurato, per ogni orizzonte, è una prova nel conto. I filtri entrano tutti. Poi le teorie.
    Dal 20/11 (`docs/82` §14.2) la rosa si misura sulla lista, in ATR, con le monete su un orologio comune in barre; la
-   cella 1 la salva nella cartella della ricerca e la cella 2 la rilegge.
+   cella 1 la salva nella cartella della ricerca e la cella 2 la rilegge. Dal 22/11 (`docs/82` §15) ogni evento della
+   rosa è al netto del costo di andata e ritorno della sua moneta (commissione e spread; il funding no), long e short
+   ognuno per sé, e decide il test individuale: entra un trigger con t netto di almeno 1,96 e scarto netto positivo
+   nelle due metà, poi famiglie e rho come prima (il BH non c'è più). Le prove della rosa vanno nel conto già alla
+   cella 1, anche quando nessun trigger entra e la cella si ferma.
    ADX e ATR relativo, che hanno la stessa famiglia dichiarata, non stanno mai nella stessa teoria.
 4. **Passo 1, scrematura in due turni:** passo largo (circa N valori per parametro), ottimizzatore tarato in ampiezza,
    sui soli dati di ricerca; condizione di qualità 1 → teoria tenuta o scartata. Turno 1: le teorie con al massimo un

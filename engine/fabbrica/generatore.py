@@ -5,7 +5,7 @@ Il generatore della fabbrica (docs/82 P3, lavoro L3a; C2, docs/82 §11.3–§11.
     controllo = ControlloLista({m: ControlloDegenerazione(caches[m]) for m in monete})   # le cache del pezzo di ricerca
     rimaste, tolte = togli_degeneri(blocchi, caches, lati, controllo)
     segnali[m] = segnali_trigger(blocchi, caches[m], lati)     # una moneta alla volta (docs/82 §14.7)
-    entrano, rosa = rosa_dei_trigger(blocchi, lati, rimaste, basi, segnali, config["rosa"], n_orologio, settimana)
+    entrano, rosa = rosa_dei_trigger(blocchi, lati, rimaste, basi, segnali, config["rosa"], n_orologio, settimana, 1.96)
     filtri = filtri_rimasti(blocchi, lati, rimaste)
     tenuti = {lato: entrano[lato] + filtri[lato] for lato in lati}   # i blocchi della ricerca
     teorie = teorie_turno_1(config, blocchi, tenuti)             # T+U e T+F+U
@@ -24,7 +24,9 @@ Il generatore della fabbrica (docs/82 P3, lavoro L3a; C2, docs/82 §11.3–§11.
   fa su ogni moneta (ControlloLista); una combinazione degenere su una moneta esce per tutte.
 - La rosa dei trigger (docs/82 §13, 20/11): dopo i valori degeneri, tutti i trigger, del catalogo e generati, passano
   dalla rosa del Lab sul pezzo di ricerca; entra nella ricerca chi è nella rosa ad almeno un orizzonte. Più monete
-  (§14.2): la rosa di rosa_lista.py, su tutte le monete della lista con l'orologio comune, in ATR. I filtri
+  (§14.2): la rosa di rosa_lista.py, su tutte le monete della lista con l'orologio comune, in ATR. Dal 22/11 (§15) al
+  netto del costo di andata e ritorno di ogni evento; entra chi ha t netto >= la soglia del test individuale (1,96),
+  scarto netto positivo nelle due metà, poi famiglie e rho come prima (niente BH). I filtri
   entrano tutti (quelli rimasti dopo i valori degeneri). La famiglia dichiarata (solo ADX e ATR relativo) vale solo
   nel generatore: mai nella stessa teoria.
 - Le misure registrano condizioni temporanee in un registro isolato e poi lo rimettono com'era, identico.
@@ -283,26 +285,29 @@ def _trigger_da_misurare(blocchi, lati, rimaste: dict) -> dict:
 
 
 def rosa_dei_trigger(blocchi, lati, rimaste: dict, basi: dict, segnali: dict, regole: dict, n_orologio: int,
-                     settimana: int, processi: int = 1):
+                     settimana: int, soglia_t: float, processi: int = 1):
     """
-    La rosa dei trigger (docs/82 §13 e §14.2): tutti i trigger rimasti dopo i valori degeneri, del catalogo e generati,
-    passano dalla rosa di rosa_lista.misura_rosa (la rosa del Lab sulla lista di monete, in ATR) sul pezzo di ricerca,
-    agli orizzonti di `regole` (il campo «rosa» della config). Entra nella ricerca chi è nella rosa ad almeno un
+    La rosa dei trigger (docs/82 §13, §14.2 e §15): tutti i trigger rimasti dopo i valori degeneri, del catalogo e
+    generati, passano dalla rosa di rosa_lista.misura_rosa (sulla lista di monete, in ATR, al netto del costo di andata
+    e ritorno) sul pezzo di ricerca, agli orizzonti di `regole` (il campo «rosa» della config); decide il test
+    individuale, t netto >= `soglia_t` (selezione.soglia_test). Entra nella ricerca chi è nella rosa ad almeno un
     orizzonte. `basi` e `segnali` = rosa_lista.base_moneta e segnali_trigger di ogni moneta.
     Ritorna (entrano, tabella): entrano = {lato: [blocchi, nell'ordine della config]}; tabella = una riga per trigger
-    misurato e orizzonte (orizzonte, lato, blocco, eventi, scarto_atr, t, candidata, nella_rosa): ognuna è una prova.
+    misurato e orizzonte (orizzonte, lato, blocco, eventi, scarto_atr netto, costo_atr, t netto, candidata,
+    nella_rosa): ognuna è una prova.
     """
     from .rosa_lista import misura_rosa
     da_misurare = _trigger_da_misurare(blocchi, lati, rimaste)
     rose = misura_rosa(basi, segnali, {n: (_gruppo_segnale(b, lato), lato) for n, (b, lato) in da_misurare.items()},
-                       regole, n_orologio, settimana, processi)
+                       regole, n_orologio, settimana, soglia_t, processi)
     tabella = []
     for h, rosa in rose.items():
         for r in rosa.to_dict("records"):
             b, lato = da_misurare[r["candidato"]]
             tabella.append({"orizzonte": int(h), "lato": NOME_LATO[lato], "blocco": b.nome, "eventi": int(r["eventi"]),
-                            "scarto_atr": float(r["scarto_atr"]), "t": float(r["t_netto"]),
-                            "candidata": bool(r["candidata"]), "nella_rosa": bool(r["nella_rosa"])})
+                            "scarto_atr": float(r["scarto_atr"]), "costo_atr": float(r["costo_atr"]),
+                            "t": float(r["t_netto"]), "candidata": bool(r["candidata"]),
+                            "nella_rosa": bool(r["nella_rosa"])})
     dentro = {(r["lato"], r["blocco"]) for r in tabella if r["nella_rosa"]}
     entrano = {lato: [b.nome for b in blocchi if (NOME_LATO[lato], b.nome) in dentro] for lato in lati}
     return entrano, tabella

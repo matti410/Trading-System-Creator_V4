@@ -40,6 +40,14 @@ insieme (trade in ordine d'ingresso, leva sulle posizioni aperte, Monte Carlo a 
 `money_management.py` e `montecarlo.py`, senza le quali tutto come prima). La cella 1 salva la rosa nella cartella della
 ricerca e la 2 la rilegge. Config versione 5 (`monete`, `ev_min` in ATR); le ricerche della 4 restano su disco e nel conto.
 Nel Lab restano una moneta e il bp. ADA perp di Binance in `simboli.py` (per la fabbrica).
+Dal 22/11 (`82` §15, ramo `rosa-netta-costi`): **la rosa della fabbrica al netto del costo di andata e ritorno**. Ogni
+evento paga commissione taker su ingresso e uscita più un passo di prezzo della sua moneta (il funding no), in ATR; long
+e short si misurano ognuno per sé. Decide il test individuale: entra un trigger con t netto ≥ 1,96 e scarto netto
+positivo nelle due metà, poi famiglie e rho (sulla serie lorda) come prima; **il BH sparisce dalla rosa della
+fabbrica** (nel Lab resta tutto com'è). Le prove della rosa vanno nel conto già alla cella 1; se nessun trigger entra la
+cella dice perché in una riga (misurati, costi, il t netto più alto) e si ferma. Config versione 6 (il campo `rosa`
+senza `q`); le ricerche della 5 restano su disco e nel conto. Dopo, ultimo in scaletta: la rosa nelle 8 situazioni
+dell'atlante (`82` §15.7), prima una misura in sola lettura.
 **Incarico 83 (15/11/2026): il generatore di indicatori e trigger prezzo + volume** (`83_PROPOSTA_GENERATORE_INDICATORI.md`,
 PR #117): `engine/generatore/`, si lancia con `python -m engine.generatore --n N`; tetto N = 112 scelto da Mattia il 16/11
 (`dati_catalogo/generati_v1.json`, 2.984 trigger). Il collegamento al ML e alla fabbrica sono lavori a parte.

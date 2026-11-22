@@ -807,7 +807,7 @@ def esegui() -> int:
     sbagliati = []
     for tf in MINUTI_TIMEFRAME:
         cfg = config_standard(["BINANCE_PERP_BTCUSDT"], tf)
-        if cfg["versione"] != 5 or VERSIONE != 5:
+        if cfg["versione"] != 6 or VERSIONE != 6:
             sbagliati.append((tf, "versione", cfg["versione"]))
         scritti = {n: cfg["blocchi"][n] for n in attesi}
         if scritti != {n: {k: list(v) for k, v in g.items()} for n, g in attesi.items()}:

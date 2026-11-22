@@ -222,9 +222,9 @@ def esegui() -> int:
         print("\nLa config (docs/82 P2 e §6)")
         cfg = config_standard([PERP], "M15")
         check("28. la config standard ha i campi di §6 e passa i controlli", tuple(cfg) == CAMPI and controlla_config(cfg) is cfg
-              and len(cfg["blocchi"]) == 78 + N_GENERATI and cfg["versione"] == 5 and cfg["lati"] == ["long", "short"]
+              and len(cfg["blocchi"]) == 78 + N_GENERATI and cfg["versione"] == 6 and cfg["lati"] == ["long", "short"]
               and cfg["monete"] == [PERP] and "ev_min" in cfg["qualita_1"] and "p_ev_neg_max" not in cfg["qualita_2"]
-              and cfg["rosa"] == {"orizzonti_barre": [4, 16, 32], "q": 0.2, "soglia_famiglia": 0.6, "rho_max": 0.3,
+              and cfg["rosa"] == {"orizzonti_barre": [4, 16, 32], "soglia_famiglia": 0.6, "rho_max": 0.3,
                                   "min_eventi": 200, "catalogo_generato": 1}
               and cfg["confini"] == STANDARD and cfg["budget"]["teorie_turno_2"] == 150)
         rovesciata = json.loads(json.dumps(cfg, sort_keys=True))
@@ -260,9 +260,10 @@ def esegui() -> int:
             "lati vuoti": {**cfg, "lati": []},
             "versione 3": {**cfg, "versione": 3},
             "versione 4": {**cfg, "versione": 4},
+            "versione 5": {**cfg, "versione": 5},
             "senza la rosa": {k: v for k, v in cfg.items() if k != "rosa"},
             "rosa senza orizzonti": {**cfg, "rosa": {**cfg["rosa"], "orizzonti_barre": []}},
-            "rosa con q 0": {**cfg, "rosa": {**cfg["rosa"], "q": 0}},
+            "rosa con il q del BH (tolto dal 22/11)": {**cfg, "rosa": {**cfg["rosa"], "q": 0.2}},
             "catalogo generato 2": {**cfg, "rosa": {**cfg["rosa"], "catalogo_generato": 2}},
             "filtri oltre 2": {**cfg, "modelli": [{"trigger": 1, "filtri": [0, 3], "uscite": 1}]},
             "processi 0": {**cfg, "processi": 0},
