@@ -63,17 +63,24 @@ def _senza_generati(cfg) -> dict:
     return {**cfg, "blocchi": {k: v for k, v in cfg["blocchi"].items() if k not in trigger_generati()}}
 
 
-def _rosa(blocchi, cache, lati, rimaste, regole=ROSA_STANDARD):
-    """docs/82 §14: la rosa di una moneta sola (rosa_lista), come la prepara ricerca.prepara."""
+def _basi_rosa(blocchi, cache, lati, regole=ROSA_STANDARD):
+    """docs/82 §14 e §15: basi (con i costi di BTC perp, come ricerca.prepara), segnali, orologio e settimana."""
     from engine.fabbrica.dati import orologio
+    from engine.exchange import commissioni, passo_prezzo
     from engine.fabbrica.rosa_lista import base_moneta
     from engine.simboli import pip_symbol
     from engine.stagionalita import barre_settimana
     oro = orologio({PERP: cache.df.index}, 15)[PERP]
     n = int(oro[-1]) + 1
-    basi = {PERP: base_moneta(cache.df, pip_symbol(PERP), regole["orizzonti_barre"], oro, n // 2)}
-    segnali = {PERP: gen.segnali_trigger(blocchi, cache, lati)}
-    return rosa_dei_trigger(blocchi, lati, rimaste, basi, segnali, regole, n, barre_settimana(cache.df.index), processi=1)
+    costi = commissioni(PERP)["taker"], passo_prezzo(PERP) / pip_symbol(PERP)
+    basi = {PERP: base_moneta(cache.df, pip_symbol(PERP), regole["orizzonti_barre"], oro, n // 2, *costi)}
+    return basi, {PERP: gen.segnali_trigger(blocchi, cache, lati)}, n, barre_settimana(cache.df.index)
+
+
+def _rosa(blocchi, cache, lati, rimaste, regole=ROSA_STANDARD):
+    """docs/82 §14 e §15: la rosa di una moneta sola (rosa_lista), al netto dei costi, come la prepara ricerca.prepara."""
+    basi, segnali, n, sett = _basi_rosa(blocchi, cache, lati, regole)
+    return rosa_dei_trigger(blocchi, lati, rimaste, basi, segnali, regole, n, sett, 1.96, processi=1)
 
 
 def _uguale_registro(a: dict, b: dict) -> bool:
@@ -240,36 +247,33 @@ def esegui() -> int:
     entrano, tab = _rosa(b_r, c_r, [1, -1], rim_r)
     dopo_r = stato_registro()
     righe_g = [r for r in tab if r["blocco"] == G]
-    check("R1. il vantaggio piantato nel generato arriva nella rosa, sul long, ai tre orizzonti; lo short della coppia "
-          "(lo stesso segnale, l'opposto) no", G in entrano[1] and G not in entrano[-1]
-          and {r["orizzonte"] for r in righe_g if r["lato"] == "long" and r["nella_rosa"]} == {4, 16, 32},
+    check("R1. il vantaggio piantato nel generato arriva nella rosa al netto dei costi, sul long, a 4 e 16 barre (a 32 il "
+          "vantaggio piantato è più piccolo del costo); lo short della coppia (lo stesso segnale, l'opposto, che paga anche "
+          "lui il costo) no", G in entrano[1] and G not in entrano[-1]
+          and {r["orizzonte"] for r in righe_g if r["lato"] == "long" and r["nella_rosa"]} == {4, 16},
           str(entrano))
     dentro = {(r["lato"], r["blocco"]) for r in tab if r["nella_rosa"]}
     check("R2. entra esattamente chi è nella rosa ad almeno un orizzonte, nell'ordine della config",
           all(entrano[lato] == [b.nome for b in b_r if (gen.NOME_LATO[lato], b.nome) in dentro] for lato in (1, -1)))
-    from engine.rosa import rosa_orizzonti_entry
-    from engine.simboli import pip_symbol
-    with gen._registro_isolato():
-        nomi = []
-        for lato in (1, -1):
-            for b in b_r:
-                if b.tipo == "trigger" and rim_r.get((b.nome, lato), (None,)):
-                    n = f"{b.nome}_{gen.NOME_LATO[lato]}"
-                    gen.reg.register_entry(n, direction=lato)(b.condizione(c_r, lato))
-                    nomi.append(n)
-        from engine.indicatori import atr_giornaliero_chiuso
-        diretta, _ = rosa_orizzonti_entry(piantato, [4, 16, 32], pip_symbol(PERP), nomi=nomi, fuso="UTC", unita="atr",
-                                          atr=atr_giornaliero_chiuso(piantato))
-    attesa = sorted((h, n, round(float(t), 9), bool(r)) for h, d in diretta.items()
-                    for n, t, r in zip(d["candidato"], d["t_netto"], d["nella_rosa"]))
-    avuta = sorted((r["orizzonte"], f"{r['blocco']}_{r['lato']}", round(r["t"], 9), r["nella_rosa"]) for r in tab)
-    check("R3. gli stessi numeri della rosa del Lab (in ATR, docs/82 §14.1) chiamata direttamente, ufficiali e generati "
-          "nella stessa chiamata (un solo Benjamini-Hochberg)", attesa == avuta and {r["blocco"] for r in tab} >= {"RSI_RIENTRO", G},
-          f"{len(avuta)} righe")
+    # docs/82 §15: la rosa del Lab al bit si collauda a costo zero e con il BH (test_fabbrica_monete R1); qui la rosa
+    # della fabbrica chiamata direttamente, con gli stessi costi
+    from engine.fabbrica.rosa_lista import misura_rosa
+    basi_d, segnali_d, n_d, sett_d = _basi_rosa(b_r, c_r, [1, -1])
+    da_d = {f"{b.nome}_{gen.NOME_LATO[lato]}": (gen._gruppo_segnale(b, lato), lato) for lato in (1, -1) for b in b_r
+            if b.tipo == "trigger" and lato in b.lati and gen.disponibile(b.nome, lato, rim_r)}
+    diretta = misura_rosa(basi_d, segnali_d, da_d, ROSA_STANDARD, n_d, sett_d, 1.96, 1)
+    attesa = sorted((h, n, round(float(t), 9), round(float(c), 12), bool(r)) for h, d in diretta.items()
+                    for n, t, c, r in zip(d["candidato"], d["t_netto"], d["costo_atr"], d["nella_rosa"]))
+    avuta = sorted((r["orizzonte"], f"{r['blocco']}_{r['lato']}", round(r["t"], 9), round(r["costo_atr"], 12),
+                    r["nella_rosa"]) for r in tab)
+    check("R3. gli stessi numeri della rosa della fabbrica chiamata direttamente (al netto dei costi, t netto ≥ 1,96), "
+          "ufficiali e generati nella stessa chiamata", attesa == avuta and {r["blocco"] for r in tab} >= {"RSI_RIENTRO", G}
+          and all(r["costo_atr"] > 0 for r in tab), f"{len(avuta)} righe")
     check("R4. sotto i 200 eventi un trigger non è misurato: niente righe, niente prove, non entra",
           not any(r["blocco"] == "E40" for r in tab) and "E40" not in entrano[1])
-    check("R5. una riga per trigger misurato e orizzonte, con eventi, scarto e t", len(tab) == len(attesa)
-          and all(set(r) == {"orizzonte", "lato", "blocco", "eventi", "scarto_atr", "t", "candidata", "nella_rosa"}
+    check("R5. una riga per trigger misurato e orizzonte, con eventi, scarto netto, costo e t netto", len(tab) == len(attesa)
+          and all(set(r) == {"orizzonte", "lato", "blocco", "eventi", "scarto_atr", "costo_atr", "t", "candidata",
+                             "nella_rosa"}
                   for r in tab))
     check("R6. il registro delle condizioni è identico prima e dopo la rosa", _uguale_registro(prima_r, dopo_r))
     solo_l, tab_l = _rosa(b_r, c_r, [1], rim_r)

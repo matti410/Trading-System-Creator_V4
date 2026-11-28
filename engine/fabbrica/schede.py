@@ -17,7 +17,8 @@ Le schede della fabbrica (docs/82 P10 e §6, lavoro L5a): un .json e un .md per 
   dei trade (schermata 8 del Lab) quando la cella 6 del notebook è stata eseguita per quella strategia.
 - C2 (docs/82 §11.8): «Da dove viene» dice il turno del passo 1 da cui viene la teoria (1 o 2).
 - Dal 20/11 (docs/82 §13): la sezione «La rosa dei trigger» dice quanti trigger sono stati misurati e quali sono
-  entrati nella ricerca; un trigger generato ha la sua regola in parole dalla ricetta (testo_generato).
+  entrati nella ricerca; un trigger generato ha la sua regola in parole dalla ricetta (testo_generato). Dal 22/11
+  (§15) dice che la rosa è al netto del costo di andata e ritorno e che decide il t netto di almeno 1,96.
 - In fondo al .md sempre la frase FRASE_FINALE (Mattia, 08/11).
 - Dal 20/11 (docs/82 §14, versione 2 della scheda): la strategia vale per la lista di monete della config; EV,
   drawdown e totale in ATR (decide l'ATR), i bp accanto; sotto il cammino la tabella per moneta (selezione e
@@ -656,8 +657,9 @@ def testo_md(sc: dict) -> str:
     rosa = sc.get("rosa_trigger")
     if rosa:
         entrano = list(dict.fromkeys((r["lato"], r["blocco"]) for r in rosa["entrano"]))
-        righe.append(f"- {_f(rosa['misurati'])} trigger misurati sul pezzo di ricerca ({_f(rosa['prove'])} prove nel "
-                     f"conto); {_f(len(entrano))} nella rosa, entrati nella ricerca.")
+        righe.append(f"- {_f(rosa['misurati'])} trigger misurati sul pezzo di ricerca, al netto del costo di andata e "
+                     f"ritorno ({_f(rosa['prove'])} prove nel conto); {_f(len(entrano))} nella rosa (t netto di almeno "
+                     "1,96 e scarto netto positivo nelle due metà), entrati nella ricerca.")
         righe += _tabella_md(rosa["entrano"], ["orizzonte", "lato", "blocco", "eventi", "t"])
     else:
         righe.append("Non registrata in questa scheda.")

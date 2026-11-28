@@ -39,6 +39,10 @@ sessione_da_strategia (docs/82 §2 e P9); le altre in L5a (08/11), una per cella
   ricerca: la 2 la rilegge (S2). EV in ATR nelle celle 4 e 5, sotto, chiusa, la tabella per moneta; niente P(EV<0).
   La 6 fa money management e stress test su tutte le monete insieme e la verifica moneta per moneta; «trade da
   vedere» = «ETH 3». Le celle 4–7 su una ricerca della versione 4 si fermano con «ricerca non trovata».
+- Dal 22/11 (docs/82 §15) la config è la versione 6: la rosa è al netto del costo di andata e ritorno e decide il test
+  individuale (t netto >= 1,96). La cella 1 dice il costo di ogni moneta e scrive già lei le prove della rosa nel conto
+  (S4); se nessun trigger entra, prima di fermarsi dice perché in una riga (S3): misurati, costi, il t netto più alto.
+  Le celle 4–7 su una ricerca della versione 5 si fermano con «ricerca non trovata».
 """
 from __future__ import annotations
 
@@ -223,6 +227,7 @@ class Configurazione:
     tenuti: dict = field(default_factory=dict)
     preparazione_s: float = 0.0
     barre: dict = field(default_factory=dict)        # {pezzo: {symbol: barre}} (docs/82 §14.5)
+    costo_rosa: dict = field(default_factory=dict)   # {symbol: {"atr", "bp"}}: il costo di un evento della rosa (§15)
 
 
 def stima_minuti(budget: int, barre_ricerca: int, processi: int) -> tuple[float, float]:
@@ -313,16 +318,17 @@ def configura(cartella_dati, exchange: str, mercato: str, monete: str, timeframe
     timeframe scelti (da M1 a D1, docs/82 §14), con i confini fino all'ultima mezzanotte UTC chiusa (config.
     confini_standard, 09/11: nello stesso giorno UTC, stessa ricerca; stesse date per tutte le monete, una moneta più
     giovane ha solo meno barre), controllata e bloccata con l'impronta. Poi la preparazione (valori degeneri e rosa dei
-    trigger), che si salva nella cartella della ricerca: la cella 2 la rilegge (S2).
+    trigger), che si salva nella cartella della ricerca: la cella 2 la rilegge (S2). Le prove della rosa vanno nel conto
+    già qui (S4, docs/82 §15), anche quando nessun trigger entra: allora la cella dice perché in una riga (S3) e si ferma.
     Si ferma solo se mancano i dati (o non coprono i tre pezzi) o se non resta un trigger o un'uscita; i blocchi tolti
     sul timeframe si elencano con il motivo. `monete` = «BTC, ETH, XRP, SOL, ADA» (vuoto = quella lista; «BTC» = una
     sola). `config` (scritta a mano, per i collaudi) prende il posto di quella standard e resta com'è, confini compresi.
     """
     from engine.fabbrica.blocchi import MINUTI_TIMEFRAME
-    from engine.fabbrica.config import (config_standard, confini_standard, controlla_config, controlla_tipi_rimasti,
-                                        impronta_config, salva_config, tetto_budget)
+    from engine.fabbrica.config import (cartella_asset, config_standard, confini_standard, controlla_config,
+                                        controlla_tipi_rimasti, impronta_config, salva_config, tetto_budget)
     from engine.fabbrica.dati import Confini, carica_pezzi
-    from engine.fabbrica.ricerca import prepara, scrivi_rosa
+    from engine.fabbrica.ricerca import NessunTrigger, prepara, scrivi_prove_rosa, scrivi_rosa
     from engine.fabbrica.schede import esclusi_dalla_config
     simboli = monete_da_testo(exchange, mercato, monete)
     if timeframe not in MINUTI_TIMEFRAME:
@@ -344,13 +350,19 @@ def configura(cartella_dati, exchange: str, mercato: str, monete: str, timeframe
     except (FileNotFoundError, ValueError) as e:
         raise ValueError(f"La cella si ferma: {e}") from e
     print("Preparazione: valori degeneri e rosa dei trigger, una moneta alla volta…", flush=True)
-    prep = prepara(config, pezzi, controlla=not standard)
+    try:
+        prep = prepara(config, pezzi, controlla=not standard)
+    except NessunTrigger as e:          # S3 e S4 (docs/82 §15): le prove nel conto, poi perché la cella si ferma
+        id_ricerca = salva_config(config, cartella_dati, data)
+        scrivi_prove_rosa(os.path.join(cartella_asset(cartella_dati, config["monete"], config["timeframe"]), id_ricerca),
+                          e.rosa)
+        _rosa_vuota(config, e.rosa, e.costo_rosa)
+        raise
     if standard:          # D6: il tetto del budget è il massimo sui blocchi tenuti, arrotondato in su ai 10.000
         config = controlla_config(config_standard(simboli, timeframe, processi=int(processi), confini=confini_std,
                                                   totale=tetto_budget(prep.budget_massimo)))
     nuova = not _gia_salvata(config, cartella_dati)
     id_ricerca = salva_config(config, cartella_dati, data)
-    from engine.fabbrica.config import cartella_asset
     scrivi_rosa(os.path.join(cartella_asset(cartella_dati, config["monete"], config["timeframe"]), id_ricerca),
                 config, pezzi, prep)
     barre = {"ricerca": pezzi.barre("ricerca"), "selezione": pezzi.barre("selezione")}
@@ -358,7 +370,7 @@ def configura(cartella_dati, exchange: str, mercato: str, monete: str, timeframe
     conf = Configurazione(str(cartella_dati), config, id_ricerca, nuova, confini.limiti(), len(prep.teorie),
                           prep.budget_massimo, stima_minuti(prep.budget_massimo, totale_ricerca, config["processi"]),
                           esclusi, totale_ricerca, prep.resoconto, list(prep.rosa), prep.turno_2_massimo,
-                          dict(prep.tenuti), prep.durata_s, barre)
+                          dict(prep.tenuti), prep.durata_s, barre, dict(prep.costo_rosa))
     lim = conf.limiti
     _titolo(f"{nome_monete(config['monete'])} · {config['timeframe']} · ricerca {id_ricerca} "
             f"({'nuova' if nuova else 'già esiste: riprende'})")
@@ -409,8 +421,39 @@ def _quanti(tenuti: list, tipo: str, per_nome: dict) -> int:
     return sum(1 for n in tenuti if per_nome[n].tipo == tipo)
 
 
+def _soglia_rosa(config: dict) -> float:
+    from engine.fabbrica.selezione import soglia_test
+    return soglia_test(config["test_individuale"]["alfa"])
+
+
+def _riga_costi(config: dict, costo_rosa: dict) -> str:
+    """(docs/82 §15) Il costo di andata e ritorno di ogni moneta, in ATR e in bp: «BTC 0,023 ATR (10 bp), …»."""
+    corte = {m: m.rsplit("_", 1)[1].removesuffix("USDT") for m in config["monete"]}
+    return ("Costo di andata e ritorno di un evento della rosa (commissione e spread; il funding no), già tolto: "
+            + ", ".join(f"{corte[m]} {_f(costo_rosa[m]['atr'], 3)} ATR ({_f(costo_rosa[m]['bp'], 0)} bp)"
+                        for m in config["monete"] if m in costo_rosa) + ".")
+
+
+def _rosa_vuota(config: dict, rosa: list, costo_rosa: dict) -> None:
+    """S3 (docs/82 §15): quando nessun trigger entra, prima dello stop una riga sola che dice perché."""
+    orizzonti = ", ".join(str(h) for h in config["rosa"]["orizzonti_barre"])
+    misurati = {(r["lato"], r["blocco"]) for r in rosa}
+    finiti = [r for r in rosa if r["t"] == r["t"]]
+    testo = (f"Rosa dei trigger ({orizzonti} barre), pezzo di ricerca, al netto dei costi: {_f(len(misurati))} misurati "
+             f"→ nella ricerca 0; {_f(len(rosa))} prove, scritte nel conto. ")
+    if costo_rosa:
+        testo += _riga_costi(config, costo_rosa) + " "
+    if finiti:
+        r = max(finiti, key=lambda x: x["t"])
+        testo += (f"Il t netto più alto è {_f(r['t'])} ({r['blocco']} {r['lato']}, {r['orizzonte']} barre): per entrare "
+                  f"serve almeno {_f(_soglia_rosa(config))}, con lo scarto netto positivo in tutte e due le metà.")
+    _nota(testo)
+    _avviso("Nessun trigger è nella rosa, né long né short: la cella si ferma (non resta un trigger).")
+
+
 def _rosa_dei_trigger(conf: Configurazione) -> None:
-    """Cella 1 (docs/82 §13.2): la rosa dei trigger in una riga, i lati senza trigger, i filtri, la tabella di chi entra."""
+    """Cella 1 (docs/82 §13.2 e §15): la rosa dei trigger in una riga, i costi, i lati senza trigger, i filtri, la
+    tabella di chi entra."""
     from engine.fabbrica.blocchi import blocchi_da_config, trigger_generati
     from engine.fabbrica.generatore import NOME_LATO
     per_nome = {b.nome: b for b in blocchi_da_config(conf.config)}
@@ -420,9 +463,12 @@ def _rosa_dei_trigger(conf: Configurazione) -> None:
     generati = sum(1 for n in entrano if n in trigger_generati())
     per_lato = " e ".join(f"{_quanti(tenuti[lato], 'trigger', per_nome)} {NOME_LATO[lato]}" for lato in tenuti)
     orizzonti = ", ".join(str(h) for h in conf.config["rosa"]["orizzonti_barre"])
-    _nota(f"Rosa dei trigger ({orizzonti} barre), pezzo di ricerca: {_f(len(misurati))} misurati → nella ricerca "
-          f"{per_lato} ({_f(len(entrano) - generati)} del catalogo, {_f(generati)} generati); {_f(len(rosa))} prove, che "
-          "la cella 2 scrive nel conto.")
+    _nota(f"Rosa dei trigger ({orizzonti} barre), pezzo di ricerca, al netto dei costi e con t netto di almeno "
+          f"{_f(_soglia_rosa(conf.config))}: {_f(len(misurati))} misurati → nella ricerca {per_lato} "
+          f"({_f(len(entrano) - generati)} del catalogo, {_f(generati)} generati); {_f(len(rosa))} prove, scritte nel "
+          "conto.")
+    if conf.costo_rosa:
+        _nota(_riga_costi(conf.config, conf.costo_rosa))
     for lato in tenuti:
         if not _quanti(tenuti[lato], "trigger", per_nome):
             altro = [NOME_LATO[x] for x in tenuti if x != lato]

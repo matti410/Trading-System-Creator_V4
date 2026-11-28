@@ -31,7 +31,7 @@ from engine.fabbrica.blocchi import LIMITE_LOGICO
 from engine.fabbrica.cassaforte import ESITO, INGRESSO
 from engine.fabbrica.config import cartella_asset, config_standard
 from engine.fabbrica.generatore import stato_registro
-from engine.fabbrica.ricerca import lancia
+from engine.fabbrica.ricerca import FASE_ROSA, NESSUN_TRIGGER, lancia
 
 warnings.simplefilter("ignore")
 matplotlib.use("Agg")
@@ -141,6 +141,7 @@ def esegui() -> int:
             _d1(radice)
             _dati_e_confini(radice)
             _c2(radice, r, conf)
+            _s3(radice)
     finally:
         registro.adesso = registro_adesso
         vf._scarica = scarica_vero
@@ -179,11 +180,15 @@ def _celle(radice):
               lambda: vf.configura(d, "BYBIT", "SPOT", "ETH", "M2")))
 
     conf = _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, cfg, DATA)
+    prove_cella_1 = _prove_rosa(d, conf.id_ricerca)
     conf2 = _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, cfg, "20270101")
     check("5. Configura: ricerca nuova, poi la stessa cella rieseguita (anche un altro giorno) dà la stessa ricerca",
           conf.nuova and not conf2.nuova and conf.id_ricerca == conf2.id_ricerca and conf.teorie > 0
           and conf.budget_massimo > 0 and 0 < conf.stima_minuti[0] <= conf.stima_minuti[1]
           and len(conf.esclusi) == 78 - 7)
+    check("5b. S4 (docs/82 §15): la cella 1 scrive già le prove della rosa nel conto, una per trigger misurato e "
+          "orizzonte; rieseguita non le scrive due volte", prove_cella_1 == len(conf.rosa) > 0
+          and _prove_rosa(d, conf.id_ricerca) == len(conf.rosa), f"{prove_cella_1} prove della rosa")
     senza_u = dict(cfg, blocchi={k: v for k, v in cfg["blocchi"].items() if k not in ("X0", "X3")})
     check("6. se non resta un'uscita la cella si ferma", errore(
         lambda: _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, senza_u, DATA), ValueError, "un'uscita"))
@@ -223,8 +228,9 @@ def _celle(radice):
           and riep["rosa_prove"] == len(conf.rosa) > 0)
     righe.clear()
     r2 = _zitto(vf.ricerca, conf)
-    check("9. rieseguita: riprende da dove era, nessuna prova in più, stesso imbuto",
-          r2.prove == r.prove and r2.imbuto == r.imbuto and not righe)
+    check("9. rieseguita: riprende da dove era, nessuna prova in più, stesso imbuto; le prove della rosa sono ancora "
+          "quelle della cella 1 (S4: la 2 non le riscrive)",
+          r2.prove == r.prove and r2.imbuto == r.imbuto and not righe and _prove_rosa(d, conf.id_ricerca) == len(conf.rosa))
     e_ref = lancia(cfg, os.path.join(radice, "senza_avanzamento"), verbose=False, data=DATA) if _copia(
         d, os.path.join(radice, "senza_avanzamento")) else None
     check("10. avanzamento non cambia la ricerca: la stessa senza avanzamento ha le stesse tabelle",
@@ -411,6 +417,14 @@ def _testi_lab() -> str:
     return buf.getvalue()
 
 
+def _prove_rosa(d, id_ricerca) -> int:
+    """Le righe della rosa (fase «rosa») nel file delle prove di una ricerca, su questa macchina."""
+    p = registro.FileProve(os.path.join(cartella_asset(d, [SPOT], "M15"), id_ricerca)).percorso
+    if not os.path.exists(p):
+        return 0
+    return int((pd.read_csv(p, dtype=str, keep_default_na=False)["fase"] == FASE_ROSA).sum())
+
+
 def _nessuna_ricerca(cartella) -> bool:
     base = cartella_asset(cartella, [SPOT], "M15")
     return not os.path.isdir(base) or not os.listdir(base)
@@ -434,9 +448,9 @@ def _d1(radice):
     sintetici.scrivi_storico(d, SPOT, "D1", _mercato(1440, confini, extra=5))
     cfg = config_standard([SPOT], "D1", seme=0, processi=1)
     cfg["confini"] = confini
-    # docs/82 §14 (20/11): in ATR, su queste 1.300 giornate sintetiche nessun trigger passa il controllo dei falsi
-    # positivi al 20%; il collaudo guarda i blocchi tolti, non la rosa: la rosa con q = 1
-    cfg["rosa"]["q"] = 1.0
+    # docs/82 §14 e §15: su queste 1.300 giornate sintetiche, al netto dei costi, nessun trigger arriva a t 1,96; il
+    # collaudo guarda i blocchi tolti, non la rosa: la soglia del test individuale a 0 (alfa 1)
+    cfg["test_individuale"]["alfa"] = 1.0
     conf = _zitto(vf.configura, d, "BYBIT", "SPOT", "ETH", "D1", 1, cfg, DATA)
     tolti = {e["blocco"]: e["tipo"] for e in conf.esclusi}
     check("26. D1 con la config standard: la cella elenca i 24 blocchi tolti con il motivo (F20 limite logico) e "
@@ -500,6 +514,7 @@ def _dati_e_confini(radice):
     # la config standard (con i trigger generati: su D1 la rosa ne fa entrare qualcuno) con i confini scritti a mano
     a_mano = dict(config_standard([SPOT], "D1", seme=0, processi=1), confini={"inizio": "2020-01-02 00:00", "ricerca_ore": 24 * 1200,
                                        "selezione_ore": 24 * 700, "cassaforte_ore": 24 * 400})
+    a_mano["test_individuale"]["alfa"] = 1.0       # §15: su questi dati, al netto, nessun trigger arriva a t 1,96
     vf._scarica = _con_exchange(_Exchange())
     conf_m, _t = _parlato(vf.configura, d1, "BYBIT", "SPOT", "ETH", "D1", 1, a_mano, DATA)
     check("30. una config scritta a mano resta com'è, confini compresi",
@@ -544,8 +559,11 @@ def _c2(radice, r, conf):
     n_long = len([n for n in conf.tenuti[1] if n in ("DONCHIAN", "RSI_RIENTRO")])
     check("33. la cella 1 mostra la rosa dei trigger in una riga (misurati, nella ricerca per lato, prove), i filtri, la "
           "tabella di chi entra, le teorie dei due turni, le prove massime e la stima in minuti",
-          f"Rosa dei trigger (4, 16, 32 barre), pezzo di ricerca: {misurati} misurati → nella ricerca {n_long} long "
-          f"({n_long} del catalogo, 0 generati); {len(conf.rosa)} prove, che la cella 2 scrive nel conto." in testo
+          f"Rosa dei trigger (4, 16, 32 barre), pezzo di ricerca, al netto dei costi e con t netto di almeno 1,96: "
+          f"{misurati} misurati → nella ricerca {n_long} long ({n_long} del catalogo, 0 generati); {len(conf.rosa)} "
+          "prove, scritte nel conto." in testo
+          and "Costo di andata e ritorno di un evento della rosa (commissione e spread; il funding no), già tolto: ETH "
+          in testo
           and "Filtri: tutti quelli che sul pezzo di ricerca scattano come serve, " in testo
           and f"I trigger nella ricerca ({n_long})" in testo
           and f"Turno 1: {conf.teorie} teorie; turno 2: al massimo" in testo and "minut" in testo
@@ -560,7 +578,7 @@ def _c2(radice, r, conf):
     r1 = dataclasses.replace(r, cartella=vecchia, id_ricerca="20261109_versione1")
     # docs/82 §12, D4 = A (15/11) e §13 (20/11): anche le ricerche delle versioni 2 e 3 si fermano
     vecchie = [r1]
-    for v in (2, 3, 4):
+    for v in (2, 3, 4, 5):
         cartella_v = os.path.join(cartella_asset(d, [SPOT], "M15"), f"2026111{v}_versione{v}")
         os.makedirs(cartella_v)
         with open(os.path.join(cartella_v, "config.json"), "w", encoding="utf-8") as f:
@@ -569,18 +587,19 @@ def _c2(radice, r, conf):
     cfg_v2 = dict(cfg_v1, versione=2)
     ferme = [errore(lambda f=f, rr=rr: _zitto(f, rr, *a), ValueError, vf.VERSIONE_VECCHIA) for rr in vecchie
              for f, a in ((vf.strategie_rimaste, ()), (vf.cassaforte, ("1",)), (vf.mm_e_stress, (1,)), (vf.schede, ()))]
-    check("34. una ricerca della versione da 1 a 4 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una "
+    check("34. una ricerca della versione da 1 a 5 aperta dalle celle 4–7 si ferma con «ricerca non trovata: è una "
           "ricerca di una versione precedente della fabbrica, rilancia la cella 2 per una ricerca nuova» (D4 = A, §13, "
-          "§14)", all(ferme) and len(ferme) == 16
+          "§14, §15)", all(ferme) and len(ferme) == 20
           and vf.VERSIONE_VECCHIA == "ricerca non trovata: è una ricerca di una versione precedente della fabbrica, "
                                      "rilancia la cella 2 per una ricerca nuova", str(ferme))
     from engine.fabbrica.config import controlla_config
-    check("35. le config dalla versione 1 alla 4 non si rilanciano: la ricerca ha una strada sola, la versione 5 (§14)",
+    check("35. le config dalla versione 1 alla 5 non si rilanciano: la ricerca ha una strada sola, la versione 6 (§15)",
           errore(lambda: controlla_config(cfg_v1), ValueError, "versione 1")
           and errore(lambda: controlla_config(cfg_v2), ValueError, "versione 2")
           and errore(lambda: controlla_config(dict(cfg_v1, versione=3)), ValueError, "versione 3")
           and errore(lambda: controlla_config(dict(cfg_v1, versione=4)), ValueError, "versione 4")
-          and controlla_config(dict(cfg_v1, versione=5)) is not None)
+          and errore(lambda: controlla_config(dict(cfg_v1, versione=5)), ValueError, "versione 5")
+          and controlla_config(dict(cfg_v1, versione=6)) is not None)
 
     print("\n1 · Configura: un symbol con i dati che partono dopo il 02/01/2020 (14/11, scelta B)")
     tardi = os.path.join(radice, "H4_tardi")
@@ -606,6 +625,47 @@ def _c2(radice, r, conf):
     check("37. dati dal 02/01/2020: la cella scrive «Inizio della ricerca: 02/01/2020 00:00 UTC, lo stesso per tutte le "
           "monete.» e nient'altro", "Inizio della ricerca: 02/01/2020 00:00 UTC, lo stesso per tutte le monete.\n"
           in testo_d1 and "la prima mezzanotte" not in testo_d1)
+
+
+def _s3(radice):
+    print("\n§15: quando nessun trigger entra (S3) e le prove della rosa nel conto alla cella 1 (S4)")
+    d = os.path.join(radice, "S3")
+    # una passeggiata casuale (sintetici.mercato ha regimi di tendenza, che i breakout prendono anche al netto)
+    n = len(_mercato())
+    rng = np.random.default_rng(3)
+    c = np.round(2_000.0 * np.exp(np.cumsum(rng.normal(0.0, 0.002, n))), 2)
+    o = np.r_[c[0], c[:-1]]
+    sintetici.scrivi_storico(d, SPOT, "M15", pd.DataFrame(
+        {"Open": o, "High": np.round(np.maximum(o, c) * (1 + np.abs(rng.normal(0, 0.001, n))), 2),
+         "Low": np.round(np.minimum(o, c) * (1 - np.abs(rng.normal(0, 0.001, n))), 2), "Close": c,
+         "Volume": np.round(rng.lognormal(7.0, 0.5, n), 2)},
+        index=pd.date_range("2024-01-01", periods=n, freq="15min", tz="UTC")))
+    cfg = _cfg()
+    cfg["test_individuale"]["alfa"] = 1e-12            # e la soglia a 7,13, per non dipendere dal caso
+    fermata, testo = _parlato(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, cfg, DATA)
+    base = cartella_asset(d, [SPOT], "M15")
+    from engine.fabbrica.config import impronta_config
+    cartelle = [c for c in os.listdir(base) if c.endswith("_" + impronta_config(cfg)[:12])]
+    prove = _prove_rosa(d, cartelle[0]) if len(cartelle) == 1 else -1
+    check("39. S3: nessun trigger nella rosa: prima dello stop una riga dice quanti sono misurati (nella ricerca 0), le "
+          "prove scritte nel conto, il costo di andata e ritorno e il t netto più alto con la soglia; poi la cella si ferma "
+          "con il messaggio di sempre", isinstance(fermata, ValueError) and str(fermata) == NESSUN_TRIGGER
+          and "→ nella ricerca 0; " in testo and "prove, scritte nel conto." in testo
+          and "Costo di andata e ritorno di un evento della rosa" in testo and "Il t netto più alto è " in testo
+          and "per entrare serve almeno " in testo and "la cella si ferma (non resta un trigger)" in testo,
+          testo[testo.find("Rosa"):][:400])
+    misurati = testo[testo.find("al netto dei costi: ") + 20:].split(" misurati")[0] if "al netto dei costi: " in testo else ""
+    fermata2, _ = _parlato(vf.configura, d, "BYBIT", "SPOT", "ETH", "M15", 1, cfg, DATA)
+    check("40. S4: anche quando la cella si ferma le prove della rosa sono nel conto (una per trigger misurato e "
+          "orizzonte), una volta sola: rieseguita non ne aggiunge", prove > 0 and misurati and isinstance(fermata2, ValueError)
+          and _prove_rosa(d, cartelle[0]) == prove, f"{prove} prove, {misurati} trigger misurati")
+    e = None
+    try:
+        e = lancia(cfg, d, verbose=False, data=DATA)
+    except ValueError as x:
+        e = x
+    check("41. S4 anche dalla cella 2 (lancia) sulla stessa config: si ferma con lo stesso messaggio, nessuna prova in "
+          "più", isinstance(e, ValueError) and str(e) == NESSUN_TRIGGER and _prove_rosa(d, cartelle[0]) == prove)
 
 
 if __name__ == "__main__":

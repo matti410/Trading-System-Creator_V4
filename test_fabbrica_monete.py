@@ -19,6 +19,12 @@ I collaudi di §14.7:
 - per ogni moneta i trade del valutatore = MotoreVeloce.run con i suoi costi e il suo funding; una strategia = una riga
   nel conto; un blocco degenere su una moneta esce per tutte; nessuna barra di cassaforte letta prima della cella 5; la
   cella 2 con la rosa salvata = la rosa rifatta; fermata e ripresa = corsa unica; la cella 6 su due monete.
+
+Dal 22/11 (docs/82 §15) la rosa è al netto del costo di andata e ritorno e decide il test individuale (t netto >= 1,96):
+- con costo zero e il BH di prima la rosa nuova = la rosa del Lab (quella di prima), al bit;
+- un costo costante noto c: scarto netto = lordo − c, sul long e sullo short (pagano entrambi il costo); a costo zero lo
+  short è il long col segno cambiato; la serie giornaliera di rho = quella di pandas, al bit;
+- la soglia 1,96 al posto del BH su un caso costruito; due copie della stessa moneta = stesso scarto netto e stesso t.
 """
 from __future__ import annotations
 
@@ -50,13 +56,14 @@ from engine.fabbrica.dati import Confini, carica_pezzi, imposta_mercato_crypto, 
 from engine.fabbrica.generatore import (ControlloDegenerazione, ControlloLista, Teoria, _registro_isolato,
                                         segnali_trigger, togli_degeneri)
 from engine.fabbrica.ricerca import FILE_ROSA, lancia, prepara
-from engine.fabbrica.rosa_lista import base_moneta, misura_rosa
+from engine.fabbrica import rosa_lista
+from engine.fabbrica.rosa_lista import base_moneta, misura_rosa, misura_trigger, scegli_rosa, serie_giornaliera
 from engine.fabbrica.valutatore import (Costi, Strategia, Valutatore, ValutatoreLista, misure_lista, t_sovrapposti,
                                         trade_completi)
 from engine.giudizio import t_stat
 from engine.indicatori import aggiungi_indicatori, atr_giornaliero_chiuso
 from engine.metriche import bp_per_trade
-from engine.rosa import rosa_orizzonti_entry
+from engine.rosa import _p_una_coda, benjamini_hochberg, rosa_orizzonti_entry
 from engine.stagionalita import barre_settimana
 
 warnings.simplefilter("ignore")
@@ -65,7 +72,9 @@ matplotlib.use("Agg")
 BTC, ETH, SOL = "BINANCE_PERP_BTCUSDT", "BINANCE_PERP_ETHUSDT", "BINANCE_PERP_SOLUSDT"
 DATA = "20260101"
 CONFINI = {"inizio": "2024-01-01 00:00", "ricerca_ore": 4000, "selezione_ore": 1000, "cassaforte_ore": 500}
-REGOLE = {"orizzonti_barre": [4, 16, 32], "q": 0.2, "soglia_famiglia": 0.6, "rho_max": 0.3, "min_eventi": 200}
+REGOLE = {"orizzonti_barre": [4, 16, 32], "soglia_famiglia": 0.6, "rho_max": 0.3, "min_eventi": 200}
+SOGLIA = 1.96                          # la soglia del test individuale (selezione.soglia_test(0.05))
+COSTI = (0.0005, 0.1)                  # commissione taker per lato e passo di prezzo (in pips, pip = 1): BTC perp
 COLONNE_ROSA = ["candidato", "direction", "eventi", "scarto_atr", "t_netto", "p", "bh", "due_meta", "candidata",
                 "famiglia", "nella_rosa", "rho_max", "perche", "incertezza_blocchi"]
 ESITI: list = []
@@ -87,12 +96,13 @@ def _leggi(p):
 
 
 # ------------------------------------------------------------------ la rosa su una lista fatta a mano
-def _rosa_lista(dfs: dict, blocchi, lati=(1, -1), regole=REGOLE):
-    """La rosa di rosa_lista su {nome: df con gli indicatori}, con i blocchi dati, come la prepara ricerca.prepara."""
+def _lista(dfs: dict, blocchi, lati=(1, -1), regole=REGOLE, costi=(0.0, 0.0)):
+    """basi, segnali, trigger da misurare, orologio e settimana di una lista {nome: df con gli indicatori}, come li
+    prepara ricerca.prepara; `costi` = (commissione, passo in pips) di ogni moneta."""
     caches = {m: Cache(df, 2000) for m, df in dfs.items()}
     oro = orologio({m: df.index for m, df in dfs.items()}, 15)
     n_or = int(max(int(o[-1]) for o in oro.values())) + 1
-    basi = {m: base_moneta(df, 1.0, regole["orizzonti_barre"], oro[m], n_or // 2) for m, df in dfs.items()}
+    basi = {m: base_moneta(df, 1.0, regole["orizzonti_barre"], oro[m], n_or // 2, *costi) for m, df in dfs.items()}
     segnali = {m: segnali_trigger(blocchi, caches[m], list(lati)) for m in dfs}
     da = {}
     from engine.fabbrica.generatore import _gruppo_segnale
@@ -100,7 +110,23 @@ def _rosa_lista(dfs: dict, blocchi, lati=(1, -1), regole=REGOLE):
         for b in blocchi:
             if b.tipo == "trigger" and lato in b.lati:
                 da[f"{b.nome}_{'long' if lato == 1 else 'short'}"] = (_gruppo_segnale(b, lato), lato)
-    return misura_rosa(basi, segnali, da, regole, n_or, barre_settimana(next(iter(dfs.values())).index), 1)
+    return basi, segnali, da, n_or, barre_settimana(next(iter(dfs.values())).index)
+
+
+def _rosa_lista(dfs: dict, blocchi, lati=(1, -1), regole=REGOLE, costi=(0.0, 0.0)):
+    """La rosa di rosa_lista (al netto di `costi`, t netto >= 1,96) su {nome: df con gli indicatori}."""
+    basi, segnali, da, n_or, sett = _lista(dfs, blocchi, lati, regole, costi)
+    return misura_rosa(basi, segnali, da, regole, n_or, sett, SOGLIA, 1)
+
+
+def _rosa_con_bh(dfs: dict, blocchi, lati=(1, -1), regole=REGOLE, costi=(0.0, 0.0)):
+    """La rosa di prima: le stesse misure, e al posto della soglia il BH al 20% su tutti i misurati (scegli_rosa)."""
+    basi, segnali, da, n_or, sett = _lista(dfs, blocchi, lati, regole, costi)
+    out = {}
+    for H, (t, serie) in misura_trigger(basi, segnali, da, regole, n_or, sett, 1).items():
+        t = t.assign(p=[_p_una_coda(x) for x in t["t_netto"]])
+        out[H] = scegli_rosa(t, serie, benjamini_hochberg(t["p"].to_numpy(), 0.2), basi, segnali, da, regole)
+    return out
 
 
 def _riga(rose, H, nome):
@@ -141,9 +167,9 @@ def collaudi_rosa():
     blocchi = blocchi_da_config(cfg)
     grezzo = sintetici.mercato_con_generato(G, n=26_000, seme=1)
     a = aggiungi_indicatori(grezzo)
-    # 1. una moneta = la rosa del Lab, al bit
+    # 1. una moneta, costo zero e il BH di prima = la rosa del Lab, al bit
     t0 = time.perf_counter()
-    nuova = _rosa_lista({BTC: a}, blocchi)
+    nuova = _rosa_con_bh({BTC: a}, blocchi)
     cache = Cache(a, 2000)
     nomi, cond = [], {}
     for lato in (1, -1):
@@ -160,29 +186,33 @@ def collaudi_rosa():
                                       atr=atr_giornaliero_chiuso(a), processi=1)
     uguali = all(lab[H][COLONNE_ROSA].reset_index(drop=True).equals(nuova[H][COLONNE_ROSA].reset_index(drop=True))
                  for H in (4, 16, 32))
-    check("R1. una moneta: la rosa della lista è la rosa del Lab (unità ATR), al bit, ai tre orizzonti, colonna per colonna",
-          uguali and sum(len(lab[H]) for H in lab) > 100, f"{sum(len(lab[H]) for H in lab)} righe, "
-                                                          f"{time.perf_counter() - t0:.0f} s")
-    # 2. due copie della stessa moneta = lo stesso scarto e lo stesso t
-    doppia = _rosa_lista({BTC: a, "copia": a.copy()}, blocchi)
+    check("R1. una moneta, costo zero e il BH di prima al posto della soglia: la rosa nuova è la rosa del Lab (unità "
+          "ATR), cioè quella di prima, al bit, ai tre orizzonti, colonna per colonna (anche chi entra)",
+          uguali and sum(len(lab[H]) for H in lab) > 100 and any(lab[H]["nella_rosa"].any() for H in lab),
+          f"{sum(len(lab[H]) for H in lab)} righe, {time.perf_counter() - t0:.0f} s")
+    # 2. due copie della stessa moneta = lo stesso scarto netto e lo stesso t, con i costi
+    una_c = _rosa_lista({BTC: a}, blocchi, costi=COSTI)
+    doppia = _rosa_lista({BTC: a, "copia": a.copy()}, blocchi, costi=COSTI)
     diff, eventi = 0.0, True
     for H in (4, 16, 32):                 # i trigger misurati con una moneta (con due copie ne passano di più i 200)
-        una, due = nuova[H].set_index("candidato"), doppia[H].set_index("candidato")
+        una, due = una_c[H].set_index("candidato"), doppia[H].set_index("candidato")
         due = due.loc[una.index]
         diff = max(diff, float(np.nanmax(np.abs(una[["scarto_atr", "t_netto"]].to_numpy()
                                                 - due[["scarto_atr", "t_netto"]].to_numpy()))))
         eventi &= bool((due["eventi"] == 2 * una["eventi"]).all())
-    check("R2. due copie della stessa moneta: gli eventi raddoppiano, scarto e t restano quelli di una sola (due eventi "
-          "sulla stessa barra contano per intero)", diff < 1e-9 and eventi, f"differenza massima {diff:.1e}")
-    # 3. prezzi × 10 = gli stessi numeri in ATR
+    check("R2. due copie della stessa moneta, con i costi: gli eventi raddoppiano, scarto netto e t restano quelli di una "
+          "sola (due eventi sulla stessa barra contano per intero)", diff < 1e-9 and eventi,
+          f"differenza massima {diff:.1e}")
+    # 3. prezzi × 10 = gli stessi numeri in ATR (con la commissione, che è in proporzione al prezzo; il passo no)
     dieci = grezzo.copy()
     dieci[["Open", "High", "Low", "Close"]] *= 10.0
     donchian = [x for x in blocchi if x.nome == "DONCHIAN"]
-    per_dieci = _rosa_lista({BTC: aggiungi_indicatori(dieci)}, donchian)
-    base = _rosa_lista({BTC: a}, donchian)
-    d10 = max(float(np.nanmax(np.abs(per_dieci[H][["scarto_atr", "t_netto"]].to_numpy()
-                                     - base[H][["scarto_atr", "t_netto"]].to_numpy()))) for H in (4, 16, 32))
-    check("R3. prezzi × 10: gli stessi numeri in ATR (scarto e t)", d10 < 1e-9, f"differenza massima {d10:.1e}")
+    per_dieci = _rosa_lista({BTC: aggiungi_indicatori(dieci)}, donchian, costi=(COSTI[0], 0.0))
+    base = _rosa_lista({BTC: a}, donchian, costi=(COSTI[0], 0.0))
+    d10 = max(float(np.nanmax(np.abs(per_dieci[H][["scarto_atr", "costo_atr", "t_netto"]].to_numpy()
+                                     - base[H][["scarto_atr", "costo_atr", "t_netto"]].to_numpy()))) for H in (4, 16, 32))
+    check("R3. prezzi × 10, con la commissione: gli stessi numeri in ATR (scarto netto, costo e t)", d10 < 1e-9,
+          f"differenza massima {d10:.1e}")
     # 4. due monete indipendenti con lo stesso vantaggio piantato: t circa 1,4 volte
     b = aggiungi_indicatori(sintetici.mercato_con_generato(G, n=26_000, seme=7))
     piantato = [x for x in blocchi if x.nome == G]
@@ -202,6 +232,89 @@ def collaudi_rosa():
     check("R5. una moneta più giovane nella lista: i suoi eventi si sommano a quelli dell'altra, nessun errore",
           int(_riga(gio, 16, f"{G}_long")["eventi"]) < int(_riga(insieme, 16, f"{G}_long")["eventi"])
           and int(_riga(gio, 16, f"{G}_long")["eventi"]) > int(_riga(solo_a, 16, f"{G}_long")["eventi"]))
+    # 6. un costo costante noto: scarto netto = lordo − c, long e short; a costo zero lo short è il long al contrario
+    basi, segnali, da, n_or, sett = _lista({BTC: a}, blocchi)
+    zero = misura_trigger(basi, segnali, da, REGOLE, n_or, sett, 1)
+    c = 0.0123
+    for h in basi[BTC]["H"].values():
+        h["k"] = np.full(basi[BTC]["n"], c)
+    costante = misura_trigger(basi, segnali, da, REGOLE, n_or, sett, 1)
+    scarti, costi_ok, opposti, piu_bassi, lati = 0.0, True, True, True, set()
+    for H in (4, 16, 32):
+        z, k = zero[H][0].set_index("candidato"), costante[H][0].set_index("candidato")
+        for nome in z.index:
+            if not nome.endswith("_short") or nome.replace("_short", "_long") not in z.index:
+                continue
+            lungo = nome.replace("_short", "_long")
+            if da[nome][0] != da[lungo][0]:                     # solo i generati: la stessa maschera sui due lati
+                continue
+            lordo = float(z.loc[lungo, "scarto_atr"])
+            scarti = max(scarti, abs(float(k.loc[lungo, "scarto_atr"]) - (lordo - c)),
+                         abs(float(k.loc[nome, "scarto_atr"]) - (-lordo - c)))
+            costi_ok &= (abs(float(k.loc[lungo, "costo_atr"]) - c) < 1e-15
+                         and abs(float(k.loc[nome, "costo_atr"]) - c) < 1e-15)
+            opposti &= (float(z.loc[nome, "scarto_atr"]) == -lordo
+                        and float(z.loc[nome, "t_netto"]) == -float(z.loc[lungo, "t_netto"]))
+            piu_bassi &= float(k.loc[lungo, "t_netto"]) < float(z.loc[lungo, "t_netto"]) and float(
+                k.loc[nome, "t_netto"]) < float(z.loc[nome, "t_netto"])
+            lati.add(H)
+    check("R6. un costo costante noto c = 0,0123 ATR: lo scarto netto è il lordo − c sul long e sullo short (pagano "
+          "entrambi il costo), il costo medio è c, il t netto scende su tutti e due i lati",
+          scarti < 1e-12 and costi_ok and piu_bassi and lati == {4, 16, 32}, f"scarto massimo dall'atteso {scarti:.1e}")
+    check("R7. a costo zero lo short di un generato è il long col segno cambiato (scarto e t), al bit", opposti)
+    # 8. la serie giornaliera di rho = quella di pandas (groupby().sum()), al bit
+    rng = np.random.default_rng(3)
+    giorni = np.sort(rng.integers(19_000, 19_400, 5_000))
+    giorni = np.concatenate([giorni, np.sort(rng.integers(19_100, 19_500, 3_000))])      # due monete in fila
+    valori = rng.normal(0, 0.05, giorni.size) * rng.choice([1.0, 1e-6, 1e6], giorni.size)
+    s_nostra = serie_giornaliera(giorni, valori)
+    s_pandas = pd.Series(valori, index=giorni).groupby(level=0).sum()
+    check("R8. la serie giornaliera di rho (somma per giorno, numba) è quella di pandas groupby().sum(), al bit",
+          s_nostra.equals(s_pandas) and s_nostra.index.equals(s_pandas.index), f"{len(s_nostra)} giorni")
+
+
+def collaudi_soglia():
+    print("\nLa soglia del test individuale al posto del BH (docs/82 §15, Mattia 22/11): un caso costruito")
+    rng = np.random.default_rng(11)
+    k, blocco = 300, 40
+    nomi = [f"T{i}" for i in range(k)]
+    t = rng.normal(0.0, 1.0, k)
+    t[:5] = [2.10, 1.90, 2.50, 3.00, 1.96]                 # T3 non regge nelle due metà
+    due_meta = np.ones(k, dtype=bool)
+    due_meta[3] = False
+    tabella = pd.DataFrame({"candidato": nomi, "direction": 1, "eventi": 500, "scarto_atr": t * 0.01,
+                            "costo_atr": 0.02, "t_netto": t, "due_meta": due_meta, "incertezza_blocchi": False},
+                           columns=rosa_lista.MISURA)
+    serie = {n: pd.Series(rng.normal(size=400), index=np.arange(400)) for n in nomi}       # indipendenti
+    n = k * blocco
+    segnali = {"X": {}}
+    for i, nome in enumerate(nomi):                          # ogni trigger sulle sue barre: famiglie diverse
+        m = np.zeros(n, dtype=bool)
+        m[i * blocco: i * blocco + blocco // 2] = True
+        segnali["X"][nome] = np.packbits(m)
+    basi = {"X": {"n": n}}
+    da = {nome: (nome, 1) for nome in nomi}
+    vera = rosa_lista.misura_trigger
+    rosa_lista.misura_trigger = lambda *a, **kw: {16: (tabella, serie)}
+    try:
+        rose = misura_rosa(basi, segnali, da, REGOLE, n, 96, SOGLIA)
+    finally:
+        rosa_lista.misura_trigger = vera
+    r = rose[16].set_index("candidato").loc[nomi]
+    attese = (t >= SOGLIA) & due_meta
+    bh = benjamini_hochberg(np.array([_p_una_coda(x) for x in t]), 0.2)
+    check("S1. entra chi ha t netto ≥ 1,96 e le due metà: le candidate sono esattamente quelle, e tutte nella rosa "
+          "(famiglie e rho diversi); T0 (t 2,10) e T4 (t 1,96) entrano, T1 (1,90) no, T3 (3,00 ma non regge in una metà) "
+          "no", np.array_equal(r["candidata"].to_numpy(dtype=bool), attese)
+          and np.array_equal(r["nella_rosa"].to_numpy(dtype=bool), attese)
+          and bool(r.loc["T0", "nella_rosa"]) and bool(r.loc["T4", "nella_rosa"]) and not r.loc["T1", "nella_rosa"]
+          and not r.loc["T3", "nella_rosa"], f"{int(attese.sum())} nella rosa")
+    check("S2. con il BH di prima (20% su 300 misurati) T0 e T4 sarebbero rimasti fuori: la regola è cambiata",
+          not bh[0] and not bh[4] and int(bh.sum()) < int(attese.sum()), f"BH: {int(bh.sum())}")
+    check("S3. chi resta fuori dice perché: «t netto sotto 1,96» o «non positiva al netto in una delle due metà»",
+          r.loc["T1", "perche"] == "t netto sotto 1,96"
+          and r.loc["T3", "perche"] == "non positiva al netto in una delle due metà"
+          and "p" not in rose[16].columns and "bh" not in rose[16].columns)
 
 
 def collaudi_valutatore():
@@ -354,7 +467,6 @@ def _cfg(processi=1):
     cfg["blocchi"] = {k: v for k, v in cfg["blocchi"].items()
                       if k in ("E47", "E5", "DONCHIAN", "RSI_RIENTRO", "F3_VOLUME_ABOVE_AVG", "ADX", "X0")}
     cfg["rosa"]["min_eventi"] = 60
-    cfg["rosa"]["q"] = 1.0
     cfg["qualita_1"]["trade_min"] = 30
     cfg["budget"].update({"per_teoria_passo_1": 6, "teorie_turno_2": 2, "teorie_passo_2": 3, "giri_zoom": 2,
                           "prove_per_giro": 10, "totale": 100_000})
@@ -393,11 +505,13 @@ def collaudi_ricerca():
               and letta.rimaste == rifatta.rimaste and letta.tolte == json.loads(registro.json_riga(rifatta.tolte))
               and letta.tenuti == rifatta.tenuti and [t.id for t in letta.teorie] == [t.id for t in rifatta.teorie]
               and letta.budget_massimo == rifatta.budget_massimo, f"{len(rifatta.rosa)} righe della rosa")
-        a = lancia(cfg, R, ferma_dopo=3, verbose=False, data=DATA)
-        b = lancia(cfg, R, ferma_dopo=5, verbose=False, data=DATA)
+        a = lancia(cfg, R, ferma_dopo=2, verbose=False, data=DATA)      # §15: al netto 4 + 3 teorie in tutto
+        b = lancia(cfg, R, ferma_dopo=2, verbose=False, data=DATA)
         c = lancia(cfg, R, verbose=False, data=DATA)
         check("L4. fermata e ripresa = corsa unica, bit per bit (rosa salvata, turni, zoom, selezione, prove)",
-              not a.finita and not b.finita and c.finita and _file(c) == _file(e))
+              not a.finita and not b.finita and c.finita and _file(c) == _file(e),
+              f"finite {a.finita}, {b.finita}, {c.finita}; file diversi "
+              f"{sorted(n for n in set(_file(c)) | set(_file(e)) if _file(c).get(n) != _file(e).get(n))}")
         tre = lancia(_cfg(processi=3), P, verbose=False, data=DATA)
         f3, f1 = _file(tre), _file(e)
         diversi = sorted(n for n in set(f3) | set(f1) if f3.get(n) != f1.get(n))
@@ -451,6 +565,7 @@ def esegui() -> int:
     t0 = time.perf_counter()
     collaudi_orologio()
     collaudi_rosa()
+    collaudi_soglia()
     collaudi_valutatore()
     collaudi_mm()
     collaudi_ricerca()

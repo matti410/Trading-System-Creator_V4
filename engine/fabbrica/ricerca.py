@@ -13,9 +13,14 @@ Avvio (prepara, docs/82 §13 e §14). Sul solo pezzo di ricerca di ogni moneta d
 valori degeneri e «STATO» (generatore.togli_degeneri: una combinazione degenere su una moneta esce per tutte), i segnali
 compressi dei trigger e i contributi di ogni barra; poi la rosa su tutta la lista (generatore.rosa_dei_trigger, con
 rosa_lista.py): entra chi è nella rosa ad almeno un orizzonte; tutti i filtri rimasti; teorie del turno 1, budget
-massimo. Ogni trigger misurato, per ogni orizzonte, è una prova (fase «rosa»), scritta da lancia una volta sola.
+massimo. Dal 22/11 (§15) la rosa è al netto del costo di andata e ritorno di ogni moneta (i costi del pezzo di ricerca,
+gli stessi del valutatore) e decide il test individuale (t netto >= selezione.soglia_test, 1,96). Ogni trigger
+misurato, per ogni orizzonte, è una prova (fase «rosa»).
 S2 (§14.8): la rosa e i valori degeneri si salvano nella cartella della ricerca (FILE_ROSA, con le impronte della
-config e dei dati): la cella 1 li calcola e li salva, la cella 2 li rilegge invece di rifarli.
+config e dei dati): la cella 1 li calcola e li salva, la cella 2 li rilegge invece di rifarli. S4 (§15, 22/11): le
+prove della rosa le scrive scrivi_rosa, cioè già la cella 1, una volta sola (la cella 2 le ritrova); se nessun trigger
+entra, prepara si ferma con NessunTrigger, che porta la rosa misurata, e chi la chiama scrive le prove prima di
+fermarsi (scrivi_prove_rosa).
 
 Passo 1 (P4). Sul solo pezzo di ricerca, una teoria alla volta, al massimo `per_teoria_passo_1` prove sui valori larghi:
 griglia completa se i punti ammessi ci stanno, altrimenti il genetico tarato in ampiezza (AMPIEZZA). L'obiettivo è il t
@@ -99,6 +104,18 @@ NESSUN_TRIGGER = ("nessun trigger è nella rosa, né long né short, sul pezzo d
                   "(non resta un trigger).")
 FILE_SELEZIONE = "selezione.json"
 FILE_ROSA = "rosa.json"                        # S2 (docs/82 §14.8): la rosa e i valori degeneri, salvati dalla cella 1
+
+
+class NessunTrigger(ValueError):
+    """
+    (docs/82 §15, S3 e S4) Nessun trigger nella rosa, né long né short: il messaggio di sempre (NESSUN_TRIGGER), più la
+    rosa misurata (una riga per trigger e orizzonte) e il costo medio di ogni moneta, per la riga della cella 1 e per
+    scrivere le prove nel conto prima di fermarsi.
+    """
+
+    def __init__(self, rosa: list, costo_rosa: dict):
+        super().__init__(NESSUN_TRIGGER)
+        self.rosa, self.costo_rosa = rosa, costo_rosa
 
 
 def _arrotonda(x: float) -> int:
@@ -589,7 +606,8 @@ class Preparazione:
     prova. `dfs` e `costi` = {symbol: …} (il pezzo di ricerca di ogni moneta, con gli indicatori). `tenuti` = {lato: i
     trigger nella rosa e i filtri rimasti}; `rosa` = una riga per trigger misurato e orizzonte; `teorie` = quelle del
     turno 1; `turno_2_massimo` = le teorie del turno 2 al massimo; `rosa_letta` = True se rosa e valori degeneri vengono
-    dal file salvato dalla cella 1 (S2).
+    dal file salvato dalla cella 1 (S2). `costo_rosa` = {symbol: {"atr", "bp"}}: il costo medio di andata e ritorno di un
+    evento della rosa (§15), vuoto se la rosa è riletta.
     """
     config: dict
     dfs: dict
@@ -607,6 +625,7 @@ class Preparazione:
     rosa: list = field(default_factory=list)
     turno_2_massimo: int = 0
     rosa_letta: bool = False
+    costo_rosa: dict = field(default_factory=dict)
 
     def per_processi(self) -> tuple:
         return (self.config, self.dfs, self.costi, self.rimaste, self.lavoro.controllo.stato())
@@ -626,8 +645,16 @@ def _impronta_rosa(config: dict, pezzi) -> dict:
             "impronte_ricerca": {m: pezzi[m].impronte["ricerca"] for m in config["monete"]}}
 
 
+def scrivi_prove_rosa(cartella_ricerca: str, rosa: list[dict]) -> int:
+    """S4 (docs/82 §15): le prove della rosa nel conto della ricerca, una per trigger misurato e orizzonte; quelle già
+    scritte si saltano (mai due volte). Ritorna quante sono nuove."""
+    return registro.FileProve(cartella_ricerca).aggiungi(righe_prove_rosa(os.path.basename(cartella_ricerca), rosa))
+
+
 def scrivi_rosa(cartella_ricerca: str, config: dict, pezzi, prep: "Preparazione") -> str:
-    """S2: la rosa e i valori degeneri nella cartella della ricerca, con le impronte (config e dati). Non sovrascrive."""
+    """S2: la rosa e i valori degeneri nella cartella della ricerca, con le impronte (config e dati). Non sovrascrive.
+    S4: scrive anche le prove della rosa nel conto (scrivi_prove_rosa), una volta sola."""
+    scrivi_prove_rosa(cartella_ricerca, prep.rosa)
     percorso = os.path.join(cartella_ricerca, FILE_ROSA)
     if os.path.exists(percorso):
         return percorso
@@ -660,9 +687,10 @@ def leggi_rosa(cartella_ricerca: str | None, config: dict, pezzi):
 
 def prepara(config: dict, pezzi, controlla: bool = True, cartella_ricerca: str | None = None) -> Preparazione:
     """
-    Sul solo pezzo di ricerca di ogni moneta: valori degeneri e «STATO», la rosa dei trigger (docs/82 §13 e §14), poi
-    le teorie del turno 1 e il budget massimo. Si ferma se nessun trigger è nella rosa su nessun lato. `controlla`=False
-    (cella 1, config standard): il massimo non si confronta con il totale, perché il totale (il tetto, D6) si calcola
+    Sul solo pezzo di ricerca di ogni moneta: valori degeneri e «STATO», la rosa dei trigger (docs/82 §13, §14 e §15:
+    al netto dei costi del pezzo di ricerca, t netto >= la soglia del test individuale), poi le teorie del turno 1 e il
+    budget massimo. Si ferma con NessunTrigger (la rosa misurata in mano) se nessun trigger è nella rosa su nessun lato.
+    `controlla`=False (cella 1, config standard): il massimo non si confronta con il totale, perché il totale (il tetto, D6) si calcola
     da questo massimo. `cartella_ricerca` (S2): se lì c'è la rosa salvata dalla cella 1 con le stesse impronte, si
     rilegge invece di rifarla. La preparazione va una moneta alla volta e tiene solo i segnali compressi e i
     contributi di ogni barra (§14.7).
@@ -676,7 +704,9 @@ def prepara(config: dict, pezzi, controlla: bool = True, cartella_ricerca: str |
     blocchi = blocchi_da_config(config)
     lati = lati_config(config)
     controllo = ControlloLista({m: ControlloDegenerazione(caches[m]) for m in monete})
+    costi = {m: pezzi[m].costi(PEZZO) for m in monete}
     salvata = leggi_rosa(cartella_ricerca, config, pezzi)
+    costo_rosa = {}
     if salvata is not None:
         rimaste, tolte, entrano, rosa = salvata
     else:
@@ -689,13 +719,15 @@ def prepara(config: dict, pezzi, controlla: bool = True, cartella_ricerca: str |
         for m in monete:                       # una moneta alla volta (§14.7)
             controllo.controlli[m].esiti(richieste)
             segnali[m] = segnali_trigger(blocchi, caches[m], lati)
-            basi[m] = base_moneta(dfs[m], pip_symbol(m), config["rosa"]["orizzonti_barre"], oro[m], n_orologio // 2)
+            basi[m] = base_moneta(dfs[m], pip_symbol(m), config["rosa"]["orizzonti_barre"], oro[m], n_orologio // 2,
+                                  costi[m]["commission"], costi[m].get("spread_passo_pips") or 0.0)
+            costo_rosa[m] = basi[m]["costo_medio"]
         rimaste, tolte = togli_degeneri(blocchi, caches, lati, controllo)
         entrano, rosa = rosa_dei_trigger(blocchi, lati, rimaste, basi, segnali, config["rosa"], n_orologio, settimana,
-                                         config["processi"])
+                                         sel_mod.soglia_test(config["test_individuale"]["alfa"]), config["processi"])
         del basi, segnali
     if not any(entrano.values()):
-        raise ValueError(NESSUN_TRIGGER)
+        raise NessunTrigger(rosa, costo_rosa)
     filtri = filtri_rimasti(blocchi, lati, rimaste)
     tenuti = {lato: entrano[lato] + filtri[lato] for lato in lati}
     teorie = teorie_turno_1(config, blocchi, tenuti)
@@ -706,11 +738,10 @@ def prepara(config: dict, pezzi, controlla: bool = True, cartella_ricerca: str |
     teorie_tf = sum(1 for t in teorie if len(t.filtri) == 1)
     filtri_max = max(sum(1 for n in tenuti[lato] if per_nome[n].tipo == "filtro") for lato in lati)
     massimo = (controlla_budget if controlla else budget_massimo)(len(teorie), config, teorie_tf, filtri_max)
-    costi = {m: pezzi[m].costi(PEZZO) for m in monete}
     lavoro = _Lavoro(config, dfs, costi, rimaste, caches=caches, controllo=controllo)
     return Preparazione(config, dfs, costi, blocchi, lati, rimaste, tolte, teorie, resoconto, massimo, lavoro,
                         time.perf_counter() - t0, tenuti, rosa, massimo_turno_2(config, teorie_tf, filtri_max),
-                        salvata is not None)
+                        salvata is not None, costo_rosa)
 
 
 # ------------------------------------------------------------------ i file della ricerca
@@ -858,11 +889,14 @@ def lancia(config: dict, cartella_dati, *, ferma_dopo: int | None = None, verbos
     base = cartella_asset(cartella_dati, monete, timeframe)
     cartella = os.path.join(base, id_ricerca)
     pezzi = carica_pezzi(monete, timeframe, Confini.da_config(config["confini"]), cartella_dati)
-    prep = prepara(config, pezzi, cartella_ricerca=cartella)
-    scrivi_rosa(cartella, config, pezzi, prep)
+    try:
+        prep = prepara(config, pezzi, cartella_ricerca=cartella)
+    except NessunTrigger as e:              # S4 (docs/82 §15): i trigger misurati entrano nel conto anche così
+        scrivi_prove_rosa(cartella, e.rosa)
+        raise
+    scrivi_rosa(cartella, config, pezzi, prep)     # S4: anche le prove della rosa, già scritte dalla cella 1 (mai due)
     _registra_avvio(base, _evento_avvio(id_ricerca, config, pezzi, prep))
     prove = registro.FileProve(cartella)
-    prove.aggiungi(righe_prove_rosa(id_ricerca, prep.rosa))      # a una ripresa sono già scritte: non si contano due volte
     per_id = {t.id: t for t in prep.teorie}
     tempi = {"preparazione_s": prep.durata_s, "rosa_letta": prep.rosa_letta}
     fatte_ora = [0]                  # teorie finite in questa chiamata, turni e passo 2
